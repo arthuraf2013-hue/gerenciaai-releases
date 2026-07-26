@@ -565,6 +565,22 @@ excluído (não conta) e filtro de categoria/busca antes de integrar.
    botão de exportar pra planilha e um lembrete de usar o Abastecimento
    quando a mercadoria chegar.
 
+## Controle de quantidade e barras de rolagem customizados
+
+Dois ajustes visuais pedidos: as setinhas nativas do campo de
+quantidade (do navegador, destoando do resto do app) e as barras de
+rolagem (padrão do Chromium, também destoando).
+
+- **Quantidade**: trocado o `<input type="number">` (com as setas
+  padrão do navegador) por um controle próprio — campo de texto +
+  dois botões pequenos (▲/▼ desenhados em SVG) no estilo do app,
+  ficando teal ao passar o mouse. Só aceita dígito (bloqueia qualquer
+  outro caractere na digitação).
+- **Barras de rolagem**: estilizadas globalmente (`::-webkit-scrollbar`,
+  suportado no Chromium/Electron) — discretas, cor que se adapta ao
+  tema claro/escuro automaticamente (usa `color-mix` com as variáveis
+  do tema, igual às outras correções de modo escuro já feitas).
+
 ## Bug crítico no workflow: app publicado sem conteúdo (tela em branco)
 
 Achado em uso real: uma versão publicada pelo GitHub Actions instalou e

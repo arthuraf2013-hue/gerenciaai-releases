@@ -286,13 +286,22 @@ export function POSScreen() {
       </header>
 
       <div className="pos-search-row">
-        <input
-          type="number" min="1" step="1"
-          className="pos-qty-input"
-          value={pendingQty}
-          onChange={(e) => setPendingQty(e.target.value)}
-          title="Quantidade do próximo item — digite antes de escanear ou buscar pra adicionar várias unidades de uma vez"
-        />
+        <div className="qty-stepper" title="Quantidade do próximo item — digite antes de escanear ou buscar pra adicionar várias unidades de uma vez">
+          <input
+            type="text" inputMode="numeric"
+            className="qty-stepper-input"
+            value={pendingQty}
+            onChange={(e) => { if (/^\d*$/.test(e.target.value)) setPendingQty(e.target.value); }}
+          />
+          <div className="qty-stepper-buttons">
+            <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
+              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+            <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
+              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
+        </div>
         <ProductSearchBox onSelect={addProductToCart} />
         <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
           Anexar receita / arquivo
