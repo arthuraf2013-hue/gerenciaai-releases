@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 
 export function CustomerList() {
@@ -12,9 +12,13 @@ export function CustomerList() {
   const [pagamentoValor, setPagamentoValor] = useState('');
   const [saveError, setSaveError] = useState('');
   const [soQuemDeve, setSoQuemDeve] = useState(false);
+  const queryRef = useRef(query);
+  useEffect(() => { queryRef.current = query; }, [query]);
 
   async function reload() {
-    const list = await window.pdv.customers.list({ query: query || undefined });
+    const queryDestaBusca = query;
+    const list = await window.pdv.customers.list({ query: queryDestaBusca || undefined });
+    if (queryDestaBusca !== queryRef.current) return; // busca já mudou — descarta resposta atrasada
     setCustomers(Array.isArray(list) ? list : []);
   }
 

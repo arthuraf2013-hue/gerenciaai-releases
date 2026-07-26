@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ProductThumbnail } from './ProductThumbnail';
 
 /**
@@ -9,6 +9,7 @@ export function CategoryProductBrowser({ onSelectProduct }) {
   const [activeCategory, setActiveCategory] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const activeCategoryRef = useRef(activeCategory);
 
   // As categorias vêm direto do que já está cadastrado nos produtos —
   // cadastrar um produto com categoria nova já faz o botão aparecer aqui,
@@ -22,13 +23,19 @@ export function CategoryProductBrowser({ onSelectProduct }) {
 
   async function handleCategoryClick(categoria) {
     if (activeCategory === categoria) {
+      activeCategoryRef.current = null;
       setActiveCategory(null);
       setProducts([]);
       return;
     }
+    activeCategoryRef.current = categoria;
     setActiveCategory(categoria);
     setLoadingProducts(true);
     const list = await window.pdv.products.list({ categoria });
+    // Clicar rápido entre categorias pode fazer a resposta de uma
+    // categoria anterior chegar depois da mais recente — sem conferir,
+    // os produtos errados apareciam sob a categoria certa selecionada.
+    if (categoria !== activeCategoryRef.current) return;
     setProducts(Array.isArray(list) ? list : []);
     setLoadingProducts(false);
   }

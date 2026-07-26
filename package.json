@@ -36,28 +36,17 @@
   "build": {
     "appId": "com.arthur.gerenciaai",
     "productName": "GerenciaAI",
-    "files": [
-      "dist/**",
-      "electron/**"
-    ],
+    "files": ["dist/**", "electron/**"],
     "icon": "build/icon.png",
-    "directories": {
-      "output": "release"
-    },
+    "directories": { "output": "release" },
     "publish": {
       "provider": "github",
       "owner": "arthuraf2013-hue",
       "repo": "gerenciaai-releases",
       "releaseType": "release"
     },
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "build/icon.png"
-    },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "linux": { "target": "AppImage", "icon": "build/icon.png" },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

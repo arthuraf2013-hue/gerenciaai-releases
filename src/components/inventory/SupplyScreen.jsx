@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductForm } from './ProductForm';
 
@@ -8,6 +8,7 @@ function ProductPicker({ value, onChange }) {
   const [query, setQuery] = useState(value?.nome || '');
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
+  const queryRef = useRef(query);
 
   // Sincroniza o texto mostrado quando o produto da linha é definido de
   // fora (ex: acabou de ser cadastrado por "Cadastrar novo produto") —
@@ -18,9 +19,11 @@ function ProductPicker({ value, onChange }) {
 
   async function handleChange(v) {
     setQuery(v);
+    queryRef.current = v;
     onChange(null); // desfaz o match enquanto o usuário digita de novo
     if (v.trim().length < 2) { setResults([]); setOpen(false); return; }
     const list = await window.pdv.products.list({ query: v });
+    if (v !== queryRef.current) return; // busca já mudou — descarta resposta atrasada
     setResults(Array.isArray(list) ? list.slice(0, 6) : []);
     setOpen(true);
   }

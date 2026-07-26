@@ -565,6 +565,56 @@ excluído (não conta) e filtro de categoria/busca antes de integrar.
    botão de exportar pra planilha e um lembrete de usar o Abastecimento
    quando a mercadoria chegar.
 
+## Auditoria geral: o mesmo bug de busca em mais 3 lugares
+
+Depois de corrigir a condição de corrida na busca de Produtos, procurei
+o mesmo padrão em todo o app — e achei em mais três lugares que também
+disparam uma busca a cada letra digitada, sem conferir se a resposta
+ainda corresponde ao texto atual:
+
+- **Busca principal do PDV** (`ProductSearchBox.jsx`) — o mais sério dos
+  três, porque é dali que se escolhe o que entra numa venda de verdade.
+  Digitar rápido podia mostrar produto errado no resultado.
+- **Clientes** (`CustomerList.jsx`) — mesmo risco na busca por
+  nome/telefone/CPF.
+- **Categorias no PDV** (`CategoryProductBrowser.jsx`) — clicar rápido
+  entre categorias diferentes podia mostrar os produtos de uma categoria
+  errada sob a categoria certa selecionada.
+- **Casar produto no Abastecimento** (`ProductPicker` dentro de
+  `SupplyScreen.jsx`) — mesmo risco ao tentar casar uma linha da nota
+  com um produto do sistema.
+
+Todos os quatro corrigidos com a mesma técnica: uma referência sempre
+atualizada do texto/categoria atual, conferida antes de aplicar
+qualquer resposta assíncrona na tela — mesmo princípio já validado na
+correção da tela de Produtos.
+
+**Revisado e não corrigido de propósito**: a busca de vendas na tela de
+Devolução só dispara ao clicar no botão "Buscar" (não a cada letra),
+então o risco de condição de corrida é bem menor — não recebeu a mesma
+correção porque o padrão de uso ali é fundamentalmente diferente.
+
+## Busca de produtos ainda mostrando tudo (correção mais profunda)
+
+A correção anterior (contador de busca mais recente) não cobria um
+caso específico: o observador de **rolagem infinita** disparava
+`loadMore()` usando o tamanho da lista **de antes** da busca mudar como
+offset — e como esse observador era recriado a cada letra digitada
+(estava nas dependências do efeito), ele podia disparar de novo
+imediatamente se o marcador já estivesse visível na tela, misturando
+resultado do catálogo cheio com o resultado da busca nova.
+
+**Correção mais robusta**: em vez de um contador, cada resposta agora
+compara direto contra o **texto de busca atual de verdade** (guardado
+numa referência sempre atualizada, não um valor capturado no fechamento
+da função) antes de aplicar na tela — mais direto e à prova de qualquer
+ordem de chegada, não só a mais comum. O observador de rolagem também
+passou a ser criado **uma única vez** (não mais recriado a cada letra),
+lendo o estado mais atual por referência em vez de fechamentos antigos.
+Testado simulando o cenário exato: rolagem infinita disparada com a
+busca vazia, buscar por algo específico logo em seguida, e confirmar
+que o resultado do catálogo cheio nunca contamina a lista final.
+
 ## Controle de quantidade e barras de rolagem customizados
 
 Dois ajustes visuais pedidos: as setinhas nativas do campo de

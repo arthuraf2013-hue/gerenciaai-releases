@@ -20,24 +20,32 @@ export function ProductList() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef(null);
-  const reloadTokenRef = useRef(0);
+
+  // Referências sempre atualizadas do estado atual — usadas pra
+  // confirmar, depois de qualquer resposta assíncrona, que ela ainda
+  // corresponde à busca/lista de agora antes de aplicar na tela.
+  // Confiar só num contador de "requisição mais recente" não pegava um
+  // caso específico: o observador de rolagem infinita disparando com um
+  // offset calculado antes da busca mudar. Comparando direto contra o
+  // texto de busca atual (não um contador) fecha esse buraco.
+  const queryRef = useRef(query);
+  const productsRef = useRef(products);
+  const hasMoreRef = useRef(hasMore);
+  const loadingMoreRef = useRef(loadingMore);
+  useEffect(() => { queryRef.current = query; }, [query]);
+  useEffect(() => { productsRef.current = products; }, [products]);
+  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
+  useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
 
   // Carrega o primeiro lote (ou refaz do zero quando a busca muda) — o
   // resto vem por rolagem infinita em loadMore(), pra nunca precisar
   // trazer o catálogo inteiro de uma vez e travar a tela.
   async function reload() {
-    // Cada letra digitada dispara uma nova busca; a resposta de uma
-    // busca mais antiga pode chegar DEPOIS da mais nova (a rede/IPC não
-    // garante ordem de chegada). Sem isso, uma resposta atrasada de uma
-    // busca anterior sobrescrevia a lista certa com uma errada — mesmo
-    // a busca sendo iniciada nessa ordem, a mais lenta "vencia" por
-    // chegar por último e aplicar seu resultado desatualizado.
-    const meuToken = ++reloadTokenRef.current;
     const queryDestaBusca = query;
 
     setHasMore(true);
     const list = await window.pdv.products.list({ query: queryDestaBusca || undefined, limit: PAGE_SIZE, offset: 0 });
-    if (meuToken !== reloadTokenRef.current) return; // já tem busca mais nova em andamento — descarta esta resposta atrasada
+    if (queryDestaBusca !== queryRef.current) return; // o texto de busca já mudou — descarta esta resposta atrasada
 
     if (!Array.isArray(list)) {
       setProducts([]);
@@ -50,11 +58,11 @@ export function ProductList() {
     setHasMore(list.length === PAGE_SIZE);
 
     window.pdv.products.count({ query: queryDestaBusca || undefined }).then((total) => {
-      if (meuToken === reloadTokenRef.current) setTotalProdutos(total);
+      if (queryDestaBusca === queryRef.current) setTotalProdutos(total);
     });
 
     const estoque = await window.pdv.stock.getForLocation({ locationId: window.APP_LOCATION_ID });
-    if (meuToken !== reloadTokenRef.current) return;
+    if (queryDestaBusca !== queryRef.current) return;
     if (Array.isArray(estoque)) {
       const mapa = {};
       estoque.forEach((e) => { mapa[e.id] = e.estoque_atual; });
@@ -63,12 +71,13 @@ export function ProductList() {
   }
 
   async function loadMore() {
-    if (loadingMore || !hasMore) return;
-    const meuToken = reloadTokenRef.current;
+    if (loadingMoreRef.current || !hasMoreRef.current) return;
+    const queryDestaBusca = queryRef.current;
+    const offsetDestaBusca = productsRef.current.length;
     setLoadingMore(true);
-    const list = await window.pdv.products.list({ query: query || undefined, limit: PAGE_SIZE, offset: products.length });
+    const list = await window.pdv.products.list({ query: queryDestaBusca || undefined, limit: PAGE_SIZE, offset: offsetDestaBusca });
     setLoadingMore(false);
-    if (meuToken !== reloadTokenRef.current) return; // a busca mudou enquanto isso carregava — descarta
+    if (queryDestaBusca !== queryRef.current) return; // a busca mudou enquanto isso carregava — descarta
     if (!Array.isArray(list)) return;
     setProducts((prev) => [...prev, ...list]);
     setHasMore(list.length === PAGE_SIZE);
@@ -78,6 +87,9 @@ export function ProductList() {
 
   // Observa um marcador invisível logo depois da tabela — quando ele
   // entra na área visível da rolagem, carrega o próximo lote sozinho.
+  // Criado só uma vez (não recriado a cada letra digitada) — o próprio
+  // loadMore() lê o estado mais atual pelas referências acima, então não
+  // precisa recriar o observador pra "atualizar" o que ele enxerga.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
@@ -89,7 +101,7 @@ export function ProductList() {
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [products.length, hasMore, loadingMore, query]);
+  }, []);
 
   async function handleExport() {
     setIoBusy(true);
