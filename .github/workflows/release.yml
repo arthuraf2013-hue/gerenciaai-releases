@@ -1,0 +1,41 @@
+name: Build e publicar release
+
+# Roda sozinho sempre que uma tag no formato v* for enviada ao repositório
+# (ex: v0.4.0). Não roda em push comum na branch — só quando uma tag de
+# versão é criada de propósito, pra não publicar release a cada commit.
+on:
+  push:
+    tags:
+      - "v*"
+
+# Necessário pra o job poder criar a release no próprio repositório.
+permissions:
+  contents: write
+
+jobs:
+  build-e-publicar:
+    # NSIS (o instalador do Windows) precisa ser construído numa máquina
+    # Windows — o better-sqlite3 também compila o binário nativo certo
+    # pra essa plataforma aqui.
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Build e publicar no GitHub Releases
+        run: npx electron-builder --publish always
+        env:
+          # Token automático do próprio GitHub Actions — não precisa do
+          # seu token pessoal (GH_TOKEN) pra esse fluxo automatizado.
+          # Só continua precisando dele se você publicar manualmente da
+          # sua máquina, como fazia antes.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

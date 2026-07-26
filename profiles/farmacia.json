@@ -1,0 +1,14 @@
+{
+  "id": "farmacia",
+  "nome": "Farmácia",
+  "camposExtras": [
+    { "campo": "lote", "label": "Lote", "tipo": "texto", "obrigatorio": true },
+    { "campo": "validade", "label": "Validade", "tipo": "data", "obrigatorio": true },
+    { "campo": "principio_ativo", "label": "Princípio ativo", "tipo": "texto", "obrigatorio": false },
+    { "campo": "controlado", "label": "Medicamento controlado", "tipo": "boolean", "obrigatorio": false },
+    { "campo": "exige_receita", "label": "Exige receita médica", "tipo": "boolean", "obrigatorio": false }
+  ],
+  "regrasAlerta": ["estoque_baixo", "validade_proxima"],
+  "regrasVenda": ["bloquear_venda_se_receita_ausente_e_controlado"],
+  "diasAlertaValidade": 60
+}

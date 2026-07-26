@@ -1,0 +1,210 @@
+const fs = require('fs');
+const path = require('path');
+const { app } = require('electron');
+const { randomUUID } = require('crypto');
+const { getDb } = require('../db/database');
+
+function fotosDir() {
+  const dir = path.join(app.getPath('userData'), 'fotos-produtos');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function inferMime(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/jpeg';
+}
+
+/** Copia a foto escolhida pelo usuário para a pasta de dados do app e associa ao produto. */
+function setFoto(productId, sourceFilePath) {
+  const db = getDb();
+  const ext = path.extname(sourceFilePath).toLowerCase();
+  if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+    return { ok: false, error: 'Formato não suportado. Envie PNG, JPG ou WEBP.' };
+  }
+
+  const destPath = path.join(fotosDir(), `${productId}${ext}`);
+  fs.copyFileSync(sourceFilePath, destPath);
+  db.prepare('UPDATE products SET foto_path = ? WHERE id = ?').run(destPath, productId);
+
+  return { ok: true };
+}
+
+function removeFoto(productId) {
+  const db = getDb();
+  const product = db.prepare('SELECT foto_path FROM products WHERE id = ?').get(productId);
+  if (product?.foto_path) fs.unlink(product.foto_path, () => {});
+  db.prepare('UPDATE products SET foto_path = NULL WHERE id = ?').run(productId);
+  return { ok: true };
+}
+
+/** Lê a foto do disco e devolve como data URL — evita depender de file:// no renderer. */
+function getFotoDataUrl(productId) {
+  const db = getDb();
+  const product = db.prepare('SELECT foto_path FROM products WHERE id = ?').get(productId);
+  if (!product?.foto_path || !fs.existsSync(product.foto_path)) return null;
+
+  const buffer = fs.readFileSync(product.foto_path);
+  const mime = inferMime(product.foto_path);
+  return `data:${mime};base64,${buffer.toString('base64')}`;
+}
+
+function findByBarcode(codigoBarras) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM products WHERE codigo_barras = ? AND ativo = 1').get(codigoBarras);
+}
+
+function findBySku(sku) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM products WHERE sku = ? AND ativo = 1').get(sku);
+}
+
+function list({ query, categoria, limit, offset } = {}) {
+  const db = getDb();
+  const params = [];
+  let sql = 'SELECT * FROM products WHERE ativo = 1';
+
+  if (categoria) {
+    sql += ' AND categoria = ?';
+    params.push(categoria);
+  } else if (query) {
+    sql += ' AND (nome LIKE ? OR sku LIKE ? OR codigo_barras LIKE ?)';
+    params.push(`%${query}%`, `%${query}%`, `%${query}%`);
+  }
+
+  sql += ' ORDER BY nome';
+
+  // limit/offset são opcionais — sem eles, o comportamento é exatamente
+  // o de antes (usado pela busca do PDV e pela grade de categorias, que
+  // já retornam conjuntos pequenos por natureza). A tela de Produtos é
+  // quem usa isso pra carregar por rolagem, evitando travar com um
+  // catálogo grande.
+  if (limit) {
+    sql += ' LIMIT ?';
+    params.push(limit);
+    if (offset) {
+      sql += ' OFFSET ?';
+      params.push(offset);
+    }
+  }
+
+  return db.prepare(sql).all(...params);
+}
+
+/** Categorias distintas já cadastradas — a base dos botões no PDV. Novas
+ * categorias aparecem sozinhas assim que um produto usar esse nome. */
+function listCategories() {
+  const db = getDb();
+  return db.prepare(
+    `SELECT categoria, COUNT(*) as total FROM products
+     WHERE ativo = 1 AND categoria IS NOT NULL AND TRIM(categoria) != ''
+     GROUP BY categoria ORDER BY categoria`
+  ).all();
+}
+
+/** Total de produtos ativos que batem com o mesmo filtro do list — usado
+ * pra mostrar "X produtos no total" na tela, já que a rolagem infinita
+ * nunca carrega o catálogo inteiro de uma vez só. */
+function count({ query, categoria } = {}) {
+  const db = getDb();
+  const params = [];
+  let sql = 'SELECT COUNT(*) as total FROM products WHERE ativo = 1';
+
+  if (categoria) {
+    sql += ' AND categoria = ?';
+    params.push(categoria);
+  } else if (query) {
+    sql += ' AND (nome LIKE ? OR sku LIKE ? OR codigo_barras LIKE ?)';
+    params.push(`%${query}%`, `%${query}%`, `%${query}%`);
+  }
+
+  return db.prepare(sql).get(...params).total;
+}
+
+function upsert(product) {
+  if (!product.nome?.trim()) return { ok: false, error: 'Informe o nome do produto.' };
+  if (Number.isNaN(Number(product.preco)) || Number(product.preco) < 0) {
+    return { ok: false, error: 'Preço inválido.' };
+  }
+  if (product.custo !== undefined && (Number.isNaN(Number(product.custo)) || Number(product.custo) < 0)) {
+    return { ok: false, error: 'Custo inválido.' };
+  }
+  if (product.estoqueMinimo !== undefined && (Number.isNaN(Number(product.estoqueMinimo)) || Number(product.estoqueMinimo) < 0)) {
+    return { ok: false, error: 'Estoque mínimo inválido.' };
+  }
+
+  const db = getDb();
+  const id = product.id || randomUUID();
+  const customFields = JSON.stringify(product.customFields || {});
+
+  db.prepare(
+    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields)
+     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields)
+     ON CONFLICT(id) DO UPDATE SET
+       sku=excluded.sku, codigo_barras=excluded.codigo_barras, nome=excluded.nome,
+       categoria=excluded.categoria, preco=excluded.preco, custo=excluded.custo,
+       unidade=excluded.unidade, estoque_minimo=excluded.estoque_minimo,
+       ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
+       cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria,
+       custom_fields=excluded.custom_fields`
+  ).run({
+    id,
+    sku: product.sku || null,
+    codigoBarras: product.codigoBarras || null,
+    nome: product.nome.trim(),
+    categoria: product.categoria || null,
+    preco: Number(product.preco) || 0,
+    custo: Number(product.custo) || 0,
+    unidade: product.unidade || 'un',
+    estoqueMinimo: Number(product.estoqueMinimo) || 0,
+    ncm: product.ncm || null,
+    cest: product.cest || null,
+    cfop: product.cfop || null,
+    cstCsosn: product.cstCsosn || null,
+    origemMercadoria: product.origemMercadoria || '0',
+    customFields,
+  });
+
+  return { ok: true, id };
+}
+
+/**
+ * Exclusão lógica — mesmo padrão de clientes/fornecedores/usuários. Nunca
+ * apaga a linha de verdade, porque vendas/movimentos de estoque antigos
+ * ainda referenciam esse produto (apagar de verdade quebraria o
+ * histórico). O produto só some das buscas, categorias e listagens
+ * (`ativo = 1` é filtrado em todo lugar).
+ */
+function deactivate(productId) {
+  const db = getDb();
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+  if (!product) return { ok: false, error: 'Produto não encontrado.' };
+
+  const estoqueAtual = db.prepare(
+    `SELECT COALESCE(SUM(quantidade), 0) as total FROM stock_movements WHERE product_id = ?`
+  ).get(productId).total;
+
+  db.prepare('UPDATE products SET ativo = 0 WHERE id = ?').run(productId);
+  return { ok: true, estoqueRestante: estoqueAtual };
+}
+
+/**
+ * Gera um código de barras interno pra produtos sem código de fábrica
+ * (fracionados, genéricos da própria loja, etc.) — derivado do próprio
+ * id do produto, então já nasce único, sem precisar checar colisão com
+ * outro produto.
+ */
+function generateInternalBarcode(productId) {
+  const db = getDb();
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(productId);
+  if (!product) return { ok: false, error: 'Produto não encontrado.' };
+  if (product.codigo_barras) return { ok: false, error: 'Este produto já tem um código de barras.' };
+
+  const codigo = 'INT' + productId.replace(/-/g, '').slice(0, 10).toUpperCase();
+  db.prepare('UPDATE products SET codigo_barras = ? WHERE id = ?').run(codigo, productId);
+  return { ok: true, codigoBarras: codigo };
+}
+
+module.exports = { findByBarcode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode };

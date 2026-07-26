@@ -1,0 +1,58 @@
+{
+  "name": "gerenciaai",
+  "version": "0.3.1",
+  "description": "GerenciaAI — gerenciamento de estoque com PDV, perfil inicial para farmácias, automações e espaço reservado para funcionalidades de IA",
+  "author": "Arthur",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "build:electron": "npm run build && electron-builder --publish never",
+    "test": "node --test tests/",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "bcryptjs": "^2.4.3",
+    "xlsx": "^0.18.5",
+    "qrcode": "^1.5.4",
+    "jsbarcode": "^3.11.6",
+    "firebase": "^11.0.0",
+    "electron-updater": "^6.3.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.4.1",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.arthur.gerenciaai",
+    "productName": "GerenciaAI",
+    "files": ["dist/**", "electron/**"],
+    "icon": "build/icon.png",
+    "directories": { "output": "release" },
+    "publish": {
+      "provider": "github",
+      "owner": "arthuraf2013-hue",
+      "repo": "gerenciaai-releases",
+      "releaseType": "release"
+    },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "linux": { "target": "AppImage", "icon": "build/icon.png" },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GerenciaAI",
+      "differentialPackage": false
+    }
+  }
+}

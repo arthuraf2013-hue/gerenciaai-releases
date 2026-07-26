@@ -1,0 +1,168 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+const invoke = (channel) => (payload) => ipcRenderer.invoke(channel, payload);
+
+contextBridge.exposeInMainWorld('pdv', {
+  auth: {
+    login: invoke('auth:login'),
+    listActiveUsers: invoke('auth:listActiveUsers'),
+    listAuditLog: invoke('auth:listAuditLog'),
+    changeOwnPin: invoke('auth:changeOwnPin'),
+  },
+  products: {
+    findByBarcode: invoke('product:findByBarcode'),
+    list: invoke('product:list'),
+    count: invoke('product:count'),
+    listCategories: invoke('product:listCategories'),
+    upsert: invoke('product:upsert'),
+    deactivate: invoke('product:deactivate'),
+    generateInternalBarcode: invoke('product:generateInternalBarcode'),
+    setFoto: invoke('product:setFoto'),
+    removeFoto: invoke('product:removeFoto'),
+    getFotoDataUrl: invoke('product:getFotoDataUrl'),
+  },
+  stock: {
+    getForLocation: invoke('stock:getForLocation'),
+    listLowStock: invoke('stock:listLowStock'),
+    listAlerts: invoke('stock:listAlerts'),
+    adjust: invoke('stock:adjust'),
+  },
+  sale: {
+    open: invoke('sale:open'),
+    getOrOpenCurrent: invoke('sale:getOrOpenCurrent'),
+    listByRange: invoke('sale:listByRange'),
+    listRecentlySold: invoke('sale:listRecentlySold'),
+    setCustomer: invoke('sale:setCustomer'),
+    redeemLoyaltyPoints: invoke('sale:redeemLoyaltyPoints'),
+    applyManagerDiscount: invoke('sale:applyManagerDiscount'),
+    removeManagerDiscount: invoke('sale:removeManagerDiscount'),
+    addItem: invoke('sale:addItem'),
+    addPayment: invoke('sale:addPayment'),
+    removePayment: invoke('sale:removePayment'),
+    finalize: invoke('sale:finalize'),
+    cancelItem: invoke('sale:cancelItem'),
+    cancel: invoke('sale:cancel'),
+  },
+  profile: {
+    listAvailable: invoke('profile:listAvailable'),
+    getActive: invoke('profile:getActive'),
+    setActive: invoke('profile:setActive'),
+    create: invoke('profile:create'),
+    update: invoke('profile:update'),
+    duplicate: invoke('profile:duplicate'),
+    delete: invoke('profile:delete'),
+  },
+  settings: {
+    get: invoke('settings:get'),
+    updateLocationName: invoke('settings:updateLocationName'),
+  },
+  users: {
+    listAll: invoke('user:listAll'),
+    create: invoke('user:create'),
+    setActive: invoke('user:setActive'),
+    resetPin: invoke('user:resetPin'),
+  },
+  io: {
+    exportProducts: invoke('io:exportProducts'),
+    importProducts: invoke('io:importProducts'),
+  },
+  attachments: {
+    add: invoke('attachment:add'),
+    list: invoke('attachment:list'),
+    remove: invoke('attachment:remove'),
+  },
+  ai: {
+    getSettings: invoke('ai:getSettings'),
+    updateSettings: invoke('ai:updateSettings'),
+    extractAttachment: invoke('ai:extractAttachment'),
+    summarizeSales: invoke('ai:summarizeSales'),
+    askTutor: invoke('ai:askTutor'),
+  },
+  cash: {
+    getOpenSession: invoke('cash:getOpenSession'),
+    open: invoke('cash:open'),
+    getSummary: invoke('cash:getSummary'),
+    close: invoke('cash:close'),
+  },
+  fiscal: {
+    getConfig: invoke('fiscal:getConfig'),
+    updateConfig: invoke('fiscal:updateConfig'),
+    emitirNFCe: invoke('fiscal:emitirNFCe'),
+    listNfceForSale: invoke('fiscal:listNfceForSale'),
+  },
+  payment: {
+    getConfig: invoke('payment:getConfig'),
+    updateConfig: invoke('payment:updateConfig'),
+    buildPixPayload: invoke('payment:buildPixPayload'),
+  },
+  time: {
+    getStatus: invoke('time:getStatus'),
+    getBrasiliaNow: invoke('time:getBrasiliaNow'),
+    syncNow: invoke('time:syncNow'),
+  },
+  report: {
+    exportSales: invoke('report:exportSales'),
+  },
+  pdvRegistry: {
+    getConfig: invoke('pdvRegistry:getConfig'),
+    updateConfig: invoke('pdvRegistry:updateConfig'),
+    getStatus: invoke('pdvRegistry:getStatus'),
+    register: invoke('pdvRegistry:register'),
+  },
+  salesSync: {
+    getConsolidated: invoke('salesSync:getConsolidated'),
+  },
+  customers: {
+    list: invoke('customer:list'),
+    upsert: invoke('customer:upsert'),
+    getCreditHistory: invoke('customer:getCreditHistory'),
+    registrarPagamento: invoke('customer:registrarPagamento'),
+  },
+  loyalty: {
+    getConfig: invoke('loyalty:getConfig'),
+    updateConfig: invoke('loyalty:updateConfig'),
+  },
+  suppliers: {
+    list: invoke('supplier:list'),
+    upsert: invoke('supplier:upsert'),
+    suggestPurchases: invoke('supplier:suggestPurchases'),
+  },
+  returns: {
+    findFinalizedSales: invoke('return:findFinalizedSales'),
+    getSaleItems: invoke('return:getSaleItems'),
+    create: invoke('return:create'),
+    list: invoke('return:list'),
+  },
+  print: {
+    receipt: invoke('print:receipt'),
+    label: invoke('print:label'),
+    getReceiptConfig: invoke('print:getReceiptConfig'),
+    updateReceiptConfig: invoke('print:updateReceiptConfig'),
+  },
+  dashboard: {
+    getSummary: invoke('dashboard:getSummary'),
+    listStaleProducts: invoke('dashboard:listStaleProducts'),
+  },
+  backup: {
+    getStatus: invoke('backup:getStatus'),
+    runNow: invoke('backup:runNow'),
+    list: invoke('backup:list'),
+    restore: invoke('backup:restore'),
+    openFolder: invoke('backup:openFolder'),
+    chooseSecondaryFolder: invoke('backup:chooseSecondaryFolder'),
+  },
+  supply: {
+    pickAndExtract: invoke('supply:pickAndExtract'),
+    confirmEntries: invoke('supply:confirmEntries'),
+    listUpcomingExpiry: invoke('supply:listUpcomingExpiry'),
+  },
+  batches: {
+    listForProduct: invoke('batch:listForProduct'),
+  },
+  update: {
+    getStatus: invoke('update:getStatus'),
+    check: invoke('update:check'),
+    download: invoke('update:download'),
+    install: invoke('update:install'),
+  },
+});

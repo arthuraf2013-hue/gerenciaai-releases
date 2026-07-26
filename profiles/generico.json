@@ -1,0 +1,7 @@
+{
+  "id": "generico",
+  "nome": "Genérico",
+  "camposExtras": [],
+  "regrasAlerta": ["estoque_baixo"],
+  "regrasVenda": []
+}
