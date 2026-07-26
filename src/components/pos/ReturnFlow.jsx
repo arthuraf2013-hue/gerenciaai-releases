@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ManagerAuthModal } from './ManagerAuthModal';
 
-export function ReturnFlow() {
+export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
   const { currentUser } = useSession();
   const [offsetMs, setOffsetMs] = useState(0);
   const [query, setQuery] = useState('');
@@ -13,6 +13,7 @@ export function ReturnFlow() {
   const [showAuth, setShowAuth] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [recentes, setRecentes] = useState([]);
+  const [erroPreselect, setErroPreselect] = useState('');
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -24,6 +25,23 @@ export function ReturnFlow() {
   }
 
   useEffect(() => { buscar(); }, []);
+
+  // Veio do botão "Devolver" no Histórico — busca essa venda específica
+  // e já abre pra devolução, sem precisar buscar de novo manualmente.
+  useEffect(() => {
+    if (!preselectSaleId) return;
+    (async () => {
+      setErroPreselect('');
+      const list = await window.pdv.returns.findFinalizedSales({ locationId: window.APP_LOCATION_ID, query: preselectSaleId });
+      const venda = Array.isArray(list) ? list.find((s) => s.id === preselectSaleId) : null;
+      if (venda) {
+        await selecionarVenda(venda);
+      } else {
+        setErroPreselect('Não encontrei essa venda pra devolução — pode ter mais de 60 dias, o limite de busca automática aqui.');
+      }
+      onPreselectConsumed?.();
+    })();
+  }, [preselectSaleId]);
 
   async function reloadRecentes() {
     const hoje = new Date(Date.now() + offsetMs).toISOString().slice(0, 10);
@@ -68,6 +86,7 @@ export function ReturnFlow() {
   return (
     <div className="screen">
       <h1>Devolução</h1>
+      {erroPreselect && <p className="modal-error">{erroPreselect}</p>}
       <p className="screen-hint">Devolução de itens de uma venda já finalizada — exige autorização de gerente, igual ao cancelamento.</p>
 
       {!selectedSale && (

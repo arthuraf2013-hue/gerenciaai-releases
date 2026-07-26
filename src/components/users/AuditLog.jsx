@@ -17,6 +17,17 @@ export function AuditLog() {
   const [dataFim, setDataFim] = useState('');
   const [eventos, setEventos] = useState([]);
   const [loadError, setLoadError] = useState('');
+  const [exportando, setExportando] = useState(false);
+  const [exportMsg, setExportMsg] = useState('');
+
+  async function handleExport() {
+    setExportando(true);
+    setExportMsg('');
+    const result = await window.pdv.report.exportAudit({ dataInicio, dataFim });
+    setExportando(false);
+    if (result.canceled) return;
+    setExportMsg(result.ok ? `${result.total} evento(s) exportado(s) com sucesso.` : `Erro: ${result.error}`);
+  }
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -50,7 +61,12 @@ export function AuditLog() {
 
   return (
     <div className="screen">
-      <h1>Auditoria</h1>
+      <div className="screen-header">
+        <h1>Auditoria</h1>
+        <button className="btn-secondary" onClick={handleExport} disabled={exportando || eventos.length === 0}>
+          {exportando ? 'Exportando...' : 'Exportar planilha'}
+        </button>
+      </div>
       <p className="screen-hint">
         Toda tentativa de cancelamento, devolução ou desconto manual — aprovada ou negada.
       </p>
@@ -63,6 +79,7 @@ export function AuditLog() {
         ))}
       </div>
 
+      {exportMsg && <p className={exportMsg.startsWith('Erro') ? 'modal-error' : 'io-message'}>{exportMsg}</p>}
       {loadError && <p className="modal-error">{loadError}</p>}
 
       {eventos.length === 0 ? (

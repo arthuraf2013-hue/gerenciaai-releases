@@ -164,7 +164,18 @@ function getCnpjLimpo() {
   return fiscal?.cnpj ? fiscal.cnpj.replace(/[^\d]/g, '') : null;
 }
 
+/** Checagem leve — só confirma que dá pra falar com o Firebase agora,
+ * sem buscar nenhum dado. Usado pro indicador de conexão na tela. */
+async function checkConnection() {
+  try {
+    await getFirestoreConnection();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 module.exports = {
   getFirebaseConfigPublic, updateFirebaseConfig, getStatus, registerPdv,
-  getFirestoreConnection, getCnpjLimpo,
+  getFirestoreConnection, getCnpjLimpo, checkConnection,
 };

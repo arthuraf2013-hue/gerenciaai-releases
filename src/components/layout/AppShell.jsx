@@ -34,6 +34,7 @@ export function AppShell() {
   const [screen, setScreen] = useState('pos');
   const [pdvNumero, setPdvNumero] = useState(null);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
+  const [returnPreselectId, setReturnPreselectId] = useState(null);
 
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setPdvNumero(s.numeroPdv));
@@ -112,12 +113,16 @@ export function AppShell() {
       <main className="main-content">
         {screen === 'pos' && <POSScreen />}
         {screen === 'dashboard' && <Dashboard />}
-        {screen === 'history' && <SalesHistory />}
+        {screen === 'history' && (
+          <SalesHistory onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
+        )}
         {screen === 'products' && <ProductList />}
         {screen === 'supply' && <SupplyScreen />}
         {screen === 'customers' && <CustomerList />}
         {screen === 'suppliers' && <SupplierList />}
-        {screen === 'returns' && <ReturnFlow />}
+        {screen === 'returns' && (
+          <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
+        )}
         {screen === 'alerts' && <StockAlerts />}
         {screen === 'settings' && <SettingsScreen />}
         {screen === 'users' && <UserManagement />}

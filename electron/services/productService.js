@@ -138,6 +138,12 @@ function upsert(product) {
   const db = getDb();
   const id = product.id || randomUUID();
   const customFields = JSON.stringify(product.customFields || {});
+  const precoNovo = Number(product.preco) || 0;
+
+  // Se já existir (edição), compara com o preço anterior antes de
+  // sobrescrever — só registra no histórico se o preço de venda
+  // realmente mudou (não dispara em toda edição de produto).
+  const existente = product.id ? db.prepare('SELECT preco FROM products WHERE id = ?').get(product.id) : null;
 
   db.prepare(
     `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields)
@@ -155,7 +161,7 @@ function upsert(product) {
     codigoBarras: product.codigoBarras || null,
     nome: product.nome.trim(),
     categoria: product.categoria || null,
-    preco: Number(product.preco) || 0,
+    preco: precoNovo,
     custo: Number(product.custo) || 0,
     unidade: product.unidade || 'un',
     estoqueMinimo: Number(product.estoqueMinimo) || 0,
@@ -167,7 +173,23 @@ function upsert(product) {
     customFields,
   });
 
+  if (existente && existente.preco !== precoNovo) {
+    db.prepare(
+      `INSERT INTO product_price_history (id, product_id, preco_antigo, preco_novo, operador_id) VALUES (?, ?, ?, ?, ?)`
+    ).run(randomUUID(), id, existente.preco, precoNovo, product.operadorId || null);
+  }
+
   return { ok: true, id };
+}
+
+/** Histórico de alteração de preço de um produto, mais recente primeiro. */
+function listPriceHistory(productId) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT h.*, u.nome as operador_nome FROM product_price_history h
+     LEFT JOIN users u ON u.id = h.operador_id
+     WHERE h.product_id = ? ORDER BY h.criado_em DESC`
+  ).all(productId);
 }
 
 /**
@@ -207,4 +229,4 @@ function generateInternalBarcode(productId) {
   return { ok: true, codigoBarras: codigo };
 }
 
-module.exports = { findByBarcode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode };
+module.exports = { findByBarcode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory };

@@ -49,6 +49,7 @@ export function POSScreen() {
   const [showAttachments, setShowAttachments] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [recentRefreshKey, setRecentRefreshKey] = useState(0);
+  const [pendingQty, setPendingQty] = useState('1');
   const [openAlertId, setOpenAlertId] = useState(null);
 
   // Fecha o balão de alerta se clicar em qualquer outro lugar da tela.
@@ -83,11 +84,12 @@ export function POSScreen() {
   }, [saleId, currentUser, cashSession]);
 
   const addProductToCart = useCallback(async (product) => {
+    const quantidade = Math.max(1, Number(pendingQty) || 1);
     const result = await window.pdv.sale.addItem({
       saleId,
       productId: product.id,
       locationId: LOCATION_ID,
-      quantidade: 1,
+      quantidade,
       operadorId: currentUser.id,
       deviceId: DEVICE_ID,
     });
@@ -97,11 +99,12 @@ export function POSScreen() {
       return;
     }
     setItems((prev) => [...prev, {
-      id: result.itemId, nome: product.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
+      id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
       alerta: result.alerta,
     }]);
     playBeep();
-    setTotal((prev) => prev + result.precoUnitario);
+    setTotal((prev) => prev + result.precoUnitario * quantidade);
+    setPendingQty('1'); // a quantidade digitada vale só pro próximo item — volta a 1 sozinho
     setRecentRefreshKey((prev) => prev + 1);
 
     // Produto controlado que costuma exigir receita: só um lembrete, nunca
@@ -111,7 +114,7 @@ export function POSScreen() {
     } else {
       setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
     }
-  }, [saleId, currentUser]);
+  }, [saleId, currentUser, pendingQty]);
 
   /**
    * Chamada depois que a IA extrai os medicamentos de uma receita anexada.
@@ -283,6 +286,13 @@ export function POSScreen() {
       </header>
 
       <div className="pos-search-row">
+        <input
+          type="number" min="1" step="1"
+          className="pos-qty-input"
+          value={pendingQty}
+          onChange={(e) => setPendingQty(e.target.value)}
+          title="Quantidade do próximo item — digite antes de escanear ou buscar pra adicionar várias unidades de uma vez"
+        />
         <ProductSearchBox onSelect={addProductToCart} />
         <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
           Anexar receita / arquivo

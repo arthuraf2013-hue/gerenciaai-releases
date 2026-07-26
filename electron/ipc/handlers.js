@@ -58,6 +58,7 @@ function registerIpcHandlers() {
   safeHandle('product:upsert', (_e, product) => productService.upsert(product));
   safeHandle('product:deactivate', (_e, { productId }) => productService.deactivate(productId));
   safeHandle('product:generateInternalBarcode', (_e, { productId }) => productService.generateInternalBarcode(productId));
+  safeHandle('product:listPriceHistory', (_e, { productId }) => productService.listPriceHistory(productId));
   safeHandle('product:getFotoDataUrl', (_e, { productId }) => productService.getFotoDataUrl(productId));
   safeHandle('product:removeFoto', (_e, { productId }) => productService.removeFoto(productId));
 
@@ -187,11 +188,34 @@ function registerIpcHandlers() {
     return reportService.exportSalesReport(filePath, { locationId, dataInicio, dataFim });
   });
 
+  safeHandle('report:exportAudit', async (_e, { dataInicio, dataFim }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Exportar auditoria',
+      defaultPath: `auditoria-${dataInicio}-a-${dataFim}.xlsx`,
+      filters: [{ name: 'Planilha Excel', extensions: ['xlsx'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    return reportService.exportAuditReport(filePath, { dataInicio, dataFim });
+  });
+
+  safeHandle('report:exportPurchaseSuggestions', async (_e, { locationId }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Exportar lista de compra sugerida',
+      defaultPath: 'lista-de-compra-sugerida.xlsx',
+      filters: [{ name: 'Planilha Excel', extensions: ['xlsx'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    return reportService.exportPurchaseSuggestions(filePath, { locationId });
+  });
+
   // --- Sincronização entre PDVs (Fase 1: numeração por CNPJ, opcional) ---
   safeHandle('pdvRegistry:getConfig', () => pdvRegistryService.getFirebaseConfigPublic());
   safeHandle('pdvRegistry:updateConfig', (_e, payload) => pdvRegistryService.updateFirebaseConfig(payload));
   safeHandle('pdvRegistry:getStatus', () => pdvRegistryService.getStatus());
   safeHandle('pdvRegistry:register', () => pdvRegistryService.registerPdv());
+  safeHandle('pdvRegistry:checkConnection', () => pdvRegistryService.checkConnection());
   safeHandle('salesSync:getConsolidated', (_e, payload) => salesSyncService.getConsolidated(payload));
 
   // --- Clientes, fiado e fidelidade ---

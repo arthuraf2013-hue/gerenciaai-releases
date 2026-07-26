@@ -2,6 +2,38 @@ import { useEffect, useState } from 'react';
 
 function toISODate(d) { return d.toISOString().slice(0, 10); }
 
+/** Gráfico de barras simples em SVG — sem depender de nenhuma
+ * biblioteca de gráficos, só pra mostrar a tendência de vendas por dia
+ * de um jeito mais fácil de ler que uma lista de barras horizontais. */
+function VendasPorDiaChart({ dados }) {
+  const largura = 700, altura = 200, padTop = 16, padBottom = 28, padSides = 12;
+  const areaAltura = altura - padTop - padBottom;
+  const max = Math.max(1, ...dados.map((d) => d.total));
+  const gap = (largura - padSides * 2) / dados.length;
+  const barWidth = Math.min(46, gap * 0.6);
+
+  return (
+    <svg viewBox={`0 0 ${largura} ${altura}`} width="100%" style={{ maxWidth: 700, display: 'block' }}>
+      {dados.map((d, i) => {
+        const barH = (d.total / max) * areaAltura;
+        const x = padSides + i * gap + (gap - barWidth) / 2;
+        const y = padTop + areaAltura - barH;
+        return (
+          <g key={d.dia}>
+            <rect x={x} y={y} width={barWidth} height={Math.max(barH, 2)} rx="4" style={{ fill: 'var(--color-primary)' }} />
+            <text x={x + barWidth / 2} y={altura - padBottom + 16} fontSize="10" textAnchor="middle" style={{ fill: 'var(--color-text-muted)' }}>
+              {d.dia.slice(5)}
+            </text>
+            <text x={x + barWidth / 2} y={y - 4} fontSize="10" textAnchor="middle" style={{ fill: 'var(--color-text)' }}>
+              {d.total >= 1000 ? `${(d.total / 1000).toFixed(1)}k` : d.total.toFixed(0)}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export function Dashboard() {
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('semana');
@@ -14,12 +46,22 @@ export function Dashboard() {
   const [erroResumo, setErroResumo] = useState('');
 
   const [consolidado, setConsolidado] = useState(null);
+  const [conexaoPdvs, setConexaoPdvs] = useState(null); // null = checando, true = ok, false = offline
   const [carregandoConsolidado, setCarregandoConsolidado] = useState(false);
   const [erroConsolidado, setErroConsolidado] = useState('');
 
   const [parados, setParados] = useState([]);
   const [diasParados, setDiasParados] = useState(30);
   const [carregandoParados, setCarregandoParados] = useState(false);
+
+  useEffect(() => {
+    function checar() {
+      window.pdv.pdvRegistry.checkConnection().then((r) => setConexaoPdvs(r.ok));
+    }
+    checar();
+    const id = setInterval(checar, 60 * 1000); // confere de novo a cada 1 min enquanto a tela estiver aberta
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -82,7 +124,6 @@ export function Dashboard() {
 
   useEffect(() => { carregarParados(diasParados); }, [diasParados]);
 
-  const maiorValorDia = summary ? Math.max(1, ...summary.vendasPorDia.map((d) => d.total)) : 1;
   const maiorQtdProduto = summary ? Math.max(1, ...summary.topProdutos.map((p) => p.quantidade)) : 1;
 
   return (
@@ -150,16 +191,11 @@ export function Dashboard() {
           <div className="dashboard-columns">
             <section className="settings-section">
               <h2>Vendas por dia</h2>
-              {summary.vendasPorDia.length === 0 && <p className="empty-state">Sem vendas no período.</p>}
-              {summary.vendasPorDia.map((d) => (
-                <div key={d.dia} className="bar-row">
-                  <span className="bar-label">{d.dia.slice(5)}</span>
-                  <div className="bar-track">
-                    <div className="bar-fill" style={{ width: `${(d.total / maiorValorDia) * 100}%` }} />
-                  </div>
-                  <span className="bar-value">R$ {d.total.toFixed(0)}</span>
-                </div>
-              ))}
+              {summary.vendasPorDia.length === 0 ? (
+                <p className="empty-state">Sem vendas no período.</p>
+              ) : (
+                <VendasPorDiaChart dados={summary.vendasPorDia} />
+              )}
             </section>
 
             <section className="settings-section">
@@ -225,7 +261,14 @@ export function Dashboard() {
           </section>
 
           <section className="settings-section">
-            <h2>Consolidado entre PDVs</h2>
+            <h2>
+              Consolidado entre PDVs
+              {conexaoPdvs !== null && (
+                <span className={`connection-dot ${conexaoPdvs ? 'connection-dot-ok' : 'connection-dot-off'}`} title={conexaoPdvs ? 'Conectado ao Firebase' : 'Sem conexão com o Firebase agora — o consolidado pode estar desatualizado'}>
+                  {conexaoPdvs ? '● conectado' : '○ offline'}
+                </span>
+              )}
+            </h2>
             <p className="screen-hint">
               Soma as vendas de todos os PDVs registrados com o mesmo CNPJ (Configurações →
               Sincronização) — vem do Firebase, não só deste terminal. Só funciona com a

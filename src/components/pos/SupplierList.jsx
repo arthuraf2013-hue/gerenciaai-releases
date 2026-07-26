@@ -6,6 +6,8 @@ export function SupplierList() {
   const [form, setForm] = useState({ nome: '', cnpjCpf: '', telefone: '', email: '' });
   const [sugestoes, setSugestoes] = useState([]);
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
+  const [exportandoLista, setExportandoLista] = useState(false);
+  const [exportMsg, setExportMsg] = useState('');
   const [saveError, setSaveError] = useState('');
 
   async function reload() {
@@ -40,6 +42,24 @@ export function SupplierList() {
     setSugestoes(Array.isArray(list) ? list : []);
     setCarregandoSugestoes(false);
   }
+
+  async function handleExportarLista() {
+    setExportandoLista(true);
+    setExportMsg('');
+    const result = await window.pdv.report.exportPurchaseSuggestions({ locationId: window.APP_LOCATION_ID });
+    setExportandoLista(false);
+    if (result.canceled) return;
+    setExportMsg(result.ok ? `${result.total} item(ns) exportado(s) com sucesso.` : `Erro: ${result.error}`);
+  }
+
+  // Agrupa por fornecedor — assim a lista já sai pronta pra levar/mandar
+  // pro fornecedor certo, em vez de uma lista solta misturando todo mundo.
+  const sugestoesPorFornecedor = sugestoes.reduce((acc, s) => {
+    const chave = s.fornecedor_nome || '(sem fornecedor cadastrado)';
+    if (!acc[chave]) acc[chave] = [];
+    acc[chave].push(s);
+    return acc;
+  }, {});
 
   return (
     <div className="screen">
@@ -77,31 +97,42 @@ export function SupplierList() {
       </table>
 
       <section className="settings-section" style={{ marginTop: 28 }}>
-        <h2>Sugestão de compra</h2>
+        <h2>Lista de compra sugerida</h2>
         <p className="screen-hint">
           Baseada na velocidade de venda dos últimos 30 dias — sem IA, só estatística. Só considera
-          produtos no estoque mínimo ou abaixo.
+          produtos no estoque mínimo ou abaixo. Agrupada por fornecedor, pronta pra levar ou mandar.
+          Quando a mercadoria chegar, use o <strong>Abastecimento</strong> pra dar entrada no estoque.
         </p>
-        <button className="btn-secondary" onClick={carregarSugestoes} disabled={carregandoSugestoes}>
-          {carregandoSugestoes ? 'Calculando...' : 'Calcular sugestão'}
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn-secondary" onClick={carregarSugestoes} disabled={carregandoSugestoes}>
+            {carregandoSugestoes ? 'Calculando...' : 'Calcular sugestão'}
+          </button>
+          {sugestoes.length > 0 && (
+            <button className="btn-secondary" onClick={handleExportarLista} disabled={exportandoLista}>
+              {exportandoLista ? 'Exportando...' : 'Exportar planilha'}
+            </button>
+          )}
+        </div>
+        {exportMsg && <p className={exportMsg.startsWith('Erro') ? 'modal-error' : 'io-message'}>{exportMsg}</p>}
 
-        {sugestoes.length > 0 && (
-          <table className="data-table" style={{ marginTop: 16 }}>
-            <thead><tr><th>Produto</th><th>Fornecedor</th><th>Estoque atual</th><th>Venda/dia</th><th>Sugerido</th></tr></thead>
-            <tbody>
-              {sugestoes.map((s) => (
-                <tr key={s.id}>
-                  <td>{s.nome}</td>
-                  <td>{s.fornecedor_nome || '—'}</td>
-                  <td>{s.estoque_atual}</td>
-                  <td>{s.velocidadeDiaria}</td>
-                  <td><strong>{s.quantidadeSugerida}</strong></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {Object.entries(sugestoesPorFornecedor).map(([fornecedor, itens]) => (
+          <div key={fornecedor} style={{ marginTop: 20 }}>
+            <h3 style={{ marginBottom: 6 }}>{fornecedor}</h3>
+            <table className="data-table">
+              <thead><tr><th>Produto</th><th>Estoque atual</th><th>Venda/dia</th><th>Sugerido</th></tr></thead>
+              <tbody>
+                {itens.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.nome}</td>
+                    <td>{s.estoque_atual}</td>
+                    <td>{s.velocidadeDiaria}</td>
+                    <td><strong>{s.quantidadeSugerida}</strong></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
       </section>
     </div>
   );

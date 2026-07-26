@@ -20,7 +20,7 @@ function formatMetodos(str) {
   return str.split(',').map((m) => METODO_LABEL[m] || m).join(', ');
 }
 
-export function SalesHistory() {
+export function SalesHistory({ onDevolver }) {
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('hoje'); // 'hoje' | 'semana' | 'mes' | 'personalizado'
   const [dataInicio, setDataInicio] = useState('');
@@ -114,7 +114,7 @@ export function SalesHistory() {
       ) : (
         <table className="data-table">
           <thead>
-            <tr><th>Data/hora</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th></tr>
+            <tr><th>Data/hora</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {sales.map((s) => (
@@ -125,6 +125,11 @@ export function SalesHistory() {
                 <td>R$ {s.total.toFixed(2)}</td>
                 <td>{formatMetodos(s.metodos_pagamento)}</td>
                 <td>{STATUS_LABEL[s.status] || s.status}</td>
+                <td>
+                  {s.status === 'finalizada' && (
+                    <button className="btn-link" onClick={() => onDevolver?.(s.id)}>Devolver</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import { useProfile } from '../../context/ProfileContext';
+import { useSession } from '../../context/SessionContext';
 
 const emptyProduct = {
   id: null, sku: '', codigoBarras: '', nome: '', categoria: '',
@@ -13,11 +14,14 @@ const emptyProduct = {
  */
 export function ProductForm({ product, onSaved, onCancel }) {
   const { profile } = useProfile();
+  const { currentUser } = useSession();
   const [form, setForm] = useState(emptyProduct);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [fotoDataUrl, setFotoDataUrl] = useState(null);
   const [fotoBusy, setFotoBusy] = useState(false);
+  const [historicoPreco, setHistoricoPreco] = useState([]);
+  const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [barcodeBusy, setBarcodeBusy] = useState(false);
   const barcodeCanvasRef = useRef(null);
 
@@ -59,9 +63,13 @@ export function ProductForm({ product, onSaved, onCancel }) {
       } else {
         setFotoDataUrl(null);
       }
+      window.pdv.products.listPriceHistory({ productId: product.id }).then((list) => {
+        setHistoricoPreco(Array.isArray(list) ? list : []);
+      });
     } else {
       setForm(emptyProduct);
       setFotoDataUrl(null);
+      setHistoricoPreco([]);
     }
   }, [product]);
 
@@ -119,6 +127,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
       cfop: form.cfop || null,
       cstCsosn: form.cstCsosn || null,
       origemMercadoria: form.origemMercadoria || '0',
+      operadorId: currentUser.id,
     });
     setSaving(false);
     if (!result.ok) return setError(result.error);
@@ -180,6 +189,24 @@ export function ProductForm({ product, onSaved, onCancel }) {
         <label>Preço de venda
           <input type="number" step="0.01" value={form.preco} onChange={(e) => setField('preco', e.target.value)} required />
         </label>
+        {form.id && historicoPreco.length > 0 && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <button type="button" className="btn-link" onClick={() => setMostrarHistorico((v) => !v)}>
+              {mostrarHistorico ? 'Esconder' : 'Ver'} histórico de preço ({historicoPreco.length})
+            </button>
+            {mostrarHistorico && (
+              <ul className="payment-list" style={{ marginTop: 6 }}>
+                {historicoPreco.map((h) => (
+                  <li key={h.id}>
+                    R$ {h.preco_antigo.toFixed(2)} → R$ {h.preco_novo.toFixed(2)}
+                    {' — '}{new Date(h.criado_em + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })}
+                    {h.operador_nome && ` (${h.operador_nome})`}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <label>Custo
           <input type="number" step="0.01" value={form.custo} onChange={(e) => setField('custo', e.target.value)} />
         </label>

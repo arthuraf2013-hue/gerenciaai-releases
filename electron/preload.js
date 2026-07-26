@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('pdv', {
     upsert: invoke('product:upsert'),
     deactivate: invoke('product:deactivate'),
     generateInternalBarcode: invoke('product:generateInternalBarcode'),
+    listPriceHistory: invoke('product:listPriceHistory'),
     setFoto: invoke('product:setFoto'),
     removeFoto: invoke('product:removeFoto'),
     getFotoDataUrl: invoke('product:getFotoDataUrl'),
@@ -102,12 +103,15 @@ contextBridge.exposeInMainWorld('pdv', {
   },
   report: {
     exportSales: invoke('report:exportSales'),
+    exportAudit: invoke('report:exportAudit'),
+    exportPurchaseSuggestions: invoke('report:exportPurchaseSuggestions'),
   },
   pdvRegistry: {
     getConfig: invoke('pdvRegistry:getConfig'),
     updateConfig: invoke('pdvRegistry:updateConfig'),
     getStatus: invoke('pdvRegistry:getStatus'),
     register: invoke('pdvRegistry:register'),
+    checkConnection: invoke('pdvRegistry:checkConnection'),
   },
   salesSync: {
     getConsolidated: invoke('salesSync:getConsolidated'),

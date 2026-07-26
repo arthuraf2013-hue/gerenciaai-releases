@@ -538,6 +538,33 @@ contagem (`productService.count`, mesmo filtro de busca/categoria do
 atualiza junto quando você busca por nome/SKU. Testado com produto
 excluído (não conta) e filtro de categoria/busca antes de integrar.
 
+## Rodada de melhorias (7 itens)
+
+1. **Quantidade no código de barras** — campo pequeno ao lado da busca no
+   PDV. Digite um número antes de escanear ou buscar, e o próximo item
+   entra com essa quantidade de uma vez (volta a 1 sozinho depois).
+   Corrigi de passagem um bug de exibição: o total mostrado na tela não
+   multiplicava pela quantidade (invisível até agora porque era sempre 1).
+2. **Indicador de conexão** no consolidado entre PDVs — "● conectado" /
+   "○ offline" ao lado do título, checado a cada 1 minuto.
+3. **Devolução direto do Histórico** — botão "Devolver" em cada venda
+   finalizada, já busca e seleciona a venda sozinho na tela de Devolução
+   (com aviso se a venda tiver mais de 60 dias — limite de busca lá).
+4. **Exportar Auditoria** pra planilha.
+5. **Histórico de alteração de preço** — nova tabela
+   `product_price_history`, só registra quando o preço de venda muda de
+   verdade (testado em SQL puro: editar produto sem mudar o preço não
+   gera entrada). Link expansível no cadastro do produto pra ver.
+6. **Gráfico de barras de verdade** em "Vendas por dia" no Painel — SVG
+   simples, sem depender de nenhuma biblioteca de gráficos. "Produtos
+   mais vendidos" mantive como barra horizontal (formato mais adequado
+   pra ranking).
+7. **Lista de compra sugerida reformulada** — a sugestão de compra que já
+   existia (Fornecedores) agora aparece **agrupada por fornecedor**
+   (pronta pra levar/mandar pra cada um) em vez de uma lista solta, com
+   botão de exportar pra planilha e um lembrete de usar o Abastecimento
+   quando a mercadoria chegar.
+
 ## Publicação automática (GitHub Actions)
 
 Pedido de automatizar o **seu** lado do processo de atualização — builda
@@ -571,20 +598,30 @@ git push -u origin main
 (Se pedir usuário/senha e der erro de autenticação, use o mesmo token de
 acesso pessoal que você já tem, no lugar da senha.)
 
-**2. Publicar uma versão nova, dali em diante, é só:**
+**2. Publicar uma versão nova, dali em diante, é só um comando:**
 ```powershell
-# 1. Suba o número em package.json (ex: "version": "0.4.0")
-git add package.json
-git commit -m "Versão 0.4.0"
-git push
-git tag v0.4.0
-git push origin v0.4.0
+npm version patch
 ```
-O último `git push origin v0.4.0` é o que dispara o GitHub Actions —
-depois disso, é só acompanhar em
+Isso faz tudo de uma vez: sobe o número da versão em `package.json`
+sozinho (`0.3.9` → `0.3.10`), cria o commit, cria a tag `v0.3.10`
+correspondente, e — graças ao script `postversion` que já deixei
+configurado — **envia tudo pro GitHub sozinho** (`git push` + `git push
+--tags`) assim que termina. Esse último push da tag é o que dispara o
+GitHub Actions.
+
+Use `npm version minor` (0.3.x → 0.4.0) ou `npm version major` (0.x.x →
+1.0.0) quando a mudança for maior — mas `patch` serve pra quase toda
+atualização do dia a dia.
+
+Depois de rodar, é só acompanhar em
 `github.com/arthuraf2013-hue/gerenciaai-releases/actions` (a aba
 "Actions" do repositório) até aparecer o ✓ verde. A release nova aparece
 sozinha em Releases, já publicada (sem passar por rascunho).
+
+*(A sequência manual — `git add`, `git commit`, `git tag`, dois `git
+push` — continua funcionando se preferir fazer passo a passo, mas
+`npm version patch` faz a mesma coisa com bem menos chance de errar
+algum passo no meio.)*
 
 **Importante**: o número da tag (`v0.4.0`) precisa bater exatamente com
 o `"version"` do `package.json` daquele commit — se não bater,

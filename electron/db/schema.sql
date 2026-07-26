@@ -93,6 +93,19 @@ CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_products_categoria ON products(categoria);
 CREATE INDEX IF NOT EXISTS idx_products_ativo ON products(ativo);
 
+-- Histórico de alteração de preço — uma linha por vez que o preço de
+-- venda mudou (não registra toda edição de produto, só quando o preço
+-- especificamente é diferente do que já estava salvo).
+CREATE TABLE IF NOT EXISTS product_price_history (
+  id           TEXT PRIMARY KEY,
+  product_id   TEXT NOT NULL REFERENCES products(id),
+  preco_antigo REAL NOT NULL,
+  preco_novo   REAL NOT NULL,
+  operador_id  TEXT REFERENCES users(id),
+  criado_em    TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_price_history_product ON product_price_history(product_id);
+
 -- ============================================================
 -- Lotes recebidos — cada entrada de mercadoria (via módulo de
 -- abastecimento) vira uma linha aqui, com o PRÓPRIO lote/validade. Isso
