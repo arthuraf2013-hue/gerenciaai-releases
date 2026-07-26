@@ -20,83 +20,87 @@ export function ProductList() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinelRef = useRef(null);
+  const loadMoreRef = useRef(() => {}); // sempre aponta pra função de "carregar mais" da busca atual
+  const reloadRef = useRef(() => {}); // idem, pra poder chamar de fora (importar planilha, excluir, etc.)
 
-  // Referências sempre atualizadas do estado atual — usadas pra
-  // confirmar, depois de qualquer resposta assíncrona, que ela ainda
-  // corresponde à busca/lista de agora antes de aplicar na tela.
-  // Confiar só num contador de "requisição mais recente" não pegava um
-  // caso específico: o observador de rolagem infinita disparando com um
-  // offset calculado antes da busca mudar. Comparando direto contra o
-  // texto de busca atual (não um contador) fecha esse buraco.
-  const queryRef = useRef(query);
-  const productsRef = useRef(products);
-  const hasMoreRef = useRef(hasMore);
-  const loadingMoreRef = useRef(loadingMore);
-  useEffect(() => { queryRef.current = query; }, [query]);
-  useEffect(() => { productsRef.current = products; }, [products]);
-  useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
-  useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
+  // Tudo relacionado a UMA busca específica vive dentro deste único
+  // efeito, compartilhando uma única bandeira "ignore" e variáveis
+  // locais (não React state) pra controlar o que já foi carregado.
+  // Isso evita depender de várias referências sincronizadas por efeitos
+  // separados — que tinham uma pequena janela de tempo entre o texto de
+  // busca mudar e cada referência terminar de atualizar, janela essa
+  // onde a rolagem infinita podia disparar com dados de uma busca
+  // anterior ainda por engano.
+  useEffect(() => {
+    let ignore = false;
+    let produtosCarregados = [];
+    let temMais = true;
+    let carregandoMais = false;
 
-  // Carrega o primeiro lote (ou refaz do zero quando a busca muda) — o
-  // resto vem por rolagem infinita em loadMore(), pra nunca precisar
-  // trazer o catálogo inteiro de uma vez e travar a tela.
-  async function reload() {
-    const queryDestaBusca = query;
+    async function carregarPrimeiroLote() {
+      setHasMore(true);
+      const list = await window.pdv.products.list({ query: query || undefined, limit: PAGE_SIZE, offset: 0 });
+      if (ignore) return; // uma busca mais nova já começou — descarta esta resposta atrasada
 
-    setHasMore(true);
-    const list = await window.pdv.products.list({ query: queryDestaBusca || undefined, limit: PAGE_SIZE, offset: 0 });
-    if (queryDestaBusca !== queryRef.current) return; // o texto de busca já mudou — descarta esta resposta atrasada
+      if (!Array.isArray(list)) {
+        setProducts([]);
+        setHasMore(false);
+        temMais = false;
+        setLoadError(list?.error || 'Não foi possível carregar os produtos.');
+        return;
+      }
+      setLoadError('');
+      produtosCarregados = list;
+      setProducts(list);
+      temMais = list.length === PAGE_SIZE;
+      setHasMore(temMais);
 
-    if (!Array.isArray(list)) {
-      setProducts([]);
-      setHasMore(false);
-      setLoadError(list?.error || 'Não foi possível carregar os produtos.');
-      return;
+      const total = await window.pdv.products.count({ query: query || undefined });
+      if (!ignore) setTotalProdutos(total);
+
+      const estoque = await window.pdv.stock.getForLocation({ locationId: window.APP_LOCATION_ID });
+      if (ignore) return;
+      if (Array.isArray(estoque)) {
+        const mapa = {};
+        estoque.forEach((e) => { mapa[e.id] = e.estoque_atual; });
+        setEstoquePorProduto(mapa);
+      }
     }
-    setLoadError('');
-    setProducts(list);
-    setHasMore(list.length === PAGE_SIZE);
 
-    window.pdv.products.count({ query: queryDestaBusca || undefined }).then((total) => {
-      if (queryDestaBusca === queryRef.current) setTotalProdutos(total);
-    });
-
-    const estoque = await window.pdv.stock.getForLocation({ locationId: window.APP_LOCATION_ID });
-    if (queryDestaBusca !== queryRef.current) return;
-    if (Array.isArray(estoque)) {
-      const mapa = {};
-      estoque.forEach((e) => { mapa[e.id] = e.estoque_atual; });
-      setEstoquePorProduto(mapa);
+    async function carregarMais() {
+      if (ignore || carregandoMais || !temMais) return;
+      carregandoMais = true;
+      setLoadingMore(true);
+      const list = await window.pdv.products.list({ query: query || undefined, limit: PAGE_SIZE, offset: produtosCarregados.length });
+      carregandoMais = false;
+      setLoadingMore(false);
+      if (ignore) return;
+      if (!Array.isArray(list)) return;
+      produtosCarregados = [...produtosCarregados, ...list];
+      setProducts(produtosCarregados);
+      temMais = list.length === PAGE_SIZE;
+      setHasMore(temMais);
     }
-  }
 
-  async function loadMore() {
-    if (loadingMoreRef.current || !hasMoreRef.current) return;
-    const queryDestaBusca = queryRef.current;
-    const offsetDestaBusca = productsRef.current.length;
-    setLoadingMore(true);
-    const list = await window.pdv.products.list({ query: queryDestaBusca || undefined, limit: PAGE_SIZE, offset: offsetDestaBusca });
-    setLoadingMore(false);
-    if (queryDestaBusca !== queryRef.current) return; // a busca mudou enquanto isso carregava — descarta
-    if (!Array.isArray(list)) return;
-    setProducts((prev) => [...prev, ...list]);
-    setHasMore(list.length === PAGE_SIZE);
-  }
+    loadMoreRef.current = carregarMais;
+    reloadRef.current = carregarPrimeiroLote;
+    carregarPrimeiroLote();
 
-  useEffect(() => { reload(); }, [query]);
+    return () => { ignore = true; };
+  }, [query]);
 
   // Observa um marcador invisível logo depois da tabela — quando ele
   // entra na área visível da rolagem, carrega o próximo lote sozinho.
-  // Criado só uma vez (não recriado a cada letra digitada) — o próprio
-  // loadMore() lê o estado mais atual pelas referências acima, então não
-  // precisa recriar o observador pra "atualizar" o que ele enxerga.
+  // Criado só uma vez; sempre chama a versão mais atual de "carregar
+  // mais" através da referência acima, que o efeito de cima mantém
+  // sempre apontando pra busca em vigor.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const scrollContainer = sentinel.closest('.main-content');
 
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      (entries) => { if (entries[0].isIntersecting) loadMoreRef.current(); },
       { root: scrollContainer || null, rootMargin: '200px' }
     );
     observer.observe(sentinel);
@@ -126,7 +130,7 @@ export function ProductList() {
     let msg = `${total} linhas processadas: ${importados} novos produtos, ${atualizados} atualizados.`;
     if (erros.length > 0) msg += ` ${erros.length} linha(s) com erro (linha ${erros[0].linha}: ${erros[0].erro}${erros.length > 1 ? '...' : ''}).`;
     setIoMessage(msg);
-    reload();
+    reloadRef.current();
   }
 
   async function handleDelete(product) {
@@ -139,7 +143,7 @@ export function ProductList() {
     }
     const result = await window.pdv.products.deactivate({ productId: product.id });
     if (!result.ok) return setIoMessage(result.error);
-    reload();
+    reloadRef.current();
   }
 
   return (
@@ -208,7 +212,7 @@ export function ProductList() {
           <div className="modal-card modal-card-wide">
             <ProductForm
               product={editing.id ? editing : null}
-              onSaved={() => { setEditing(null); reload(); }}
+              onSaved={() => { setEditing(null); reloadRef.current(); }}
               onCancel={() => setEditing(null)}
             />
           </div>
@@ -219,7 +223,7 @@ export function ProductList() {
         <StockAdjustModal
           product={adjusting}
           onClose={() => setAdjusting(null)}
-          onAdjusted={() => { setAdjusting(null); reload(); }}
+          onAdjusted={() => { setAdjusting(null); reloadRef.current(); }}
         />
       )}
     </div>

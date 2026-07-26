@@ -565,6 +565,39 @@ excluído (não conta) e filtro de categoria/busca antes de integrar.
    botão de exportar pra planilha e um lembrete de usar o Abastecimento
    quando a mercadoria chegar.
 
+## Busca de produtos — reescrita completa (a correção anterior não era suficiente)
+
+A correção anterior (referências sincronizadas por efeitos separados)
+não resolveu de verdade — confirmado rodando o mesmo código direto do
+código-fonte, sem instalador nenhum no meio (`npm run dev:electron`),
+e testando manualmente `window.pdv.products.list()` pelo Console do
+DevTools, que confirmou o **backend sempre esteve correto**. O bug era
+inteiramente no React.
+
+**Causa provável**: usar várias referências (`useRef`) sincronizadas
+cada uma pelo seu próprio efeito (`useEffect(() => { xRef.current = x
+}, [x])`) cria uma pequena janela de tempo entre o estado mudar de
+verdade e cada referência terminar de atualizar — e a rolagem infinita
+podia disparar bem nessa janela, usando referências que ainda não
+tinham atualizado todas juntas.
+
+**Reescrita**: tudo relacionado a uma busca específica agora vive
+dentro de um único efeito, compartilhando uma única bandeira `ignore`
+e variáveis locais (não React state, não referências separadas) pra
+controlar o que já foi carregado — o padrão recomendado pela própria
+documentação do React pra esse tipo de problema. Nenhuma
+sincronização entre múltiplas referências independentes — só uma
+bandeira, dentro de um único fechamento.
+
+**Validação desta vez foi bem mais rigorosa**: montei um teste
+renderizando o **componente de verdade** (não uma reimplementação) com
+React e um DOM simulado (jsdom), com respostas de rede com atraso
+**variável e realista** (buscas com mais resultados demoram mais pra
+responder que buscas específicas — exatamente o cenário que inverte a
+ordem de chegada). Dois cenários testados e confirmados: buscar
+"dorflex" letra por letra rápido mostra só o resultado certo, e apagar
+a busca depois volta a mostrar o catálogo completo.
+
 ## Auditoria geral: o mesmo bug de busca em mais 3 lugares
 
 Depois de corrigir a condição de corrida na busca de Produtos, procurei
