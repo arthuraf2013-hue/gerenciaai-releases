@@ -31,6 +31,15 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      - name: Build do frontend (Vite)
+        # Sem esse passo, o dist/ (onde fica o index.html de verdade)
+        # nunca é gerado nesse ambiente — o dist/ está no .gitignore de
+        # propósito, então o checkout não traz ele pronto. Sem isso, o
+        # electron-builder empacota um app sem nenhum conteúdo dentro
+        # (tela em branco, sem erro nenhum no console, porque nem chega
+        # a carregar JavaScript nenhum).
+        run: npm run build
+
       - name: Build e publicar no GitHub Releases
         run: npx electron-builder --publish always
         env:

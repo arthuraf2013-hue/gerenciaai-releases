@@ -565,6 +565,34 @@ excluído (não conta) e filtro de categoria/busca antes de integrar.
    botão de exportar pra planilha e um lembrete de usar o Abastecimento
    quando a mercadoria chegar.
 
+## Bug crítico no workflow: app publicado sem conteúdo (tela em branco)
+
+Achado em uso real: uma versão publicada pelo GitHub Actions instalou e
+abriu **completamente em branco** — HTML vazio (`<html><head></head>
+<body></body></html>`), sem nenhum erro no console.
+
+**Causa**: o `dist/` (onde o Vite gera o `index.html` de verdade) está
+no `.gitignore` de propósito — não deveria ir pro repositório. O
+workflow (`.github/workflows/release.yml`) rodava o
+`electron-builder --publish always` **direto**, sem rodar `npm run
+build` (Vite) antes — diferente do `npm run build:electron` local, que
+sempre roda os dois em sequência. Resultado: o ambiente do GitHub
+Actions nunca tinha um `dist/` de verdade pra empacotar, e o instalador
+saía sem nenhum conteúdo dentro (por isso nenhum erro no console — nem
+chegava a carregar JavaScript nenhum).
+
+**Corrigido**: adicionei o passo `npm run build` no workflow, antes do
+`electron-builder`. Não consigo testar isso rodando de verdade aqui (o
+mesmo problema de sempre — preciso do Actions do repositório real
+pra confirmar), mas o erro em si era óbvio de identificar pela ausência
+completa de conteúdo + nenhum erro de JS.
+
+**Se isso já aconteceu com você**: a versão instalada com esse problema
+precisa ser trocada — reinstale usando um build local
+(`npm run build:electron`, que sempre gera o `dist/` corretamente antes
+de empacotar) em vez de esperar a próxima automática, e só depois disso
+publique uma versão nova já com o workflow corrigido.
+
 ## Publicação automática (GitHub Actions)
 
 Pedido de automatizar o **seu** lado do processo de atualização — builda
