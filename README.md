@@ -606,6 +606,47 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Rodada de ajustes no PDV e perfis de usuário (4 pedidos)
+
+1. **Somar quantidade em vez de duplicar linha** — bipar (ou clicar) o
+   mesmo produto duas vezes agora soma na mesma linha do carrinho
+   ("Soro Fisiológico × 4") em vez de criar uma segunda linha separada.
+   O histórico de movimentação de estoque continua registrando cada
+   adição separadamente (pra auditoria), só a exibição no carrinho é
+   que consolida. Testado em SQL puro: mesmo id de linha nas duas
+   chamadas, quantidade somada corretamente, e o cancelamento devolve
+   a quantidade acumulada certa ao estoque.
+
+2. **Senha de gerente só depois que já tiver pagamento registrado** —
+   antes, cancelar qualquer item do carrinho sempre exigia autorização
+   de gerente, mesmo só ajustando o carrinho (cliente pediu mais coisa,
+   desistiu de um item). Agora: sem nenhum pagamento ainda registrado
+   na venda, cancela direto, sem pedir PIN de ninguém — assim que
+   qualquer pagamento é adicionado, volta a exigir autorização, como
+   antes. A checagem é feita no servidor (olha se existe pagamento
+   registrado pra aquela venda), não confia só no estado da tela — mais
+   seguro contra qualquer jeito de burlar pela interface. O
+   cancelamento sem autorização continua registrado na auditoria
+   (só que sem exigir aprovação), mantendo o histórico completo.
+   Testados os dois cenários (com e sem pagamento) antes de integrar.
+
+3. **Mais telas pro operador de caixa** — estava só com "PDV" visível,
+   agora também vê Histórico, Clientes, Alertas e Devolução (a
+   devolução em si continua exigindo autorização de gerente pra
+   executar — só a busca/tela ficou acessível). Painel, Produtos,
+   Abastecimento, Fornecedores e Configurações continuam reservados
+   pra gerente/admin, por envolverem dado financeiro ou de gestão.
+
+4. **Gerente também pode criar/gerenciar usuário** — antes só admin
+   tinha acesso à tela de Usuários. Agora gerente também acessa, mas
+   com um limite de propósito: **gerente não pode criar, desativar ou
+   resetar o PIN de um administrador** — só admin mexe em outro admin,
+   evitando escalonamento de privilégio. Reforçado tanto na tela
+   (opção "Administrador" escondida, botões desabilitados nas linhas de
+   admin) quanto no backend (a validação de verdade, não só visual).
+   Testado em SQL puro: gerente cria operador ✓, gerente cria admin ✗
+   (bloqueado), gerente desativa admin ✗ (bloqueado), admin cria admin ✓.
+
 ## Linhas da tabela desalinhadas (Produtos e Clientes)
 
 A célula de ações (Editar/Excluir) usava `display: flex` sem

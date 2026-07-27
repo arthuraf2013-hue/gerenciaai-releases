@@ -2,17 +2,17 @@ const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 
-function requireAdmin(requestingUserId) {
+function requireManagerOrAdmin(requestingUserId) {
   const db = getDb();
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
-  if (!user || user.role !== 'admin') {
-    return { ok: false, error: 'Apenas um administrador pode gerenciar usuários.' };
+  if (!user || !['gerente', 'admin'].includes(user.role)) {
+    return { ok: false, error: 'Apenas um gerente ou administrador pode gerenciar usuários.' };
   }
-  return { ok: true };
+  return { ok: true, requestingRole: user.role };
 }
 
 function listAll(requestingUserId) {
-  const guard = requireAdmin(requestingUserId);
+  const guard = requireManagerOrAdmin(requestingUserId);
   if (!guard.ok) return guard;
   const db = getDb();
   const users = db.prepare('SELECT id, nome, role, ativo, criado_em FROM users ORDER BY nome').all();
@@ -20,11 +20,14 @@ function listAll(requestingUserId) {
 }
 
 function create(requestingUserId, { nome, role, pin }) {
-  const guard = requireAdmin(requestingUserId);
+  const guard = requireManagerOrAdmin(requestingUserId);
   if (!guard.ok) return guard;
 
   if (!nome || !nome.trim()) return { ok: false, error: 'Informe o nome.' };
   if (!['operador', 'gerente', 'admin'].includes(role)) return { ok: false, error: 'Papel inválido.' };
+  if (guard.requestingRole === 'gerente' && role === 'admin') {
+    return { ok: false, error: 'Um gerente não pode criar um administrador — peça pra um administrador fazer isso.' };
+  }
   if (!pin || String(pin).length < 4) return { ok: false, error: 'PIN precisa ter ao menos 4 dígitos.' };
 
   const db = getDb();
@@ -35,21 +38,29 @@ function create(requestingUserId, { nome, role, pin }) {
 }
 
 function setActive(requestingUserId, { userId, ativo }) {
-  const guard = requireAdmin(requestingUserId);
+  const guard = requireManagerOrAdmin(requestingUserId);
   if (!guard.ok) return guard;
   if (userId === requestingUserId && !ativo) return { ok: false, error: 'Você não pode desativar seu próprio usuário.' };
 
   const db = getDb();
+  if (guard.requestingRole === 'gerente') {
+    const alvo = db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
+    if (alvo?.role === 'admin') return { ok: false, error: 'Um gerente não pode alterar um administrador.' };
+  }
   db.prepare('UPDATE users SET ativo = ? WHERE id = ?').run(ativo ? 1 : 0, userId);
   return { ok: true };
 }
 
 function resetPin(requestingUserId, { userId, novoPin }) {
-  const guard = requireAdmin(requestingUserId);
+  const guard = requireManagerOrAdmin(requestingUserId);
   if (!guard.ok) return guard;
   if (!novoPin || String(novoPin).length < 4) return { ok: false, error: 'PIN precisa ter ao menos 4 dígitos.' };
 
   const db = getDb();
+  if (guard.requestingRole === 'gerente') {
+    const alvo = db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
+    if (alvo?.role === 'admin') return { ok: false, error: 'Um gerente não pode alterar um administrador.' };
+  }
   // pin_temporario = 1 força a pessoa a trocar de novo no próximo login —
   // mesmo tratamento de segurança de um PIN novo, já que o admin sabe
   // esse valor temporariamente.

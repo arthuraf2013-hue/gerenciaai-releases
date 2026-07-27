@@ -17,15 +17,15 @@ import { Clock } from './Clock';
 const NAV_ITEMS = [
   { id: 'pos', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
   { id: 'dashboard', label: 'Painel', roles: ['gerente', 'admin'] },
-  { id: 'history', label: 'Histórico', roles: ['gerente', 'admin'] },
+  { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'] },
   { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'] },
   { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'] },
-  { id: 'customers', label: 'Clientes', roles: ['gerente', 'admin'] },
+  { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
   { id: 'suppliers', label: 'Fornecedores', roles: ['gerente', 'admin'] },
-  { id: 'returns', label: 'Devolução', roles: ['gerente', 'admin'] },
-  { id: 'alerts', label: 'Alertas', roles: ['gerente', 'admin'] },
+  { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
   { id: 'settings', label: 'Configurações', roles: ['admin'] },
-  { id: 'users', label: 'Usuários', roles: ['admin'] },
+  { id: 'users', label: 'Usuários', roles: ['gerente', 'admin'] },
   { id: 'audit', label: 'Auditoria', roles: ['admin'] },
 ];
 

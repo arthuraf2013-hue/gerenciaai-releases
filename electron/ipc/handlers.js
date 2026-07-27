@@ -91,6 +91,7 @@ function registerIpcHandlers() {
 
   // --- Cancelamento seguro (exige autorização de gerente) ---
   safeHandle('sale:cancelItem', (_e, payload) => saleService.cancelSaleItem(payload));
+  safeHandle('sale:needsManagerAuthForCancel', (_e, { saleId }) => saleService.needsManagerAuthForCancel(saleId));
   safeHandle('sale:cancel', (_e, payload) => saleService.cancelSale(payload));
 
   // --- Perfil de negócio / configurações ---

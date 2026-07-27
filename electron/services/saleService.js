@@ -194,13 +194,29 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   const custom = JSON.parse(product.custom_fields || '{}');
   const avisoReceita = !!(custom.controlado && custom.exige_receita);
 
-  const itemId = randomUUID();
+  // Se o mesmo produto já está no carrinho (ainda não cancelado), soma
+  // na linha existente em vez de criar uma linha nova — bipar o mesmo
+  // item duas vezes deve virar "produto x2", não duas linhas separadas.
+  const itemExistente = db.prepare(
+    `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0`
+  ).get(saleId, productId);
+
   const movId = randomUUID();
+  let itemId;
+  let quantidadeTotal;
 
   const tx = db.transaction(() => {
-    db.prepare(
-      `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)`
-    ).run(itemId, saleId, productId, quantidade, product.preco);
+    if (itemExistente) {
+      itemId = itemExistente.id;
+      quantidadeTotal = itemExistente.quantidade + quantidade;
+      db.prepare(`UPDATE sale_items SET quantidade = ? WHERE id = ?`).run(quantidadeTotal, itemId);
+    } else {
+      itemId = randomUUID();
+      quantidadeTotal = quantidade;
+      db.prepare(
+        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)`
+      ).run(itemId, saleId, productId, quantidade, product.preco);
+    }
 
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
@@ -220,7 +236,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
 
   // avisoReceita é só um sinalizador para a UI sugerir anexar a receita —
   // nunca impede a venda, já que o estoque pode ter itens não farmacêuticos.
-  return { ok: true, itemId, precoUnitario: product.preco, avisoReceita, alerta };
+  return { ok: true, itemId, precoUnitario: product.preco, avisoReceita, alerta, quantidadeTotal };
 }
 
 /** Registra um ou mais pagamentos (suporta pagamento misto/split). */
@@ -313,37 +329,58 @@ function finalizeSale(saleId) {
 function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, candidateManagerId, pin, motivo, deviceId }) {
   const db = getDb();
 
-  const auth = authorizeManagerOverride({
-    candidateUserId: candidateManagerId,
-    pin,
-    currentOperatorId,
-    tipoEvento: 'cancelamento_item',
-    saleId,
-    saleItemId,
-    motivo,
-  });
-  if (!auth.ok) return auth;
-
   const item = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ?').get(saleItemId, saleId);
   if (!item || item.cancelado) return { ok: false, error: 'Item não encontrado ou já cancelado.' };
+
+  // Só exige autorização de gerente se a venda já tiver algum pagamento
+  // registrado — antes disso, o cliente ainda pode pedir mais ou desistir
+  // de algo, e isso é ajuste normal do carrinho, não precisa de aprovação.
+  // Depois que dinheiro (ou qualquer método) já entrou na venda, mexer
+  // no que foi vendido passa a ter risco de fraude de verdade.
+  const jaTemPagamento = db.prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(saleId).c > 0;
+
+  let autorizadoPorId = null;
+  let autorizadoPorNome = null;
+
+  if (jaTemPagamento) {
+    const auth = authorizeManagerOverride({
+      candidateUserId: candidateManagerId,
+      pin,
+      currentOperatorId,
+      tipoEvento: 'cancelamento_item',
+      saleId,
+      saleItemId,
+      motivo,
+    });
+    if (!auth.ok) return auth;
+    autorizadoPorId = auth.autorizadoPor.id;
+    autorizadoPorNome = auth.autorizadoPor.nome;
+  } else {
+    // Ainda registra na auditoria, só que sem exigir aprovação — mantém
+    // o histórico completo de quem cancelou o quê, mesmo sem gerente.
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, sale_id, sale_item_id, solicitante_id, autorizado_por_id, motivo, sucesso)
+       VALUES (?, 'cancelamento_item_pre_pagamento', ?, ?, ?, NULL, ?, 1)`
+    ).run(randomUUID(), saleId, saleItemId, currentOperatorId, motivo || null);
+  }
 
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
 
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED(), motivo_cancelamento = ? WHERE id = ?`
-    ).run(auth.autorizadoPor.id, motivo || null, saleItemId);
+    ).run(autorizadoPorId || currentOperatorId, motivo || null, saleItemId);
 
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
        VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de item', saleId, saleItemId, currentOperatorId, auth.autorizadoPor.id, deviceId);
+    ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de item', saleId, saleItemId, currentOperatorId, autorizadoPorId, deviceId);
 
     db.prepare(`UPDATE sales SET total = total - ? WHERE id = ?`).run(item.preco_unitario * item.quantidade, saleId);
   });
   tx();
 
-  return { ok: true, autorizadoPor: auth.autorizadoPor, produto: product.nome };
+  return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: jaTemPagamento };
 }
 
 function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId, pin, motivo, deviceId }) {
@@ -391,8 +428,17 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
   return { ok: true, autorizadoPor: auth.autorizadoPor };
 }
 
+/** Checagem leve, sem efeito colateral — só pra decidir se a tela deve
+ * pedir autorização de gerente antes de cancelar um item, ou deixar
+ * cancelar direto (venda ainda sem nenhum pagamento registrado). */
+function needsManagerAuthForCancel(saleId) {
+  const db = getDb();
+  const jaTemPagamento = db.prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(saleId).c > 0;
+  return { needsAuth: jaTemPagamento };
+}
+
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount,
-  addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale,
+  addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale, needsManagerAuthForCancel,
 };

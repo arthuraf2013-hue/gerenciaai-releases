@@ -98,10 +98,19 @@ export function POSScreen() {
       playErrorBeep();
       return;
     }
-    setItems((prev) => [...prev, {
-      id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
-      alerta: result.alerta,
-    }]);
+    setItems((prev) => {
+      const existeIndex = prev.findIndex((it) => it.id === result.itemId);
+      if (existeIndex >= 0) {
+        // mesmo produto já estava no carrinho — soma na linha, não duplica
+        const atualizado = [...prev];
+        atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, alerta: result.alerta };
+        return atualizado;
+      }
+      return [...prev, {
+        id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
+        alerta: result.alerta,
+      }];
+    });
     playBeep();
     setTotal((prev) => prev + result.precoUnitario * quantidade);
     setPendingQty('1'); // a quantidade digitada vale só pro próximo item — volta a 1 sozinho
@@ -153,10 +162,18 @@ export function POSScreen() {
         continue;
       }
 
-      setItems((prev) => [...prev, {
-        id: result.itemId, nome: produto.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
-        alerta: result.alerta,
-      }]);
+      setItems((prev) => {
+        const existeIndex = prev.findIndex((it) => it.id === result.itemId);
+        if (existeIndex >= 0) {
+          const atualizado = [...prev];
+          atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, alerta: result.alerta };
+          return atualizado;
+        }
+        return [...prev, {
+          id: result.itemId, nome: produto.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
+          alerta: result.alerta,
+        }];
+      });
       playBeep();
       setTotal((prev) => prev + result.precoUnitario);
       adicionados.push(produto.nome);
@@ -190,7 +207,26 @@ export function POSScreen() {
 
   useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !showAttachments });
 
-  function requestCancelItem(itemId) {
+  async function requestCancelItem(itemId) {
+    const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
+    if (!check.needsAuth) {
+      // Venda ainda sem nenhum pagamento registrado — é só ajuste do
+      // carrinho (cliente pediu mais, desistiu de algo), cancela direto
+      // sem precisar de outra pessoa autorizar.
+      const item = items.find((i) => i.id === itemId);
+      const result = await window.pdv.sale.cancelItem({
+        saleId, saleItemId: itemId, locationId: LOCATION_ID,
+        currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
+      });
+      if (result.ok) {
+        setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cancelado: true } : i)));
+        setTotal((prev) => prev - item.precoUnitario * item.quantidade);
+        setSelectedItemId(null);
+      } else {
+        setFeedback({ message: result.error, type: 'error' });
+      }
+      return;
+    }
     setAuthAction({ type: 'item', itemId });
   }
 

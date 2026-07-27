@@ -45,8 +45,8 @@ export function UserManagement() {
     if (!result.ok) setError(result.error);
   }
 
-  if (currentUser.role !== 'admin') {
-    return <div className="screen"><p className="modal-warning">Somente administradores acessam esta tela.</p></div>;
+  if (!['gerente', 'admin'].includes(currentUser.role)) {
+    return <div className="screen"><p className="modal-warning">Somente gerentes e administradores acessam esta tela.</p></div>;
   }
 
   return (
@@ -61,19 +61,26 @@ export function UserManagement() {
       <table className="data-table">
         <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th></th><th></th></tr></thead>
         <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.nome}</td>
-              <td>{u.role}</td>
-              <td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
-              <td><button className="btn-link" onClick={() => resetPin(u)}>Resetar PIN</button></td>
-              <td>
-                <button className="btn-link-danger" onClick={() => toggleActive(u)}>
-                  {u.ativo ? 'Desativar' : 'Reativar'}
-                </button>
-              </td>
-            </tr>
-          ))}
+          {users.map((u) => {
+            const bloqueadoPraGerente = currentUser.role === 'gerente' && u.role === 'admin';
+            return (
+              <tr key={u.id}>
+                <td>{u.nome}</td>
+                <td>{u.role}</td>
+                <td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
+                <td>
+                  {!bloqueadoPraGerente && <button className="btn-link" onClick={() => resetPin(u)}>Resetar PIN</button>}
+                </td>
+                <td>
+                  {!bloqueadoPraGerente && (
+                    <button className="btn-link-danger" onClick={() => toggleActive(u)}>
+                      {u.ativo ? 'Desativar' : 'Reativar'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
@@ -88,7 +95,7 @@ export function UserManagement() {
               <select value={novoRole} onChange={(e) => setNovoRole(e.target.value)}>
                 <option value="operador">Operador de caixa</option>
                 <option value="gerente">Gerente</option>
-                <option value="admin">Administrador</option>
+                {currentUser.role === 'admin' && <option value="admin">Administrador</option>}
               </select>
             </label>
             <label>PIN inicial
