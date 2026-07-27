@@ -277,7 +277,7 @@ input:focus, select:focus, textarea:focus {
 .pos-search-row .search-input { font-size: 16px; padding: 14px 16px; max-width: none; }
 
 .data-table { width: 100%; border-collapse: collapse; background: var(--color-surface); border-radius: var(--radius); overflow: hidden; }
-.data-table th, .data-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--color-border); font-size: 14px; }
+.data-table th, .data-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--color-border); font-size: 14px; vertical-align: middle; }
 .data-table th { background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface)); font-size: 12px; text-transform: uppercase; color: var(--color-text-muted); }
 .text-danger { color: var(--color-danger); font-weight: 600; }
 

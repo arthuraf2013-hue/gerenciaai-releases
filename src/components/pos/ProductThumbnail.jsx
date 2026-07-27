@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 
 /**
  * @param {{ product: object, size?: number }} props
  */
-export function ProductThumbnail({ product, size = 56 }) {
+function ProductThumbnailBase({ product, size = 56 }) {
   const [dataUrl, setDataUrl] = useState(null);
 
   useEffect(() => {
@@ -35,3 +35,10 @@ export function ProductThumbnail({ product, size = 56 }) {
     </div>
   );
 }
+
+// Numa lista de 60 produtos, sem isso cada miniatura re-renderiza (e
+// reexecuta o efeito de checagem) toda vez que QUALQUER outra coisa na
+// tela muda — digitar na busca, atualizar estoque de outro produto, etc.
+// React.memo pula a renderização quando as props (produto e tamanho)
+// não mudaram de verdade.
+export const ProductThumbnail = memo(ProductThumbnailBase);

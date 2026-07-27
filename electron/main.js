@@ -22,6 +22,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     icon: path.join(__dirname, '../build/icon.png'),
+    show: false, // só mostra a janela quando o conteúdo já estiver pronto (ver ready-to-show) — evita o flash de tela branca em PCs mais lentos, onde o carregamento demora mais
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -30,6 +31,8 @@ function createWindow() {
       plugins: true, // necessário para o visualizador de PDF nativo funcionar embutido (iframe)
     },
   });
+
+  win.once('ready-to-show', () => win.show());
 
   if (isDev) {
     win.loadURL('http://localhost:5173');

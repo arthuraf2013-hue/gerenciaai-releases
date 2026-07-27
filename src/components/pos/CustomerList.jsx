@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 export function CustomerList() {
   const { currentUser } = useSession();
   const [customers, setCustomers] = useState([]);
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 250);
   const [editing, setEditing] = useState(null); // { id, nome, telefone, cpf } | 'new' | null
   const [form, setForm] = useState({ nome: '', telefone: '', cpf: '' });
   const [selected, setSelected] = useState(null); // cliente com histórico aberto
@@ -12,17 +14,23 @@ export function CustomerList() {
   const [pagamentoValor, setPagamentoValor] = useState('');
   const [saveError, setSaveError] = useState('');
   const [soQuemDeve, setSoQuemDeve] = useState(false);
-  const queryRef = useRef(query);
-  useEffect(() => { queryRef.current = query; }, [query]);
 
+  useEffect(() => {
+    let ignore = false;
+    window.pdv.customers.list({ query: debouncedQuery || undefined }).then((list) => {
+      if (ignore) return;
+      setCustomers(Array.isArray(list) ? list : []);
+    });
+    return () => { ignore = true; };
+  }, [debouncedQuery]);
+
+  // Recarrega manualmente (depois de salvar um cliente ou registrar um
+  // pagamento) — sempre busca a lista completa mais atual, sem esperar
+  // o debounce da digitação, já que é uma ação pontual do usuário.
   async function reload() {
-    const queryDestaBusca = query;
-    const list = await window.pdv.customers.list({ query: queryDestaBusca || undefined });
-    if (queryDestaBusca !== queryRef.current) return; // busca já mudou — descarta resposta atrasada
+    const list = await window.pdv.customers.list({ query: query || undefined });
     setCustomers(Array.isArray(list) ? list : []);
   }
-
-  useEffect(() => { reload(); }, [query]);
 
   const customersExibidos = soQuemDeve
     ? [...customers].filter((c) => c.saldoFiado > 0).sort((a, b) => b.saldoFiado - a.saldoFiado)
@@ -110,9 +118,11 @@ export function CustomerList() {
               <td>{c.telefone}</td>
               <td>{c.pontos}</td>
               <td className={c.saldoFiado > 0 ? 'text-danger' : ''}>R$ {c.saldoFiado.toFixed(2)}</td>
-              <td style={{ display: 'flex', gap: 10 }}>
-                <button className="btn-link" onClick={() => startEdit(c)}>Editar</button>
-                <button className="btn-link" onClick={() => openHistory(c)}>Fiado</button>
+              <td>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button className="btn-link" onClick={() => startEdit(c)}>Editar</button>
+                  <button className="btn-link" onClick={() => openHistory(c)}>Fiado</button>
+                </div>
               </td>
             </tr>
           ))}

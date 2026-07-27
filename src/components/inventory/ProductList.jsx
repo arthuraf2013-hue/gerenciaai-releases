@@ -3,6 +3,7 @@ import { ProductForm } from './ProductForm';
 import { ProductThumbnail } from '../pos/ProductThumbnail';
 import { StockAdjustModal } from './StockAdjustModal';
 import { useSession } from '../../context/SessionContext';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 const PAGE_SIZE = 60;
 
@@ -11,6 +12,7 @@ export function ProductList() {
   const [products, setProducts] = useState([]);
   const [estoquePorProduto, setEstoquePorProduto] = useState({});
   const [query, setQuery] = useState('');
+  const debouncedQuery = useDebouncedValue(query, 250);
   const [editing, setEditing] = useState(null); // null = fechado, {} = novo, {...} = editar
   const [adjusting, setAdjusting] = useState(null); // produto sendo ajustado, ou null
   const [ioMessage, setIoMessage] = useState(null);
@@ -39,7 +41,7 @@ export function ProductList() {
 
     async function carregarPrimeiroLote() {
       setHasMore(true);
-      const list = await window.pdv.products.list({ query: query || undefined, limit: PAGE_SIZE, offset: 0 });
+      const list = await window.pdv.products.list({ query: debouncedQuery || undefined, limit: PAGE_SIZE, offset: 0 });
       if (ignore) return; // uma busca mais nova já começou — descarta esta resposta atrasada
 
       if (!Array.isArray(list)) {
@@ -55,7 +57,7 @@ export function ProductList() {
       temMais = list.length === PAGE_SIZE;
       setHasMore(temMais);
 
-      const total = await window.pdv.products.count({ query: query || undefined });
+      const total = await window.pdv.products.count({ query: debouncedQuery || undefined });
       if (!ignore) setTotalProdutos(total);
 
       const estoque = await window.pdv.stock.getForLocation({ locationId: window.APP_LOCATION_ID });
@@ -71,7 +73,7 @@ export function ProductList() {
       if (ignore || carregandoMais || !temMais) return;
       carregandoMais = true;
       setLoadingMore(true);
-      const list = await window.pdv.products.list({ query: query || undefined, limit: PAGE_SIZE, offset: produtosCarregados.length });
+      const list = await window.pdv.products.list({ query: debouncedQuery || undefined, limit: PAGE_SIZE, offset: produtosCarregados.length });
       carregandoMais = false;
       setLoadingMore(false);
       if (ignore) return;
@@ -87,7 +89,7 @@ export function ProductList() {
     carregarPrimeiroLote();
 
     return () => { ignore = true; };
-  }, [query]);
+  }, [debouncedQuery]);
 
   // Observa um marcador invisível logo depois da tabela — quando ele
   // entra na área visível da rolagem, carrega o próximo lote sozinho.
@@ -191,10 +193,12 @@ export function ProductList() {
                 <td>R$ {p.preco.toFixed(2)}</td>
                 <td className={abaixoDoMinimo ? 'text-danger' : ''}>{estoqueAtual}</td>
                 <td>{p.estoque_minimo}</td>
-                <td style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn-link" onClick={() => setEditing(p)}>Editar</button>
-                  <button className="btn-link" onClick={() => setAdjusting(p)}>Ajustar estoque</button>
-                  <button className="btn-link-danger" onClick={() => handleDelete(p)}>Excluir</button>
+                <td>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <button className="btn-link" onClick={() => setEditing(p)}>Editar</button>
+                    <button className="btn-link" onClick={() => setAdjusting(p)}>Ajustar estoque</button>
+                    <button className="btn-link-danger" onClick={() => handleDelete(p)}>Excluir</button>
+                  </div>
                 </td>
               </tr>
             );

@@ -565,6 +565,57 @@ excluído (não conta) e filtro de categoria/busca antes de integrar.
    botão de exportar pra planilha e um lembrete de usar o Abastecimento
    quando a mercadoria chegar.
 
+## Alinhamento das linhas (correção definitiva) + otimizações de desempenho
+
+**Alinhamento**: a correção anterior (`align-items: center` direto na
+célula) ainda deixava um resquício visual. Causa raiz de verdade: uma
+`<td>` com `display: flex` briga com o jeito normal como células de
+tabela calculam altura/alinhamento. Solução mais limpa: a célula volta
+a ser uma célula comum, e os botões ficam dentro de uma `<div>` própria
+que cuida do layout horizontal — sem a `<td>` brigando com o
+comportamento padrão da tabela.
+
+**Otimizações — foco em rodar bem em qualquer PC:**
+
+1. **Debounce nas buscas** (Produtos, Clientes, busca principal do
+   PDV) — antes, cada tecla digitada disparava uma consulta ao banco
+   na hora; agora espera um instante (250ms nas telas de gestão, 180ms
+   no PDV — mais curto ali porque é usado durante a venda) depois de
+   parar de digitar antes de buscar de verdade. Reduz bastante o
+   trabalho em máquinas mais lentas enquanto a pessoa ainda está
+   digitando, e reduz ainda mais a chance de qualquer condição de
+   corrida remanescente.
+2. **`React.memo` nas miniaturas de produto** — numa lista de 60
+   produtos, sem isso cada miniatura renderizava de novo (e
+   reexecutava a checagem de foto) toda vez que qualquer outra coisa na
+   tela mudasse, mesmo produtos não relacionados.
+3. **Tela não pisca mais em branco ao abrir** — a janela do Electron
+   só aparece quando o conteúdo já estiver pronto pra mostrar, em vez
+   de aparecer vazia enquanto carrega. Mais perceptível em PCs mais
+   lentos, onde o carregamento inicial demora mais.
+4. **Auditoria de vazamento de memória** — conferi todo `setInterval`
+   do app (relógio, verificação de atualização, indicador de conexão)
+   e confirmei que todos são limpos corretamente quando a tela
+   correspondente fecha — nenhum ficava rodando pra sempre em segundo
+   plano.
+5. **Confirmado**: o CSS não usa nenhum efeito pesado de GPU (blur,
+   backdrop-filter) — já estava leve nesse sentido.
+
+Não mexi em nada relacionado a hardware/GPU do Electron (tipo desligar
+aceleração de hardware) — isso ajudaria só em casos bem específicos de
+driver de vídeo com problema, e desligar à toa pioraria a experiência
+na maioria dos PCs normais.
+
+## Linhas da tabela desalinhadas (Produtos e Clientes)
+
+A célula de ações (Editar/Excluir) usava `display: flex` sem
+`align-items: center` — em linhas mais altas (produto sem SKU/categoria
+preenchidos, nome que quebra em duas linhas), os botões esticavam pra
+ocupar a altura inteira da linha em vez de ficarem centralizados,
+quebrando o alinhamento visual. Adicionado `align-items: center` nas
+duas tabelas que tinham esse padrão (Produtos e Clientes), mais
+`vertical-align: middle` em toda célula de tabela como proteção geral.
+
 ## Busca de produtos — reescrita completa (a correção anterior não era suficiente)
 
 A correção anterior (referências sincronizadas por efeitos separados)
