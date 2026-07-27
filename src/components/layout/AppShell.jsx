@@ -47,12 +47,6 @@ export function AppShell() {
 
   const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(currentUser.role));
 
-  // Operador de caixa vai direto para o PDV em tela cheia, sem menu — é o
-  // fluxo do dia a dia e não deve ter distração nem acesso a outras telas.
-  if (currentUser.role === 'operador') {
-    return <POSScreen />;
-  }
-
   return (
     <div className="app-shell">
       <nav className="sidebar">

@@ -606,6 +606,21 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Barra lateral sumida pro operador de caixa (bug da rodada anterior)
+
+Quando dei mais telas pro perfil de operador (Histórico, Clientes,
+Alertas, Devolução), esqueci de remover um desvio antigo no código que
+mandava esse perfil direto pro PDV em tela cheia, **sem nenhuma barra
+lateral** — sobrando de uma época em que o operador só tinha acesso ao
+PDV mesmo, de propósito. Isso explicava as duas coisas que você notou:
+sem barra lateral nenhuma, e nenhuma das telas novas aparecendo (porque
+o operador nunca chegava a ver o menu de navegação de jeito nenhum).
+Removido — agora o operador vê a barra lateral normal, só filtrada pra
+mostrar apenas o que o perfil dele permite (PDV, Histórico, Clientes,
+Devolução, Alertas — sem Painel, Produtos, Configurações, etc.), com
+"Sair" e a troca de tema no rodapé, do mesmo jeito que gerente/admin já
+tinham.
+
 ## Reduzindo o espaço ocupado pelo app
 
 Medi o tamanho real de cada dependência (instalando isoladamente e
