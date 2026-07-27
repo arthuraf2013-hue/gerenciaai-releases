@@ -606,6 +606,63 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Reduzindo o espaço ocupado pelo app
+
+Medi o tamanho real de cada dependência (instalando isoladamente e
+conferindo com `du`) antes de decidir o que cortar — nada foi removido
+só por suposição.
+
+**A maior descoberta, de longe: o pacote `firebase` sozinho ocupa
+121MB**, mas o projeto só usa uma parte pequena dele (`firebase/app`,
+`firebase/firestore`, `firebase/auth` — usados no
+Abastecimento/consolidado entre PDVs). O resto (mensageria, storage,
+analytics, funções, banco em tempo real, IA generativa do Firebase, e
+uma camada de compatibilidade inteira pra quem migra de uma API antiga
+que este projeto nunca usou) ia dentro do instalador sem nenhuma
+necessidade.
+
+**Testei de verdade antes de excluir** — apaguei fisicamente cada parte
+candidata e confirmei que `initializeApp`, `getFirestore`, `doc`,
+`setDoc`, `collection`, `query`, `where`, `getDocs`, `runTransaction`,
+`getAuth` e `signInAnonymously` (as únicas funções do firebase que o
+projeto realmente chama) continuam carregando e funcionando
+normalmente sem essas partes. Resultado: **121MB → 36MB**, uma queda de
+~70% só nessa dependência.
+
+Apliquei essa exclusão via configuração do `electron-builder`
+(`package.json` → `build.files`), não apagando nada do `node_modules`
+de verdade — assim `npm install` continua funcionando normal, só o
+instalador final é que não inclui essas partes. Também removi qualquer
+arquivo `.map` de depuração de dentro do `node_modules` inteiro (nunca
+são necessários rodando o app final).
+
+**Outras dependências reclassificadas** — `react`, `react-dom`,
+`qrcode` e `jsbarcode` só são usados no frontend (que o Vite já
+empacota dentro de `dist/`); o pacote bruto deles em `node_modules`
+nunca é necessário no app instalado. Movi pra `devDependencies` —
+continuam disponíveis pra build normalmente, só não vão mais dentro do
+instalador. Isso sozinho tira mais uns 8-9MB (`react-dom` é o maior,
+com 7.2MB). Conferi que `xlsx` e `bcryptjs`, ao contrário, são mesmo
+usados dentro do processo principal (backend) — esses continuam como
+dependência de verdade, não dava pra mover.
+
+**Removido por completo**: o pacote `uuid` — usado numa única linha
+(`src/main.jsx`, gerar o id do dispositivo), trocado pelo
+`crypto.randomUUID()` nativo do navegador (já vem no Electron, sem
+precisar de nenhuma biblioteca).
+
+**Compressão máxima no instalador** (`compression: "maximum"` no
+`electron-builder`) — reduz o tamanho do arquivo `.exe` final que as
+pessoas baixam (só demora um pouco mais pra gerar na hora de publicar,
+não afeta o app rodando).
+
+**Total estimado: por volta de 90-95MB a menos** no pacote final,
+principalmente graças à limpeza do firebase.
+
+**O que não mexi**: o próprio Electron/Chromium (o "motor" do app) —
+isso é um custo fixo de qualquer app feito nessa tecnologia, só mudaria
+trocando de tecnologia inteira, o que reescreveria o projeto do zero.
+
 ## Rodada de ajustes no PDV e perfis de usuário (4 pedidos)
 
 1. **Somar quantidade em vez de duplicar linha** — bipar (ou clicar) o

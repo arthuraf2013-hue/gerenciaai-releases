@@ -1,12 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { v4 as uuidv4 } from 'uuid';
 import App from './App.jsx';
 
 window.APP_DEVICE_ID = window.APP_DEVICE_ID || (() => {
   let id = localStorage.getItem('deviceId');
   if (!id) {
-    id = uuidv4();
+    id = crypto.randomUUID();
     localStorage.setItem('deviceId', id);
   }
   return id;
