@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Central GerenciaAI — Licenciamento</title>
+<style>
+  :root {
+    --bg: #10201d; --surface: #1f312d; --border: #3f5b53; --text: #eef5f2;
+    --text-muted: #aec2ba; --primary: #37ab99; --danger: #e0705d; --warning: #f2ce7a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .subtitle { color: var(--text-muted); margin: 0 0 24px; font-size: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  input:focus { outline: none; border-color: var(--primary); }
+  button { cursor: pointer; border: none; border-radius: 8px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  #login-screen { max-width: 360px; margin: 80px auto; }
+  #login-screen form { display: flex; flex-direction: column; gap: 10px; }
+  #app-screen { display: none; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+  .toolbar input { flex: 1; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  th { text-transform: uppercase; font-size: 11px; color: var(--text-muted); }
+  .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .status-ativa { background: rgba(55,171,153,0.2); color: var(--primary); }
+  .status-inativa { background: rgba(224,112,93,0.2); color: var(--danger); }
+  .status-atraso { background: rgba(242,206,122,0.2); color: var(--warning); }
+  .error { color: var(--danger); font-size: 13px; }
+  .empty { color: var(--text-muted); text-align: center; padding: 32px; }
+  .nome-input { background: transparent; border: none; color: var(--text); font-size: 14px; width: 100%; padding: 4px; border-radius: 4px; }
+  .nome-input:focus { background: var(--bg); border: 1px solid var(--border); outline: none; }
+  #sair-btn { float: right; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="card">
+    <h1>Central GerenciaAI</h1>
+    <p class="subtitle">Entre com sua conta de administrador.</p>
+    <form id="login-form">
+      <input type="email" id="login-email" placeholder="E-mail" required autocomplete="username">
+      <input type="password" id="login-senha" placeholder="Senha" required autocomplete="current-password">
+      <button type="submit" class="btn-primary">Entrar</button>
+      <p class="error" id="login-error"></p>
+    </form>
+  </div>
+</div>
+
+<div id="app-screen">
+  <div class="wrap">
+    <button id="sair-btn" class="btn-secondary">Sair</button>
+    <h1>Central GerenciaAI</h1>
+    <p class="subtitle">Todas as instalações registradas — congele ou reative o acesso de qualquer uma.</p>
+
+    <div class="toolbar">
+      <input type="text" id="busca" placeholder="Buscar por nome...">
+    </div>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Cliente</th><th>Status</th><th>Último contato</th><th>Versão</th><th>Instalada em</th><th></th></tr>
+        </thead>
+        <tbody id="tabela-corpo"></tbody>
+      </table>
+      <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  // ⚠️ Preencha com a config do SEU projeto Firebase de licenciamento
+  // — o MESMO projeto usado em electron/services/licenseService.js no
+  // app. Veja LICENCIAMENTO.md pra criar o projeto e pegar esses
+  // valores, e pra restringir quem pode logar aqui (só você).
+  const firebaseConfig = {
+    apiKey: 'COLOQUE_AQUI',
+    authDomain: 'COLOQUE_AQUI.firebaseapp.com',
+    projectId: 'COLOQUE_AQUI',
+    storageBucket: 'COLOQUE_AQUI.appspot.com',
+    messagingSenderId: 'COLOQUE_AQUI',
+    appId: 'COLOQUE_AQUI',
+  };
+
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
+  import {
+    getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut,
+  } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
+  import {
+    getFirestore, collection, onSnapshot, doc, updateDoc, query, orderBy,
+  } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  const loginScreen = document.getElementById('login-screen');
+  const appScreen = document.getElementById('app-screen');
+  const loginForm = document.getElementById('login-form');
+  const loginError = document.getElementById('login-error');
+  const tabelaCorpo = document.getElementById('tabela-corpo');
+  const vazioDiv = document.getElementById('vazio');
+  const buscaInput = document.getElementById('busca');
+
+  let instalacoes = [];
+
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    loginError.textContent = '';
+    const email = document.getElementById('login-email').value;
+    const senha = document.getElementById('login-senha').value;
+    try {
+      await signInWithEmailAndPassword(auth, email, senha);
+    } catch (err) {
+      loginError.textContent = 'E-mail ou senha inválidos.';
+    }
+  });
+
+  document.getElementById('sair-btn').addEventListener('click', () => signOut(auth));
+
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      loginScreen.style.display = 'none';
+      appScreen.style.display = 'block';
+      escutarInstalacoes();
+    } else {
+      loginScreen.style.display = 'block';
+      appScreen.style.display = 'none';
+    }
+  });
+
+  function escutarInstalacoes() {
+    const q = query(collection(db, 'installations'), orderBy('ultimoContato', 'desc'));
+    onSnapshot(q, (snap) => {
+      instalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      render();
+    });
+  }
+
+  function diasAtras(timestamp) {
+    if (!timestamp) return null;
+    const ms = Date.now() - timestamp.toDate().getTime();
+    return ms / 86400000;
+  }
+
+  function formatarData(timestamp) {
+    if (!timestamp) return '—';
+    return timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  }
+
+  async function alternarStatus(id, ativoAtual) {
+    const acao = ativoAtual ? 'congelar' : 'reativar';
+    if (!confirm(`Tem certeza que quer ${acao} essa instalação?`)) return;
+    await updateDoc(doc(db, 'installations', id), { ativo: !ativoAtual });
+  }
+
+  async function salvarNome(id, novoNome) {
+    await updateDoc(doc(db, 'installations', id), { nomeCliente: novoNome });
+  }
+
+  function render() {
+    const filtro = buscaInput.value.trim().toLowerCase();
+    const filtradas = instalacoes.filter((i) =>
+      !filtro || (i.nomeCliente || '').toLowerCase().includes(filtro) || i.id.toLowerCase().includes(filtro)
+    );
+
+    vazioDiv.style.display = filtradas.length === 0 ? 'block' : 'none';
+    tabelaCorpo.innerHTML = filtradas.map((inst) => {
+      const dias = diasAtras(inst.ultimoContato);
+      const semContatoHaTempo = dias !== null && dias >= 2;
+      let statusHtml;
+      if (!inst.ativo) {
+        statusHtml = '<span class="status-pill status-inativa">Congelada</span>';
+      } else if (semContatoHaTempo) {
+        statusHtml = `<span class="status-pill status-atraso">Sem contato há ${Math.floor(dias)}d</span>`;
+      } else {
+        statusHtml = '<span class="status-pill status-ativa">Ativa</span>';
+      }
+
+      return `
+        <tr>
+          <td>
+            <input class="nome-input" value="${(inst.nomeCliente || '').replace(/"/g, '&quot;')}"
+              placeholder="${inst.id.slice(0, 8)}..." data-id="${inst.id}">
+          </td>
+          <td>${statusHtml}</td>
+          <td>${formatarData(inst.ultimoContato)}</td>
+          <td>${inst.versaoApp || '—'}</td>
+          <td>${formatarData(inst.criadoEm)}</td>
+          <td>
+            <button class="${inst.ativo ? 'btn-danger' : 'btn-primary'}" data-toggle="${inst.id}" data-ativo="${inst.ativo}">
+              ${inst.ativo ? 'Congelar' : 'Reativar'}
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    tabelaCorpo.querySelectorAll('[data-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => alternarStatus(btn.dataset.toggle, btn.dataset.ativo === 'true'));
+    });
+    tabelaCorpo.querySelectorAll('.nome-input').forEach((input) => {
+      input.addEventListener('blur', () => salvarNome(input.dataset.id, input.value.trim()));
+    });
+  }
+
+  buscaInput.addEventListener('input', render);
+</script>
+</body>
+</html>

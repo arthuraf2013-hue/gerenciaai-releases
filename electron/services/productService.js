@@ -56,6 +56,11 @@ function findByBarcode(codigoBarras) {
   return db.prepare('SELECT * FROM products WHERE codigo_barras = ? AND ativo = 1').get(codigoBarras);
 }
 
+function findByBalancaCode(codigoBalanca) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM products WHERE codigo_balanca = ? AND ativo = 1').get(codigoBalanca);
+}
+
 function findBySku(sku) {
   const db = getDb();
   return db.prepare('SELECT * FROM products WHERE sku = ? AND ativo = 1').get(sku);
@@ -146,15 +151,15 @@ function upsert(product) {
   const existente = product.id ? db.prepare('SELECT preco FROM products WHERE id = ?').get(product.id) : null;
 
   db.prepare(
-    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields)
-     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields)
+    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields, codigo_balanca)
+     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields, @codigoBalanca)
      ON CONFLICT(id) DO UPDATE SET
        sku=excluded.sku, codigo_barras=excluded.codigo_barras, nome=excluded.nome,
        categoria=excluded.categoria, preco=excluded.preco, custo=excluded.custo,
        unidade=excluded.unidade, estoque_minimo=excluded.estoque_minimo,
        ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
        cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria,
-       custom_fields=excluded.custom_fields`
+       custom_fields=excluded.custom_fields, codigo_balanca=excluded.codigo_balanca`
   ).run({
     id,
     sku: product.sku || null,
@@ -164,6 +169,7 @@ function upsert(product) {
     preco: precoNovo,
     custo: Number(product.custo) || 0,
     unidade: product.unidade || 'un',
+    codigoBalanca: product.codigoBalanca || null,
     estoqueMinimo: Number(product.estoqueMinimo) || 0,
     ncm: product.ncm || null,
     cest: product.cest || null,
@@ -229,4 +235,37 @@ function generateInternalBarcode(productId) {
   return { ok: true, codigoBarras: codigo };
 }
 
-module.exports = { findByBarcode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory };
+/** Pratos marcados como "disponível hoje" (campo extra do perfil
+ * Restaurante) — pro cardápio do dia. Agrupa por tipo de prato (outro
+ * campo extra do mesmo perfil) quando preenchido. */
+function listDailyMenu() {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, nome, preco, custom_fields FROM products
+     WHERE ativo = 1 AND json_extract(custom_fields, '$.disponivel_hoje') = 1
+     ORDER BY nome`
+  ).all();
+  return rows.map((r) => {
+    const custom = JSON.parse(r.custom_fields || '{}');
+    return { id: r.id, nome: r.nome, preco: r.preco, tipo: custom.tipo_prato || '' };
+  });
+}
+
+/** Todos os pratos com tipo definido (perfil Restaurante/Padaria) —
+ * usado no cardápio digital, que é o cardápio permanente (diferente do
+ * "disponível hoje", que muda dia a dia). */
+function listFullMenu() {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, nome, preco, custom_fields FROM products
+     WHERE ativo = 1 AND json_extract(custom_fields, '$.tipo_prato') IS NOT NULL
+       AND json_extract(custom_fields, '$.tipo_prato') != ''
+     ORDER BY nome`
+  ).all();
+  return rows.map((r) => {
+    const custom = JSON.parse(r.custom_fields || '{}');
+    return { id: r.id, nome: r.nome, preco: r.preco, tipo: custom.tipo_prato || '' };
+  });
+}
+
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu };

@@ -40,6 +40,8 @@ export function Dashboard() {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [summary, setSummary] = useState(null);
+  const [desperdicioPorDia, setDesperdicioPorDia] = useState([]);
+  const [vendasPorOperador, setVendasPorOperador] = useState([]);
   const [erroCarregamento, setErroCarregamento] = useState('');
   const [resumoIA, setResumoIA] = useState(null);
   const [gerandoResumo, setGerandoResumo] = useState(false);
@@ -91,6 +93,12 @@ export function Dashboard() {
       }
       setSummary(result);
     });
+    window.pdv.waste.getByDay({ locationId: window.APP_LOCATION_ID, dataInicio, dataFim }).then((list) => {
+      setDesperdicioPorDia(Array.isArray(list) ? list : []);
+    });
+    window.pdv.dashboard.getSalesByOperator({ locationId: window.APP_LOCATION_ID, dataInicio, dataFim }).then((list) => {
+      setVendasPorOperador(Array.isArray(list) ? list : []);
+    });
     setResumoIA(null);
     setConsolidado(null);
   }, [dataInicio, dataFim]);
@@ -125,6 +133,7 @@ export function Dashboard() {
   useEffect(() => { carregarParados(diasParados); }, [diasParados]);
 
   const maiorQtdProduto = summary ? Math.max(1, ...summary.topProdutos.map((p) => p.quantidade)) : 1;
+  const maiorVendaOperador = Math.max(1, ...vendasPorOperador.map((o) => o.total_vendido));
 
   return (
     <div className="screen">
@@ -212,6 +221,32 @@ export function Dashboard() {
               ))}
             </section>
           </div>
+
+          {desperdicioPorDia.length > 0 && (
+            <section className="settings-section">
+              <h2>Desperdício por dia</h2>
+              <p className="screen-hint">
+                Valor perdido em pratos e insumos não aproveitados — registrado na tela Desperdício.
+              </p>
+              <VendasPorDiaChart dados={desperdicioPorDia} />
+            </section>
+          )}
+
+          {vendasPorOperador.length > 0 && (
+            <section className="settings-section">
+              <h2>Vendas por operador</h2>
+              <p className="screen-hint">Útil pra calcular comissão ou dividir gorjeta no período.</p>
+              {vendasPorOperador.map((o) => (
+                <div key={o.operador} className="bar-row">
+                  <span className="bar-label" title={o.operador}>{o.operador}</span>
+                  <div className="bar-track">
+                    <div className="bar-fill" style={{ width: `${(o.total_vendido / maiorVendaOperador) * 100}%` }} />
+                  </div>
+                  <span className="bar-value">R$ {o.total_vendido.toFixed(2)} ({o.total_vendas})</span>
+                </div>
+              ))}
+            </section>
+          )}
 
           <section className="settings-section">
             <h2>Resumo por IA</h2>

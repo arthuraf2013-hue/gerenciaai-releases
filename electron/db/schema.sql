@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS products (
   origem_mercadoria TEXT DEFAULT '0', -- 0=nacional, 1=estrangeira importação direta, etc. (tabela do Fisco)
   foto_path       TEXT, -- caminho local da foto do produto (copiada para a pasta de dados do app)
   fornecedor_id   TEXT REFERENCES suppliers(id),
+  codigo_balanca  TEXT, -- código curto (5-6 dígitos) cadastrado NA BALANÇA pra esse produto — usado pra decodificar a etiqueta de peso variável que ela imprime (diferente do código de barras comum)
   -- campos específicos de cada perfil (lote, validade, princípio
   -- ativo, controlado, exige_receita p/ farmácia, etc.) ficam aqui
   -- como JSON livre, sem exigir migração de schema por vertical.
@@ -105,6 +106,79 @@ CREATE TABLE IF NOT EXISTS product_price_history (
   criado_em    TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE INDEX IF NOT EXISTS idx_price_history_product ON product_price_history(product_id);
+
+-- Controle de mesas (restaurante) — cada mesa aponta pra uma venda
+-- (comanda) em aberto enquanto ocupada. A venda em si é a mesma tabela
+-- `sales` de sempre — só fica aberta por mais tempo, recebendo itens aos
+-- poucos, até a mesa fechar (pagamento) e voltar a ficar livre.
+CREATE TABLE IF NOT EXISTS restaurant_tables (
+  id          TEXT PRIMARY KEY,
+  location_id TEXT NOT NULL REFERENCES locations(id),
+  numero      TEXT NOT NULL,
+  nome        TEXT,
+  status      TEXT NOT NULL DEFAULT 'livre', -- livre | ocupada | aguardando_limpeza | reservada
+  pessoas     INTEGER, -- quantas pessoas na mesa, preenchido ao abrir — usado só pra dividir o valor da conta, não cria pagamentos separados
+  reservado_para TEXT, -- data/hora combinada da reserva (formato ISO), só preenchido quando status = reservada
+  sale_id     TEXT REFERENCES sales(id),
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_location_numero ON restaurant_tables(location_id, numero);
+
+-- Insumos (matéria-prima) — separado de `products` (que são os itens
+-- vendidos, como pratos prontos). Um insumo tem custo por unidade
+-- (ex: R$/kg), usado pra calcular o custo de um prato pela ficha
+-- técnica dele.
+CREATE TABLE IF NOT EXISTS ingredients (
+  id             TEXT PRIMARY KEY,
+  nome           TEXT NOT NULL,
+  unidade        TEXT NOT NULL DEFAULT 'un', -- kg, g, l, ml, un
+  custo_unitario REAL NOT NULL DEFAULT 0,
+  estoque_atual  REAL NOT NULL DEFAULT 0,
+  estoque_minimo REAL NOT NULL DEFAULT 0,
+  ativo          INTEGER NOT NULL DEFAULT 1,
+  criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
+-- Ficha técnica — quais insumos (e quanto de cada) entram num prato.
+-- Um prato é um `product` normal; isso só documenta a composição dele
+-- pra poder calcular o custo automaticamente.
+CREATE TABLE IF NOT EXISTS dish_ingredients (
+  id            TEXT PRIMARY KEY,
+  product_id    TEXT NOT NULL REFERENCES products(id),
+  ingredient_id TEXT NOT NULL REFERENCES ingredients(id),
+  quantidade    REAL NOT NULL,
+  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_dish_ingredients_product ON dish_ingredients(product_id);
+
+-- Registro de desperdício — prato ou insumo que não virou venda
+-- (sobrou do prato do dia, venceu, errou o preparo, etc). Guarda o
+-- valor gasto perdido, calculado pela ficha técnica quando possível,
+-- mas sempre editável na hora (o usuário pode digitar o valor direto).
+CREATE TABLE IF NOT EXISTS waste_log (
+  id             TEXT PRIMARY KEY,
+  location_id    TEXT NOT NULL REFERENCES locations(id),
+  tipo           TEXT NOT NULL, -- 'prato' | 'insumo'
+  product_id     TEXT REFERENCES products(id),
+  ingredient_id  TEXT REFERENCES ingredients(id),
+  quantidade     REAL NOT NULL,
+  custo_estimado REAL NOT NULL,
+  motivo         TEXT,
+  operador_id    TEXT REFERENCES users(id),
+  criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_waste_log_location ON waste_log(location_id, criado_em);
+
+-- Estado local de licenciamento — funciona mesmo sem internet, já que
+-- o cálculo de bloqueio usa só o que está salvo aqui (o contato com o
+-- servidor, quando dá certo, só atualiza esses campos). Uma única
+-- linha (id sempre 1).
+CREATE TABLE IF NOT EXISTS license_state (
+  id                 INTEGER PRIMARY KEY CHECK (id = 1),
+  ultimo_contato_ok  TEXT,    -- última vez que confirmou com o servidor com sucesso, seja ativa ou não
+  congelada_desde    TEXT,    -- quando o servidor disse pela primeira vez "inativa" (NULL enquanto ativa)
+  status_atual       TEXT NOT NULL DEFAULT 'ativa' -- cache do último status conhecido: ativa | inativa
+);
 
 -- ============================================================
 -- Lotes recebidos — cada entrada de mercadoria (via módulo de
@@ -172,7 +246,11 @@ CREATE TABLE IF NOT EXISTS sales (
   finalizada_em TEXT,
   cancelada_em  TEXT,
   cancelada_por_id TEXT REFERENCES users(id),
-  motivo_cancelamento TEXT
+  motivo_cancelamento TEXT,
+  -- Taxa de serviço opcional (restaurante) — percentual (ex: 10 = 10%)
+  -- aplicado sobre o total na hora do pagamento. Sempre opcional, começa
+  -- em 0; quem decide ativar é quem está atendendo a mesa.
+  taxa_servico_percentual REAL NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_location_status_criado ON sales(location_id, status, criado_em);
@@ -188,7 +266,18 @@ CREATE TABLE IF NOT EXISTS sale_items (
   cancelado_por_id TEXT REFERENCES users(id),
   cancelado_em    TEXT,
   motivo_cancelamento TEXT,
-  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED())
+  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  -- Controla o que já foi impresso na comanda da cozinha — assim, se
+  -- adicionar mais itens numa mesa já em andamento, só os novos saem
+  -- na impressão seguinte, sem reimprimir o que a cozinha já preparou.
+  enviado_cozinha INTEGER NOT NULL DEFAULT 0,
+  -- Observação livre do item (ex: "sem cebola", "ponto da carne mal
+  -- passado") — vai junto na comanda impressa pra cozinha.
+  observacao      TEXT,
+  -- Qual pessoa da mesa pediu esse item (1, 2, 3...) — só usado quando
+  -- a mesa tem mais de uma pessoa e alguém quer dividir a conta por
+  -- item em vez de dividir o total igualmente.
+  pessoa_numero   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
@@ -295,7 +384,44 @@ CREATE TABLE IF NOT EXISTS receipt_config (
   id                  TEXT PRIMARY KEY DEFAULT 'default',
   largura_mm          INTEGER NOT NULL DEFAULT 80 CHECK (largura_mm IN (58, 80, 210)),
   rodape_texto        TEXT,
-  imprimir_automatico INTEGER NOT NULL DEFAULT 0
+  imprimir_automatico INTEGER NOT NULL DEFAULT 0,
+  impressora_padrao   TEXT -- nome exato da impressora (Windows) escolhida como padrão; NULL = sempre perguntar
+);
+
+-- Cardápio digital personalizável (restaurante/padaria) — aparência
+-- customizável de um cardápio que pode ser exportado como página HTML
+-- própria (pra exibir num tablet/TV, ou mandar o link/arquivo pro
+-- cliente) — diferente do "Cardápio do dia" (que é só a lista simples
+-- pra imprimir dos pratos disponíveis hoje).
+CREATE TABLE IF NOT EXISTS digital_menu_config (
+  id              TEXT PRIMARY KEY DEFAULT 'default',
+  titulo          TEXT DEFAULT 'Nosso Cardápio',
+  subtitulo       TEXT,
+  cor_tema        TEXT DEFAULT '#0f6e63',
+  mostrar_precos  INTEGER NOT NULL DEFAULT 1,
+  rodape_texto    TEXT
+);
+
+-- Formato da etiqueta de peso variável impressa pela balança — varia
+-- por marca/modelo/configuração (não existe "o" formato único, cada
+-- fabricante tem os seus). "formato" escolhe entre os padrões mais
+-- comuns documentados pelos fabricantes brasileiros (Urano, Toledo,
+-- Filizola costumam seguir variações parecidas). Ver
+-- weightBarcodeService.js pra a lista completa dos formatos aceitos.
+CREATE TABLE IF NOT EXISTS scale_barcode_config (
+  id      TEXT PRIMARY KEY DEFAULT 'default',
+  formato TEXT NOT NULL DEFAULT 'peso_cod6', -- ver FORMATOS em weightBarcodeService.js
+  campo   TEXT NOT NULL DEFAULT 'peso' CHECK (campo IN ('peso', 'preco_total')) -- o que os 5 dígitos do meio representam
+);
+
+-- Configuração da balança digital conectada por porta serial (opcional
+-- — sem isso configurado, o app só aceita peso digitado manualmente ou
+-- lido da etiqueta impressa).
+CREATE TABLE IF NOT EXISTS scale_hardware_config (
+  id          TEXT PRIMARY KEY DEFAULT 'default',
+  porta       TEXT, -- ex: 'COM3' — NULL = balança digital não configurada
+  baud_rate   INTEGER DEFAULT 9600,
+  protocolo   TEXT DEFAULT 'toledo_padrao' -- ver scaleHardwareService.js
 );
 
 CREATE TABLE IF NOT EXISTS firebase_config (
@@ -339,7 +465,7 @@ CREATE TABLE IF NOT EXISTS fiscal_config (
   municipio_codigo_ibge TEXT,
   endereco_json       TEXT DEFAULT '{}', -- logradouro, número, bairro, CEP, etc. (exigido no XML da NFC-e)
   certificado_path    TEXT, -- caminho do arquivo .pfx/.p12 (A1) no disco — nunca commitar no projeto
-  certificado_senha   TEXT, -- ver nota de segurança no README (hoje em texto puro, precisa de melhoria)
+  certificado_senha   TEXT, -- criptografado via safeStorage do SO (ver electron/services/secretsService.js) — nunca em texto puro, exceto no raro caso de o SO não suportar (aí cai pra texto puro em vez de travar o app)
   ambiente            TEXT NOT NULL DEFAULT 'homologacao' CHECK (ambiente IN ('homologacao','producao')),
   serie_nfce          TEXT DEFAULT '1',
   proximo_numero_nfce INTEGER DEFAULT 1,

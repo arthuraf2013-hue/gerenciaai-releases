@@ -98,4 +98,17 @@ function listStaleProducts({ locationId, dias = 30 }) {
   ).all(locationId, dias);
 }
 
-module.exports = { getSummary, listStaleProducts };
+/** Total vendido por operador num período — pra calcular comissão ou
+ * gorjeta. Só conta vendas finalizadas (não abertas nem canceladas). */
+function getSalesByOperator({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT u.nome as operador, COUNT(*) as total_vendas, COALESCE(SUM(s.total), 0) as total_vendido
+     FROM sales s JOIN users u ON u.id = s.operador_id
+     WHERE s.location_id = ? AND s.status = 'finalizada'
+       AND date(COALESCE(s.finalizada_em, s.criado_em)) BETWEEN date(?) AND date(?)
+     GROUP BY s.operador_id ORDER BY total_vendido DESC`
+  ).all(locationId, dataInicio, dataFim);
+}
+
+module.exports = { getSummary, listStaleProducts, getSalesByOperator };

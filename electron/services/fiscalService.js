@@ -61,6 +61,10 @@ function configuracaoCompleta(config) {
   if (!config.inscricao_estadual) faltando.push('Inscrição Estadual');
   if (!config.uf) faltando.push('UF');
   if (!config.regime_tributario) faltando.push('Regime tributário');
+  if (!config.municipio_codigo_ibge) faltando.push('Código IBGE do município');
+  if (!config.endereco?.logradouro || !config.endereco?.numero || !config.endereco?.bairro || !config.endereco?.cep) {
+    faltando.push('Endereço completo (logradouro, número, bairro, CEP)');
+  }
   if (!config.certificado_path) faltando.push('Certificado digital');
   if (!config.csc_token) faltando.push('CSC (Código de Segurança do Contribuinte)');
   return faltando;

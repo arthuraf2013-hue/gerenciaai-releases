@@ -27,9 +27,42 @@ function getDb() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
   db.exec(schema);
 
+  migrateColumnsIfNeeded(db);
   seedIfEmpty(db);
 
   return db;
+}
+
+/**
+ * `CREATE TABLE IF NOT EXISTS` não adiciona coluna nova numa tabela que
+ * já existia num banco de uma instalação anterior — só cria do zero se
+ * a tabela inteira ainda não existisse. Pra colunas adicionadas depois
+ * (como `pessoas` em `restaurant_tables`), precisa desse passo extra.
+ */
+/** Adiciona uma coluna só se ela ainda não existir — protegido
+ * individualmente: se UMA falhar (banco bloqueado, permissão, etc.),
+ * loga e segue pras próximas, em vez de travar a inicialização inteira
+ * do app por causa de uma migração menor. */
+function adicionarColunaSeFaltando(database, tabela, coluna, definicaoSql) {
+  try {
+    const colunas = database.prepare(`PRAGMA table_info(${tabela})`).all().map((c) => c.name);
+    if (!colunas.includes(coluna)) {
+      database.exec(`ALTER TABLE ${tabela} ADD COLUMN ${coluna} ${definicaoSql};`);
+    }
+  } catch (err) {
+    console.error(`[migração] falhou ao adicionar ${tabela}.${coluna}:`, err);
+  }
+}
+
+function migrateColumnsIfNeeded(database) {
+  adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
+  adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sales', 'taxa_servico_percentual', 'REAL NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sale_items', 'enviado_cozinha', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sale_items', 'observacao', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sale_items', 'pessoa_numero', 'INTEGER');
+  adicionarColunaSeFaltando(database, 'receipt_config', 'impressora_padrao', 'TEXT');
+  adicionarColunaSeFaltando(database, 'products', 'codigo_balanca', 'TEXT');
 }
 
 function seedIfEmpty(database) {
@@ -111,6 +144,12 @@ function seedIfEmpty(database) {
     { campo: 'garantia_meses', label: 'Garantia (meses)', tipo: 'numero', obrigatorio: false },
   ], { alertaValidadeProxima: false });
 
+  seedProfileIfMissing('restaurante', 'Restaurante', [
+    { campo: 'tipo_prato', label: 'Tipo (entrada, prato principal, sobremesa, bebida...)', tipo: 'texto', obrigatorio: false },
+    { campo: 'tempo_preparo', label: 'Tempo de preparo (minutos)', tipo: 'numero', obrigatorio: false },
+    { campo: 'disponivel_hoje', label: 'Disponível hoje (prato do dia)', tipo: 'boolean', obrigatorio: false },
+  ], { alertaValidadeProxima: false });
+
   const aiSettingsCount = database.prepare('SELECT COUNT(*) as c FROM ai_settings').get().c;
   if (aiSettingsCount === 0) {
     database.prepare(`INSERT INTO ai_settings (id) VALUES ('default')`).run();
@@ -139,6 +178,21 @@ function seedIfEmpty(database) {
   const receiptConfigCount = database.prepare('SELECT COUNT(*) as c FROM receipt_config').get().c;
   if (receiptConfigCount === 0) {
     database.prepare(`INSERT INTO receipt_config (id) VALUES ('default')`).run();
+  }
+
+  const digitalMenuConfigCount = database.prepare('SELECT COUNT(*) as c FROM digital_menu_config').get().c;
+  if (digitalMenuConfigCount === 0) {
+    database.prepare(`INSERT INTO digital_menu_config (id) VALUES ('default')`).run();
+  }
+
+  const scaleBarcodeConfigCount = database.prepare('SELECT COUNT(*) as c FROM scale_barcode_config').get().c;
+  if (scaleBarcodeConfigCount === 0) {
+    database.prepare(`INSERT INTO scale_barcode_config (id) VALUES ('default')`).run();
+  }
+
+  const scaleHardwareConfigCount = database.prepare('SELECT COUNT(*) as c FROM scale_hardware_config').get().c;
+  if (scaleHardwareConfigCount === 0) {
+    database.prepare(`INSERT INTO scale_hardware_config (id) VALUES ('default')`).run();
   }
 
   const loyaltyConfigCount = database.prepare('SELECT COUNT(*) as c FROM loyalty_config').get().c;

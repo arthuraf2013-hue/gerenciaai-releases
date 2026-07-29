@@ -15,16 +15,18 @@ const METODOS = [
 /**
  * @param {{ saleId: string, total: number, onFinalized: () => void }} props
  */
-export function PaymentPanel({ saleId, total, onFinalized }) {
+export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0 }) {
   const { currentUser } = useSession();
   const [metodo, setMetodo] = useState('dinheiro');
   const [valor, setValor] = useState('');
+  const [trocoConfirmado, setTrocoConfirmado] = useState(0);
   const [pagamentos, setPagamentos] = useState([]);
   const [error, setError] = useState('');
   const [finalizando, setFinalizando] = useState(false);
   const [finalizada, setFinalizada] = useState(false);
   const [nfceStatus, setNfceStatus] = useState(null);
   const [printMsg, setPrintMsg] = useState('');
+  const [taxaServico, setTaxaServico] = useState(taxaInicial);
 
   // Cliente vinculado à venda — necessário pra fiado e fidelidade.
   const [customerQuery, setCustomerQuery] = useState('');
@@ -44,10 +46,18 @@ export function PaymentPanel({ saleId, total, onFinalized }) {
   const [pix, setPix] = useState(null); // { valor, payload, qrDataUrl } | null
   const [pixGerando, setPixGerando] = useState(false);
 
-  const totalAPagar = total - desconto - descontoGerente;
+  const subtotalComDesconto = total - desconto - descontoGerente;
+  const valorTaxaServico = taxaServico > 0 ? subtotalComDesconto * (taxaServico / 100) : 0;
+  const totalAPagar = subtotalComDesconto + valorTaxaServico;
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
   const restante = Math.max(0, totalAPagar - totalPago);
-  const troco = metodo === 'dinheiro' && Number(valor) > restante ? Number(valor) - restante : 0;
+  // Enquanto ainda está digitando o valor, mostra uma prévia do troco na
+  // hora — depois que o pagamento é confirmado, o campo é limpo, então
+  // passa a mostrar o troco do último pagamento que de fato gerou troco
+  // (senão ele "desaparecia" assim que confirmava, mesmo tendo pago com
+  // uma nota maior que o valor da venda).
+  const trocoPreview = metodo === 'dinheiro' && Number(valor) > restante ? Number(valor) - restante : 0;
+  const troco = valor ? trocoPreview : trocoConfirmado;
 
   function registrarPagamentoLocal(id, metodoUsado, valorAplicado) {
     setPagamentos((prev) => [...prev, { id, metodo: metodoUsado, valor: valorAplicado }]);
@@ -108,16 +118,23 @@ export function PaymentPanel({ saleId, total, onFinalized }) {
     setDescontoGerenteMotivo('');
   }
 
+  async function alterarTaxaServico(novoValor) {
+    setTaxaServico(novoValor);
+    await window.pdv.sale.setServiceCharge({ saleId, percentual: novoValor });
+  }
+
   async function addPayment() {
     const numeric = Number(valor);
     if (!numeric || numeric <= 0) return setError('Informe um valor válido.');
     if (metodo === 'fiado' && !customer) return setError('Vincule um cliente antes de usar fiado.');
     setError('');
 
+    const trocoDestePagamento = metodo === 'dinheiro' && numeric > restante ? numeric - restante : 0;
     const valorAplicado = metodo === 'dinheiro' ? Math.min(numeric, restante) : numeric;
     const result = await window.pdv.sale.addPayment({ saleId, metodo, valor: valorAplicado, detalhes: {} });
     if (!result.ok) return setError(result.error);
     registrarPagamentoLocal(result.id, metodo, valorAplicado);
+    setTrocoConfirmado(trocoDestePagamento);
     setValor('');
   }
 
@@ -186,12 +203,12 @@ export function PaymentPanel({ saleId, total, onFinalized }) {
 
         <div className="nfce-box">
           <p className="screen-hint" style={{ margin: 0 }}>
-            Emissão de nota fiscal (NFC-e) — opcional, a venda já está registrada independente disso.
+            Nota fiscal (NFC-e) — <strong>ainda em preparação</strong>, não emite de verdade nesta
+            versão. A venda já está registrada independente disso.
           </p>
-          <button className="btn-secondary" onClick={handleEmitirNFCe} disabled={nfceStatus?.emitindo}>
-            {nfceStatus?.emitindo ? 'Emitindo...' : 'Emitir NFC-e'}
+          <button className="btn-secondary" disabled title="Em preparação — ver Configurações → Fiscal">
+            Emitir NFC-e (em preparação)
           </button>
-          {nfceStatus?.mensagem && <p className="modal-error" style={{ marginTop: 8 }}>{nfceStatus.mensagem}</p>}
         </div>
         <button className="btn-primary" onClick={onFinalized}>Concluir</button>
       </div>
@@ -251,6 +268,27 @@ export function PaymentPanel({ saleId, total, onFinalized }) {
         </p>
       )}
 
+      {mostrarTaxaServico && (
+        <div className="payment-service-charge">
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox" style={{ width: 'auto' }}
+              checked={taxaServico > 0}
+              onChange={(e) => alterarTaxaServico(e.target.checked ? 10 : 0)}
+            />
+            Taxa de serviço
+          </label>
+          {taxaServico > 0 && (
+            <input
+              type="number" min="0" max="100" step="1" style={{ width: 70 }}
+              value={taxaServico}
+              onChange={(e) => alterarTaxaServico(Number(e.target.value) || 0)}
+            />
+          )}
+          {taxaServico > 0 && <span className="screen-hint" style={{ margin: 0 }}>% — R$ {valorTaxaServico.toFixed(2)}</span>}
+        </div>
+      )}
+
       <div className="payment-summary">
         <span>Total da venda</span>
         <strong>R$ {totalAPagar.toFixed(2)}</strong>
@@ -275,6 +313,12 @@ export function PaymentPanel({ saleId, total, onFinalized }) {
             placeholder={metodo === 'pix' ? 'Valor (integral ou parcial)' : 'Valor'}
             value={valor}
             onChange={(e) => setValor(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              if (metodo === 'pix') gerarQrPix(); else addPayment();
+            }}
+            autoFocus
           />
           {metodo === 'pix' ? (
             <button className="btn-secondary" onClick={gerarQrPix} disabled={pixGerando}>
@@ -283,6 +327,19 @@ export function PaymentPanel({ saleId, total, onFinalized }) {
           ) : (
             <button className="btn-secondary" onClick={addPayment}>Adicionar</button>
           )}
+        </div>
+      )}
+
+      {restante > 0 && !pix && (
+        <div className="payment-quick-values">
+          <button type="button" className="quick-value-btn" onClick={() => setValor(restante.toFixed(2))}>
+            Valor exato (R$ {restante.toFixed(2)})
+          </button>
+          {metodo === 'dinheiro' && [10, 20, 50, 100, 200].map((v) => (
+            <button key={v} type="button" className="quick-value-btn" onClick={() => setValor(String(v))}>
+              R$ {v}
+            </button>
+          ))}
         </div>
       )}
 

@@ -78,4 +78,34 @@ function closeSession({ sessionId, operadorId, valorInformado }) {
   return { ok: true, valorEsperado: summary.valorEsperado, diferenca };
 }
 
-module.exports = { getOpenSession, openSession, getSessionSummary, closeSession };
+/** Lista os fechamentos de caixa de um período — pra conferir
+ * diferenças ao longo do tempo, não só sessão por sessão. */
+function listClosedSessions({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT cs.*, ua.nome as operador_abertura_nome, uf.nome as operador_fechamento_nome
+     FROM cash_sessions cs
+     JOIN users ua ON ua.id = cs.operador_abertura_id
+     LEFT JOIN users uf ON uf.id = cs.operador_fechamento_id
+     WHERE cs.location_id = ? AND cs.status = 'fechada'
+       AND date(cs.fechada_em) BETWEEN date(?) AND date(?)
+     ORDER BY cs.fechada_em DESC`
+  ).all(locationId, dataInicio, dataFim);
+}
+
+/** Resumo do período — quantas sessões, soma das diferenças (positiva
+ * = sobrou, negativa = faltou), e quantas bateram exatamente certo. */
+function getClosedSessionsSummary({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT COUNT(*) as total_sessoes,
+       COALESCE(SUM(diferenca), 0) as soma_diferencas,
+       COALESCE(SUM(CASE WHEN diferenca = 0 THEN 1 ELSE 0 END), 0) as sessoes_certas,
+       COALESCE(SUM(CASE WHEN diferenca != 0 THEN 1 ELSE 0 END), 0) as sessoes_com_diferenca
+     FROM cash_sessions
+     WHERE location_id = ? AND status = 'fechada' AND date(fechada_em) BETWEEN date(?) AND date(?)`
+  ).get(locationId, dataInicio, dataFim);
+  return row;
+}
+
+module.exports = { getOpenSession, openSession, getSessionSummary, closeSession, listClosedSessions, getClosedSessionsSummary };

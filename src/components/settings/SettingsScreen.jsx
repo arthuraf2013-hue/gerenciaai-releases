@@ -5,6 +5,7 @@ import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
 export function SettingsScreen() {
+  const [aba, setAba] = useState('geral');
   const [locationId, setLocationId] = useState(null);
   const [locationName, setLocationName] = useState('');
   const [saved, setSaved] = useState(false);
@@ -20,10 +21,12 @@ export function SettingsScreen() {
   const [fiscalForm, setFiscalForm] = useState({
     cnpj: '', inscricaoEstadual: '', razaoSocial: '', nomeFantasia: '',
     regimeTributario: '', uf: '', ambiente: 'homologacao', certificadoPath: '', certificadoSenha: '',
-    cscId: '', cscToken: '',
+    cscId: '', cscToken: '', municipioCodigoIbge: '',
+    endereco: { logradouro: '', numero: '', complemento: '', bairro: '', cep: '', municipio: '' },
   });
   const [fiscalSaving, setFiscalSaving] = useState(false);
   const [fiscalSaved, setFiscalSaved] = useState(false);
+  const [selecionandoCertificado, setSelecionandoCertificado] = useState(false);
 
   const [pixForm, setPixForm] = useState({ pixChave: '', pixTipoChave: 'aleatoria', pixNomeRecebedor: '', pixCidade: '' });
   const [pixSaving, setPixSaving] = useState(false);
@@ -45,6 +48,21 @@ export function SettingsScreen() {
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [receiptRodape, setReceiptRodape] = useState('');
   const [receiptAutoPrint, setReceiptAutoPrint] = useState(false);
+  const [impressoras, setImpressoras] = useState([]);
+  const [carregandoImpressoras, setCarregandoImpressoras] = useState(false);
+  const [impressoraPadrao, setImpressoraPadrao] = useState('');
+  const [impressoraSaved, setImpressoraSaved] = useState(false);
+  const [testando, setTestando] = useState(false);
+  const [testMsg, setTestMsg] = useState('');
+  const [balancaForm, setBalancaForm] = useState({ formato: 'peso_cod6', campo: 'peso' });
+  const [formatosDisponiveis, setFormatosDisponiveis] = useState({});
+  const [balancaFormatoSaved, setBalancaFormatoSaved] = useState(false);
+  const [testeCodigoBarras, setTesteCodigoBarras] = useState('');
+  const [testeResultado, setTesteResultado] = useState('');
+  const [portasSeriais, setPortasSeriais] = useState([]);
+  const [carregandoPortas, setCarregandoPortas] = useState(false);
+  const [balancaHwForm, setBalancaHwForm] = useState({ porta: '', baudRate: 9600 });
+  const [balancaHwSaved, setBalancaHwSaved] = useState(false);
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [somLigado, setSomLigado] = useState(isBeepEnabled());
@@ -71,7 +89,12 @@ export function SettingsScreen() {
         razaoSocial: f.razao_social || '', nomeFantasia: f.nome_fantasia || '',
         regimeTributario: f.regime_tributario || '', uf: f.uf || '',
         ambiente: f.ambiente || 'homologacao', certificadoPath: '', certificadoSenha: '',
-        cscId: f.csc_id || '', cscToken: '',
+        cscId: f.csc_id || '', cscToken: '', municipioCodigoIbge: f.municipio_codigo_ibge || '',
+        endereco: {
+          logradouro: f.endereco?.logradouro || '', numero: f.endereco?.numero || '',
+          complemento: f.endereco?.complemento || '', bairro: f.endereco?.bairro || '',
+          cep: f.endereco?.cep || '', municipio: f.endereco?.municipio || '',
+        },
       });
     });
     window.pdv.payment.getConfig().then((p) => {
@@ -90,8 +113,12 @@ export function SettingsScreen() {
       setReceiptLargura(c.largura_mm);
       setReceiptRodape(c.rodape_texto || '');
       setReceiptAutoPrint(!!c.imprimir_automatico);
+      setImpressoraPadrao(c.impressora_padrao || '');
     });
     window.pdv.update.getStatus().then(setUpdateStatus);
+    window.pdv.weightBarcode.listFormatos().then(setFormatosDisponiveis);
+    window.pdv.weightBarcode.getConfig().then((c) => setBalancaForm({ formato: c.formato, campo: c.campo }));
+    window.pdv.scaleHardware.getConfig().then((c) => setBalancaHwForm({ porta: c.porta || '', baudRate: c.baud_rate || 9600 }));
   }, []);
 
   // Enquanto está verificando ou baixando, consulta o status de novo a
@@ -123,6 +150,13 @@ export function SettingsScreen() {
     setAiSaving(false);
     setAiSaved(true);
     setTimeout(() => setAiSaved(false), 2000);
+  }
+
+  async function handleSelectCertificado() {
+    setSelecionandoCertificado(true);
+    const result = await window.pdv.fiscal.selectCertificado();
+    setSelecionandoCertificado(false);
+    if (result.ok) setFiscalForm((prev) => ({ ...prev, certificadoPath: result.filePath }));
   }
 
   async function handleFiscalSave(e) {
@@ -215,6 +249,70 @@ export function SettingsScreen() {
     await window.pdv.print.updateReceiptConfig({ larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: checked });
   }
 
+  async function handleListarImpressoras() {
+    setCarregandoImpressoras(true);
+    const list = await window.pdv.print.listPrinters();
+    setCarregandoImpressoras(false);
+    setImpressoras(Array.isArray(list) ? list : []);
+  }
+
+  async function handleSalvarImpressora(nome) {
+    setImpressoraPadrao(nome);
+    await window.pdv.print.updateReceiptConfig({
+      larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: receiptAutoPrint, impressoraPadrao: nome,
+    });
+    setImpressoraSaved(true);
+    setTimeout(() => setImpressoraSaved(false), 2000);
+  }
+
+  async function handleTestarImpressao() {
+    setTestando(true);
+    setTestMsg('');
+    const result = await window.pdv.print.testPage();
+    setTestando(false);
+    setTestMsg(result.ok ? 'Página de teste enviada.' : `Erro: ${result.error}`);
+  }
+
+  async function handleSalvarBalancaFormato() {
+    await window.pdv.weightBarcode.updateConfig(balancaForm);
+    setBalancaFormatoSaved(true);
+    setTimeout(() => setBalancaFormatoSaved(false), 2000);
+  }
+
+  async function handleTestarEtiqueta() {
+    setTesteResultado('');
+    const codigo = testeCodigoBarras.trim();
+    const resultado = await window.pdv.weightBarcode.parse({ barcode: codigo });
+    if (!resultado) {
+      setTesteResultado('Não decodificou — confira se o código tem 13 dígitos e bate com o formato escolhido acima.');
+      return;
+    }
+    if (resultado.pesoKg !== null) {
+      setTesteResultado(`Decodificado: código da balança ${resultado.codigoBalanca}, peso ${resultado.pesoKg.toFixed(3)} kg.`);
+    } else {
+      setTesteResultado(`Decodificado: código da balança ${resultado.codigoBalanca}, preço total R$ ${resultado.precoTotal.toFixed(2)}.`);
+    }
+  }
+
+  async function handleListarPortas() {
+    setCarregandoPortas(true);
+    const list = await window.pdv.scaleHardware.listPorts();
+    setCarregandoPortas(false);
+    setPortasSeriais(Array.isArray(list) ? list : []);
+  }
+
+  async function handleSalvarPortaBalanca(porta) {
+    setBalancaHwForm((prev) => ({ ...prev, porta }));
+    await window.pdv.scaleHardware.updateConfig({ porta, baudRate: balancaHwForm.baudRate });
+    setBalancaHwSaved(true);
+    setTimeout(() => setBalancaHwSaved(false), 2000);
+  }
+
+  async function handleSalvarBaudRate(baudRate) {
+    setBalancaHwForm((prev) => ({ ...prev, baudRate }));
+    await window.pdv.scaleHardware.updateConfig({ porta: balancaHwForm.porta, baudRate });
+  }
+
   async function handleCheckUpdate() {
     setUpdateBusy(true);
     await window.pdv.update.check();
@@ -268,6 +366,14 @@ export function SettingsScreen() {
     <div className="screen">
       <h1>Configurações</h1>
 
+      <div className="settings-tabs">
+        <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}>Geral</button>
+        <button className={aba === 'impressora' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('impressora')}>Impressora</button>
+        <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}>Balança</button>
+      </div>
+
+      {aba === 'geral' && (
+      <>
       <section className="settings-section">
         <h2>Backup</h2>
         <p className="screen-hint">
@@ -340,49 +446,6 @@ export function SettingsScreen() {
             onChange={(e) => handleToggleSom(e.target.checked)}
           />
           Tocar som ao adicionar produto ao carrinho
-        </label>
-      </section>
-
-      <section className="settings-section">
-        <h2>Recibo</h2>
-        <p className="screen-hint">
-          Formato usado ao imprimir o recibo depois de uma venda. Escolha conforme a impressora da loja.
-        </p>
-        <div className="profile-cards">
-          {[
-            { valor: 80, label: 'Térmica 80mm', desc: 'Mais comum em PDV' },
-            { valor: 58, label: 'Térmica 58mm', desc: 'Impressoras portáteis/compactas' },
-            { valor: 210, label: 'Folha A4', desc: 'Impressora comum' },
-          ].map((opt) => (
-            <button
-              key={opt.valor}
-              className={`profile-card ${receiptLargura === opt.valor ? 'profile-card-active' : ''}`}
-              onClick={() => handleReceiptSave(opt.valor)}
-            >
-              <strong>{opt.label}</strong>
-              <span>{opt.desc}</span>
-            </button>
-          ))}
-        </div>
-        {receiptSaved && <p className="io-message">Formato de recibo salvo.</p>}
-
-        <form className="inline-form" onSubmit={handleReceiptRodapeSave} style={{ marginTop: 14 }}>
-          <label style={{ flex: 1 }}>Rodapé do recibo (opcional — telefone, horário, etc.)
-            <input
-              value={receiptRodape} onChange={(e) => setReceiptRodape(e.target.value)}
-              placeholder="Ex: (81) 3333-4444 — Seg a Sáb, 8h às 20h"
-            />
-          </label>
-          <button className="btn-secondary" type="submit">Salvar rodapé</button>
-        </form>
-
-        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
-          <input
-            type="checkbox" style={{ width: 'auto' }}
-            checked={receiptAutoPrint}
-            onChange={(e) => handleAutoPrintToggle(e.target.checked)}
-          />
-          Imprimir automaticamente ao finalizar a venda
         </label>
       </section>
 
@@ -471,18 +534,70 @@ export function SettingsScreen() {
                 {UFS.map((uf) => <option key={uf} value={uf}>{uf}</option>)}
               </select>
             </label>
+            <label>Município
+              <input
+                value={fiscalForm.endereco.municipio}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, endereco: { ...fiscalForm.endereco, municipio: e.target.value } })}
+                placeholder="Ex: Recife"
+              />
+            </label>
+            <label>Código IBGE do município
+              <input
+                value={fiscalForm.municipioCodigoIbge}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, municipioCodigoIbge: e.target.value })}
+                placeholder="Ex: 2611606 (7 dígitos — consulte no site do IBGE)"
+              />
+            </label>
+            <label>Logradouro
+              <input
+                value={fiscalForm.endereco.logradouro}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, endereco: { ...fiscalForm.endereco, logradouro: e.target.value } })}
+                placeholder="Ex: Rua das Flores"
+              />
+            </label>
+            <label>Número
+              <input
+                value={fiscalForm.endereco.numero}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, endereco: { ...fiscalForm.endereco, numero: e.target.value } })}
+              />
+            </label>
+            <label>Complemento (opcional)
+              <input
+                value={fiscalForm.endereco.complemento}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, endereco: { ...fiscalForm.endereco, complemento: e.target.value } })}
+              />
+            </label>
+            <label>Bairro
+              <input
+                value={fiscalForm.endereco.bairro}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, endereco: { ...fiscalForm.endereco, bairro: e.target.value } })}
+              />
+            </label>
+            <label>CEP
+              <input
+                value={fiscalForm.endereco.cep}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, endereco: { ...fiscalForm.endereco, cep: e.target.value } })}
+                placeholder="00000-000"
+              />
+            </label>
             <label>Ambiente
               <select value={fiscalForm.ambiente} onChange={(e) => setFiscalForm({ ...fiscalForm, ambiente: e.target.value })}>
                 <option value="homologacao">Homologação (testes)</option>
                 <option value="producao">Produção</option>
               </select>
             </label>
-            <label>Caminho do certificado (.pfx/.p12)
-              <input
-                value={fiscalForm.certificadoPath}
-                onChange={(e) => setFiscalForm({ ...fiscalForm, certificadoPath: e.target.value })}
-                placeholder={fiscal?.temCertificadoConfigurado ? '(já configurado)' : 'C:\\caminho\\certificado.pfx'}
-              />
+            <label>Certificado digital (.pfx/.p12)
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  value={fiscalForm.certificadoPath}
+                  readOnly
+                  placeholder={fiscal?.temCertificadoConfigurado ? '(já configurado — clique em Selecionar pra trocar)' : 'Nenhum arquivo selecionado'}
+                  style={{ flex: 1 }}
+                />
+                <button type="button" className="btn-secondary" onClick={handleSelectCertificado} disabled={selecionandoCertificado}>
+                  {selecionandoCertificado ? 'Abrindo...' : 'Selecionar arquivo...'}
+                </button>
+              </div>
             </label>
             <label>Senha do certificado
               <input
@@ -646,6 +761,179 @@ export function SettingsScreen() {
         </form>
         {aiSaved && <p className="io-message">Configuração de IA salva.</p>}
       </section>
+      </>
+      )}
+
+      {aba === 'impressora' && (
+      <>
+      <section className="settings-section">
+        <h2>Formato do recibo</h2>
+        <p className="screen-hint">
+          Formato usado ao imprimir o recibo depois de uma venda. Escolha conforme a impressora da loja.
+        </p>
+        <div className="profile-cards">
+          {[
+            { valor: 80, label: 'Térmica 80mm', desc: 'Mais comum em PDV' },
+            { valor: 58, label: 'Térmica 58mm', desc: 'Impressoras portáteis/compactas' },
+            { valor: 210, label: 'Folha A4', desc: 'Impressora comum' },
+          ].map((opt) => (
+            <button
+              key={opt.valor}
+              className={`profile-card ${receiptLargura === opt.valor ? 'profile-card-active' : ''}`}
+              onClick={() => handleReceiptSave(opt.valor)}
+            >
+              <strong>{opt.label}</strong>
+              <span>{opt.desc}</span>
+            </button>
+          ))}
+        </div>
+        {receiptSaved && <p className="io-message">Formato de recibo salvo.</p>}
+
+        <form className="inline-form" onSubmit={handleReceiptRodapeSave} style={{ marginTop: 14 }}>
+          <label style={{ flex: 1 }}>Rodapé do recibo (opcional — telefone, horário, etc.)
+            <input
+              value={receiptRodape} onChange={(e) => setReceiptRodape(e.target.value)}
+              placeholder="Ex: (81) 3333-4444 — Seg a Sáb, 8h às 20h"
+            />
+          </label>
+          <button className="btn-secondary" type="submit">Salvar rodapé</button>
+        </form>
+
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <input
+            type="checkbox" style={{ width: 'auto' }}
+            checked={receiptAutoPrint}
+            onChange={(e) => handleAutoPrintToggle(e.target.checked)}
+          />
+          Imprimir automaticamente ao finalizar a venda
+        </label>
+      </section>
+
+      <section className="settings-section">
+        <h2>Impressora padrão</h2>
+        <p className="screen-hint">
+          Sem uma impressora padrão escolhida, o sistema sempre pergunta qual usar (janela do
+          Windows) — mais seguro, mas mais lento no dia a dia. Escolhendo uma aqui, imprime direto
+          nela sem perguntar.
+        </p>
+        <button className="btn-secondary" onClick={handleListarImpressoras} disabled={carregandoImpressoras}>
+          {carregandoImpressoras ? 'Buscando impressoras...' : 'Buscar impressoras instaladas'}
+        </button>
+
+        {impressoras.length > 0 && (
+          <div className="profile-cards" style={{ marginTop: 12 }}>
+            <button
+              className={`profile-card ${!impressoraPadrao ? 'profile-card-active' : ''}`}
+              onClick={() => handleSalvarImpressora('')}
+            >
+              <strong>Nenhuma</strong>
+              <span>Sempre perguntar</span>
+            </button>
+            {impressoras.map((p) => (
+              <button
+                key={p.nome}
+                className={`profile-card ${impressoraPadrao === p.nome ? 'profile-card-active' : ''}`}
+                onClick={() => handleSalvarImpressora(p.nome)}
+              >
+                <strong>{p.nome}</strong>
+                <span>{p.padraoDoSistema ? 'Padrão do Windows' : ''}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {impressoraSaved && <p className="io-message">Impressora padrão salva.</p>}
+
+        <div style={{ marginTop: 16 }}>
+          <button className="btn-primary" onClick={handleTestarImpressao} disabled={testando}>
+            {testando ? 'Enviando...' : 'Imprimir página de teste'}
+          </button>
+          {testMsg && <p className="io-message">{testMsg}</p>}
+        </div>
+      </section>
+      </>
+      )}
+
+      {aba === 'balanca' && (
+      <>
+      <section className="settings-section">
+        <h2>Etiqueta de peso variável</h2>
+        <p className="screen-hint">
+          Não existe um único formato de etiqueta — cada balança é configurada pelo fabricante/técnico
+          de um jeito. Escolha o que bate com a etiqueta impressa pela sua balança (peça pra alguém
+          escanear uma pra conferir se o valor decodificado aqui embaixo bate com o peso real).
+        </p>
+        <label>Formato da etiqueta
+          <select value={balancaForm.formato} onChange={(e) => setBalancaForm({ ...balancaForm, formato: e.target.value })}>
+            {Object.entries(formatosDisponiveis).map(([chave, info]) => (
+              <option key={chave} value={chave}>{info.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>O que os dígitos do meio representam
+          <select value={balancaForm.campo} onChange={(e) => setBalancaForm({ ...balancaForm, campo: e.target.value })}>
+            <option value="peso">Peso (a maioria das balanças usa isso)</option>
+            <option value="preco_total">Preço total já calculado</option>
+          </select>
+        </label>
+        <button className="btn-secondary" onClick={handleSalvarBalancaFormato}>Salvar</button>
+        {balancaFormatoSaved && <p className="io-message">Salvo.</p>}
+
+        <div style={{ marginTop: 16 }}>
+          <label>Testar com um código de barras
+            <input
+              value={testeCodigoBarras}
+              onChange={(e) => setTesteCodigoBarras(e.target.value)}
+              placeholder="Escaneie ou digite os 13 dígitos de uma etiqueta"
+            />
+          </label>
+          <button className="btn-secondary" onClick={handleTestarEtiqueta}>Testar</button>
+          {testeResultado && (
+            <p className={testeResultado.startsWith('Não') ? 'modal-error' : 'io-message'} style={{ marginTop: 8 }}>{testeResultado}</p>
+          )}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>Balança digital (porta serial)</h2>
+        <p className="screen-hint">
+          Opcional — sem isso configurado, o PDV só aceita peso digitado manualmente ou lido da
+          etiqueta impressa. <strong>Essa parte não foi testada contra uma balança real</strong> — teste
+          com cuidado antes de confiar no dia a dia (ver BALANCA.md).
+        </p>
+        <button className="btn-secondary" onClick={handleListarPortas} disabled={carregandoPortas}>
+          {carregandoPortas ? 'Buscando portas...' : 'Buscar portas seriais disponíveis'}
+        </button>
+        {portasSeriais.length > 0 && (
+          <div className="profile-cards" style={{ marginTop: 12 }}>
+            <button
+              className={`profile-card ${!balancaHwForm.porta ? 'profile-card-active' : ''}`}
+              onClick={() => handleSalvarPortaBalanca('')}
+            >
+              <strong>Nenhuma</strong>
+              <span>Só manual/etiqueta</span>
+            </button>
+            {portasSeriais.map((p) => (
+              <button
+                key={p.caminho}
+                className={`profile-card ${balancaHwForm.porta === p.caminho ? 'profile-card-active' : ''}`}
+                onClick={() => handleSalvarPortaBalanca(p.caminho)}
+              >
+                <strong>{p.caminho}</strong>
+                <span>{p.fabricante}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {balancaHwSaved && <p className="io-message">Porta salva.</p>}
+
+        <label style={{ marginTop: 12 }}>Velocidade (baud rate)
+          <select value={balancaHwForm.baudRate} onChange={(e) => handleSalvarBaudRate(Number(e.target.value))}>
+            {[1200, 2400, 4800, 9600, 19200, 38400].map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </label>
+      </section>
+      </>
+      )}
 
       {saved && <p className="io-message">Configuração salva.</p>}
     </div>

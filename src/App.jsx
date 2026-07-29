@@ -4,6 +4,7 @@ import { ProfileProvider } from './context/ProfileContext';
 import { AppShell } from './components/layout/AppShell';
 import { ChangePinScreen } from './components/auth/ChangePinScreen';
 import { FloatingTutor } from './components/layout/FloatingTutor';
+import { LicenseGate } from './components/layout/LicenseGate';
 import './styles/theme.css';
 
 function LoginScreen() {
@@ -73,10 +74,12 @@ export default function App() {
   }, []);
 
   return (
-    <SessionProvider>
-      <ProfileProvider>
-        <Gate />
-      </ProfileProvider>
-    </SessionProvider>
+    <LicenseGate>
+      <SessionProvider>
+        <ProfileProvider>
+          <Gate />
+        </ProfileProvider>
+      </SessionProvider>
+    </LicenseGate>
   );
 }

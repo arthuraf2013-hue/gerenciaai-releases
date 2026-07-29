@@ -6,6 +6,7 @@ const { registerIpcHandlers } = require('./ipc/handlers');
 const timeService = require('./services/timeService');
 const backupService = require('./services/backupService');
 const updateService = require('./services/updateService');
+const licenseService = require('./services/licenseService');
 
 const isDev = !app.isPackaged;
 
@@ -71,19 +72,39 @@ app.whenReady().then(() => {
   // Backup automático (uma vez por dia) — não trava a abertura do app.
   // Verifica de novo periodicamente porque muita farmácia deixa o app
   // aberto o dia inteiro sem reiniciar.
-  backupService.runBackupIfNeeded();
-  setInterval(() => backupService.runBackupIfNeeded(), 2 * 60 * 60 * 1000);
+  backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err));
+  setInterval(() => backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err)), 2 * 60 * 60 * 1000);
 
   // Atualização automática — só AVISA sozinho (nunca baixa/instala sem
   // pedir); verifica 1 min depois de abrir (não trava a abertura do
   // app) e depois a cada 4h.
   updateService.setupAutoUpdater();
-  setTimeout(() => updateService.checkForUpdates(), 60 * 1000);
-  setInterval(() => updateService.checkForUpdates(), 4 * 60 * 60 * 1000);
+  setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
+  setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);
+
+  // Licenciamento — confere com o servidor central se a instalação
+  // está ativa. Nunca trava a abertura do app esperando rede (roda em
+  // segundo plano); o bloqueio de verdade, se acontecer, é decidido
+  // pelo próprio React a partir do estado local já salvo.
+  licenseService.checkLicense().catch((err) => console.error('[license]', err));
+  setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((err) => {
+  // Se algo travar aqui (ex: uma migração de banco falhando, ou
+  // qualquer outro erro síncrono na inicialização), sem esse catch o
+  // app fecharia silenciosamente sem abrir janela nenhuma, sem deixar
+  // nenhum rastro visível pra quem está usando — só um log que
+  // ninguém vê. Mostra um alerta nativo em vez disso.
+  console.error('[inicialização]', err);
+  const { dialog } = require('electron');
+  dialog.showErrorBox(
+    'GerenciaAI não conseguiu iniciar',
+    `Ocorreu um erro ao abrir o sistema:\n\n${err?.message || err}\n\nTente abrir o app de novo. Se continuar acontecendo, entre em contato com o suporte e informe esta mensagem.`
+  );
+  app.quit();
 });
 
 app.on('window-all-closed', () => {

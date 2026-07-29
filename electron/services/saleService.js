@@ -169,6 +169,16 @@ function removeManagerDiscount(saleId) {
   return { ok: true };
 }
 
+/** Taxa de serviço opcional (restaurante) — percentual sobre o total,
+ * sempre uma escolha de quem está atendendo, nunca automática. */
+function setServiceCharge(saleId, percentual) {
+  const valor = Number(percentual) || 0;
+  if (valor < 0 || valor > 100) return { ok: false, error: 'Percentual inválido — use um valor entre 0 e 100.' };
+  const db = getDb();
+  db.prepare('UPDATE sales SET taxa_servico_percentual = ? WHERE id = ?').run(valor, saleId);
+  return { ok: true };
+}
+
 /**
  * Adiciona um item à venda e JÁ baixa o estoque imediatamente
  * (requisito: vendas diminuem estoque diretamente, não só no fechamento).
@@ -257,6 +267,23 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
 }
 
 /** Remove um pagamento adicionado por engano — só antes de finalizar. */
+/** Observação livre de um item (ex: "sem cebola") — some junto na
+ * próxima impressão da comanda pra cozinha, mesmo que o item já tenha
+ * sido enviado antes (a observação nova precisa chegar até a cozinha). */
+function setItemNote({ saleItemId, observacao }) {
+  const db = getDb();
+  db.prepare('UPDATE sale_items SET observacao = ?, enviado_cozinha = 0 WHERE id = ?').run(observacao?.trim() || null, saleItemId);
+  return { ok: true };
+}
+
+/** Marca qual pessoa da mesa pediu um item — pra dividir a conta por
+ * item em vez de dividir o total igualmente entre todos. */
+function setItemPerson({ saleItemId, pessoaNumero }) {
+  const db = getDb();
+  db.prepare('UPDATE sale_items SET pessoa_numero = ? WHERE id = ?').run(pessoaNumero || null, saleItemId);
+  return { ok: true };
+}
+
 function removePayment({ paymentId, saleId }) {
   const db = getDb();
   const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
@@ -439,6 +466,6 @@ function needsManagerAuthForCancel(saleId) {
 
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
-  applyManagerDiscount, removeManagerDiscount,
-  addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale, needsManagerAuthForCancel,
+  applyManagerDiscount, removeManagerDiscount, setServiceCharge,
+  addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson,
 };

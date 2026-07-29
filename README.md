@@ -606,6 +606,516 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Integração com gramatura e balança (digital ou analógica)
+
+Pedido de suporte a produtos vendidos por peso, com pesagem manual, ou
+lida por código de barras de etiqueta. Guia completo em `BALANCA.md` —
+resumo aqui:
+
+1. **Cadastro** — Produtos → escolher "Unidade: Kg" mostra o campo
+   "Código na balança" (o código curto que você cadastra na própria
+   balança).
+2. **Pesagem manual** — ao clicar num produto vendido por peso (busca,
+   categoria, ou vendidos recentemente), abre um modal pedindo o peso
+   em kg, calcula o total automaticamente. Funciona pra balança
+   analógica (você lê o mostrador e digita) ou digital sem estar
+   conectada ao PC.
+3. **Etiqueta de peso variável** — ao escanear um código de barras de
+   13 dígitos, o app primeiro confere se é uma etiqueta de peso
+   (formato configurável em Configurações → Balança) antes de tratar
+   como produto comum. Pesquisei o formato real usado no Brasil (manual
+   técnico de um fabricante de balança de verdade) — implementei os 3
+   formatos mais comuns, já que não existe um único padrão universal.
+4. **Balança digital por porta serial** — configurável em Configurações
+   → Balança (buscar portas, escolher velocidade). No modal de
+   pesagem, se a balança estiver conectada, mostra o peso em tempo
+   real com um botão "Usar esse peso".
+
+**O que testei a fundo, com confiança**:
+- O cálculo do dígito verificador EAN-13 — validado contra um código
+  real e publicamente documentado.
+- A decodificação da etiqueta nos 3 formatos — gerei etiquetas de
+  teste válidas (com o dígito calculado corretamente) e confirmei que
+  o decodificador extrai o peso e o código certos de volta, incluindo
+  rejeitar uma etiqueta adulterada (dígito errado).
+- O fluxo completo de cadastro, busca por código de balança, e cálculo
+  de total no PDV.
+
+**O que não consegui testar (sem hardware real disponível aqui) — leia
+com atenção antes de confiar no dia a dia**:
+- **O formato exato da etiqueta da SUA balança** — implementei os 3
+  formatos mais documentados, mas cada fabricante/configuração pode
+  variar. Tem um testador embutido em Configurações → Balança
+  (escaneia uma etiqueta de verdade e confere se o peso decodificado
+  bate) — use antes de vender de verdade com isso.
+- **A leitura da balança digital pela porta serial** — a lógica de
+  conexão segue a documentação oficial do pacote usado, e a extração
+  do peso é genérica (funciona pra vários formatos simples de texto),
+  mas não é o protocolo exato de nenhuma marca específica, porque não
+  tive como confirmar contra hardware real. Se não funcionar com a sua
+  balança, me avise com o modelo que eu ajusto especificamente.
+
+## "Interface principal quebrada" + restrições de perfil + Cardápio Digital
+
+**Sobre a interface quebrada**: investiguei bastante, mas não consegui
+reproduzir a quebra a partir daqui:
+- Sintaxe de todo o projeto, checada arquivo por arquivo: limpa.
+- Todos os imports/exports do `src/` inteiro, um por um contra o que
+  cada arquivo realmente exporta: nenhum problema.
+- Renderizei o app inteiro de verdade com React (login → escolher
+  usuário → digitar PIN → entrar → chegar na interface principal): sem
+  nenhum erro de JavaScript capturado.
+
+**Mas achei e corrigi um ponto de risco real**, mesmo sem confirmar que
+era exatamente essa a causa: o bloco de inicialização inteiro do
+Electron (`app.whenReady().then(() => {...})`, em `main.js`) **não
+tinha nenhum `.catch()` no final**. Se qualquer coisa travasse ali de
+forma síncrona — por exemplo, uma migração de banco falhando no banco
+real de uma instalação que já passou por várias versões, algo que eu
+não consigo replicar perfeitamente aqui — **o app fecharia
+silenciosamente sem nunca abrir a janela**, sem deixar nenhum rastro
+visível. Isso bate exatamente com o tipo de sintoma "interface
+quebrada". Corrigido em três frentes:
+1. Adicionado um `.catch()` no bloco inteiro — agora, se travar,
+   aparece um alerta nativo do Windows explicando o que aconteceu, em
+   vez de fechar sem explicação.
+2. A migração de colunas do banco agora protege **cada coluna
+   individualmente** — se uma falhar, loga o erro e segue pras
+   próximas, em vez de travar a inicialização inteira por causa de uma
+   migração menor. Testei simulando uma falha no meio: confirmei que
+   as migrações seguintes continuam rodando normalmente.
+3. Todas as chamadas "dispara e esquece" do `main.js` (backup
+   automático, verificação de atualização, checagem de licença) agora
+   têm tratamento de erro — nenhuma delas conseguia derrubar o app
+   sozinha antes dessa correção, mas ficou mais seguro contra isso.
+
+**Se o problema persistir depois dessa entrega**, um print da tela ou
+o texto exato de qualquer erro que aparecer ajuda demais a continuar
+investigando — combinado com essa correção, se ainda quebrar, pelo
+menos agora deve aparecer uma mensagem explicando o motivo, em vez de
+fechar do nada.
+
+**Insumos, Desperdício, Mesas, Cardápio do dia e Cardápio Digital**
+agora só aparecem pros perfis Restaurante e Padaria (antes apareciam
+pra qualquer perfil). O agrupamento fica numa constante só
+(`PERFIS_RESTAURANTE` em `AppShell.jsx`) — se quiser incluir mais
+perfis nesse grupo depois, é só um lugar pra mexer.
+
+**Cardápio Digital** (tela nova, menu "Cardápio Digital") — diferente
+do "Cardápio do dia" (que é a lista simples pra imprimir dos pratos
+disponíveis hoje), este é o cardápio **permanente**, personalizável:
+título, subtítulo, cor do tema, mostrar/esconder preços, rodapé — com
+**preview ao vivo** dentro da própria tela. Mostra todos os pratos com
+o campo "Tipo" preenchido no cadastro, agrupados por tipo. Duas formas
+de usar o resultado: abrir direto no navegador (pra exibir num
+tablet/TV), ou exportar como um arquivo HTML único pra mandar pro
+cliente ou hospedar em algum link.
+
+## Auditoria do módulo fiscal (pedido de revisão + pergunta sobre personalizar cupom)
+
+Revisei o `fiscalService.js`, o schema, a tela de Configurações → Fiscal
+e o botão de emitir no PDV. Achado principal: **a emissão de NFC-e
+continua deliberadamente não implementada** — isso não é um bug, é uma
+decisão documentada no próprio código (comentário grande explicando
+por quê: emitir de verdade exige assinar XML com certificado real,
+montar no layout exigido pela SEFAZ, transmitir pro webservice certo,
+tratar rejeição/contingência, e nada disso dá pra fingir que funciona
+sem testar contra homologação real). Isso já estava honesto — a tela
+já dizia "em preparação" — mas achei **4 problemas reais** ao revisar
+com atenção:
+
+1. **Faltavam os campos de endereço e município no formulário** — o
+   banco e o backend já tinham espaço pra isso (`endereco_json`,
+   `municipio_codigo_ibge`) e a NFC-e **exige** endereço completo por
+   lei, mas a tela de Configurações nunca tinha campo pra preencher.
+   Mesmo com tudo mais certo, nunca teria dado pra emitir de verdade
+   por causa disso. **Corrigido** — adicionei os campos (logradouro,
+   número, complemento, bairro, CEP, município, código IBGE).
+2. **A checagem de "configuração completa" não conferia esses campos**
+   — mesmo que existissem, a validação não sabia que eram
+   obrigatórios. Corrigido, testei os 3 cenários (vazio, quase
+   completo, completo) antes de fechar.
+3. **O campo do certificado era só um texto livre** — tinha que digitar
+   o caminho completo do arquivo manualmente (`C:\caminho\...`), sem
+   nenhuma validação de que o arquivo existe. Trocado por um botão de
+   verdade que abre o seletor de arquivos do Windows.
+4. **Comentário desatualizado no banco** dizia que a senha do
+   certificado ficava "em texto puro" — não é mais verdade, já usa a
+   criptografia do próprio sistema operacional (`safeStorage`) desde
+   uma rodada anterior; só o comentário não tinha sido atualizado.
+   Corrigido.
+
+**Também ajustei o botão "Emitir NFC-e" no pagamento** — antes ficava
+clicável normalmente e só avisava que não funciona depois de clicar
+(um operador podia clicar sem querer no meio de um atendimento, na
+frente do cliente, e levar um erro técnico). Agora aparece
+desabilitado com "(em preparação)" already visível antes de qualquer
+clique.
+
+### Sobre personalizar o cupom fiscal
+
+Pesquisei as regras atuais antes de responder, já que isso é definido
+pela SEFAZ e não é opinião minha. Duas respostas diferentes dependendo
+do que você quer dizer por "cupom":
+
+- **O recibo simples de hoje** (não fiscal, é só o comprovante interno
+  da venda) — esse **já é livremente personalizável**, é o que
+  ajustamos há pouco (largura, rodapé, impressora). Nenhuma regra
+  externa limita isso.
+- **O DANFE-NFCe** (a representação impressa de uma nota fiscal de
+  verdade, quando a emissão for implementada) — é **parcialmente**
+  personalizável. A SEFAZ define um layout obrigatório (campos fixos:
+  CNPJ, chave de acesso, QR Code, discriminação de impostos, etc.) que
+  não pode ser alterado nem omitido. O que É permitido: logo da empresa
+  num espaço específico do cabeçalho, marca d'água, e ajuste de alguns
+  campos opcionais — sempre sem prejudicar a leitura das informações
+  obrigatórias. Não dá pra "desenhar do seu jeito" livremente como o
+  recibo simples.
+
+## Materiais de teste pra apresentação + aba de impressora
+
+**Planilha de teste** (`padaria-100-itens.xlsx`, entregue separado do
+`.zip`) — 117 itens de padaria (pães, bolos, confeitaria, salgados,
+bebidas, frios, biscoitos, tortas, lanches), no formato exato que o
+botão "Importar planilha" de Produtos espera — é só importar direto.
+
+**Documento de teste pro módulo de reconhecimento**
+(`nota-entrega-teste.pdf`, também separado) — o app tem DOIS módulos
+de "escanear e reconhecer" diferentes: "Anexar receita/arquivo" no PDV
+(pensado pra receita médica) e a extração de nota de compra no
+Abastecimento (pensado pra reabastecer estoque recebendo mercadoria de
+fornecedor). Pra uma padaria, o segundo é o que faz mais sentido
+demonstrar — gerei uma nota de entrega realista, misturando itens que
+batem com produtos já cadastrados na planilha (testa o casamento
+automático) e itens novos que não existem ainda (testa o cadastro
+inline). Se o que você queria testar era o outro módulo (receita no
+PDV), me avisa que gero um documento pra esse também.
+
+**Aba de Impressora** (Configurações agora tem duas abas: Geral e
+Impressora) — reuni o que já existia (formato do recibo, rodapé,
+impressão automática) numa aba própria, e adicionei duas coisas novas:
+- **Escolher uma impressora padrão** — lista as impressoras instaladas
+  no Windows; escolhendo uma, o sistema para de perguntar toda hora e
+  imprime direto nela.
+- **Página de teste** — confirma que a impressora escolhida (ou o
+  diálogo, se nenhuma estiver escolhida) está funcionando.
+
+**⚠️ Isso eu não tenho como testar de verdade aqui** — listar
+impressoras e imprimir sem diálogo depende de hardware real (Windows +
+impressora instalada), que não existe neste ambiente. Validei a lógica
+de decisão isoladamente (com/sem impressora configurada, com as opções
+certas em cada caso), mas a ligação real com o Windows só você vai
+poder confirmar. **Recomendo testar isso especificamente antes da
+apresentação de amanhã** — a possibilidade de ir imprimindo teste indo
+sem escolher impressora nenhuma primeiro (comportamento de sempre,
+mais seguro) antes de configurar uma padrão.
+
+## Central de licenciamento + congelamento por inadimplência
+
+Pedido de uma central pra ver todas as instalações e congelar uso em
+caso de não pagamento — carência de 2 dias congelada, 3 dias sem
+internet.
+
+**⚠️ Antes de tudo: preencha `LICENCIAMENTO.md` — sem isso, essa
+funcionalidade fica inofensivamente desligada** (o app tenta falar com
+um projeto Firebase que ainda não existe, falha silenciosamente, e
+segue funcionando normal — nunca bloqueia à toa por falta de
+configuração).
+
+**O que foi construído:**
+
+1. **No app** (`electron/services/licenseService.js`) — confere com um
+   servidor central a cada 6h (e ao abrir). O estado (ativa/congelada/
+   quando foi o último contato bem-sucedido) fica salvo localmente, e
+   é isso que decide o bloqueio — nunca depende de estar online na
+   hora exata, funciona mesmo totalmente offline dentro da carência.
+2. **A tela de bloqueio/aviso** (`LicenseGate.jsx`) — envolve o app
+   inteiro, inclusive antes do login. Durante a carência, mostra uma
+   faixa de aviso no topo com os dias restantes; depois da carência,
+   substitui a tela inteira por um bloqueio, deixando claro que os
+   dados continuam intactos.
+3. **O painel** (`admin-panel/index.html`) — site separado, arquivo
+   único, sem precisar de build. Login restrito (Firebase Auth), lista
+   todas as instalações com status, último contato, versão, e um botão
+   de congelar/reativar. Pode rodar local (abrir o arquivo direto) ou
+   publicar de verdade (Firebase Hosting).
+4. **Regras de segurança do Firestore** — documentadas em
+   `LICENCIAMENTO.md`: uma instalação sozinha só pode atualizar seu
+   próprio "sinal de vida", nunca o campo que decide se está ativa —
+   só quem loga no painel (você) pode congelar/reativar.
+5. **Minuta de cláusula contratual** (`CLAUSULA-LICENCIAMENTO.md`) —
+   texto sugerido pra incluir no contrato com os clientes, deixando o
+   mecanismo explícito. **Não é aconselhamento jurídico** — é ponto de
+   partida pra levar a um advogado de verdade.
+
+**Testei rigorosamente a lógica de carência isolada** (7 cenários,
+incluindo os limites exatos: 1h antes e 1h depois de cada prazo vencer,
+os dois prazos vencendo juntos, e o fluxo completo de congelar →
+continuar congelada em checagens seguintes sem resetar a data →
+reativar limpando o estado) e a lógica de exibição do painel — tudo em
+simulação, sem depender de um Firebase de verdade.
+
+**O que eu não consegui testar**: a integração real com o Firebase.
+Não tenho como criar um projeto Firebase de verdade neste ambiente, só
+escrever o código e testar a lógica isoladamente. Siga o passo a passo
+completo em `LICENCIAMENTO.md` — ele inclui uma seção de teste guiado
+antes de confiar nisso pra valer.
+
+## As 8 sugestões escolhidas
+
+Lista que dei de sugestões, e você escolheu implementar todas (1 a 8).
+
+1. **Divisão de conta por item** — cada item do carrinho de uma mesa
+   ganha um seletor "Pessoa 1/2/3..." (só aparece quando a mesa tem
+   mais de uma pessoa). Um "Ver divisão por pessoa" mostra o subtotal
+   de cada uma, junto com um grupo "Não atribuído" pros itens que
+   ainda não foram marcados.
+2. **Reserva com data/hora** — ao reservar uma mesa livre, pede a
+   data/hora combinada (opcional). Aparece no card da mesa reservada,
+   e é limpa automaticamente quando a mesa abre ou a reserva é
+   cancelada.
+3. **Cardápio do dia** — nova tela (só no perfil Restaurante),
+   mostrando os pratos marcados como "Disponível hoje" (campo que já
+   existia no cadastro do produto), agrupados por tipo, com botão de
+   imprimir.
+4. **Comissão por garçom** — seção "Vendas por operador" no Painel,
+   soma quanto cada um vendeu no período (só vendas finalizadas) —
+   útil pra calcular comissão ou dividir gorjeta.
+5. **Gráfico de desperdício no Painel** — "Desperdício por dia",
+   reaproveitando o mesmo componente de gráfico das vendas.
+6. **Exportar desperdício** — botão de planilha na tela Desperdício,
+   mesmo padrão já usado em Vendas/Auditoria/Lista de compra.
+7. **Fechamento de caixa consolidado** — nova tela "Fechamentos de
+   caixa" (gerente/admin), juntando vários fechamentos de um período
+   num relatório só, com soma das diferenças e quantos bateram certo.
+8. **Busca rápida global (Ctrl+K)** — abre uma paleta de busca em
+   qualquer tela, digita e pula direto pra onde quiser, com as setas
+   do teclado ou clicando. Uma dica discreta ("Ctrl+K: busca rápida")
+   aparece no rodapé da barra lateral pra quem não souber do atalho.
+
+Testei os itens 1, 2 e 7 (os que mexiam em banco/cálculo) em SQL puro
+antes de integrar — divisão por pessoa, migração da data de reserva, e
+o resumo consolidado de caixa (ignorando sessão ainda aberta,
+calculando diferença certa).
+
+## Mais três funcionalidades (por iniciativa própria)
+
+Continuação do pedido de melhorar a área de restaurante.
+
+**Observação por item** (ex: "sem cebola", "ponto da carne mal
+passado") — botão "+ Observação" em cada item do carrinho da mesa,
+abre um campo de texto livre. Vai junto na próxima comanda impressa
+pra cozinha, destacada com ⚠. Detalhe: se você editar a observação de
+um item que **já tinha sido enviado** pra cozinha antes, ele volta a
+aparecer na próxima impressão — senão a cozinha nunca ficaria sabendo
+da mudança.
+
+**Tempo de ocupação da mesa** — cada mesa ocupada mostra "há Xmin" (ou
+"há Xh Ymin"), atualizado sozinho a cada minuto, usando o relógio
+sincronizado do app (não o relógio cru do Windows). Passando de 90
+minutos, o texto fica destacado — ajuda a perceber qual mesa está
+demorando mais, sem precisar ficar de olho o tempo todo.
+
+**Transferir mesa** — botão no topo da comanda, escolhe pra qual mesa
+livre mover (grupo pediu pra trocar de lugar). A comanda inteira
+(itens, pessoas, total) vai junto; a mesa de origem fica aguardando
+limpeza, já que alguém sentou lá. Testei em SQL puro antes de fechar:
+depois da transferência, o total e o número de pessoas da comanda
+continuam intactos na mesa nova.
+
+## Duas funcionalidades novas (por iniciativa própria)
+
+Pedido de adicionar o que eu achasse interessante — escolhi duas coisas
+que se encaixam diretamente no que já foi construído pro restaurante.
+
+**Taxa de serviço opcional (10%)** — na tela de pagamento de uma mesa
+(não aparece no PDV balcão — só faz sentido em restaurante), uma
+checkbox liga uma taxa de serviço, com 10% já sugerido mas editável
+pra qualquer percentual. Aplica sobre o valor **depois** dos descontos
+(fidelidade e desconto de gerente), nunca antes — testei três cenários
+antes de fechar: com taxa, com taxa + desconto junto, e sem taxa
+nenhuma (não muda nada).
+
+**Comanda pra cozinha** — botão no topo da tela da mesa, imprime só os
+itens ainda não enviados (evita reimprimir o que a cozinha já está
+preparando quando alguém adiciona mais coisa na mesma mesa depois).
+Sem preço, sem forma de pagamento — só o que precisa ser preparado,
+com letra grande. Testei especificamente o cenário que mais importa
+aqui: pedir feijoada + suco, imprimir, depois pedir uma sobremesa —
+confirma que a segunda impressão traz **só** a sobremesa, não repete
+os dois primeiros itens.
+
+Ambas exigiram uma migração segura pra bancos já existentes (colunas
+novas em `sales` e `sale_items`) — testadas simulando um banco "antigo"
+antes de fechar, como já virou padrão nas últimas rodadas.
+
+## Número de pessoas e 4 status de mesa
+
+Antes as mesas só tinham livre/ocupada. Agora:
+
+- **Ao abrir uma mesa livre ou reservada**, pede quantas pessoas —
+  usado só pra mostrar "R$ X,XX por pessoa" no rodapé da comanda (ajuda
+  a dividir a conta na hora), não separa pagamentos automaticamente.
+- **4 status**: livre (cinza) → ocupada (vermelho, mostra pessoas +
+  total) → **aguardando limpeza** (dourado, depois que a conta é paga —
+  precisa marcar como limpa antes de abrir de novo) → livre de novo.
+  Também dá pra marcar uma mesa livre como **reservada** (teal) e
+  cancelar a reserva, ou abrir ela direto quando o grupo chegar.
+- Migração de banco segura pra quem já tinha a tabela de mesas de uma
+  entrega anterior (`ALTER TABLE` adicionando a coluna nova só se ela
+  ainda não existir) — testei simulando um banco "antigo" sem a coluna
+  antes de fechar, confirmando que não perde nenhuma mesa já cadastrada.
+
+Testei o ciclo completo em simulação: livre → abre com 4 pessoas →
+paga → vai pra aguardando limpeza (não direto pra livre) → marca como
+limpa → volta a livre → reserva → o grupo da reserva chega e abre a
+mesa normalmente.
+
+## Insumos, ficha técnica e registro de desperdício
+
+Três peças novas, encaixadas na mesma sessão do controle de mesas:
+
+**Insumos** (tela nova, menu "Insumos") — cadastro de matéria-prima
+(farinha, carne, óleo...) com custo por unidade (ex: R$/kg) e,
+opcionalmente, um controle de estoque simples próprio (separado do
+estoque de produtos prontos).
+
+**Ficha técnica** (dentro do cadastro de cada produto, seção
+expansível igual ao histórico de preço) — monta a receita de um prato
+escolhendo insumos e quantidade de cada um. O **custo do prato é
+calculado automaticamente** somando quantidade × custo unitário de
+cada insumo da receita — mostrado ali mesmo, e reaproveitado no
+desperdício.
+
+**Desperdício** (tela nova, menu "Desperdício") — registra prato
+pronto que não foi vendido (sobrou do prato do dia, por exemplo) ou
+insumo que estragou. O **valor gasto vem sugerido automaticamente**
+quando dá pra calcular (pela ficha técnica do prato, ou pelo custo do
+insumo) — mas sempre editável, dá pra digitar o valor na mão também,
+como pedido. Mostra o total perdido no período (hoje/semana/mês) e o
+histórico completo, com motivo e quem registrou.
+
+Testei o fluxo inteiro em simulação antes de fechar: cadastrar insumos
+→ montar ficha técnica de um prato → calcular o custo certo (0,3kg
+feijão + 0,2kg carne = R$9,40, testado) → registrar desperdício de 2
+porções não vendidas → valor perdido bate certo (R$18,80) → resumo do
+período soma certo somando prato + insumo desperdiçados juntos.
+
+Essas três telas ficam visíveis pra gerente/admin **independente do
+perfil de negócio ativo** — não travei só pra restaurante, porque uma
+padaria também pode querer calcular custo de pão pelos insumos
+(farinha, fermento, etc.).
+
+## Controle de mesas (restaurante) + perfil de Padaria e Restaurante
+
+Pedido pra implantar em uma padaria e um restaurante. A padaria já
+tinha perfil pronto de uma rodada anterior (Padaria / Confeitaria —
+validade, peso em gramas). Pro restaurante, dois pedaços bem
+diferentes de tamanho:
+
+**Perfil "Restaurante"** (rápido — mesma arquitetura de perfis de
+sempre): campos extras pra tipo de prato (entrada, principal,
+sobremesa, bebida...), tempo de preparo, e "disponível hoje" — esse
+último é o que resolve o "preço do dia": cadastra o prato uma vez,
+ajusta o preço quando quiser (já com histórico de alteração de preço,
+de uma rodada anterior), e usa esse campo pra marcar se está
+disponível naquele dia sem precisar excluir o produto.
+
+**Controle de mesas** (grande — funcionalidade nova de verdade, não só
+configuração):
+
+- Tela **Mesas** — grade visual (livre em cinza, ocupada em vermelho
+  com o total já lançado), criar/excluir mesa. Só aparece no menu
+  quando o perfil ativo é "Restaurante" (pra não poluir o menu de quem
+  usa outro perfil).
+- Clicar numa mesa livre abre uma **comanda** nova pra ela; clicar
+  numa mesa ocupada retoma a comanda que já estava em andamento — os
+  itens já lançados aparecem certinho, reconstruídos do banco.
+- Dentro da mesa: a mesma busca de produto, categorias e pagamento do
+  PDV normal (literalmente os mesmos componentes reaproveitados) — só
+  que os itens vão se acumulando na comanda daquela mesa específica ao
+  longo do tempo, em vez de precisar fechar a venda de uma vez como no
+  balcão.
+- Cancelar um item segue a mesma regra que já vale no PDV: só pede
+  autorização de gerente se a comanda já tiver algum pagamento
+  registrado.
+- Fechar a conta (pagamento) libera a mesa automaticamente de volta
+  pra "livre".
+- As vendas de mesas aparecem no Histórico normalmente — é a mesma
+  tabela de vendas de sempre, só que a comanda fica aberta por mais
+  tempo (recebendo itens aos poucos) em vez de fechar na hora.
+
+**Arquitetura**: não criei um sistema de vendas paralelo — o "backend"
+de mesas é uma camada fina em cima do que já existia (`addItem`,
+`cancelItem`, `addPayment`, `finalizeSale` já trabalhavam com um
+`saleId` explícito, sem depender de "a venda atual do operador"), só
+adicionando uma tabela que liga cada mesa à sua comanda em aberto.
+Testei o fluxo inteiro (criar mesa → abrir → adicionar item → total
+bate certo → reconstruir carrinho → pagar → finalizar → mesa libera)
+em simulação antes de fechar.
+
+## Cores de aviso/crítico feias no modo escuro (e estranhas no claro)
+
+A cor de fundo das linhas de alerta (Alertas de estoque, Auditoria,
+Abastecimento, Histórico) era calculada misturando uma cor âmbar fixa
+com a cor de superfície do tema na hora — no modo escuro, misturar
+laranja com o teal escuro do tema produzia um marrom/oliva sujo, exatamente
+o que aparecia no seu print.
+
+**Correção**: troquei o cálculo automático por tons escolhidos à mão
+pra cada tema (`--color-warning-bg`/`--color-critical-bg` e as cores de
+texto correspondentes) — no escuro, um dourado e um vermelho-tijolo
+quentes de propósito, sem depender de misturar com o teal do tema; no
+claro, um amarelo-creme e um vermelho-rosado suaves. Conferi
+visualmente os dois temas lado a lado com o fundo normal da tabela
+antes de fechar. Também apliquei a mesma cor de texto no balão de
+alerta do carrinho (usava a mesma mistura problemática).
+
+## Botão de fechar caixa + atalho de Enter no pagamento
+
+Pedido de melhorar o botão de fechar caixa e verificar mais pontos na
+mesma área.
+
+- **Botão de fechar caixa** — era só um link sublinhado no cabeçalho,
+  mesmo peso visual que os botões de ajuda ao lado. Virou um botão de
+  verdade, com ícone (cofre) — combina melhor com a importância da
+  ação (fim de turno, precisa contar dinheiro).
+- **Enter confirma o pagamento** — o campo de valor no pagamento não
+  reagia a Enter, só clicando em "Adicionar" com o mouse. Agora Enter
+  confirma direto (ou gera o QR Pix, se for esse o método selecionado)
+  — bem mais rápido pro uso repetitivo do dia a dia. O campo também já
+  vem com foco automático ao abrir a tela de pagamento.
+- **Revisei** as telas de abrir e fechar caixa por inteiro — já
+  estavam sólidas (resumo claro, cálculo de diferença, tratamento de
+  erro) — abrir caixa já confirmava com Enter naturalmente, por já ser
+  um formulário de verdade.
+
+## Troco sumindo depois de confirmar o pagamento + melhorias no fluxo
+
+Bug real reportado em uso: pagar R$50 numa venda de R$8,50 não mostrava
+nenhum troco — ficava R$0,00.
+
+**Causa**: o troco era calculado direto em cima do campo de digitação
+do valor — e esse campo é limpo assim que o pagamento é confirmado
+(pra ficar pronto pro próximo pagamento). No instante em que a tela
+teria que mostrar "Troco: R$41,50", o campo já estava vazio, e o
+cálculo dava zero.
+
+**Correção**: o troco calculado na hora de confirmar o pagamento agora
+fica guardado separado, sobrevivendo à limpeza do campo. De brinde,
+enquanto ainda está digitando o valor (antes de confirmar), já mostra
+uma prévia do troco em tempo real — não precisa nem confirmar pra saber
+quanto vai devolver.
+
+**Duas adições úteis nessa mesma tela:**
+- **Botões de valor rápido** — "Valor exato" (preenche o que falta,
+  qualquer método) e as notas mais comuns (R$10/20/50/100/200) quando
+  for dinheiro — evita digitar toda vez.
+- **Contador de vendas do dia no PDV** — "X venda(s) hoje", ao lado do
+  nome do operador. Só a contagem, sem nenhum valor financeiro (isso
+  continua reservado pro Painel, que é território de gerente/admin) —
+  só um retorno rápido do próprio ritmo do turno.
+
 ## Barra lateral sumida pro operador de caixa (bug da rodada anterior)
 
 Quando dei mais telas pro perfil de operador (Histórico, Clientes,

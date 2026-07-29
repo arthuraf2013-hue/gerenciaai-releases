@@ -177,5 +177,5 @@ async function checkConnection() {
 
 module.exports = {
   getFirebaseConfigPublic, updateFirebaseConfig, getStatus, registerPdv,
-  getFirestoreConnection, getCnpjLimpo, checkConnection,
+  getFirestoreConnection, getCnpjLimpo, checkConnection, getOrCreateDeviceUid,
 };

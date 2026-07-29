@@ -49,7 +49,11 @@ export function POSScreen() {
   const [showAttachments, setShowAttachments] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [recentRefreshKey, setRecentRefreshKey] = useState(0);
+  const [vendasHoje, setVendasHoje] = useState(null);
   const [pendingQty, setPendingQty] = useState('1');
+  const [pesandoProduto, setPesandoProduto] = useState(null); // produto vendido por peso aguardando o peso ser informado
+  const [pesoDigitado, setPesoDigitado] = useState('');
+  const [leituraBalanca, setLeituraBalanca] = useState(null);
   const [openAlertId, setOpenAlertId] = useState(null);
 
   // Fecha o balão de alerta se clicar em qualquer outro lugar da tela.
@@ -68,6 +72,18 @@ export function POSScreen() {
     window.pdv.cash.getOpenSession({ locationId: LOCATION_ID }).then((session) => setCashSession(session?.id ? session : null));
   }, []);
 
+  // Contagem simples de vendas finalizadas hoje por este operador — só
+  // pra dar um retorno rápido do próprio ritmo do turno, sem expor
+  // faturamento nem nada financeiro (isso fica reservado pro Painel).
+  async function carregarVendasHoje() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const list = await window.pdv.sale.listByRange({ locationId: LOCATION_ID, dataInicio: hoje, dataFim: hoje });
+    if (Array.isArray(list)) {
+      setVendasHoje(list.filter((s) => s.status === 'finalizada' && s.operador_id === currentUser.id).length);
+    }
+  }
+  useEffect(() => { carregarVendasHoje(); }, []);
+
   // Ao entrar no PDV, retoma uma venda "aberta" existente deste operador
   // (ex: app fechado no meio de uma venda) em vez de sempre abrir uma nova.
   useEffect(() => {
@@ -83,8 +99,8 @@ export function POSScreen() {
     }
   }, [saleId, currentUser, cashSession]);
 
-  const addProductToCart = useCallback(async (product) => {
-    const quantidade = Math.max(1, Number(pendingQty) || 1);
+  const addProductToCart = useCallback(async (product, quantidadeExplicita) => {
+    const quantidade = quantidadeExplicita !== undefined ? quantidadeExplicita : Math.max(1, Number(pendingQty) || 1);
     const result = await window.pdv.sale.addItem({
       saleId,
       productId: product.id,
@@ -194,8 +210,63 @@ export function POSScreen() {
     if (houveProblema) playErrorBeep();
   }, [saleId, currentUser]);
 
+  // Decide o que fazer quando o produto é escolhido por clique (busca ou
+  // categoria) — se for vendido por peso, pede o peso antes de adicionar;
+  // senão, adiciona direto como sempre.
+  const handleSelectProduct = useCallback((product) => {
+    if (product.unidade === 'kg') {
+      setPesoDigitado('');
+      setPesandoProduto(product);
+      return;
+    }
+    addProductToCart(product);
+  }, [addProductToCart]);
+
+  async function confirmarPesagemManual(e) {
+    e.preventDefault();
+    const peso = Number(pesoDigitado.replace(',', '.'));
+    if (!peso || peso <= 0) return;
+    await addProductToCart(pesandoProduto, peso);
+    setPesandoProduto(null);
+  }
+
+  // Enquanto o modal de pesagem está aberto, tenta conectar na balança
+  // digital (se estiver configurada) e escuta o peso em tempo real —
+  // desconecta assim que o modal fecha, pra não prender a porta serial
+  // sem necessidade o resto do tempo.
+  useEffect(() => {
+    if (!pesandoProduto) { setLeituraBalanca(null); return; }
+    window.pdv.scaleHardware.conectar();
+    const id = setInterval(async () => {
+      const leitura = await window.pdv.scaleHardware.getLeituraAtual();
+      setLeituraBalanca(leitura);
+    }, 500);
+    return () => {
+      clearInterval(id);
+      window.pdv.scaleHardware.desconectar();
+    };
+  }, [pesandoProduto]);
+
   const handleScan = useCallback(async (codigoBarras) => {
     if (!saleId) return;
+
+    // Antes de tratar como código de barras comum, confere se é uma
+    // etiqueta de peso variável impressa pela balança (formato
+    // configurado em Configurações → Balança) — essas etiquetas já
+    // trazem o peso embutido, não precisa perguntar de novo.
+    const etiquetaPeso = await window.pdv.weightBarcode.parse({ barcode: codigoBarras });
+    if (etiquetaPeso) {
+      const produtoPorPeso = await window.pdv.products.findByBalancaCode({ codigoBalanca: etiquetaPeso.codigoBalanca });
+      if (!produtoPorPeso) {
+        setFeedback({ message: `Etiqueta de peso lida, mas nenhum produto está cadastrado com o código de balança ${etiquetaPeso.codigoBalanca}.`, type: 'error' });
+        playErrorBeep();
+        return;
+      }
+      const peso = etiquetaPeso.pesoKg !== null ? etiquetaPeso.pesoKg : etiquetaPeso.precoTotal / produtoPorPeso.preco;
+      addProductToCart(produtoPorPeso, peso);
+      return;
+    }
+
     const product = await window.pdv.products.findByBarcode(codigoBarras);
     if (!product) {
       setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
@@ -315,9 +386,17 @@ export function POSScreen() {
         <div className="pos-header-right">
           <Clock compact />
           <span className="pos-operator">Operador: {currentUser?.nome}</span>
+          {vendasHoje !== null && <span className="pos-operator" title="Vendas finalizadas por você hoje">{vendasHoje} venda(s) hoje</span>}
           <button className="help-btn" onClick={() => setShowTour(true)} title="Ver tutorial do PDV">?</button>
           <button className="help-btn help-btn-training" onClick={() => setShowTraining(true)} title="Apresentação de treinamento">🎓</button>
-          <button className="btn-link" style={{ color: 'white' }} onClick={() => setShowCloseCash(true)}>Fechar caixa</button>
+          <button className="close-cash-btn" onClick={() => setShowCloseCash(true)} title="Fechar o caixa e conferir o dinheiro do turno">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="7" width="18" height="13" rx="2" />
+              <path d="M8 7V5a4 4 0 0 1 8 0v2" />
+              <circle cx="12" cy="13.5" r="1.5" />
+            </svg>
+            Fechar caixa
+          </button>
         </div>
       </header>
 
@@ -338,7 +417,7 @@ export function POSScreen() {
             </button>
           </div>
         </div>
-        <ProductSearchBox onSelect={addProductToCart} />
+        <ProductSearchBox onSelect={handleSelectProduct} />
         <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
           Anexar receita / arquivo
         </button>
@@ -347,7 +426,7 @@ export function POSScreen() {
       <p className={`scan-feedback scan-feedback-${feedback.type}`}>{feedback.message}</p>
 
       <div className="pos-main-scroll">
-        <CategoryProductBrowser onSelectProduct={addProductToCart} />
+        <CategoryProductBrowser onSelectProduct={handleSelectProduct} />
 
         <ul className="cart-list">
           {itensAtivos.map((item) => (
@@ -392,7 +471,7 @@ export function POSScreen() {
         </ul>
       </div>
 
-      <RecentlySoldStrip locationId={LOCATION_ID} refreshKey={recentRefreshKey} onSelectProduct={addProductToCart} />
+      <RecentlySoldStrip locationId={LOCATION_ID} refreshKey={recentRefreshKey} onSelectProduct={handleSelectProduct} />
 
       <footer className="pos-footer">
         <div className="pos-total">Total: <strong>R$ {total.toFixed(2)}</strong></div>
@@ -415,9 +494,52 @@ export function POSScreen() {
               setItems([]);
               setTotal(0);
               setSaleId(null);
+              carregarVendasHoje();
             }} />
             <button className="btn-secondary" onClick={() => setShowPayment(false)}>Voltar ao carrinho</button>
           </div>
+        </div>
+      )}
+
+      {pesandoProduto && (
+        <div className="modal-overlay">
+          <form className="modal-card" onSubmit={confirmarPesagemManual}>
+            <h2>Peso — {pesandoProduto.nome}</h2>
+            <p className="screen-hint" style={{ margin: '0 0 8px' }}>R$ {pesandoProduto.preco.toFixed(2)} / kg</p>
+
+            {leituraBalanca?.conectada && leituraBalanca?.pesoKg !== null && (
+              <div className="scale-live-reading">
+                <span>Balança conectada: <strong>{leituraBalanca.pesoKg.toFixed(3)} kg</strong></span>
+                <button type="button" className="btn-secondary" onClick={() => setPesoDigitado(String(leituraBalanca.pesoKg))}>
+                  Usar esse peso
+                </button>
+              </div>
+            )}
+            {leituraBalanca && !leituraBalanca.conectada && (
+              <p className="screen-hint" style={{ margin: '0 0 8px' }}>
+                Balança digital não conectada — digite o peso manualmente (lido na balança analógica ou etiqueta).
+              </p>
+            )}
+
+            <label>Peso (kg)
+              <input
+                type="text" inputMode="decimal"
+                value={pesoDigitado}
+                onChange={(e) => setPesoDigitado(e.target.value)}
+                placeholder="Ex: 0.530"
+                autoFocus required
+              />
+            </label>
+            {pesoDigitado && !Number.isNaN(Number(pesoDigitado.replace(',', '.'))) && Number(pesoDigitado.replace(',', '.')) > 0 && (
+              <p className="io-message" style={{ margin: '0 0 8px' }}>
+                Total: R$ {(Number(pesoDigitado.replace(',', '.')) * pesandoProduto.preco).toFixed(2)}
+              </p>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setPesandoProduto(null)}>Cancelar</button>
+              <button type="submit" className="btn-primary">Adicionar</button>
+            </div>
+          </form>
         </div>
       )}
 

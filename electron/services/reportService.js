@@ -2,6 +2,7 @@ const XLSX = require('xlsx');
 const { listSalesByRange } = require('./saleService');
 const authService = require('./authService');
 const supplierService = require('./supplierService');
+const wasteService = require('./wasteService');
 
 const STATUS_LABEL = { aberta: 'Em aberto', finalizada: 'Finalizada', cancelada: 'Cancelada' };
 const TIPO_EVENTO_LABEL = {
@@ -92,4 +93,27 @@ function exportPurchaseSuggestions(filePath, { locationId }) {
   return { ok: true, total: rows.length };
 }
 
-module.exports = { exportSalesReport, exportAuditReport, exportPurchaseSuggestions };
+function exportWasteReport(filePath, { locationId, dataInicio, dataFim }) {
+  const registros = wasteService.listWaste({ locationId, dataInicio, dataFim });
+
+  const rows = registros.map((r) => ({
+    data: r.criado_em,
+    tipo: r.tipo === 'prato' ? 'Prato' : 'Insumo',
+    item: r.tipo === 'prato' ? r.prato_nome : r.insumo_nome,
+    quantidade: r.quantidade,
+    valor_perdido: r.custo_estimado,
+    motivo: r.motivo || '',
+    operador: r.operador_nome || '',
+  }));
+
+  const sheet = XLSX.utils.json_to_sheet(rows, {
+    header: ['data', 'tipo', 'item', 'quantidade', 'valor_perdido', 'motivo', 'operador'],
+  });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Desperdício');
+  XLSX.writeFile(workbook, filePath);
+
+  return { ok: true, total: rows.length };
+}
+
+module.exports = { exportSalesReport, exportAuditReport, exportPurchaseSuggestions, exportWasteReport };

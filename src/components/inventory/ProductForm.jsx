@@ -5,7 +5,7 @@ import { useSession } from '../../context/SessionContext';
 
 const emptyProduct = {
   id: null, sku: '', codigoBarras: '', nome: '', categoria: '',
-  preco: '', custo: '', unidade: 'un', estoqueMinimo: '', customFields: {},
+  preco: '', custo: '', unidade: 'un', codigoBalanca: '', estoqueMinimo: '', customFields: {},
   ncm: '', cest: '', cfop: '', cstCsosn: '', origemMercadoria: '0',
 };
 
@@ -22,6 +22,11 @@ export function ProductForm({ product, onSaved, onCancel }) {
   const [fotoBusy, setFotoBusy] = useState(false);
   const [historicoPreco, setHistoricoPreco] = useState([]);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
+  const [insumosDisponiveis, setInsumosDisponiveis] = useState([]);
+  const [receita, setReceita] = useState([]); // [{ ingredientId, quantidade }]
+  const [mostrarFicha, setMostrarFicha] = useState(false);
+  const [custoCalculado, setCustoCalculado] = useState(0);
+  const [fichaSalva, setFichaSalva] = useState('');
   const [barcodeBusy, setBarcodeBusy] = useState(false);
   const barcodeCanvasRef = useRef(null);
 
@@ -53,6 +58,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         preco: product.preco ?? '',
         custo: product.custo ?? '',
         unidade: product.unidade || 'un',
+        codigoBalanca: product.codigo_balanca || '',
         estoqueMinimo: product.estoque_minimo ?? '',
         customFields: JSON.parse(product.custom_fields || '{}'),
         ncm: product.ncm || '', cest: product.cest || '', cfop: product.cfop || '',
@@ -66,10 +72,16 @@ export function ProductForm({ product, onSaved, onCancel }) {
       window.pdv.products.listPriceHistory({ productId: product.id }).then((list) => {
         setHistoricoPreco(Array.isArray(list) ? list : []);
       });
+      window.pdv.ingredient.list({}).then((list) => setInsumosDisponiveis(Array.isArray(list) ? list : []));
+      window.pdv.ingredient.getRecipe({ productId: product.id }).then((list) => {
+        setReceita(Array.isArray(list) ? list.map((r) => ({ ingredientId: r.ingredient_id, quantidade: r.quantidade })) : []);
+      });
+      window.pdv.ingredient.computeDishCost({ productId: product.id }).then(setCustoCalculado);
     } else {
       setForm(emptyProduct);
       setFotoDataUrl(null);
       setHistoricoPreco([]);
+      setReceita([]);
     }
   }, [product]);
 
@@ -97,6 +109,27 @@ export function ProductForm({ product, onSaved, onCancel }) {
     setForm((prev) => ({ ...prev, customFields: { ...prev.customFields, [campo]: value } }));
   }
 
+  function adicionarLinhaReceita() {
+    setReceita((prev) => [...prev, { ingredientId: '', quantidade: '' }]);
+  }
+
+  function atualizarLinhaReceita(index, campo, valor) {
+    setReceita((prev) => prev.map((r, i) => (i === index ? { ...r, [campo]: valor } : r)));
+  }
+
+  function removerLinhaReceita(index) {
+    setReceita((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  async function salvarFichaTecnica() {
+    setFichaSalva('');
+    const itens = receita.filter((r) => r.ingredientId && Number(r.quantidade) > 0);
+    await window.pdv.ingredient.setRecipe({ productId: form.id, itens });
+    const custo = await window.pdv.ingredient.computeDishCost({ productId: form.id });
+    setCustoCalculado(custo);
+    setFichaSalva('Ficha técnica salva.');
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -120,6 +153,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
       preco: Number(form.preco),
       custo: form.custo ? Number(form.custo) : 0,
       unidade: form.unidade || 'un',
+      codigoBalanca: form.unidade === 'kg' ? (form.codigoBalanca || undefined) : undefined,
       estoqueMinimo: form.estoqueMinimo ? Number(form.estoqueMinimo) : 0,
       customFields: form.customFields,
       ncm: form.ncm || null,
@@ -211,8 +245,25 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <input type="number" step="0.01" value={form.custo} onChange={(e) => setField('custo', e.target.value)} />
         </label>
         <label>Unidade
-          <input value={form.unidade} onChange={(e) => setField('unidade', e.target.value)} />
+          <select value={form.unidade} onChange={(e) => setField('unidade', e.target.value)}>
+            <option value="un">Unidade</option>
+            <option value="kg">Kg (vendido por peso)</option>
+            <option value="g">Grama</option>
+            <option value="l">Litro</option>
+            <option value="ml">Mililitro</option>
+            <option value="cx">Caixa</option>
+            <option value="pct">Pacote</option>
+          </select>
         </label>
+        {form.unidade === 'kg' && (
+          <label>Código do produto na balança
+            <input
+              value={form.codigoBalanca || ''}
+              onChange={(e) => setField('codigoBalanca', e.target.value)}
+              placeholder="Ex: 001234 (cadastrado na própria balança)"
+            />
+          </label>
+        )}
         <label>Estoque mínimo (alerta)
           <input type="number" step="0.01" value={form.estoqueMinimo} onChange={(e) => setField('estoqueMinimo', e.target.value)} />
         </label>
@@ -270,6 +321,50 @@ export function ProductForm({ product, onSaved, onCancel }) {
       )}
 
       {error && <p className="modal-error">{error}</p>}
+
+      {form.id && (
+        <div style={{ gridColumn: '1 / -1', marginTop: 12 }}>
+          <button type="button" className="btn-link" onClick={() => setMostrarFicha((v) => !v)}>
+            {mostrarFicha ? 'Esconder' : 'Ver'} ficha técnica (insumos)
+            {custoCalculado > 0 && ` — custo calculado: R$ ${custoCalculado.toFixed(2)}`}
+          </button>
+          {mostrarFicha && (
+            <div style={{ marginTop: 8, border: '1px solid var(--color-border)', borderRadius: 8, padding: 12 }}>
+              <p className="screen-hint" style={{ margin: '0 0 10px' }}>
+                Insumos e quantidades que entram numa porção deste prato — usado pra calcular o custo
+                automaticamente (inclusive nos registros de desperdício). Cadastre os insumos em
+                Insumos, no menu, antes de montar a ficha aqui.
+              </p>
+              {receita.map((linha, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                  <select
+                    value={linha.ingredientId}
+                    onChange={(e) => atualizarLinhaReceita(i, 'ingredientId', e.target.value)}
+                    style={{ flex: 2 }}
+                  >
+                    <option value="">Selecione o insumo...</option>
+                    {insumosDisponiveis.map((ins) => (
+                      <option key={ins.id} value={ins.id}>{ins.nome} ({ins.unidade})</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number" step="0.01" min="0" placeholder="Quantidade"
+                    value={linha.quantidade}
+                    onChange={(e) => atualizarLinhaReceita(i, 'quantidade', e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button type="button" className="btn-link-danger" onClick={() => removerLinhaReceita(i)}>Remover</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button type="button" className="btn-secondary" onClick={adicionarLinhaReceita}>+ Adicionar insumo</button>
+                <button type="button" className="btn-secondary" onClick={salvarFichaTecnica}>Salvar ficha técnica</button>
+              </div>
+              {fichaSalva && <p className="io-message" style={{ marginTop: 8 }}>{fichaSalva}</p>}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="modal-actions">
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancelar</button>

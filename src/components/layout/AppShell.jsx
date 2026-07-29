@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useProfile } from '../../context/ProfileContext';
 import { POSScreen } from '../pos/POSScreen';
+import { RestaurantTables } from '../pos/RestaurantTables';
+import { DailyMenu } from '../inventory/DailyMenu';
+import { DigitalMenuScreen } from '../inventory/DigitalMenuScreen';
 import { SalesHistory } from '../pos/SalesHistory';
+import { CashReport } from '../pos/CashReport';
+import { CommandPalette } from './CommandPalette';
 import { ProductList } from '../inventory/ProductList';
+import { IngredientManager } from '../inventory/IngredientManager';
+import { WasteLog } from '../inventory/WasteLog';
 import { SupplyScreen } from '../inventory/SupplyScreen';
 import { StockAlerts } from '../inventory/StockAlerts';
 import { SettingsScreen } from '../settings/SettingsScreen';
@@ -14,11 +22,23 @@ import { SupplierList } from '../pos/SupplierList';
 import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
 
+// Perfis que trabalham com prato/receita/cardápio — usado pra decidir
+// quais telas específicas de restaurante aparecem no menu. Hoje inclui
+// Padaria também, já que ela também monta receita com insumos
+// (farinha, fermento etc.) e pode ter itens tipo "prato do dia".
+const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
+
 const NAV_ITEMS = [
   { id: 'pos', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'tables', label: 'Mesas', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'dailymenu', label: 'Cardápio do dia', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'digitalmenu', label: 'Cardápio Digital', roles: ['gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
   { id: 'dashboard', label: 'Painel', roles: ['gerente', 'admin'] },
   { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'cashreport', label: 'Fechamentos de caixa', roles: ['gerente', 'admin'] },
   { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'] },
+  { id: 'ingredients', label: 'Insumos', roles: ['gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'waste', label: 'Desperdício', roles: ['gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
   { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'] },
   { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
   { id: 'suppliers', label: 'Fornecedores', roles: ['gerente', 'admin'] },
@@ -31,6 +51,7 @@ const NAV_ITEMS = [
 
 export function AppShell() {
   const { currentUser, logout } = useSession();
+  const { profile } = useProfile();
   const [screen, setScreen] = useState('pos');
   const [pdvNumero, setPdvNumero] = useState(null);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
@@ -45,7 +66,12 @@ export function AppShell() {
     localStorage.setItem('gerenciaai:tema', darkMode ? 'escuro' : 'claro');
   }, [darkMode]);
 
-  const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(currentUser.role));
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (!item.roles.includes(currentUser.role)) return false;
+    if (!item.perfil) return true;
+    const perfisPermitidos = Array.isArray(item.perfil) ? item.perfil : [item.perfil];
+    return perfisPermitidos.includes(profile?.id);
+  });
 
   return (
     <div className="app-shell">
@@ -55,6 +81,7 @@ export function AppShell() {
           <span>GerenciaAI</span>
         </div>
         <div className="sidebar-clock-wrap"><Clock /></div>
+        <p className="sidebar-shortcut-hint">Ctrl+K: busca rápida</p>
         <ul>
           {visibleItems.map((item) => (
             <li key={item.id}>
@@ -106,11 +133,17 @@ export function AppShell() {
       </nav>
       <main className="main-content">
         {screen === 'pos' && <POSScreen />}
+        {screen === 'tables' && <RestaurantTables />}
+        {screen === 'dailymenu' && <DailyMenu />}
+        {screen === 'digitalmenu' && <DigitalMenuScreen />}
         {screen === 'dashboard' && <Dashboard />}
         {screen === 'history' && (
           <SalesHistory onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
         )}
+        {screen === 'cashreport' && <CashReport />}
         {screen === 'products' && <ProductList />}
+        {screen === 'ingredients' && <IngredientManager />}
+        {screen === 'waste' && <WasteLog />}
         {screen === 'supply' && <SupplyScreen />}
         {screen === 'customers' && <CustomerList />}
         {screen === 'suppliers' && <SupplierList />}
@@ -122,6 +155,7 @@ export function AppShell() {
         {screen === 'users' && <UserManagement />}
         {screen === 'audit' && <AuditLog />}
       </main>
+      <CommandPalette items={visibleItems} onNavigate={setScreen} />
     </div>
   );
 }

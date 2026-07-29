@@ -1,6 +1,13 @@
 const { ipcMain, dialog, BrowserWindow } = require('electron');
 const authService = require('../services/authService');
 const productService = require('../services/productService');
+const digitalMenuService = require('../services/digitalMenuService');
+const weightBarcodeService = require('../services/weightBarcodeService');
+const scaleHardwareService = require('../services/scaleHardwareService');
+const licenseService = require('../services/licenseService');
+const tableService = require('../services/tableService');
+const ingredientService = require('../services/ingredientService');
+const wasteService = require('../services/wasteService');
 const stockService = require('../services/stockService');
 const saleService = require('../services/saleService');
 const profileService = require('../services/profileService');
@@ -52,6 +59,7 @@ function registerIpcHandlers() {
 
   // --- Produtos ---
   safeHandle('product:findByBarcode', (_e, { codigoBarras }) => productService.findByBarcode(codigoBarras));
+  safeHandle('product:findByBalancaCode', (_e, { codigoBalanca }) => productService.findByBalancaCode(codigoBalanca));
   safeHandle('product:list', (_e, opts) => productService.list(opts));
   safeHandle('product:count', (_e, opts) => productService.count(opts));
   safeHandle('product:listCategories', () => productService.listCategories());
@@ -87,11 +95,44 @@ function registerIpcHandlers() {
   safeHandle('sale:addItem', (_e, payload) => saleService.addItem(payload));
   safeHandle('sale:addPayment', (_e, payload) => saleService.addPayment(payload));
   safeHandle('sale:removePayment', (_e, payload) => saleService.removePayment(payload));
+  safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
+  safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
   safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSale(saleId));
 
   // --- Cancelamento seguro (exige autorização de gerente) ---
   safeHandle('sale:cancelItem', (_e, payload) => saleService.cancelSaleItem(payload));
   safeHandle('sale:needsManagerAuthForCancel', (_e, { saleId }) => saleService.needsManagerAuthForCancel(saleId));
+
+  // --- Controle de mesas (restaurante) ---
+  safeHandle('table:list', (_e, { locationId }) => tableService.listTables(locationId));
+  safeHandle('table:create', (_e, payload) => tableService.createTable(payload));
+  safeHandle('table:delete', (_e, { tableId }) => tableService.deleteTable(tableId));
+  safeHandle('table:open', (_e, payload) => tableService.openTable(payload));
+  safeHandle('table:getCart', (_e, { saleId }) => tableService.getTableCart(saleId));
+  safeHandle('table:release', (_e, { tableId }) => tableService.releaseTable(tableId));
+
+  // --- Licenciamento ---
+  safeHandle('license:check', () => licenseService.checkLicense());
+  safeHandle('license:getStatus', () => licenseService.computeAccessStatus());
+  safeHandle('table:markCleaned', (_e, { tableId }) => tableService.markCleaned(tableId));
+  safeHandle('table:markReserved', (_e, { tableId, reservadoPara }) => tableService.markReserved(tableId, reservadoPara));
+  safeHandle('table:cancelReservation', (_e, { tableId }) => tableService.cancelReservation(tableId));
+  safeHandle('table:transfer', (_e, { fromTableId, toTableId }) => tableService.transferTable({ fromTableId, toTableId }));
+
+  // --- Insumos e ficha técnica ---
+  safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));
+  safeHandle('ingredient:upsert', (_e, ingredient) => ingredientService.upsert(ingredient));
+  safeHandle('ingredient:deactivate', (_e, { id }) => ingredientService.deactivate(id));
+  safeHandle('ingredient:getRecipe', (_e, { productId }) => ingredientService.getRecipe(productId));
+  safeHandle('ingredient:setRecipe', (_e, { productId, itens }) => ingredientService.setRecipe(productId, itens));
+  safeHandle('ingredient:computeDishCost', (_e, { productId }) => ingredientService.computeDishCost(productId));
+
+  // --- Desperdício ---
+  safeHandle('waste:suggestCost', (_e, payload) => wasteService.suggestCost(payload));
+  safeHandle('waste:register', (_e, payload) => wasteService.registerWaste(payload));
+  safeHandle('waste:list', (_e, payload) => wasteService.listWaste(payload));
+  safeHandle('waste:getSummary', (_e, payload) => wasteService.getWasteSummary(payload));
+  safeHandle('waste:getByDay', (_e, payload) => wasteService.getWasteByDay(payload));
   safeHandle('sale:cancel', (_e, payload) => saleService.cancelSale(payload));
 
   // --- Perfil de negócio / configurações ---
@@ -160,12 +201,24 @@ function registerIpcHandlers() {
   safeHandle('cash:open', (_e, payload) => cashService.openSession(payload));
   safeHandle('cash:getSummary', (_e, { sessionId }) => cashService.getSessionSummary(sessionId));
   safeHandle('cash:close', (_e, payload) => cashService.closeSession(payload));
+  safeHandle('cash:listClosedSessions', (_e, payload) => cashService.listClosedSessions(payload));
+  safeHandle('cash:getClosedSessionsSummary', (_e, payload) => cashService.getClosedSessionsSummary(payload));
 
   // --- Fiscal (configuração + ponto de emissão, ver fiscalService.js) ---
   safeHandle('fiscal:getConfig', () => fiscalService.getFiscalConfigPublic());
   safeHandle('fiscal:updateConfig', (_e, payload) => fiscalService.updateFiscalConfig(payload));
   safeHandle('fiscal:emitirNFCe', (_e, { saleId }) => fiscalService.emitirNFCe(saleId));
   safeHandle('fiscal:listNfceForSale', (_e, { saleId }) => fiscalService.listNfceForSale(saleId));
+  safeHandle('fiscal:selectCertificado', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Selecionar certificado digital (A1)',
+      properties: ['openFile'],
+      filters: [{ name: 'Certificado digital', extensions: ['pfx', 'p12'] }],
+    });
+    if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
+    return { ok: true, filePath: filePaths[0] };
+  });
 
   // --- Pagamento / Pix ---
   safeHandle('payment:getConfig', () => pixService.getPaymentConfig());
@@ -211,6 +264,17 @@ function registerIpcHandlers() {
     return reportService.exportPurchaseSuggestions(filePath, { locationId });
   });
 
+  safeHandle('report:exportWaste', async (_e, { locationId, dataInicio, dataFim }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Exportar desperdício',
+      defaultPath: `desperdicio-${dataInicio}-a-${dataFim}.xlsx`,
+      filters: [{ name: 'Planilha Excel', extensions: ['xlsx'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    return reportService.exportWasteReport(filePath, { locationId, dataInicio, dataFim });
+  });
+
   // --- Sincronização entre PDVs (Fase 1: numeração por CNPJ, opcional) ---
   safeHandle('pdvRegistry:getConfig', () => pdvRegistryService.getFirebaseConfigPublic());
   safeHandle('pdvRegistry:updateConfig', (_e, payload) => pdvRegistryService.updateFirebaseConfig(payload));
@@ -241,18 +305,67 @@ function registerIpcHandlers() {
   // --- Impressão de recibo ---
   safeHandle('print:receipt', (_e, { saleId }) => printService.printReceipt(saleId));
   safeHandle('print:label', (_e, payload) => printService.printLabel(payload));
+  safeHandle('print:kitchenTicket', (_e, { saleId, mesaLabel }) => printService.printKitchenTicket(saleId, mesaLabel));
+  safeHandle('print:dailyMenu', (_e, { itens }) => printService.printDailyMenu(itens));
+  safeHandle('print:listPrinters', () => printService.listPrinters());
+  safeHandle('print:testPage', () => printService.printTestPage());
+  safeHandle('product:listDailyMenu', () => productService.listDailyMenu());
+
+  // --- Cardápio digital (restaurante/padaria) ---
+  safeHandle('digitalMenu:getConfig', () => digitalMenuService.getConfig());
+  safeHandle('digitalMenu:updateConfig', (_e, payload) => digitalMenuService.updateConfig(payload));
+  safeHandle('digitalMenu:generateHtml', () => digitalMenuService.generateHtml());
+  safeHandle('digitalMenu:exportHtml', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Exportar cardápio digital',
+      defaultPath: 'cardapio.html',
+      filters: [{ name: 'Página HTML', extensions: ['html'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    const fs = require('fs');
+    fs.writeFileSync(filePath, digitalMenuService.generateHtml(), 'utf-8');
+    return { ok: true, filePath };
+  });
+  safeHandle('digitalMenu:openInBrowser', () => {
+    const { shell } = require('electron');
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpPath = path.join(os.tmpdir(), 'gerenciaai-cardapio-preview.html');
+    fs.writeFileSync(tmpPath, digitalMenuService.generateHtml(), 'utf-8');
+    shell.openPath(tmpPath);
+    return { ok: true };
+  });
+
+  // --- Balança: etiqueta de peso variável ---
+  safeHandle('weightBarcode:getConfig', () => weightBarcodeService.getConfig());
+  safeHandle('weightBarcode:updateConfig', (_e, payload) => weightBarcodeService.updateConfig(payload));
+  safeHandle('weightBarcode:parse', (_e, { barcode }) => weightBarcodeService.parseWeightBarcode(barcode));
+  safeHandle('weightBarcode:listFormatos', () => weightBarcodeService.FORMATOS);
+
+  // --- Balança digital (porta serial) ---
+  safeHandle('scaleHardware:getConfig', () => scaleHardwareService.getConfig());
+  safeHandle('scaleHardware:updateConfig', (_e, payload) => scaleHardwareService.updateConfig(payload));
+  safeHandle('scaleHardware:listPorts', () => scaleHardwareService.listPorts());
+  safeHandle('scaleHardware:conectar', () => scaleHardwareService.conectar());
+  safeHandle('scaleHardware:desconectar', () => { scaleHardwareService.desconectar(); return { ok: true }; });
+  safeHandle('scaleHardware:getLeituraAtual', () => scaleHardwareService.getLeituraAtual());
+
   safeHandle('print:getReceiptConfig', () => printService.getReceiptConfig());
   safeHandle('print:updateReceiptConfig', (_e, payload) => printService.updateReceiptConfig(payload));
 
   // --- Painel de vendas (dashboard) ---
   safeHandle('dashboard:getSummary', (_e, payload) => dashboardService.getSummary(payload));
   safeHandle('dashboard:listStaleProducts', (_e, payload) => dashboardService.listStaleProducts(payload));
+  safeHandle('dashboard:getSalesByOperator', (_e, payload) => dashboardService.getSalesByOperator(payload));
 
   // --- Vincular cliente / resgatar pontos na venda ---
   safeHandle('sale:setCustomer', (_e, { saleId, customerId }) => saleService.setCustomer(saleId, customerId));
   safeHandle('sale:redeemLoyaltyPoints', (_e, payload) => saleService.redeemLoyaltyPoints(payload));
   safeHandle('sale:applyManagerDiscount', (_e, payload) => saleService.applyManagerDiscount(payload));
   safeHandle('sale:removeManagerDiscount', (_e, { saleId }) => saleService.removeManagerDiscount(saleId));
+  safeHandle('sale:setServiceCharge', (_e, { saleId, percentual }) => saleService.setServiceCharge(saleId, percentual));
 
   // --- Resumo de vendas por IA ---
   safeHandle('ai:summarizeSales', (_e, payload) => aiService.summarizeSales(payload));
