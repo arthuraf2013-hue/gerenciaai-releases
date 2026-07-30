@@ -83,6 +83,7 @@ contextBridge.exposeInMainWorld('pdv', {
     markReserved: invoke('table:markReserved'),
     cancelReservation: invoke('table:cancelReservation'),
     transfer: invoke('table:transfer'),
+    updatePeople: invoke('table:updatePeople'),
   },
   ingredient: {
     list: invoke('ingredient:list'),

@@ -606,6 +606,23 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Editar número de pessoas da mesa (chegou mais gente)
+
+Clique no badge "X pessoa(s)" no topo da comanda — abre um campo pra
+atualizar. Só funciona em mesa ocupada (backend confere isso). Se a
+mesa foi aberta sem informar quantas pessoas, aparece "+ Informar nº
+de pessoas" no lugar, pra poder definir pela primeira vez também.
+
+Atualiza na hora o cálculo de "por pessoa" no rodapé e a divisão por
+pessoa — não mexe nos itens já lançados nem em quem já tinha sido
+atribuído a cada pessoa antes. Ao voltar pra grade de mesas, o número
+atualizado aparece lá também (a grade já recarrega os dados do banco
+ao retornar, então não precisou de nenhuma mudança adicional ali).
+
+Testei os 3 cenários em SQL puro antes de integrar: mesa ocupada
+aceita a mudança, mesa livre bloqueia, e valor inválido (zero) também
+bloqueia.
+
 ## Carrinho da mesa apertado — corrigido e reorganizado
 
 **A causa real**: o item do carrinho não tinha a classe CSS que dá o

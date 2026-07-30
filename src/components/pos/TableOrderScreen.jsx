@@ -9,7 +9,7 @@ import { playBeep } from '../../utils/sound';
 /**
  * @param {{ tableId: string, saleId: string, numero: string, nome?: string, onFechar: () => void }} props
  */
-export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFechar }) {
+export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pessoasIniciais, onFechar }) {
   // Lido aqui dentro (não no topo do módulo) de propósito: o topo do
   // módulo roda durante a avaliação do grafo de imports, ANTES do
   // bootstrap() do main.jsx terminar de buscar o local real — capturar
@@ -23,6 +23,9 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFec
   const [taxaServicoPercentual, setTaxaServicoPercentual] = useState(0);
   const [pendingQty, setPendingQty] = useState('1');
   const [selectedItemId, setSelectedItemId] = useState(null);
+  const [pessoas, setPessoasAtual] = useState(pessoasIniciais);
+  const [editandoPessoas, setEditandoPessoas] = useState(false);
+  const [pessoasInput, setPessoasInput] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
   const [authAction, setAuthAction] = useState(null); // { itemId } | null
@@ -121,6 +124,22 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFec
     onFechar(); // a comanda saiu dessa mesa, volta pra grade
   }
 
+  function abrirEdicaoPessoas() {
+    setPessoasInput(String(pessoas || ''));
+    setEditandoPessoas(true);
+  }
+
+  async function confirmarEdicaoPessoas(e) {
+    e.preventDefault();
+    const novoValor = Number(pessoasInput);
+    if (!novoValor || novoValor < 1) return;
+    const result = await window.pdv.table.updatePeople({ tableId, pessoas: novoValor });
+    if (result.ok) {
+      setPessoasAtual(novoValor);
+      setEditandoPessoas(false);
+    }
+  }
+
   async function handleImprimirComanda() {
     const result = await window.pdv.print.kitchenTicket({ saleId, mesaLabel: nome || `Mesa ${numero}` });
     if (!result.ok) {
@@ -169,7 +188,15 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFec
       <header className="pos-header">
         <h1>{nome || `Mesa ${numero}`}</h1>
         <div className="pos-header-right">
-          {pessoas && <span className="pos-operator">{pessoas} pessoa(s)</span>}
+          {pessoas ? (
+            <button type="button" className="pos-operator pos-operator-editable" onClick={abrirEdicaoPessoas} title="Editar número de pessoas">
+              {pessoas} pessoa(s) ✎
+            </button>
+          ) : (
+            <button type="button" className="pos-operator pos-operator-editable" onClick={abrirEdicaoPessoas}>
+              + Informar nº de pessoas
+            </button>
+          )}
           <button className="close-cash-btn" onClick={abrirTransferencia}>Transferir mesa</button>
           <button className="close-cash-btn" onClick={handleImprimirComanda}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -295,6 +322,30 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFec
           onConfirm={handleAuthConfirm}
           onClose={() => setAuthAction(null)}
         />
+      )}
+
+      {editandoPessoas && (
+        <div className="modal-overlay">
+          <form className="modal-card" onSubmit={confirmarEdicaoPessoas}>
+            <h2>Número de pessoas — {nome || `Mesa ${numero}`}</h2>
+            <label>Quantas pessoas agora?
+              <input
+                type="number" min="1"
+                value={pessoasInput}
+                onChange={(e) => setPessoasInput(e.target.value)}
+                autoFocus required
+              />
+            </label>
+            <p className="screen-hint" style={{ margin: 0 }}>
+              Chegou mais gente na mesa? Atualize aqui — só muda o cálculo de "por pessoa", não afeta os
+              itens já lançados.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setEditandoPessoas(false)}>Cancelar</button>
+              <button type="submit" className="btn-primary">Salvar</button>
+            </div>
+          </form>
+        </div>
       )}
 
       {editandoObs && (

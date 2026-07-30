@@ -119,6 +119,7 @@ function registerIpcHandlers() {
   safeHandle('table:markReserved', (_e, { tableId, reservadoPara }) => tableService.markReserved(tableId, reservadoPara));
   safeHandle('table:cancelReservation', (_e, { tableId }) => tableService.cancelReservation(tableId));
   safeHandle('table:transfer', (_e, { fromTableId, toTableId }) => tableService.transferTable({ fromTableId, toTableId }));
+  safeHandle('table:updatePeople', (_e, { tableId, pessoas }) => tableService.updateTablePeople({ tableId, pessoas }));
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));

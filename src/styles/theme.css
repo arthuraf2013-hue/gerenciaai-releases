@@ -59,6 +59,11 @@ body { margin: 0; background: var(--color-bg); color: var(--color-text); font-fa
   padding: 16px 24px; background: var(--color-primary); color: white;
 }
 .pos-operator { font-size: 14px; opacity: 0.85; }
+.pos-operator-editable {
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px;
+  color: white; padding: 4px 10px; opacity: 1;
+}
+.pos-operator-editable:hover { background: rgba(255,255,255,0.2); }
 .close-cash-btn {
   display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,0.12);
   color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px;

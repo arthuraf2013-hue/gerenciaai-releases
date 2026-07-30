@@ -146,7 +146,22 @@ function transferTable({ fromTableId, toTableId }) {
   return { ok: true, saleId: from.sale_id };
 }
 
+/** Atualiza o número de pessoas de uma mesa já ocupada — pra quando o
+ * grupo cresce (chegou mais gente) ou diminui depois de já ter aberto
+ * a mesa. Só funciona em mesa ocupada — pessoas é definido de novo do
+ * zero toda vez que a mesa abre. */
+function updateTablePeople({ tableId, pessoas }) {
+  const db = getDb();
+  const table = db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(tableId);
+  if (!table) return { ok: false, error: 'Mesa não encontrada.' };
+  if (table.status !== 'ocupada') return { ok: false, error: 'Só é possível alterar o número de pessoas numa mesa ocupada.' };
+  if (!pessoas || Number(pessoas) < 1) return { ok: false, error: 'Informe um número de pessoas válido.' };
+
+  db.prepare('UPDATE restaurant_tables SET pessoas = ? WHERE id = ?').run(Number(pessoas), tableId);
+  return { ok: true };
+}
+
 module.exports = {
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable,
-  markCleaned, markReserved, cancelReservation, transferTable,
+  markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople,
 };
