@@ -117,6 +117,20 @@ export function ProductList() {
     setIoMessage(result.ok ? `${result.total} produtos exportados com sucesso.` : result.error);
   }
 
+  async function handleClearAll() {
+    const confirmacao = confirm(
+      `Isso vai limpar TODOS os produtos cadastrados (${totalProdutos ?? 'todos'} no total).\n\n` +
+      `Produtos que NUNCA foram vendidos são apagados de vez, liberando o código de barras/SKU pra ` +
+      `reimportar dados novos. Produtos que JÁ têm venda ou devolução registrada continuam no histórico ` +
+      `intacto — só ficam desativados.\n\n` +
+      `Essa ação não afeta vendas já finalizadas. Confirma?`
+    );
+    if (!confirmacao) return;
+    const result = await window.pdv.products.clearAll();
+    setIoMessage(`Concluído: ${result.apagados} produto(s) apagado(s), ${result.desativados} desativado(s) (já tinham venda/devolução no histórico).`);
+    reloadRef.current();
+  }
+
   async function handleImport() {
     setIoBusy(true);
     const result = await window.pdv.io.importProducts({
@@ -155,6 +169,7 @@ export function ProductList() {
         <div className="screen-actions">
           <button className="btn-secondary" onClick={handleImport} disabled={ioBusy}>Importar planilha</button>
           <button className="btn-secondary" onClick={handleExport} disabled={ioBusy}>Exportar planilha</button>
+          <button className="btn-link-danger" onClick={handleClearAll}>Limpar todos os produtos</button>
           <button className="btn-primary" onClick={() => setEditing({})}>+ Novo produto</button>
         </div>
       </div>

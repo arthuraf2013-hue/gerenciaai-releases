@@ -65,6 +65,7 @@ function registerIpcHandlers() {
   safeHandle('product:listCategories', () => productService.listCategories());
   safeHandle('product:upsert', (_e, product) => productService.upsert(product));
   safeHandle('product:deactivate', (_e, { productId }) => productService.deactivate(productId));
+  safeHandle('product:clearAll', () => productService.clearAllProducts());
   safeHandle('product:generateInternalBarcode', (_e, { productId }) => productService.generateInternalBarcode(productId));
   safeHandle('product:listPriceHistory', (_e, { productId }) => productService.listPriceHistory(productId));
   safeHandle('product:getFotoDataUrl', (_e, { productId }) => productService.getFotoDataUrl(productId));

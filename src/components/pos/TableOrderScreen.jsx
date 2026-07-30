@@ -6,13 +6,17 @@ import { PaymentPanel } from './PaymentPanel';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { playBeep } from '../../utils/sound';
 
-const LOCATION_ID = window.APP_LOCATION_ID;
-const DEVICE_ID = window.APP_DEVICE_ID;
-
 /**
  * @param {{ tableId: string, saleId: string, numero: string, nome?: string, onFechar: () => void }} props
  */
 export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFechar }) {
+  // Lido aqui dentro (não no topo do módulo) de propósito: o topo do
+  // módulo roda durante a avaliação do grafo de imports, ANTES do
+  // bootstrap() do main.jsx terminar de buscar o local real — capturar
+  // window.APP_LOCATION_ID ali sempre dava undefined (mesmo problema já
+  // corrigido antes no POSScreen). Aqui dentro já roda depois do app montado.
+  const LOCATION_ID = window.APP_LOCATION_ID;
+  const DEVICE_ID = window.APP_DEVICE_ID;
   const { currentUser } = useSession();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);

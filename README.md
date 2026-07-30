@@ -606,6 +606,48 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Bug real: "Estoque insuficiente" nas mesas mesmo com estoque de verdade
+
+Você reportou não conseguir adicionar produto nenhum na comanda de uma
+mesa, mesmo com estoque cadastrado. Achei a causa: o
+`TableOrderScreen.jsx` lia `window.APP_LOCATION_ID` no **topo do
+arquivo** (fora do componente) — isso roda cedo demais, antes do app
+terminar de configurar qual é o local de verdade, então sempre virava
+`undefined`. Toda checagem de estoque acabava perguntando pelo estoque
+de um local que não existe, sempre voltando zero.
+
+**Detalhe importante**: esse exato problema já tinha acontecido antes
+no PDV normal (`POSScreen.jsx`) e já tinha sido corrigido lá — só que
+quando construí a tela de mesa, recriei o mesmo erro sem perceber que
+já existia essa lição aprendida em outro arquivo. Corrigido do mesmo
+jeito que já funcionava no PDV normal (lendo o valor **dentro** do
+componente, não no topo do módulo). Conferi os outros arquivos de
+restaurante (`RestaurantTables.jsx`) — só esse tinha o problema.
+
+## Limpar produtos cadastrados (pra trocar de perfil de teste)
+
+Pedido de limpar os produtos pra testar o perfil Restaurante sem os
+produtos antigos atrapalhando. Botão "Limpar todos os produtos" em
+Produtos, com confirmação explícita antes de executar.
+
+**Não é um apagar simples** — pensei no que podia dar errado:
+- Produto que **nunca foi vendido**: apaga de vez, e libera o
+  SKU/código de barras/código de balança pra poder reimportar os
+  mesmos códigos numa planilha de teste nova (é exatamente essa
+  colisão que travaria se eu só desativasse os produtos antigos, sem
+  liberar os códigos).
+- Produto que **já tem venda ou devolução de verdade** no histórico:
+  a própria integridade do banco (chave estrangeira) impede apagar —
+  nesse caso, em vez de dar erro, o sistema desativa e libera os
+  códigos mesmo assim, sem tocar no histórico. As vendas antigas
+  continuam aparecendo certinho no Histórico, com o nome do produto e
+  tudo.
+
+Testei os dois cenários em SQL puro, com a proteção de integridade
+referencial ligada de verdade (não simulada) — confirmei que produto
+nunca vendido some, produto com venda genuína continua intacto e
+legível no histórico, e o código fica livre pra reuso.
+
 ## Barra lateral com menos itens (17 → 11)
 
 Pedido de mesclar as opções correlatas, já que estava com muitos itens

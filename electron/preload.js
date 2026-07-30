@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('pdv', {
     listCategories: invoke('product:listCategories'),
     upsert: invoke('product:upsert'),
     deactivate: invoke('product:deactivate'),
+    clearAll: invoke('product:clearAll'),
     generateInternalBarcode: invoke('product:generateInternalBarcode'),
     listPriceHistory: invoke('product:listPriceHistory'),
     listDailyMenu: invoke('product:listDailyMenu'),

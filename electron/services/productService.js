@@ -268,4 +268,51 @@ function listFullMenu() {
   });
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu };
+/**
+ * Limpa o catálogo inteiro — pensado pra trocar de dado de teste (ex:
+ * de farmácia pra padaria) sem carregar produto antigo junto, e sem
+ * risco de colidir SKU/código de barras numa importação nova.
+ *
+ * Pra cada produto ativo: tenta apagar de vez (junto com histórico de
+ * preço, ficha técnica, desperdício, lote e movimentação de estoque —
+ * tudo isso é seguro de apagar). Se o produto já tem VENDA ou
+ * DEVOLUÇÃO de verdade vinculada, o apagar é bloqueado pela própria
+ * integridade do banco (chave estrangeira) — nesse caso, em vez de
+ * falhar, só desativa e libera o SKU/código de barras/código de
+ * balança (pra poder reimportar os mesmos códigos depois), preservando
+ * o histórico intacto.
+ */
+function clearAllProducts() {
+  const db = getDb();
+  const produtos = db.prepare('SELECT id FROM products WHERE ativo = 1').all();
+  let apagados = 0;
+  let desativados = 0;
+
+  const tx = db.transaction(() => {
+    for (const p of produtos) {
+      db.prepare('DELETE FROM product_price_history WHERE product_id = ?').run(p.id);
+      db.prepare('DELETE FROM dish_ingredients WHERE product_id = ?').run(p.id);
+      db.prepare('DELETE FROM waste_log WHERE product_id = ?').run(p.id);
+      db.prepare('DELETE FROM product_batches WHERE product_id = ?').run(p.id);
+      db.prepare('DELETE FROM stock_movements WHERE product_id = ?').run(p.id);
+
+      try {
+        db.prepare('DELETE FROM products WHERE id = ?').run(p.id);
+        apagados++;
+      } catch (err) {
+        // Tem venda ou devolução de verdade vinculada — a chave
+        // estrangeira bloqueou o apagar. Só desativa e libera os
+        // códigos, sem mexer no histórico.
+        db.prepare(
+          `UPDATE products SET ativo = 0, sku = NULL, codigo_barras = NULL, codigo_balanca = NULL WHERE id = ?`
+        ).run(p.id);
+        desativados++;
+      }
+    }
+  });
+  tx();
+
+  return { ok: true, apagados, desativados };
+}
+
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts };
