@@ -606,6 +606,31 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Carrinho da mesa apertado — corrigido e reorganizado
+
+**A causa real**: o item do carrinho não tinha a classe CSS que dá o
+espaçamento (`cart-item`) — só aplicava a classe de "selecionado"
+quando clicado, a classe base nunca era usada. O mesmo PDV normal já
+fazia isso certo (`` `cart-item ${selecionado ? '...' : ''}` ``); a
+tela de mesa só esqueceu de incluir a base.
+
+Aproveitei pra reorganizar de vez, já que a tela de mesa tem mais
+controle por item (seletor de pessoa, observação, cancelar) do que o
+carrinho simples do PDV normal, e um espaçamento igual não ia dar conta
+de tudo direito:
+- **Nome/quantidade e preço** ficam numa linha, bem separados.
+- **Observação** (se tiver) numa linha própria, destacada.
+- **Seletor de pessoa, editar observação, e cancelar** numa terceira
+  linha, com espaço de verdade entre eles.
+- A lista inteira ganhou uma moldura própria (fundo e borda), pra não
+  ficar "solta" entre a grade de produtos e o rodapé — sem mexer na
+  classe compartilhada com o carrinho do PDV normal (usei uma classe
+  nova só pra mesa, pra não arriscar mudar o que já funcionava lá).
+
+Conferi visualmente renderizando com o CSS real antes de fechar —
+tanto pra confirmar as três linhas separadas quanto a moldura
+aparecendo direito.
+
 ## Bug real: "Estoque insuficiente" nas mesas mesmo com estoque de verdade
 
 Você reportou não conseguir adicionar produto nenhum na comanda de uma

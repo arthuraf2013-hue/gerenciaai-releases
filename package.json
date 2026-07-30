@@ -1,6 +1,6 @@
 {
   "name": "gerenciaai",
-  "version": "0.4.13",
+  "version": "0.3.1",
   "description": "GerenciaAI — gerenciamento de estoque com PDV, perfil inicial para farmácias, automações e espaço reservado para funcionalidades de IA",
   "author": "Arthur",
   "main": "electron/main.js",
@@ -46,23 +46,15 @@
       "!node_modules/@firebase/{database,database-compat,storage,storage-compat,ai,messaging,messaging-compat,analytics,analytics-compat,functions,functions-compat,remote-config,remote-config-compat,performance,performance-compat,data-connect,app-check,app-check-compat,installations-compat,auth-compat,firestore-compat,app-compat}/**"
     ],
     "icon": "build/icon.png",
-    "directories": {
-      "output": "release"
-    },
+    "directories": { "output": "release" },
     "publish": {
       "provider": "github",
       "owner": "arthuraf2013-hue",
       "repo": "gerenciaai-releases",
       "releaseType": "release"
     },
-    "win": {
-      "target": "nsis",
-      "icon": "build/icon.ico"
-    },
-    "linux": {
-      "target": "AppImage",
-      "icon": "build/icon.png"
-    },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "linux": { "target": "AppImage", "icon": "build/icon.png" },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

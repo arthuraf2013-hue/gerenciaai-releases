@@ -204,41 +204,45 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas, onFec
 
       <CategoryProductBrowser onSelectProduct={addProductToCart} />
 
+      <div className="cart-list-mesa-wrapper">
       <ul className="cart-list">
         {itensAtivos.map((item) => (
           <li
             key={item.id}
-            className={selectedItemId === item.id ? 'cart-item-selected' : ''}
+            className={`cart-item-mesa ${selectedItemId === item.id ? 'cart-item-selected' : ''}`}
             onClick={() => setSelectedItemId(item.id)}
           >
-            <span>
-              {item.nome} × {item.quantidade}
-              {item.observacao && <div className="cart-item-obs">⚠ {item.observacao}</div>}
-            </span>
-            <span>R$ {(item.precoUnitario * item.quantidade).toFixed(2)}</span>
-            {pessoas > 1 && (
-              <select
-                value={item.pessoaNumero || ''}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => atribuirPessoa(item.id, e.target.value)}
-                className="cart-item-pessoa"
-              >
-                <option value="">Não atribuído</option>
-                {Array.from({ length: pessoas }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>Pessoa {n}</option>
-                ))}
-              </select>
-            )}
-            <button className="btn-link" onClick={(e) => { e.stopPropagation(); abrirEdicaoObs(item); }}>
-              {item.observacao ? 'Editar obs.' : '+ Observação'}
-            </button>
-            <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); requestCancelItem(item.id); }}>
-              Cancelar
-            </button>
+            <div className="cart-item-mesa-topo">
+              <span className="cart-item-mesa-nome">{item.nome} × {item.quantidade}</span>
+              <span className="cart-item-mesa-preco">R$ {(item.precoUnitario * item.quantidade).toFixed(2)}</span>
+            </div>
+            {item.observacao && <div className="cart-item-obs">⚠ {item.observacao}</div>}
+            <div className="cart-item-mesa-controles">
+              {pessoas > 1 && (
+                <select
+                  value={item.pessoaNumero || ''}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => atribuirPessoa(item.id, e.target.value)}
+                  className="cart-item-pessoa"
+                >
+                  <option value="">Não atribuído</option>
+                  {Array.from({ length: pessoas }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>Pessoa {n}</option>
+                  ))}
+                </select>
+              )}
+              <button className="btn-link" onClick={(e) => { e.stopPropagation(); abrirEdicaoObs(item); }}>
+                {item.observacao ? 'Editar obs.' : '+ Observação'}
+              </button>
+              <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); requestCancelItem(item.id); }}>
+                Cancelar
+              </button>
+            </div>
           </li>
         ))}
         {itensAtivos.length === 0 && <p className="empty-state">Nenhum item lançado nessa mesa ainda.</p>}
       </ul>
+      </div>
 
       {pessoas > 1 && itensAtivos.length > 0 && (
         <div className="screen-section-box">
