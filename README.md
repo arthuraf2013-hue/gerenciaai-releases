@@ -606,6 +606,44 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Build quebrado no GitHub Actions — `package-lock.json` faltando
+
+Você mandou o print do erro: `npm ci` falhando com "Missing: ms@2.1.2
+from lock file".
+
+**Causa raiz**: este projeto nunca teve um `package-lock.json` incluído
+nas entregas que te mandei — você deve ter gerado o seu localmente
+numa instalação anterior, e como cada entrega nova só manda o código
+(nunca o lock file), toda vez que eu adiciono uma dependência nova ao
+`package.json` (o `serialport`, na entrega passada, é o caso aqui — ele
+traz `ms@2.1.2` como dependência transitiva) o seu lock file antigo
+fica desatualizado, e o `npm ci` do GitHub Actions (que exige
+correspondência exata entre os dois arquivos) falha.
+
+**Corrigido definitivamente**: gerei um `package-lock.json` de verdade
+a partir do registro real do npm (tenho acesso a isso neste ambiente),
+e a partir de agora **toda entrega vai incluir esse arquivo
+atualizado** — esse tipo de erro não deve mais acontecer.
+
+**Testei rodando o `npm ci` de verdade** (o mesmo comando exato que o
+GitHub Actions roda) contra esse lock file — 538 pacotes instalados
+sem nenhum erro, confirmando que resolve.
+
+**De passagem, chequei as vulnerabilidades de segurança que apareceram
+no relatório** (`npm audit`) — vale saber:
+- A única vulnerabilidade que afeta o app **rodando de verdade** no PC
+  do cliente é no pacote `xlsx` (usado pra importar/exportar
+  planilhas) — e infelizmente **não tem correção disponível ainda** da
+  parte de quem mantém o pacote. Baixo risco prático (o app é local,
+  não expõe isso pra internet — só afeta se alguém abrir de propósito
+  uma planilha malformada de fonte não confiável), mas é honesto
+  registrar que existe.
+- A vulnerabilidade marcada como "crítica" (`node-tar`) é só uma
+  ferramenta usada **durante a instalação/build** do projeto (baixa o
+  binário nativo do `serialport`) — nunca roda dentro do app já
+  instalado no PC do cliente, não é exposição real pra quem usa o
+  sistema no dia a dia.
+
 ## Integração com gramatura e balança (digital ou analógica)
 
 Pedido de suporte a produtos vendidos por peso, com pesagem manual, ou
