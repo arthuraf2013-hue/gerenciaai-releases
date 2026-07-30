@@ -606,6 +606,31 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Painel e Auditoria fundidos
+
+Pedido de juntar as duas telas — fazia sentido: as duas já eram
+restritas a gerente/admin (Auditoria era só admin), e ficavam meio
+separadas sem necessidade.
+
+**Como ficou**: Painel agora tem duas abas — "Visão geral" (tudo que já
+tinha: vendas por dia, produtos mais vendidos, desperdício, vendas por
+operador) e "Auditoria" — só que a aba **só aparece pra quem é admin**,
+igual a restrição de antes. Gerente continua vendo só a visão geral,
+sem nem saber que a aba existe. O item "Auditoria" separado sumiu do
+menu lateral — não perdeu nenhuma funcionalidade, só mudou de lugar
+(o mesmo componente de antes, sem reescrever nada da lógica).
+
+Validado com compilação real (esbuild, que faz uma análise completa da
+árvore JSX — pegaria qualquer chave/parêntese desbalanceado), varredura
+de todos os imports do projeto contra os exports reais, e contagem de
+chaves/parênteses/fragments como conferência adicional — tudo bateu.
+Tentei também um teste de renderização simulando login com os dois
+papéis, mas esbarrei num problema de tempo no meu próprio ambiente de
+teste (não do app) — preferi não insistir nisso e me apoiar nas outras
+validações, que já são fortes o suficiente pra esse tipo de mudança
+(mover um componente existente pra dentro de outro, sem tocar na lógica
+interna de nenhum dos dois).
+
 ## Build quebrado no GitHub Actions — `package-lock.json` faltando
 
 Você mandou o print do erro: `npm ci` falhando com "Missing: ms@2.1.2

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useSession } from '../../context/SessionContext';
+import { AuditLog } from '../users/AuditLog';
 
 function toISODate(d) { return d.toISOString().slice(0, 10); }
 
@@ -35,6 +37,8 @@ function VendasPorDiaChart({ dados }) {
 }
 
 export function Dashboard() {
+  const { currentUser } = useSession();
+  const [aba, setAba] = useState('visaoGeral');
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('semana');
   const [dataInicio, setDataInicio] = useState('');
@@ -139,6 +143,17 @@ export function Dashboard() {
     <div className="screen">
       <h1>Painel</h1>
 
+      {currentUser.role === 'admin' && (
+        <div className="settings-tabs">
+          <button className={aba === 'visaoGeral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('visaoGeral')}>Visão geral</button>
+          <button className={aba === 'auditoria' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('auditoria')}>Auditoria</button>
+        </div>
+      )}
+
+      {aba === 'auditoria' && currentUser.role === 'admin' ? (
+        <AuditLog />
+      ) : (
+      <>
       <div className="period-selector">
         {['hoje', 'semana', 'mes'].map((p) => (
           <button key={p} className={periodo === p ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setPeriodo(p)}>
@@ -334,6 +349,8 @@ export function Dashboard() {
             )}
           </section>
         </>
+      )}
+      </>
       )}
     </div>
   );

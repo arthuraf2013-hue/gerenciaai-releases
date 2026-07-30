@@ -15,7 +15,6 @@ import { SupplyScreen } from '../inventory/SupplyScreen';
 import { StockAlerts } from '../inventory/StockAlerts';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import { UserManagement } from '../users/UserManagement';
-import { AuditLog } from '../users/AuditLog';
 import { Dashboard } from '../pos/Dashboard';
 import { CustomerList } from '../pos/CustomerList';
 import { SupplierList } from '../pos/SupplierList';
@@ -46,7 +45,6 @@ const NAV_ITEMS = [
   { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
   { id: 'settings', label: 'Configurações', roles: ['admin'] },
   { id: 'users', label: 'Usuários', roles: ['gerente', 'admin'] },
-  { id: 'audit', label: 'Auditoria', roles: ['admin'] },
 ];
 
 export function AppShell() {
@@ -153,7 +151,6 @@ export function AppShell() {
         {screen === 'alerts' && <StockAlerts />}
         {screen === 'settings' && <SettingsScreen />}
         {screen === 'users' && <UserManagement />}
-        {screen === 'audit' && <AuditLog />}
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
     </div>
