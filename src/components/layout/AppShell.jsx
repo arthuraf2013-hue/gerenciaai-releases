@@ -2,22 +2,16 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useProfile } from '../../context/ProfileContext';
 import { POSScreen } from '../pos/POSScreen';
-import { RestaurantTables } from '../pos/RestaurantTables';
-import { DailyMenu } from '../inventory/DailyMenu';
-import { DigitalMenuScreen } from '../inventory/DigitalMenuScreen';
-import { SalesHistory } from '../pos/SalesHistory';
-import { CashReport } from '../pos/CashReport';
+import { RestaurantScreen } from '../pos/RestaurantScreen';
+import { HistoryScreen } from '../pos/HistoryScreen';
 import { CommandPalette } from './CommandPalette';
-import { ProductList } from '../inventory/ProductList';
-import { IngredientManager } from '../inventory/IngredientManager';
-import { WasteLog } from '../inventory/WasteLog';
-import { SupplyScreen } from '../inventory/SupplyScreen';
+import { ProductsScreen } from '../inventory/ProductsScreen';
+import { SupplyAndSuppliersScreen } from '../inventory/SupplyAndSuppliersScreen';
 import { StockAlerts } from '../inventory/StockAlerts';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import { UserManagement } from '../users/UserManagement';
 import { Dashboard } from '../pos/Dashboard';
 import { CustomerList } from '../pos/CustomerList';
-import { SupplierList } from '../pos/SupplierList';
 import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
 
@@ -29,18 +23,12 @@ const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
 
 const NAV_ITEMS = [
   { id: 'pos', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'tables', label: 'Mesas', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
-  { id: 'dailymenu', label: 'Cardápio do dia', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
-  { id: 'digitalmenu', label: 'Cardápio Digital', roles: ['gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'restaurant', label: 'Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
   { id: 'dashboard', label: 'Painel', roles: ['gerente', 'admin'] },
   { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'cashreport', label: 'Fechamentos de caixa', roles: ['gerente', 'admin'] },
   { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'] },
-  { id: 'ingredients', label: 'Insumos', roles: ['gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
-  { id: 'waste', label: 'Desperdício', roles: ['gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
   { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'] },
   { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'suppliers', label: 'Fornecedores', roles: ['gerente', 'admin'] },
   { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'] },
   { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
   { id: 'settings', label: 'Configurações', roles: ['admin'] },
@@ -131,20 +119,14 @@ export function AppShell() {
       </nav>
       <main className="main-content">
         {screen === 'pos' && <POSScreen />}
-        {screen === 'tables' && <RestaurantTables />}
-        {screen === 'dailymenu' && <DailyMenu />}
-        {screen === 'digitalmenu' && <DigitalMenuScreen />}
+        {screen === 'restaurant' && <RestaurantScreen />}
         {screen === 'dashboard' && <Dashboard />}
         {screen === 'history' && (
-          <SalesHistory onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
+          <HistoryScreen onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
         )}
-        {screen === 'cashreport' && <CashReport />}
-        {screen === 'products' && <ProductList />}
-        {screen === 'ingredients' && <IngredientManager />}
-        {screen === 'waste' && <WasteLog />}
-        {screen === 'supply' && <SupplyScreen />}
+        {screen === 'products' && <ProductsScreen />}
+        {screen === 'supply' && <SupplyAndSuppliersScreen />}
         {screen === 'customers' && <CustomerList />}
-        {screen === 'suppliers' && <SupplierList />}
         {screen === 'returns' && (
           <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
         )}

@@ -606,6 +606,59 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+## Barra lateral com menos itens (17 → 11)
+
+Pedido de mesclar as opções correlatas, já que estava com muitos itens
+soltos. Quatro agrupamentos, todos com abas (mesmo padrão já usado em
+Configurações e Painel):
+
+- **Restaurante** — Mesas + Cardápio do dia + Cardápio Digital (só
+  aparece pro perfil Restaurante/Padaria, como já era antes).
+- **Histórico** — Vendas + Fechamentos de caixa (a aba de fechamentos
+  só aparece pra gerente/admin — operador continua vendo só as vendas,
+  igual já era).
+- **Produtos** — Produtos + Insumos + Desperdício (as duas últimas
+  abas só aparecem pro perfil Restaurante/Padaria).
+- **Abastecimento** — Receber mercadoria + Fornecedores.
+
+Nenhuma tela foi reescrita — os componentes de sempre (SalesHistory,
+ProductList, SupplyScreen, etc.) continuam exatamente iguais por
+dentro, só passaram a ficar dentro de um "envelope" com abas, no lugar
+de aparecerem cada um como item separado do menu. Restrições de perfil
+e de papel (operador/gerente/admin) que já existiam foram preservadas
+— só mudou onde a restrição é aplicada (na aba, não mais no item do
+menu inteiro).
+
+Validado com compilação de cada arquivo novo, e a varredura completa
+de imports/exports do projeto inteiro (nenhum problema encontrado).
+
+## Cor do botão Sair + treinamento atualizado
+
+**Cor do Sair** — hoje "Sair" e "Modo escuro" tinham exatamente a mesma
+cor por padrão, só diferenciando ao passar o mouse. Dei ao "Sair" uma
+cor própria (avermelhada) já visível sem precisar passar o mouse, pra
+se destacar como uma ação diferente. Validado analisando os pixels da
+renderização real (não só o código) antes de fechar.
+
+**Treinamento (pptx + pdf usado dentro do app)** — reconstruí a
+apresentação inteira no mesmo estilo visual (mesma paleta de cores
+extraída do arquivo original, mesmas fontes), mantendo todo o conteúdo
+que já existia e adicionando os recursos que faltavam: Mesas,
+observação por item, comanda pra cozinha, transferir mesa, taxa de
+serviço, Cardápio do dia, Cardápio Digital, Insumos, Desperdício, venda
+por peso (manual, etiqueta, balança digital), busca rápida (Ctrl+K), e
+atualizei a seção de gestão pra refletir Painel+Auditoria fundidos.
+23 slides no total (eram 19). Validei estruturalmente (schema/XML) e
+conferi o texto de cada slide novo extraído do PDF gerado, pra garantir
+que o conteúdo saiu certo. O arquivo dentro do app
+(`public/treinamento-pdv.pdf`, aberto pelo botão 🎓 no PDV) já está
+atualizado — o `.pptx` editável também vem junto, separado do `.zip`.
+
+O tutorial guiado (o botão "?", passo a passo apontando pra cada parte
+da tela) continua cobrindo certo o que ele sempre cobriu — é
+específico da tela do PDV, e nada do que mudou lá invalidou o que ele
+já explicava.
+
 ## Painel e Auditoria fundidos
 
 Pedido de juntar as duas telas — fazia sentido: as duas já eram
