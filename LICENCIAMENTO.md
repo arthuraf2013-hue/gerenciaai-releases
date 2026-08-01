@@ -91,11 +91,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
-    // "config/atualizacao" é o documento único (sempre o mesmo id,
-    // "atualizacao") onde o painel publica a versão mínima obrigatória
-    // — qualquer instalação precisa LER isso pra saber se está
-    // desatualizada, mas só você (autenticado no painel) pode
-    // publicar ou desativar.
+    // "config/atualizacao" e "config/mensagem" são documentos únicos
+    // onde o painel publica, respectivamente, a versão mínima
+    // obrigatória e o aviso/imagem da tela inicial — qualquer
+    // instalação precisa LER os dois (o "{configId}" abaixo cobre
+    // qualquer documento dentro de "config", não só um), mas só você
+    // (autenticado no painel) pode publicar ou desativar qualquer um
+    // dos dois. Não precisa de regra nova quando adicionar outro
+    // documento de config no futuro — essa já cobre.
     match /config/{configId} {
       allow read: if true;
       allow write: if request.auth != null;

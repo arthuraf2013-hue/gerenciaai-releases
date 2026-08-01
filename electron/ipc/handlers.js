@@ -5,6 +5,7 @@ const digitalMenuService = require('../services/digitalMenuService');
 const weightBarcodeService = require('../services/weightBarcodeService');
 const scaleHardwareService = require('../services/scaleHardwareService');
 const licenseService = require('../services/licenseService');
+const messageService = require('../services/messageService');
 const tableService = require('../services/tableService');
 const ingredientService = require('../services/ingredientService');
 const wasteService = require('../services/wasteService');
@@ -117,6 +118,8 @@ function registerIpcHandlers() {
   // --- Licenciamento ---
   safeHandle('license:check', () => licenseService.checkLicense());
   safeHandle('license:getStatus', () => licenseService.computeAccessStatus());
+  safeHandle('message:getForDisplay', () => messageService.getMensagensParaExibir());
+  safeHandle('message:getMotivoBloqueio', () => messageService.getMotivoBloqueio());
   safeHandle('table:markCleaned', (_e, { tableId }) => tableService.markCleaned(tableId));
   safeHandle('table:markReserved', (_e, { tableId, reservadoPara }) => tableService.markReserved(tableId, reservadoPara));
   safeHandle('table:cancelReservation', (_e, { tableId }) => tableService.cancelReservation(tableId));

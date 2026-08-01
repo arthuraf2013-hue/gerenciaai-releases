@@ -442,6 +442,20 @@ CREATE TABLE IF NOT EXISTS forced_update_state (
   obrigatoria             INTEGER NOT NULL DEFAULT 0
 );
 
+-- Cache local das mensagens publicadas no painel de licenciamento —
+-- igual license_state, funciona offline com o último valor conhecido.
+-- "Global" vem de config/mensagem (todo mundo vê); os outros dois vêm
+-- do próprio documento da instalação (mensagem por cliente, e motivo
+-- de bloqueio), então não precisam de coleção nova nenhuma.
+CREATE TABLE IF NOT EXISTS home_message_state (
+  id                          TEXT PRIMARY KEY DEFAULT 'default',
+  global_texto                TEXT,
+  global_imagem_url           TEXT,
+  global_ativa                INTEGER NOT NULL DEFAULT 0,
+  mensagem_personalizada      TEXT,
+  motivo_bloqueio             TEXT
+);
+
 CREATE TABLE IF NOT EXISTS firebase_config (
   id            TEXT PRIMARY KEY DEFAULT 'default',
   api_key       TEXT,

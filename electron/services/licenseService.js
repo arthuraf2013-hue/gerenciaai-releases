@@ -74,6 +74,14 @@ function aplicarDadosDoServidor(dados) {
   } else {
     saveLocalState({ ultimoContatoOk: agora, congeladaDesde: null, bloqueioImediato: false, statusAtual: 'ativa' });
   }
+
+  // Mesmo documento, mesma leitura — só aproveita os campos de
+  // mensagem que vieram junto, sem precisar de outra consulta.
+  try {
+    require('./messageService').aplicarMensagemDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarMensagemDaInstalacao falhou:', err);
+  }
 }
 
 /**

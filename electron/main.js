@@ -79,6 +79,12 @@ app.whenReady().then(() => {
   // pedir); verifica 1 min depois de abrir (não trava a abertura do
   // app) e depois a cada 4h.
   updateService.setupAutoUpdater();
+  // Limpa o status de download/instalação no Firestore assim que o app
+  // sobe — sem isso, depois que o cliente reinicia na versão nova, o
+  // painel continuava mostrando "baixado, aguardando reiniciar" pra
+  // sempre (o status só era escrito DURANTE o download, nunca
+  // "zerado" depois que o reinício de verdade acontecia).
+  updateService.reportarProgressoNoFirestore().catch((err) => console.error('[update]', err));
   updateService.iniciarEscutaAtualizacaoObrigatoria();
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);
@@ -89,6 +95,7 @@ app.whenReady().then(() => {
   // pelo próprio React a partir do estado local já salvo.
   licenseService.checkLicense().catch((err) => console.error('[license]', err));
   licenseService.iniciarEscutaTempoReal();
+  require('./services/messageService').iniciarEscutaMensagemGlobal();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
 
   app.on('activate', () => {

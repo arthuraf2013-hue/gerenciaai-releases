@@ -13,6 +13,7 @@ import { RecentlySoldStrip } from './RecentlySoldStrip';
 import { Clock } from '../layout/Clock';
 import { PosTour } from './PosTour';
 import { TrainingPresentationModal } from './TrainingPresentationModal';
+import { HomeMessageBanner } from './HomeMessageBanner';
 
 function playErrorBeep() {
   try {
@@ -399,6 +400,8 @@ export function POSScreen() {
           </button>
         </div>
       </header>
+
+      <HomeMessageBanner />
 
       <div className="pos-search-row">
         <div className="qty-stepper" title="Quantidade do próximo item — digite antes de escanear ou buscar pra adicionar várias unidades de uma vez">

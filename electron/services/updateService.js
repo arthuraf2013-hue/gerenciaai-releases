@@ -172,4 +172,5 @@ async function reportarProgressoNoFirestore() {
 module.exports = {
   setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall, getStatus,
   verificarAtualizacaoObrigatoria, iniciarEscutaAtualizacaoObrigatoria, versaoMenorQue,
+  reportarProgressoNoFirestore,
 };

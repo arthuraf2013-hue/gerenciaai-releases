@@ -107,6 +107,10 @@ contextBridge.exposeInMainWorld('pdv', {
     check: invoke('license:check'),
     getStatus: invoke('license:getStatus'),
   },
+  message: {
+    getForDisplay: invoke('message:getForDisplay'),
+    getMotivoBloqueio: invoke('message:getMotivoBloqueio'),
+  },
   profile: {
     listAvailable: invoke('profile:listAvailable'),
     getActive: invoke('profile:getActive'),

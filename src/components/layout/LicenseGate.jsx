@@ -21,6 +21,7 @@ const MOTIVO_MSG_AVISO = {
  */
 export function LicenseGate({ children }) {
   const [status, setStatus] = useState(null);
+  const [motivoCustomizado, setMotivoCustomizado] = useState(null);
 
   async function verificar() {
     const result = await window.pdv.license.getStatus();
@@ -35,12 +36,17 @@ export function LicenseGate({ children }) {
     return () => clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (status?.status !== 'bloqueado') return;
+    window.pdv.message.getMotivoBloqueio().then(setMotivoCustomizado);
+  }, [status?.status]);
+
   if (status?.status === 'bloqueado') {
     return (
       <div className="license-block-screen">
         <div className="license-block-card">
           <h1>Sistema bloqueado</h1>
-          <p>{MOTIVO_MSG_BLOQUEIO[status.motivo] || 'Não foi possível confirmar a licença deste sistema.'}</p>
+          <p>{motivoCustomizado || MOTIVO_MSG_BLOQUEIO[status.motivo] || 'Não foi possível confirmar a licença deste sistema.'}</p>
           <p>Entre em contato com o suporte pra regularizar o acesso. Seus dados continuam salvos e
             intactos — assim que a situação for resolvida, o sistema volta a funcionar normalmente.</p>
         </div>

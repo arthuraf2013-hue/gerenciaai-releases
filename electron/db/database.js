@@ -207,6 +207,11 @@ function seedIfEmpty(database) {
     database.prepare(`INSERT INTO forced_update_state (id) VALUES ('default')`).run();
   }
 
+  const homeMessageStateCount = database.prepare('SELECT COUNT(*) as c FROM home_message_state').get().c;
+  if (homeMessageStateCount === 0) {
+    database.prepare(`INSERT INTO home_message_state (id) VALUES ('default')`).run();
+  }
+
   const loyaltyConfigCount = database.prepare('SELECT COUNT(*) as c FROM loyalty_config').get().c;
   if (loyaltyConfigCount === 0) {
     database.prepare(`INSERT INTO loyalty_config (id) VALUES ('default')`).run();

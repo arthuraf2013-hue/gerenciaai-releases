@@ -68,6 +68,8 @@
   .maquina-progress-bar { width: 100%; height: 6px; background: var(--bg); border-radius: 4px; overflow: hidden; }
   .maquina-progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
   .maquina-progress-texto { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .mensagem-cliente-wrap { display: flex; gap: 8px; margin-bottom: 12px; }
+  .mensagem-cliente-wrap input { flex: 1; font-size: 13px; }
 
   #novo-cliente-modal, #vincular-modal {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -104,8 +106,27 @@
 
     <div class="toolbar">
       <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
+      <button class="btn-secondary" id="mensagem-toggle-btn">💬 Mensagem</button>
       <button class="btn-secondary" id="atualizacao-toggle-btn">⬆ Atualização</button>
       <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
+    </div>
+
+    <div id="mensagem-card" class="card" style="display:none; margin-bottom: 20px;">
+      <h2>Mensagem na tela inicial</h2>
+      <p class="subtitle" style="margin-bottom: 14px;">
+        Aparece como um banner na tela inicial do app de todo cliente — pra avisos gerais, horário de
+        feriado, ou uma imagem sazonal. Pra mensagem específica de UM cliente (ex: pendência), use o
+        campo "Mensagem" dentro do bloco daquele cliente, na lista abaixo.
+      </p>
+      <div id="mensagem-status-atual" class="cliente-resumo" style="margin-bottom: 14px;"></div>
+      <div class="modal-form" style="max-width: 560px;">
+        <input type="text" id="mensagem-texto-input" placeholder="Texto da mensagem (ex: Horário especial no feriado: 9h às 14h)">
+        <input type="text" id="mensagem-imagem-input" placeholder="URL de uma imagem (opcional — hospede em algum lugar e cole o link aqui)">
+        <div class="modal-actions" style="justify-content: flex-start;">
+          <button class="btn-primary" id="mensagem-publicar-btn">Publicar</button>
+          <button class="btn-secondary" id="mensagem-desativar-btn">Desativar</button>
+        </div>
+      </div>
     </div>
 
     <div id="atualizacao-card" class="card" style="display:none; margin-bottom: 20px;">
@@ -212,6 +233,7 @@
   let instalacoes = [];
   let clientes = [];
   let atualizacaoConfig = null;
+  let mensagemConfig = null;
   const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
   let instalacaoParaVincular = null;
 
@@ -265,6 +287,14 @@
       },
       (err) => mostrarErro(err, 'carregar a config de atualização')
     );
+    onSnapshot(
+      doc(db, 'config', 'mensagem'),
+      (snap) => {
+        mensagemConfig = snap.exists() ? snap.data() : null;
+        renderStatusMensagem();
+      },
+      (err) => mostrarErro(err, 'carregar a mensagem publicada')
+    );
   }
 
   function diasAtras(timestamp) {
@@ -304,9 +334,18 @@
       ? 'desbloquear essa instalação'
       : 'BLOQUEAR IMEDIATAMENTE essa instalação — o app para de funcionar assim que perceber a mudança (poucos minutos, se estiver online), sem aviso nem carência';
     if (!confirm(`Tem certeza que quer ${acao}?`)) return;
+
+    let motivoBloqueio;
+    if (!bloqueadoAtual) {
+      motivoBloqueio = prompt('Motivo do bloqueio (aparece pro cliente na tela de bloqueio — opcional, deixe em branco pra usar a mensagem padrão):', '') || null;
+    }
+
     limparErro();
     try {
-      await updateDoc(doc(db, 'installations', id), { bloqueioImediato: !bloqueadoAtual });
+      const dados = { bloqueioImediato: !bloqueadoAtual };
+      if (!bloqueadoAtual) dados.motivoBloqueio = motivoBloqueio;
+      else dados.motivoBloqueio = null; // limpa o motivo ao desbloquear
+      await updateDoc(doc(db, 'installations', id), dados);
     } catch (err) {
       mostrarErro(err, bloqueadoAtual ? 'desbloquear' : 'bloquear');
     }
@@ -340,17 +379,31 @@
 
   // --- Ações em bloco (todas as máquinas de um cliente de uma vez) ---
 
+  async function salvarMensagemCliente(clienteId, texto, maquinasDoCliente) {
+    limparErro();
+    try {
+      const batch = writeBatch(db);
+      for (const m of maquinasDoCliente) {
+        batch.update(doc(db, 'installations', m.id), { mensagemPersonalizada: texto || null });
+      }
+      await batch.commit();
+    } catch (err) {
+      mostrarErro(err, 'salvar a mensagem desse cliente');
+    }
+  }
+
   async function bloquearClienteInteiro(clienteId, maquinasDoCliente) {
     const qtd = maquinasDoCliente.length;
     if (!confirm(
       `BLOQUEAR IMEDIATAMENTE as ${qtd} máquina(s) desse cliente? Todas param de funcionar assim que ` +
       `perceberem a mudança (poucos minutos, se estiverem online), sem aviso nem carência.`
     )) return;
+    const motivoBloqueio = prompt('Motivo do bloqueio (aparece pro cliente na tela de bloqueio — opcional):', '') || null;
     limparErro();
     try {
       const batch = writeBatch(db);
       for (const m of maquinasDoCliente) {
-        batch.update(doc(db, 'installations', m.id), { bloqueioImediato: true });
+        batch.update(doc(db, 'installations', m.id), { bloqueioImediato: true, motivoBloqueio });
       }
       await batch.commit();
     } catch (err) {
@@ -364,7 +417,7 @@
     try {
       const batch = writeBatch(db);
       for (const m of maquinasDoCliente) {
-        batch.update(doc(db, 'installations', m.id), { bloqueioImediato: false, ativo: true });
+        batch.update(doc(db, 'installations', m.id), { bloqueioImediato: false, ativo: true, motivoBloqueio: null });
       }
       await batch.commit();
     } catch (err) {
@@ -375,6 +428,45 @@
   // --- Criar cliente ---
 
   // --- Atualização obrigatória ---
+
+  // --- Mensagem global (feriados/avisos) ---
+
+  document.getElementById('mensagem-toggle-btn').addEventListener('click', () => {
+    const card = document.getElementById('mensagem-card');
+    card.style.display = card.style.display === 'none' ? 'block' : 'none';
+  });
+
+  function renderStatusMensagem() {
+    const div = document.getElementById('mensagem-status-atual');
+    if (!mensagemConfig || !mensagemConfig.ativa) {
+      div.textContent = 'Nenhuma mensagem publicada no momento.';
+    } else {
+      div.textContent = `Publicada: "${mensagemConfig.texto || '(só imagem)'}"${mensagemConfig.imagemUrl ? ' + imagem' : ''}`;
+    }
+  }
+
+  document.getElementById('mensagem-publicar-btn').addEventListener('click', async () => {
+    const texto = document.getElementById('mensagem-texto-input').value.trim();
+    const imagemUrl = document.getElementById('mensagem-imagem-input').value.trim();
+    if (!texto && !imagemUrl) return;
+    limparErro();
+    try {
+      await setDoc(doc(db, 'config', 'mensagem'), {
+        texto: texto || null, imagemUrl: imagemUrl || null, ativa: true, publicadoEm: serverTimestamp(),
+      });
+    } catch (err) {
+      mostrarErro(err, 'publicar a mensagem');
+    }
+  });
+
+  document.getElementById('mensagem-desativar-btn').addEventListener('click', async () => {
+    limparErro();
+    try {
+      await setDoc(doc(db, 'config', 'mensagem'), { ativa: false }, { merge: true });
+    } catch (err) {
+      mostrarErro(err, 'desativar a mensagem');
+    }
+  });
 
   document.getElementById('atualizacao-toggle-btn').addEventListener('click', () => {
     const card = document.getElementById('atualizacao-card');
@@ -542,6 +634,13 @@
           </div>
         </div>
         <div class="maquinas-lista ${aberto ? 'aberto' : ''}" data-maquinas-de="${cliente.id}">
+          <div class="mensagem-cliente-wrap">
+            <input type="text" class="mensagem-cliente-input" data-mensagem-cliente="${cliente.id}"
+              value="${escapeHtml(maquinas[0]?.mensagemPersonalizada || '')}"
+              placeholder="Mensagem só pra esse cliente (ex: Pendência de pagamento — entre em contato)">
+            <button class="btn-secondary btn-small" data-salvar-mensagem-cliente="${cliente.id}">Salvar mensagem</button>
+            <button class="btn-secondary btn-small" data-limpar-mensagem-cliente="${cliente.id}">Limpar</button>
+          </div>
           ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
         </div>
       </div>
@@ -644,6 +743,28 @@
     listaClientes.querySelectorAll('[data-nome-negocio]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
       input.addEventListener('blur', () => salvarNomeNegocio(input.dataset.nomeNegocio, input.value.trim()));
+    });
+    listaClientes.querySelectorAll('[data-salvar-mensagem-cliente]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clienteId = btn.dataset.salvarMensagemCliente;
+        const input = listaClientes.querySelector(`[data-mensagem-cliente="${clienteId}"]`);
+        const maquinas = instalacoes.filter((i) => i.clienteId === clienteId);
+        salvarMensagemCliente(clienteId, input.value.trim(), maquinas);
+      });
+    });
+    listaClientes.querySelectorAll('[data-limpar-mensagem-cliente]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clienteId = btn.dataset.limparMensagemCliente;
+        const input = listaClientes.querySelector(`[data-mensagem-cliente="${clienteId}"]`);
+        input.value = '';
+        const maquinas = instalacoes.filter((i) => i.clienteId === clienteId);
+        salvarMensagemCliente(clienteId, '', maquinas);
+      });
+    });
+    listaClientes.querySelectorAll('[data-mensagem-cliente]').forEach((input) => {
+      input.addEventListener('click', (e) => e.stopPropagation());
     });
   }
 

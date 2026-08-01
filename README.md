@@ -686,6 +686,61 @@ específica. Se disser algo sobre permissão, é isso mesmo: siga o
 Passo 3 do `LICENCIAMENTO.md` e republique as regras do Firestore com
 o bloco mais recente (o que inclui a coleção `clientes`).
 
+## Mensagens na tela inicial do app, publicadas pelo painel
+
+Pedido de conseguir deixar mensagens salvas no painel pra aparecer na
+tela inicial do app do cliente — pendência, motivo de bloqueio, ou
+até uma imagem de feriado. Implementado em três partes, reaproveitando
+a mesma infraestrutura de tempo real já usada pela licença e pela
+atualização obrigatória (sem precisar de projeto ou coleção nova):
+
+1. **Mensagem global** — banner "💬 Mensagem" no painel, com texto e
+   uma URL de imagem opcional (hospede em qualquer lugar — Imgur,
+   Google Drive público, etc. — e cole o link). Aparece pra **todo
+   cliente**, na tela inicial do PDV, com botão de fechar. Pensado pra
+   feriado, aviso geral, essas coisas.
+2. **Mensagem por cliente** — dentro do bloco de cada cliente
+   (expandido), um campo específico pra esse cliente só — pensado pra
+   pendência de pagamento, aviso pontual, etc. Salva em lote pra todas
+   as máquinas vinculadas àquele cliente de uma vez.
+3. **Motivo de bloqueio customizado** — ao clicar "Bloquear agora" ou
+   "Bloquear tudo", o painel agora pergunta o motivo (opcional) —
+   esse texto aparece na tela de bloqueio do cliente, no lugar da
+   mensagem genérica. Fica limpo automaticamente ao reativar/desbloquear.
+
+**Sobre a imagem de feriado**: por enquanto só aceita uma URL (link
+pra uma imagem já hospedada em algum lugar) — não fiz upload direto de
+arquivo pelo painel, porque isso precisaria configurar o Firebase
+Storage (mais um projeto/regra pra cuidar) e o Firestore tem limite de
+tamanho por documento. Pra uma imagem pequena isso resolve bem; se
+precisar de upload direto no futuro, dá pra adicionar depois.
+
+**As regras de segurança do Firestore já cobrem isso** — a regra que
+já existia pra `config/atualizacao` usa um "coringa" (`{configId}`)
+que também cobre `config/mensagem` automaticamente. **Não precisa
+republicar nada dessa vez.**
+
+Testei no navegador de verdade (com o Firebase simulado): publicar
+mensagem global grava o dado certo e atualiza o status na tela,
+mensagem por cliente salva em lote pra máquina certa, e bloquear com
+motivo captura o texto digitado e manda junto — sem erro de
+JavaScript em nenhum dos três.
+
+### Continuação — status ficava travado em "aguardando reiniciar" mesmo depois de já ter reiniciado
+
+Você reportou que mesmo já tendo reiniciado o cliente (v0.5.2), o
+painel continuava mostrando "Atualização baixada, aguardando reiniciar
+no cliente". Achei a causa: eu escrevia o status no Firestore
+**durante** o download, mas nunca "limpava" isso depois — o app novo
+sobe com um estado interno zerado na memória, só que isso nunca era
+reportado de volta pro Firestore, então o painel continuava lendo o
+último valor escrito (de antes do reinício), pra sempre.
+
+**Corrigido**: agora, assim que o app sobe, reporta o status limpo pro
+Firestore de cara — resolve tanto esse caso quanto o de alguém fechar
+o app no meio de um download (ficaria travado mostrando uma
+porcentagem antiga pra sempre, agora também se limpa ao reiniciar).
+
 ## Atualização obrigatória publicada pelo painel
 
 Pedido de conseguir forçar todos os clientes a atualizar de uma vez,
