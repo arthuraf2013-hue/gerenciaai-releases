@@ -70,6 +70,17 @@
   .maquina-progress-texto { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
   .mensagem-cliente-wrap { display: flex; gap: 8px; margin-bottom: 12px; }
   .mensagem-cliente-wrap input { flex: 1; font-size: 13px; }
+  .metricas-grid { display: flex; gap: 16px; flex-wrap: wrap; }
+  .metrica-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 20px; min-width: 140px; }
+  .metrica-valor { font-size: 26px; font-weight: 700; color: var(--primary); }
+  .metrica-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .erro-row {
+    background: var(--surface2); border-left: 3px solid var(--danger); border-radius: 6px;
+    padding: 10px 14px; margin-bottom: 8px; font-size: 13px;
+  }
+  .erro-meta { color: var(--text-muted); font-size: 11px; margin-bottom: 4px; }
+  .erro-mensagem { font-weight: 600; margin-bottom: 4px; }
+  .erro-stack { color: var(--text-muted); font-size: 11px; white-space: pre-wrap; font-family: monospace; max-height: 100px; overflow-y: auto; }
 
   #novo-cliente-modal, #vincular-modal {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -106,9 +117,29 @@
 
     <div class="toolbar">
       <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
+      <button class="btn-secondary" id="metricas-toggle-btn">📊 Métricas</button>
+      <button class="btn-secondary" id="erros-toggle-btn">⚠️ Erros</button>
       <button class="btn-secondary" id="mensagem-toggle-btn">💬 Mensagem</button>
       <button class="btn-secondary" id="atualizacao-toggle-btn">⬆ Atualização</button>
       <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
+    </div>
+
+    <div id="metricas-card" class="card" style="display:none; margin-bottom: 20px;">
+      <h2>Visão geral do negócio</h2>
+      <p class="subtitle" style="margin-bottom: 14px;">
+        Somado de todas as instalações — só contagens, nunca o conteúdo de uma venda específica.
+        Atualiza sozinho conforme os clientes ficam online (cada um manda o próprio número a cada 6h).
+      </p>
+      <div id="metricas-conteudo"></div>
+    </div>
+
+    <div id="erros-card" class="card" style="display:none; margin-bottom: 20px;">
+      <h2>Erros reportados automaticamente</h2>
+      <p class="subtitle" style="margin-bottom: 14px;">
+        Quando o app quebra na máquina de um cliente, um relato técnico chega aqui — antes dele ligar
+        reclamando. Só texto de erro/diagnóstico, nunca dado de venda ou cliente.
+      </p>
+      <div id="erros-conteudo"></div>
     </div>
 
     <div id="mensagem-card" class="card" style="display:none; margin-bottom: 20px;">
@@ -197,7 +228,7 @@
     getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
   import {
-    getFirestore, collection, onSnapshot, doc, updateDoc, setDoc, addDoc,
+    getFirestore, collection, onSnapshot, doc, updateDoc, setDoc, addDoc, deleteDoc,
     writeBatch, query, orderBy, serverTimestamp,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
@@ -234,6 +265,7 @@
   let clientes = [];
   let atualizacaoConfig = null;
   let mensagemConfig = null;
+  let errosReportados = [];
   const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
   let instalacaoParaVincular = null;
 
@@ -294,6 +326,14 @@
         renderStatusMensagem();
       },
       (err) => mostrarErro(err, 'carregar a mensagem publicada')
+    );
+    onSnapshot(
+      query(collection(db, 'erros_reportados'), orderBy('criadoEm', 'desc')),
+      (snap) => {
+        errosReportados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        renderErros();
+      },
+      (err) => mostrarErro(err, 'carregar os erros reportados')
     );
   }
 
@@ -429,6 +469,81 @@
 
   // --- Atualização obrigatória ---
 
+  // --- Métricas agregadas ---
+
+  document.getElementById('metricas-toggle-btn').addEventListener('click', () => {
+    const card = document.getElementById('metricas-card');
+    card.style.display = card.style.display === 'none' ? 'block' : 'none';
+    renderMetricas();
+  });
+
+  function renderMetricas() {
+    const div = document.getElementById('metricas-conteudo');
+    const totalVendas = instalacoes.reduce((acc, i) => acc + (i.totalVendasHistorico || 0), 0);
+    const vendas30Dias = instalacoes.reduce((acc, i) => acc + (i.vendasUltimos30Dias || 0), 0);
+
+    const porPerfil = {};
+    for (const i of instalacoes) {
+      const perfil = i.perfilAtivo || 'não informado';
+      porPerfil[perfil] = (porPerfil[perfil] || 0) + 1;
+    }
+    const perfilMaisComum = Object.entries(porPerfil).sort((a, b) => b[1] - a[1])[0];
+
+    div.innerHTML = `
+      <div class="metricas-grid">
+        <div class="metrica-box"><div class="metrica-valor">${instalacoes.length}</div><div class="metrica-label">Instalações no total</div></div>
+        <div class="metrica-box"><div class="metrica-valor">${totalVendas}</div><div class="metrica-label">Vendas — histórico completo</div></div>
+        <div class="metrica-box"><div class="metrica-valor">${vendas30Dias}</div><div class="metrica-label">Vendas — últimos 30 dias</div></div>
+        <div class="metrica-box"><div class="metrica-valor">${perfilMaisComum ? escapeHtml(perfilMaisComum[0]) : '—'}</div><div class="metrica-label">Perfil mais comum (${perfilMaisComum ? perfilMaisComum[1] : 0} instalação(ões))</div></div>
+      </div>
+    `;
+  }
+
+  // --- Erros reportados automaticamente ---
+
+  document.getElementById('erros-toggle-btn').addEventListener('click', () => {
+    const card = document.getElementById('erros-card');
+    card.style.display = card.style.display === 'none' ? 'block' : 'none';
+  });
+
+  function nomeDoCliente(installationId) {
+    const inst = instalacoes.find((i) => i.id === installationId);
+    if (!inst) return installationId;
+    const cliente = inst.clienteId && clientes.find((c) => c.id === inst.clienteId);
+    return cliente ? cliente.nome : (inst.nomeNegocio || installationId.slice(0, 8) + '...');
+  }
+
+  async function apagarErro(erroId) {
+    limparErro();
+    try {
+      await deleteDoc(doc(db, 'erros_reportados', erroId));
+    } catch (err) {
+      mostrarErro(err, 'apagar o erro');
+    }
+  }
+
+  function renderErros() {
+    const div = document.getElementById('erros-conteudo');
+    if (errosReportados.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhum erro reportado — tudo tranquilo.</p>';
+      return;
+    }
+    div.innerHTML = errosReportados.slice(0, 50).map((e) => `
+      <div class="erro-row">
+        <div class="erro-meta">
+          ${escapeHtml(nomeDoCliente(e.installationId))} · v${escapeHtml(e.versaoApp || '—')} ·
+          ${escapeHtml(e.contexto || '')} · ${formatarData(e.criadoEm)}
+          <button class="btn-secondary btn-small" data-apagar-erro="${e.id}" style="float:right;">Apagar</button>
+        </div>
+        <div class="erro-mensagem">${escapeHtml(e.mensagem || '(sem mensagem)')}</div>
+        ${e.stack ? `<div class="erro-stack">${escapeHtml(e.stack)}</div>` : ''}
+      </div>
+    `).join('');
+    div.querySelectorAll('[data-apagar-erro]').forEach((btn) => {
+      btn.addEventListener('click', () => apagarErro(btn.dataset.apagarErro));
+    });
+  }
+
   // --- Mensagem global (feriados/avisos) ---
 
   document.getElementById('mensagem-toggle-btn').addEventListener('click', () => {
@@ -558,6 +673,7 @@
   }
 
   function render() {
+    renderMetricas();
     const filtro = buscaInput.value.trim().toLowerCase();
 
     const instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {

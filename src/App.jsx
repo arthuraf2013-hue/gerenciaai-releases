@@ -6,6 +6,7 @@ import { ChangePinScreen } from './components/auth/ChangePinScreen';
 import { FloatingTutor } from './components/layout/FloatingTutor';
 import { LicenseGate } from './components/layout/LicenseGate';
 import { UpdateGate } from './components/layout/UpdateGate';
+import { ErrorBoundary } from './components/layout/ErrorBoundary';
 import './styles/theme.css';
 
 function LoginScreen() {
@@ -74,15 +75,39 @@ export default function App() {
     if (tema === 'escuro') document.documentElement.setAttribute('data-theme', 'dark');
   }, []);
 
+  useEffect(() => {
+    // Erros de código assíncrono/event handler — o Error Boundary do
+    // React só pega erro de renderização, não esses.
+    function onErro(event) {
+      window.pdv?.error?.report({
+        mensagem: event.error?.message || event.message, stack: event.error?.stack, contexto: 'renderer-window-error',
+      });
+    }
+    function onPromiseRejeitada(event) {
+      const err = event.reason;
+      window.pdv?.error?.report({
+        mensagem: err?.message || String(err), stack: err?.stack, contexto: 'renderer-promise-rejeitada',
+      });
+    }
+    window.addEventListener('error', onErro);
+    window.addEventListener('unhandledrejection', onPromiseRejeitada);
+    return () => {
+      window.removeEventListener('error', onErro);
+      window.removeEventListener('unhandledrejection', onPromiseRejeitada);
+    };
+  }, []);
+
   return (
-    <UpdateGate>
-      <LicenseGate>
-        <SessionProvider>
-          <ProfileProvider>
-            <Gate />
-          </ProfileProvider>
-        </SessionProvider>
-      </LicenseGate>
-    </UpdateGate>
+    <ErrorBoundary>
+      <UpdateGate>
+        <LicenseGate>
+          <SessionProvider>
+            <ProfileProvider>
+              <Gate />
+            </ProfileProvider>
+          </SessionProvider>
+        </LicenseGate>
+      </UpdateGate>
+    </ErrorBoundary>
   );
 }

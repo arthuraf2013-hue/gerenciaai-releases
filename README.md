@@ -686,6 +686,93 @@ específica. Se disser algo sobre permissão, é isso mesmo: siga o
 Passo 3 do `LICENCIAMENTO.md` e republique as regras do Firestore com
 o bloco mais recente (o que inclui a coleção `clientes`).
 
+### Correção: banner reaparecia ao trocar de tela
+
+Achei um bug real revisando: fechar o banner de mensagem só durava
+até você trocar de tela e voltar pro PDV — o "fechado" era um estado
+que resetava toda vez (a tela do PDV remonta ao navegar pra outro
+lugar e voltar). Corrigido: agora fica lembrado (via localStorage) por
+mensagem específica — se o texto ou a imagem mudar, volta a aparecer
+uma vez (faz sentido, é conteúdo novo); se for a mesma mensagem,
+continua fechada de verdade. Testei os 3 cenários (mesma mensagem
+continua fechada, texto novo reaparece, mensagem personalizada nova
+reaparece) antes de fechar.
+
+## Estrutura fiscal (NFC-e) — geração do XML, sem transmitir ainda
+
+Pedido de começar pela estrutura completa (cadastro, geração do XML)
+antes de partir pra assinatura/transmissão, dado o tamanho real desse
+projeto. Entregue nessa parte:
+
+- **`nfceChaveService.js`** — gera a chave de acesso de 44 dígitos
+  (módulo 11). Pesquisei o algoritmo contra várias fontes
+  independentes antes de implementar, e testei rigorosamente —
+  inclusive decodifiquei uma chave gerada campo por campo pra
+  confirmar que cada posição bate exatamente.
+- **`nfceXmlService.js`** — monta o XML completo (ide, emitente,
+  itens com ICMS/PIS/COFINS, total, pagamento) no layout 4.00.
+  Implementado a fundo pro caminho mais comum (Simples Nacional,
+  CSOSN 102/300/400/500 — os que não precisam de cálculo de crédito),
+  que cobre a grande maioria dos pequenos negócios. Casos mais raros
+  (CSOSN que precisa de base de cálculo, regime normal com CST que
+  precisa de alíquota) geram o grupo mínimo, mas ficam marcados com um
+  comentário `<!-- REVISAR -->` no XML — não fingem estar prontos.
+- **Achei e corrigi um bug real durante o teste**: a data/hora do XML
+  estava usando o fuso horário da máquina que roda o código, não o
+  fuso do estado emissor — se a máquina do cliente estivesse com o
+  relógio mal configurado (ou em UTC por engano), o XML sairia com
+  hora errada sem ninguém perceber. Corrigido pra calcular o fuso
+  certo por UF (testei Pernambuco e Acre, que têm fusos diferentes).
+- **`emitirNFCe` agora gera de verdade** — testei de ponta a ponta com
+  banco simulado: monta o XML, salva em disco (separado por
+  ambiente), registra em `nfce_emitidas` como "pendente", incrementa a
+  numeração. O botão "Emitir NFC-e" no PDV foi reabilitado, com texto
+  honesto sobre o que ele faz agora.
+
+**O que falta pra ser uma nota fiscal de verdade** (próximas fases,
+fora do escopo pedido dessa vez): assinatura digital com o certificado
+real (só dá pra testar com o certificado de verdade do Arthur) e
+transmissão pro webservice da SEFAZ (varia por estado). Documentado no
+código pra não passar a impressão de que já emite de verdade.
+
+## Painel de métricas agregadas
+
+Visão geral do negócio (o seu, Arthur, não de um cliente específico)
+somando todas as instalações — total de vendas histórico, últimos 30
+dias, e o perfil de negócio mais comum entre os clientes. Só
+contagens, nunca o conteúdo de uma venda específica — o app já
+reportava "sinal de vida" (última conexão, versão) a cada 6h; só
+estendi esse mesmo reporte pra incluir essas contagens.
+
+Botão "📊 Métricas" no painel, atualiza sozinho conforme os clientes
+ficam online. Testei o cálculo (soma de vendas, contagem por perfil)
+num navegador de verdade com dados simulados.
+
+## Aviso automático de erro
+
+Quando o app quebra na máquina de um cliente — seja um crash no
+processo principal, uma promise rejeitada sem tratamento, ou um erro
+de renderização do React — um relato técnico (mensagem + stack trace,
+nunca dado de venda ou cliente) chega automaticamente no painel, antes
+do cliente ligar reclamando.
+
+- **Processo principal**: `uncaughtException` e `unhandledRejection`
+  agora são capturados e reportados (antes, um crash nessa camada
+  simplesmente fechava o app sem nenhum rastro).
+- **Renderer**: `window.onerror`, `unhandledrejection`, e um Error
+  Boundary do React (pega erro de renderização, mostra uma tela de
+  recuperação em vez de tela branca, com botão de recarregar).
+- **Limite de 5 relatos por sessão** — testado — pra nunca inundar o
+  Firestore se algum erro entrar em loop.
+- Botão "⚠️ Erros" no painel — mostra os relatos recentes, com o nome
+  do cliente (resolvido automaticamente a partir da instalação),
+  versão, contexto, e um botão de apagar. Testei tudo isso num
+  navegador de verdade, incluindo apagar.
+
+**Isso é uma coleção nova no Firestore — precisa republicar as regras
+de segurança** (Passo 3 do `LICENCIAMENTO.md`, já atualizado com o
+bloco de `erros_reportados`).
+
 ## Mensagens na tela inicial do app, publicadas pelo painel
 
 Pedido de conseguir deixar mensagens salvas no painel pra aparecer na

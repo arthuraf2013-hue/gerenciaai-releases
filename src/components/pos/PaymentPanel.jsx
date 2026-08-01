@@ -184,7 +184,11 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   async function handleEmitirNFCe() {
     setNfceStatus({ emitindo: true, mensagem: null });
     const result = await window.pdv.fiscal.emitirNFCe({ saleId });
-    setNfceStatus({ emitindo: false, mensagem: result.error || 'NFC-e emitida.' });
+    setNfceStatus({
+      emitindo: false,
+      mensagem: result.ok ? result.aviso : result.error,
+      sucesso: result.ok,
+    });
   }
 
   async function handleImprimir() {
@@ -203,12 +207,18 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
 
         <div className="nfce-box">
           <p className="screen-hint" style={{ margin: 0 }}>
-            Nota fiscal (NFC-e) — <strong>ainda em preparação</strong>, não emite de verdade nesta
-            versão. A venda já está registrada independente disso.
+            Nota fiscal (NFC-e) — gera o arquivo XML de verdade, mas <strong>ainda não assina nem
+            transmite</strong> pra SEFAZ (isso não é uma nota fiscal válida ainda). A venda já está
+            registrada independente disso.
           </p>
-          <button className="btn-secondary" disabled title="Em preparação — ver Configurações → Fiscal">
-            Emitir NFC-e (em preparação)
+          <button className="btn-secondary" onClick={handleEmitirNFCe} disabled={nfceStatus?.emitindo}>
+            {nfceStatus?.emitindo ? 'Gerando...' : 'Gerar XML da NFC-e'}
           </button>
+          {nfceStatus?.mensagem && (
+            <p className={nfceStatus.sucesso ? 'io-message' : 'modal-error'} style={{ marginTop: 8 }}>
+              {nfceStatus.mensagem}
+            </p>
+          )}
         </div>
         <button className="btn-primary" onClick={onFinalized}>Concluir</button>
       </div>

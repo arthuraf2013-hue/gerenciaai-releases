@@ -7,8 +7,26 @@ const timeService = require('./services/timeService');
 const backupService = require('./services/backupService');
 const updateService = require('./services/updateService');
 const licenseService = require('./services/licenseService');
+const errorReportService = require('./services/errorReportService');
 
 const isDev = !app.isPackaged;
+
+// Reporta qualquer erro não tratado no processo principal antes de deixar
+// o comportamento padrão do Node acontecer (fechar o processo) — sem
+// isso, um crash no processo principal simplesmente fecharia o app sem
+// nenhum rastro, nem pro Arthur nem pro cliente.
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  errorReportService.reportarErro({ mensagem: err.message, stack: err.stack, contexto: 'processo-principal' })
+    .finally(() => process.exit(1));
+});
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  console.error('[unhandledRejection]', err);
+  errorReportService.reportarErro({ mensagem: err.message, stack: err.stack, contexto: 'processo-principal-promise' });
+  // Não derruba o processo aqui — promise rejeitada sem handler é mais
+  // comum e geralmente recuperável, diferente de uma exceção síncrona.
+});
 
 // Protocolo customizado app:// — evita as restrições do Chromium para
 // carregar módulos ES via file:// em produção.

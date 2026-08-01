@@ -103,6 +103,17 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null;
     }
+
+    // "erros_reportados" — qualquer instalação pode CRIAR um relato de
+    // erro (é só texto técnico de diagnóstico, nunca dado de venda ou
+    // cliente) — mas só você (autenticado) pode ler ou apagar. Isso
+    // significa que ninguém consegue ver os erros de outra instalação,
+    // só criar os próprios.
+    match /erros_reportados/{erroId} {
+      allow create: if true;
+      allow read, delete: if request.auth != null;
+      allow update: if false; // um relato de erro nunca precisa ser editado, só criado ou apagado
+    }
   }
 }
 ```
@@ -110,8 +121,9 @@ service cloud.firestore {
 Clique em "Publicar".
 
 **Se você já tinha publicado as regras antigas** (antes do bloqueio
-imediato, dos clientes, ou da atualização obrigatória existirem):
-precisa republicar com esse bloco novo de novo — **isso vale ainda
+imediato, dos clientes, da atualização obrigatória, ou dos erros
+reportados existirem): precisa republicar com esse bloco novo de novo
+— **isso vale ainda
 mais agora**, já que sem a parte de `config/atualizacao` e os campos
 novos no `hasOnly` de `installations`, a atualização obrigatória
 simplesmente não vai funcionar (o app não vai conseguir nem ler se

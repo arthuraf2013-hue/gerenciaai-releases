@@ -1,20 +1,56 @@
 import { useEffect, useState } from 'react';
 
+const CHAVE_LOCALSTORAGE = 'gerenciaai:mensagens-fechadas';
+
+function assinaturaDe(mensagens) {
+  // Uma "impressão digital" do conteúdo — se o admin trocar o texto ou
+  // a imagem, essa assinatura muda, e a mensagem nova volta a aparecer
+  // mesmo que a anterior já tivesse sido fechada.
+  return JSON.stringify({ g: mensagens.global, p: mensagens.personalizada });
+}
+
+function jaFoiFechada(assinatura) {
+  try {
+    return localStorage.getItem(CHAVE_LOCALSTORAGE) === assinatura;
+  } catch (err) {
+    return false;
+  }
+}
+
+function marcarComoFechada(assinatura) {
+  try {
+    localStorage.setItem(CHAVE_LOCALSTORAGE, assinatura);
+  } catch (err) {
+    // localStorage indisponível (raro) — só não persiste, sem quebrar nada
+  }
+}
+
 export function HomeMessageBanner() {
   const [mensagens, setMensagens] = useState(null);
   const [fechada, setFechada] = useState(false);
 
   useEffect(() => {
-    window.pdv.message.getForDisplay().then(setMensagens);
-    const id = setInterval(() => window.pdv.message.getForDisplay().then(setMensagens), 60 * 1000);
+    function atualizar() {
+      window.pdv.message.getForDisplay().then((m) => {
+        setMensagens(m);
+        setFechada(jaFoiFechada(assinaturaDe(m)));
+      });
+    }
+    atualizar();
+    const id = setInterval(atualizar, 60 * 1000);
     return () => clearInterval(id);
   }, []);
 
   if (fechada || !mensagens || (!mensagens.global && !mensagens.personalizada)) return null;
 
+  function handleFechar() {
+    marcarComoFechada(assinaturaDe(mensagens));
+    setFechada(true);
+  }
+
   return (
     <div className="home-message-banner">
-      <button className="home-message-close" onClick={() => setFechada(true)} title="Fechar">✕</button>
+      <button className="home-message-close" onClick={handleFechar} title="Fechar">✕</button>
       {mensagens.personalizada && (
         <div className="home-message-item home-message-personalizada">⚠ {mensagens.personalizada}</div>
       )}

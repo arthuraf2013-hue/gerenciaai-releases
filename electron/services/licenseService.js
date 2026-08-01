@@ -102,7 +102,13 @@ async function checkLicense() {
     const snap = await getDoc(ref);
 
     if (snap.exists()) {
-      await setDoc(ref, { ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion() }, { merge: true });
+      const metricas = require('./metricsService').getMetricasAgregadas();
+      await setDoc(ref, {
+        ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion(),
+        totalVendasHistorico: metricas.totalVendasHistorico,
+        vendasUltimos30Dias: metricas.vendasUltimos30Dias,
+        perfilAtivo: metricas.perfilAtivo,
+      }, { merge: true });
       aplicarDadosDoServidor(snap.data());
     } else {
       // Primeira vez que essa instalação fala com o servidor — se
@@ -110,6 +116,7 @@ async function checkLicense() {
       // bloqueio é sempre uma ação manual sua depois, pelo painel).
       await setDoc(ref, {
         ativo: true, bloqueioImediato: false, clienteId: null, nomeNegocio: null,
+        totalVendasHistorico: 0, vendasUltimos30Dias: 0, perfilAtivo: null,
         criadoEm: serverTimestamp(), ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion(),
       });
       aplicarDadosDoServidor({ ativo: true, bloqueioImediato: false });

@@ -248,4 +248,7 @@ contextBridge.exposeInMainWorld('pdv', {
     download: invoke('update:download'),
     install: invoke('update:install'),
   },
+  error: {
+    report: invoke('error:report'),
+  },
 });

@@ -1,6 +1,10 @@
 const { randomUUID } = require('crypto');
+const path = require('path');
+const fs = require('fs');
+const { app } = require('electron');
 const { getDb } = require('../db/database');
 const secrets = require('./secretsService');
+const { gerarXmlNFCe } = require('./nfceXmlService');
 
 function getFiscalConfig() {
   const db = getDb();
@@ -71,16 +75,19 @@ function configuracaoCompleta(config) {
 }
 
 /**
- * Ponto de emissão de NFC-e. DELIBERADAMENTE NÃO IMPLEMENTADO ainda —
- * ver README, seção "Fiscal". Emitir uma NFC-e de verdade exige:
- *   1) assinar o XML com o certificado digital (A1/A3) da empresa;
- *   2) montar o XML no layout 4.00 exigido pela SEFAZ do estado (uf);
- *   3) transmitir ao webservice correto (varia por estado/grupo de estados);
- *   4) tratar autorização, rejeição, contingência e cancelamento;
- *   5) gerar o QR Code da NFC-e usando o CSC do estado.
- * Fingir que isso funciona sem testar contra o ambiente de homologação
- * real geraria documentos fiscais inválidos — por isso este método apenas
- * valida a configuração e explica o que falta, em vez de simular sucesso.
+ * Ponto de emissão de NFC-e. Gera o XML completo (estrutura, valores,
+ * chave de acesso) e salva em disco — mas AINDA NÃO assina
+ * digitalmente nem transmite pra SEFAZ. Ver README, seção "Fiscal",
+ * pra entender exatamente o que falta e por quê:
+ *   1) assinar o XML com o certificado digital (A1/A3) da empresa —
+ *      próxima fase, precisa de teste com o certificado real;
+ *   2) transmitir ao webservice correto (varia por estado/grupo);
+ *   3) tratar autorização, rejeição, contingência e cancelamento;
+ *   4) gerar o QR Code (depende do CSC e da URL específica do estado).
+ * Fingir que isso já emite de verdade sem testar contra o ambiente de
+ * homologação real geraria documentos fiscais inválidos — por isso
+ * este método gera e guarda o XML como "pendente", em vez de simular
+ * autorização.
  */
 async function emitirNFCe(saleId) {
   const db = getDb();
@@ -94,18 +101,56 @@ async function emitirNFCe(saleId) {
     };
   }
 
-  // Registra a tentativa como pendente para manter o rastro, mesmo sem
-  // conseguir emitir de verdade ainda.
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'finalizada') {
+    return { ok: false, error: 'Só é possível emitir NFC-e de uma venda já finalizada (com pagamento).' };
+  }
+
+  const items = db.prepare(
+    `SELECT si.*, p.nome, p.sku, p.codigo_barras, p.ncm, p.cfop, p.cst_csosn, p.origem_mercadoria, p.unidade
+     FROM sale_items si JOIN products p ON p.id = si.product_id
+     WHERE si.sale_id = ?`
+  ).all(saleId);
+  const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
+
+  const numero = config.proximo_numero_nfce || 1;
+
+  let xml, chaveAcesso;
+  try {
+    ({ xml, chaveAcesso } = gerarXmlNFCe({
+      config, sale, items, payments, numero, dataEmissao: new Date(sale.finalizada_em),
+    }));
+  } catch (err) {
+    return { ok: false, error: `Erro ao montar o XML: ${err.message}` };
+  }
+
+  // Salva o XML em disco, separado por ambiente (nunca mistura teste
+  // com produção, mesmo que troque a config depois).
+  const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
+  fs.mkdirSync(pastaDestino, { recursive: true });
+  const xmlPath = path.join(pastaDestino, `${chaveAcesso}.xml`);
+  fs.writeFileSync(xmlPath, xml, 'utf-8');
+
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO nfce_emitidas (id, sale_id, status, ambiente) VALUES (?, ?, 'pendente', ?)`
-  ).run(id, saleId, config.ambiente);
+    `INSERT INTO nfce_emitidas (id, sale_id, numero, serie, chave_acesso, status, ambiente, xml_path)
+     VALUES (?, ?, ?, ?, ?, 'pendente', ?, ?)`
+  ).run(id, saleId, numero, config.serie_nfce, chaveAcesso, config.ambiente, xmlPath);
+
+  // Só incrementa o número DEPOIS de gerar com sucesso — se desse erro
+  // antes, o número não é "queimado" à toa.
+  db.prepare(`UPDATE fiscal_config SET proximo_numero_nfce = ? WHERE id = 'default'`).run(numero + 1);
 
   return {
-    ok: false,
-    error: 'Emissão de NFC-e ainda não implementada nesta versão — a configuração está completa, ' +
-      'mas falta desenvolver e testar a assinatura/transmissão do XML contra a SEFAZ. ' +
-      'Ver README para o que fazer a seguir.',
+    ok: true,
+    xmlGerado: true,
+    transmitido: false,
+    numero,
+    chaveAcesso,
+    xmlPath,
+    aviso: 'XML gerado e salvo com sucesso — mas ainda NÃO foi assinado nem transmitido pra SEFAZ ' +
+      '(essa parte ainda está em desenvolvimento). A venda já está registrada normalmente independente disso.',
   };
 }
 
