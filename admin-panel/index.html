@@ -102,6 +102,8 @@
       <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
     </div>
 
+    <div id="erro-geral" class="error" style="display:none; margin-bottom: 14px; padding: 10px 14px; background: rgba(224,112,93,0.12); border: 1px solid var(--danger); border-radius: 8px;"></div>
+
     <div id="lista-clientes"></div>
     <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
   </div>
@@ -170,6 +172,21 @@
   const buscaInput = document.getElementById('busca');
   const novoClienteModal = document.getElementById('novo-cliente-modal');
   const vincularModal = document.getElementById('vincular-modal');
+  const erroGeralDiv = document.getElementById('erro-geral');
+
+  function mostrarErro(err, contexto) {
+    console.error(`[${contexto}]`, err);
+    let mensagem = err?.message || String(err);
+    if (err?.code === 'permission-denied') {
+      mensagem = 'Sem permissão pra fazer essa ação. Provavelmente as regras de segurança do Firestore ' +
+        'ainda não foram (re)publicadas com o bloco mais recente — veja LICENCIAMENTO.md, Passo 3.';
+    }
+    erroGeralDiv.textContent = `Erro ao ${contexto}: ${mensagem}`;
+    erroGeralDiv.style.display = 'block';
+  }
+  function limparErro() {
+    erroGeralDiv.style.display = 'none';
+  }
 
   let instalacoes = [];
   let clientes = [];
@@ -236,7 +253,12 @@
   async function alternarCongelamento(id, ativoAtual) {
     const acao = ativoAtual ? 'congelar (com aviso e 2 dias de carência)' : 'reativar';
     if (!confirm(`Tem certeza que quer ${acao} essa instalação?`)) return;
-    await updateDoc(doc(db, 'installations', id), { ativo: !ativoAtual });
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { ativo: !ativoAtual });
+    } catch (err) {
+      mostrarErro(err, acao);
+    }
   }
 
   async function alternarBloqueioImediato(id, bloqueadoAtual) {
@@ -244,11 +266,21 @@
       ? 'desbloquear essa instalação'
       : 'BLOQUEAR IMEDIATAMENTE essa instalação — o app para de funcionar assim que perceber a mudança (poucos minutos, se estiver online), sem aviso nem carência';
     if (!confirm(`Tem certeza que quer ${acao}?`)) return;
-    await updateDoc(doc(db, 'installations', id), { bloqueioImediato: !bloqueadoAtual });
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { bloqueioImediato: !bloqueadoAtual });
+    } catch (err) {
+      mostrarErro(err, bloqueadoAtual ? 'desbloquear' : 'bloquear');
+    }
   }
 
   async function salvarNomeNegocio(id, novoNome) {
-    await updateDoc(doc(db, 'installations', id), { nomeNegocio: novoNome });
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { nomeNegocio: novoNome });
+    } catch (err) {
+      mostrarErro(err, 'salvar o nome do negócio');
+    }
   }
 
   function abrirVincular(instalacaoId) {
@@ -260,7 +292,12 @@
 
   async function desvincular(instalacaoId) {
     if (!confirm('Desvincular essa máquina do cliente?')) return;
-    await updateDoc(doc(db, 'installations', instalacaoId), { clienteId: null });
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', instalacaoId), { clienteId: null });
+    } catch (err) {
+      mostrarErro(err, 'desvincular a máquina');
+    }
   }
 
   // --- Ações em bloco (todas as máquinas de um cliente de uma vez) ---
@@ -271,20 +308,30 @@
       `BLOQUEAR IMEDIATAMENTE as ${qtd} máquina(s) desse cliente? Todas param de funcionar assim que ` +
       `perceberem a mudança (poucos minutos, se estiverem online), sem aviso nem carência.`
     )) return;
-    const batch = writeBatch(db);
-    for (const m of maquinasDoCliente) {
-      batch.update(doc(db, 'installations', m.id), { bloqueioImediato: true });
+    limparErro();
+    try {
+      const batch = writeBatch(db);
+      for (const m of maquinasDoCliente) {
+        batch.update(doc(db, 'installations', m.id), { bloqueioImediato: true });
+      }
+      await batch.commit();
+    } catch (err) {
+      mostrarErro(err, 'bloquear as máquinas desse cliente');
     }
-    await batch.commit();
   }
 
   async function reativarClienteInteiro(clienteId, maquinasDoCliente) {
     if (!confirm(`Reativar todas as ${maquinasDoCliente.length} máquina(s) desse cliente?`)) return;
-    const batch = writeBatch(db);
-    for (const m of maquinasDoCliente) {
-      batch.update(doc(db, 'installations', m.id), { bloqueioImediato: false, ativo: true });
+    limparErro();
+    try {
+      const batch = writeBatch(db);
+      for (const m of maquinasDoCliente) {
+        batch.update(doc(db, 'installations', m.id), { bloqueioImediato: false, ativo: true });
+      }
+      await batch.commit();
+    } catch (err) {
+      mostrarErro(err, 'reativar as máquinas desse cliente');
     }
-    await batch.commit();
   }
 
   // --- Criar cliente ---
@@ -301,8 +348,13 @@
     const nome = document.getElementById('novo-cliente-nome').value.trim();
     const documento = document.getElementById('novo-cliente-doc').value.trim();
     if (!nome) return;
-    await addDoc(collection(db, 'clientes'), { nome, documento: documento || null, criadoEm: serverTimestamp() });
-    novoClienteModal.style.display = 'none';
+    limparErro();
+    try {
+      await addDoc(collection(db, 'clientes'), { nome, documento: documento || null, criadoEm: serverTimestamp() });
+      novoClienteModal.style.display = 'none';
+    } catch (err) {
+      mostrarErro(err, 'criar o cliente');
+    }
   });
 
   document.getElementById('vincular-cancelar').addEventListener('click', () => {
@@ -313,9 +365,14 @@
     e.preventDefault();
     const clienteId = document.getElementById('vincular-select-cliente').value;
     if (!instalacaoParaVincular || !clienteId) return;
-    await updateDoc(doc(db, 'installations', instalacaoParaVincular), { clienteId });
-    vincularModal.style.display = 'none';
-    instalacaoParaVincular = null;
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', instalacaoParaVincular), { clienteId });
+      vincularModal.style.display = 'none';
+      instalacaoParaVincular = null;
+    } catch (err) {
+      mostrarErro(err, 'vincular a máquina ao cliente');
+    }
   });
 
   function escapeHtml(s) {

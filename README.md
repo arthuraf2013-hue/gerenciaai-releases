@@ -635,6 +635,34 @@ os botões de ação em bloco (não fazem sentido sem máquina nenhuma).
 Retestei tudo de novo depois da correção pra garantir que não quebrou
 nada.
 
+### Continuação — "Criar" não fazia nada: erro silencioso corrigido
+
+Você reportou que clicar em "Criar" no modal de novo cliente não
+fazia nada. Achei a causa: quando o Firestore recusa uma escrita (o
+suspeito nº 1 é exatamente o que eu já tinha avisado — as regras de
+segurança ainda não republicadas com o bloco novo da coleção
+`clientes`), o painel **falhava sem mostrar nada** — o modal só
+ficava ali, parado, sem nenhuma pista do que deu errado.
+
+**Corrigido em todo o painel, não só nesse botão** — toda ação que
+escreve no Firestore (criar cliente, vincular, congelar, bloquear,
+bloquear em lote, etc.) agora mostra uma faixa de erro vermelha no
+topo da tela se algo falhar, em vez de falhar em silêncio. Quando o
+erro é especificamente de permissão negada, a mensagem já aponta pra
+causa mais provável (regras não republicadas).
+
+**Reproduzi seu cenário exato pra confirmar a correção**: simulei o
+Firestore recusando a criação do cliente com "permissão negada" (o
+mesmo tipo de erro que rejeitar por causa das regras dá) — antes da
+correção, o modal ficava parado sem nada (igual no seu print); depois
+da correção, aparece a faixa vermelha explicando o motivo.
+
+**Próximo passo pra você**: abra o painel de novo e tente criar o
+cliente — agora, se continuar falhando, vai aparecer uma mensagem
+específica. Se disser algo sobre permissão, é isso mesmo: siga o
+Passo 3 do `LICENCIAMENTO.md` e republique as regras do Firestore com
+o bloco mais recente (o que inclui a coleção `clientes`).
+
 ## Painel de licenciamento — bloqueio imediato, blocos por cliente, múltiplos negócios
 
 Pedido de: bloqueio imediato (além do congelamento com aviso), blocos
