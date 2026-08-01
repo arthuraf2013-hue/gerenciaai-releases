@@ -439,6 +439,7 @@ function registerIpcHandlers() {
 
   // --- Atualização automática ---
   safeHandle('update:getStatus', () => updateService.getStatus());
+  safeHandle('update:getForcedStatus', () => updateService.verificarAtualizacaoObrigatoria());
   safeHandle('update:check', () => updateService.checkForUpdates());
   safeHandle('update:download', () => updateService.downloadUpdate());
   safeHandle('update:install', () => updateService.quitAndInstall());

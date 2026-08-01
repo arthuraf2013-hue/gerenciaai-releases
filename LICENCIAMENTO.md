@@ -68,12 +68,16 @@ service cloud.firestore {
       allow read: if true;
 
       // Uma instalação pode atualizar SÓ os campos de "sinal de vida"
-      // (nunca `ativo`, `bloqueioImediato`, `clienteId` ou
-      // `nomeNegocio` sozinha) — só um admin autenticado (você, logado
-      // no painel) pode mudar esses campos.
+      // e de progresso da própria atualização obrigatória (nunca
+      // `ativo`, `bloqueioImediato`, `clienteId` ou `nomeNegocio`
+      // sozinha) — só um admin autenticado (você, logado no painel)
+      // pode mudar esses campos.
       allow update: if (
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['ultimoContato', 'versaoApp'])
+          .hasOnly([
+            'ultimoContato', 'versaoApp',
+            'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo'
+          ])
       ) || request.auth != null;
 
       allow delete: if request.auth != null;
@@ -86,16 +90,30 @@ service cloud.firestore {
     match /clientes/{clienteId} {
       allow read, write: if request.auth != null;
     }
+
+    // "config/atualizacao" é o documento único (sempre o mesmo id,
+    // "atualizacao") onde o painel publica a versão mínima obrigatória
+    // — qualquer instalação precisa LER isso pra saber se está
+    // desatualizada, mas só você (autenticado no painel) pode
+    // publicar ou desativar.
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
   }
 }
 ```
 
 Clique em "Publicar".
 
-**Se você já tinha publicado as regras antigas (antes do bloqueio
-imediato e dos clientes existirem)**: precisa republicar com esse
-bloco novo — a parte de `clientes` é nova, e o `allow create` de
-`installations` agora também confere `bloqueioImediato`.
+**Se você já tinha publicado as regras antigas** (antes do bloqueio
+imediato, dos clientes, ou da atualização obrigatória existirem):
+precisa republicar com esse bloco novo de novo — **isso vale ainda
+mais agora**, já que sem a parte de `config/atualizacao` e os campos
+novos no `hasOnly` de `installations`, a atualização obrigatória
+simplesmente não vai funcionar (o app não vai conseguir nem ler se
+tem atualização publicada, nem reportar o progresso do download pro
+painel).
 
 **Antes de confiar nisso em produção**: eu não tenho como testar essas
 regras ao vivo aqui (não tenho acesso a um projeto Firebase de

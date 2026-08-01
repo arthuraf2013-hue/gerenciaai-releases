@@ -197,6 +197,6 @@ function computeAccessStatus() {
 }
 
 module.exports = {
-  checkLicense, computeAccessStatus, iniciarEscutaTempoReal,
+  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, getLicenseFirestore,
   GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS,
 };

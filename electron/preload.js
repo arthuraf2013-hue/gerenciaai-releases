@@ -239,6 +239,7 @@ contextBridge.exposeInMainWorld('pdv', {
   },
   update: {
     getStatus: invoke('update:getStatus'),
+    getForcedStatus: invoke('update:getForcedStatus'),
     check: invoke('update:check'),
     download: invoke('update:download'),
     install: invoke('update:install'),

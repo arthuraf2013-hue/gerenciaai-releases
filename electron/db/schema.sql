@@ -433,6 +433,15 @@ CREATE TABLE IF NOT EXISTS security_config (
   exigir_autorizacao_cancelamento   INTEGER NOT NULL DEFAULT 1
 );
 
+-- Cache local do que o painel de licenciamento publicou como
+-- atualização obrigatória — igual o license_state, funciona offline
+-- com o último valor conhecido (não trava ninguém por falta de rede).
+CREATE TABLE IF NOT EXISTS forced_update_state (
+  id                      TEXT PRIMARY KEY DEFAULT 'default',
+  versao_minima_exigida   TEXT,
+  obrigatoria             INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS firebase_config (
   id            TEXT PRIMARY KEY DEFAULT 'default',
   api_key       TEXT,

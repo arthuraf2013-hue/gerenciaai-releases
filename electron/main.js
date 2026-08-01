@@ -79,6 +79,7 @@ app.whenReady().then(() => {
   // pedir); verifica 1 min depois de abrir (não trava a abertura do
   // app) e depois a cada 4h.
   updateService.setupAutoUpdater();
+  updateService.iniciarEscutaAtualizacaoObrigatoria();
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);
 

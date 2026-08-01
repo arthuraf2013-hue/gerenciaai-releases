@@ -64,6 +64,11 @@
   .nao-vinculados { border-color: var(--warning); }
   .vincular-select { font-size: 12px; padding: 6px 8px; }
 
+  .maquina-progress-wrap { flex-basis: 100%; margin-top: 6px; }
+  .maquina-progress-bar { width: 100%; height: 6px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+  .maquina-progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
+  .maquina-progress-texto { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
   #novo-cliente-modal, #vincular-modal {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
     align-items: center; justify-content: center; z-index: 50;
@@ -99,7 +104,23 @@
 
     <div class="toolbar">
       <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
+      <button class="btn-secondary" id="atualizacao-toggle-btn">⬆ Atualização</button>
       <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
+    </div>
+
+    <div id="atualizacao-card" class="card" style="display:none; margin-bottom: 20px;">
+      <h2>Atualização obrigatória</h2>
+      <p class="subtitle" style="margin-bottom: 14px;">
+        Publique uma versão mínima obrigatória — todo cliente com versão mais antiga é bloqueado até
+        atualizar, com download e barra de progresso automáticos. Use a versão exata que você acabou de
+        publicar no GitHub Releases (ex: 0.5.0).
+      </p>
+      <div id="atualizacao-status-atual" class="cliente-resumo" style="margin-bottom: 14px;"></div>
+      <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 480px;">
+        <input type="text" id="atualizacao-versao-input" placeholder="Ex: 0.5.0" style="flex: 1;">
+        <button class="btn-primary" id="atualizacao-publicar-btn">Publicar para todos os clientes</button>
+        <button class="btn-secondary" id="atualizacao-desativar-btn">Desativar</button>
+      </div>
     </div>
 
     <div id="erro-geral" class="error" style="display:none; margin-bottom: 14px; padding: 10px 14px; background: rgba(224,112,93,0.12); border: 1px solid var(--danger); border-radius: 8px;"></div>
@@ -190,6 +211,7 @@
 
   let instalacoes = [];
   let clientes = [];
+  let atualizacaoConfig = null;
   const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
   let instalacaoParaVincular = null;
 
@@ -234,6 +256,14 @@
         render();
       },
       (err) => mostrarErro(err, 'carregar os clientes')
+    );
+    onSnapshot(
+      doc(db, 'config', 'atualizacao'),
+      (snap) => {
+        atualizacaoConfig = snap.exists() ? snap.data() : null;
+        renderStatusAtualizacao();
+      },
+      (err) => mostrarErro(err, 'carregar a config de atualização')
     );
   }
 
@@ -343,6 +373,54 @@
   }
 
   // --- Criar cliente ---
+
+  // --- Atualização obrigatória ---
+
+  document.getElementById('atualizacao-toggle-btn').addEventListener('click', () => {
+    const card = document.getElementById('atualizacao-card');
+    card.style.display = card.style.display === 'none' ? 'block' : 'none';
+  });
+
+  function renderStatusAtualizacao() {
+    const div = document.getElementById('atualizacao-status-atual');
+    if (!atualizacaoConfig || !atualizacaoConfig.obrigatoria) {
+      div.textContent = 'Nenhuma atualização obrigatória publicada no momento.';
+    } else {
+      div.textContent = `Publicada: versão mínima ${atualizacaoConfig.versaoMinimaExigida} — clientes com versão mais antiga estão bloqueados até atualizar.`;
+    }
+  }
+
+  document.getElementById('atualizacao-publicar-btn').addEventListener('click', async () => {
+    const versao = document.getElementById('atualizacao-versao-input').value.trim();
+    if (!versao) return;
+    if (!/^\d+\.\d+\.\d+$/.test(versao)) {
+      mostrarErro(new Error('Use o formato de versão completo, ex: 0.5.0'), 'publicar a atualização');
+      return;
+    }
+    if (!confirm(
+      `Publicar ${versao} como versão mínima obrigatória? Todo cliente com versão mais antiga vai ser ` +
+      `bloqueado (com tela de atualização e download automático) assim que perceber a mudança.`
+    )) return;
+    limparErro();
+    try {
+      await setDoc(doc(db, 'config', 'atualizacao'), {
+        versaoMinimaExigida: versao, obrigatoria: true, publicadoEm: serverTimestamp(),
+      });
+      document.getElementById('atualizacao-versao-input').value = '';
+    } catch (err) {
+      mostrarErro(err, 'publicar a atualização');
+    }
+  });
+
+  document.getElementById('atualizacao-desativar-btn').addEventListener('click', async () => {
+    if (!confirm('Desativar a atualização obrigatória? Clientes voltam a poder usar sem atualizar.')) return;
+    limparErro();
+    try {
+      await setDoc(doc(db, 'config', 'atualizacao'), { obrigatoria: false }, { merge: true });
+    } catch (err) {
+      mostrarErro(err, 'desativar a atualização obrigatória');
+    }
+  });
 
   document.getElementById('novo-cliente-btn').addEventListener('click', () => {
     document.getElementById('novo-cliente-form').reset();
@@ -507,6 +585,16 @@
             ${inst.bloqueioImediato ? 'Desbloquear' : 'Bloquear agora'}
           </button>
         </div>
+        ${inst.atualizacaoBaixando ? `
+          <div class="maquina-progress-wrap">
+            <div class="maquina-progress-bar"><div class="maquina-progress-fill" style="width:${inst.atualizacaoProgresso || 0}%"></div></div>
+            <div class="maquina-progress-texto">Atualizando para ${inst.atualizacaoVersaoAlvo || '—'}... ${inst.atualizacaoProgresso || 0}%</div>
+          </div>
+        ` : inst.atualizacaoBaixado ? `
+          <div class="maquina-progress-wrap">
+            <div class="maquina-progress-texto">✓ Atualização baixada, aguardando reiniciar no cliente.</div>
+          </div>
+        ` : ''}
       </div>
     `;
   }

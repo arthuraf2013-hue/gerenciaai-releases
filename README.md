@@ -686,6 +686,58 @@ específica. Se disser algo sobre permissão, é isso mesmo: siga o
 Passo 3 do `LICENCIAMENTO.md` e republique as regras do Firestore com
 o bloco mais recente (o que inclui a coleção `clientes`).
 
+## Atualização obrigatória publicada pelo painel
+
+Pedido de conseguir forçar todos os clientes a atualizar de uma vez,
+com aviso e barra de progresso, sem precisar ir cliente por cliente.
+Reaproveitei o sistema de atualização que já existia (electron-updater,
+com download e checagem de versão via GitHub Releases) e construí uma
+camada de "obrigatoriedade" por cima, usando o mesmo Firebase do
+licenciamento — não precisou de nenhum projeto novo.
+
+**Como funciona**:
+1. Você publica a versão nova normalmente (`npm version patch`,
+   `git push --tags`) — isso já builda e sobe pro GitHub Releases,
+   processo que já existia.
+2. No painel, abre a seção "⬆ Atualização" (botão ao lado da busca),
+   digita a versão exata que acabou de publicar (ex: `0.5.0`), clica
+   em "Publicar para todos os clientes".
+3. Todo cliente com versão mais antiga que essa é bloqueado — tela
+   cheia "Atualização obrigatória", com botão "Atualizar agora" que
+   baixa e mostra o progresso, e reinicia sozinho na versão nova
+   quando termina. Cliente já atualizado nem percebe nada.
+4. **A barra de progresso aparece nos dois lados** — na tela do
+   cliente (óbvio, é ele baixando) e também no seu painel, dentro do
+   bloco do cliente, em tempo real (o app reporta o progresso pro
+   Firestore enquanto baixa).
+5. Um botão "Desativar" no painel libera todo mundo de volta, se
+   precisar reverter ou pausar o rollout.
+
+**Testei**: a comparação de versão (inclusive o caso clássico onde
+comparar como texto erraria — "0.4.10" parece "menor" que "0.4.9" se
+comparado como string, mas não é), os 5 cenários de quando bloquear ou
+não (nada publicado, desatualizado, já atualizado, versão local mais
+nova que a exigida, e desativado pelo admin), e o painel de verdade
+num navegador (a barra de progresso aparecendo na máquina certa,
+publicar gravando o dado certo, e rejeitar um formato de versão
+inválido).
+
+**Atualizei as regras de segurança do Firestore de novo** — precisa
+republicar mais uma vez (Passo 3 do `LICENCIAMENTO.md`): adicionei a
+permissão pro documento `config/atualizacao` (o app precisa ler pra
+saber se tem atualização obrigatória; só você escreve), e expandi os
+campos que a instalação pode atualizar sozinha (os campos de progresso
+do download). **Sem republicar, a atualização obrigatória não
+funciona** — nem o app consegue saber que tem uma publicada, nem
+reportar o progresso pro painel.
+
+**Uma coisa que não dá pra eu testar daqui**: o download de verdade
+contra um GitHub Releases real, e o app reiniciando sozinho depois de
+instalar — isso só roda em produção, com o electron-updater de
+verdade. A lógica de decisão (quando bloquear, qual versão pedir) foi
+testada a fundo; o download/instalação em si usa a mesma infraestrutura
+que já existia e já funcionava antes dessa mudança.
+
 ## Desocupar mesa (sem precisar de venda)
 
 Pedido de conseguir liberar uma mesa mesmo sem fechar conta — hoje só
