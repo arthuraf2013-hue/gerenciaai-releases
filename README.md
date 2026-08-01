@@ -635,6 +635,29 @@ os botões de ação em bloco (não fazem sentido sem máquina nenhuma).
 Retestei tudo de novo depois da correção pra garantir que não quebrou
 nada.
 
+### Continuação 2 — criar funcionou, mas ver/vincular clientes não
+
+Você reportou que depois da correção anterior, criar cliente passou a
+funcionar — mas os clientes criados não aparecem em lugar nenhum
+(nem na lista principal, nem no dropdown de "Vincular a cliente", que
+aparece vazio). Achei o mesmo padrão de falha silenciosa de antes, só
+que dessa vez do lado da **leitura**, não da escrita: as duas escutas
+em tempo real (instalações e clientes) não tinham nenhum tratamento de
+erro — se a leitura falhasse por qualquer motivo (permissão, índice
+faltando, etc.), simplesmente não acontecia nada, sem nenhuma pista.
+
+**Corrigido** — agora, se a leitura de instalações ou de clientes
+falhar, aparece a mesma faixa de erro vermelha explicando o que
+houve. Testei reproduzindo esse cenário exato (escrita funcionando,
+leitura falhando) e confirmei que o erro aparece.
+
+**Próximo passo pra você**: recarregue o painel (Ctrl+Shift+R) e veja
+se aparece alguma faixa vermelha no topo agora — se aparecer, me
+manda o texto exato dela (pode ser um erro de permissão nas regras,
+ou até um link direto do próprio Firestore pra criar um índice
+faltando, se for o caso) que eu sigo a investigação com a causa real
+na mão, em vez de ficar adivinhando.
+
 ### Continuação — "Criar" não fazia nada: erro silencioso corrigido
 
 Você reportou que clicar em "Criar" no modal de novo cliente não
@@ -662,6 +685,48 @@ cliente — agora, se continuar falhando, vai aparecer uma mensagem
 específica. Se disser algo sobre permissão, é isso mesmo: siga o
 Passo 3 do `LICENCIAMENTO.md` e republique as regras do Firestore com
 o bloco mais recente (o que inclui a coleção `clientes`).
+
+## Desocupar mesa (sem precisar de venda)
+
+Pedido de conseguir liberar uma mesa mesmo sem fechar conta — hoje só
+dava pra transferir, e uma mesa aberta por engano (ou onde o cliente
+foi embora sem pedir nada) ficava presa. Botão novo "Desocupar" no
+topo da comanda, ao lado de "Transferir mesa".
+
+**Como decide o que fazer**:
+- **Mesa sem nenhum item lançado ainda** — libera direto pra "livre",
+  sem pedir senha de gerente. Não tem risco de fraude nenhum em
+  cancelar algo que nunca teve nada dentro, então não faz sentido
+  exigir autorização pra isso.
+- **Mesa com item já lançado** — passa pelo cancelamento de venda
+  normal (mesma trilha de auditoria de sempre), e vai pra "aguardando
+  limpeza" em vez de "livre" direto (algo aconteceu naquela mesa,
+  mesmo sem ter sido pago). Essa parte respeita a configuração de
+  "Exigir senha de gerente" que acabei de tornar opcional — se
+  estiver desligada, libera direto também; se estiver ligada (padrão),
+  pede a senha de um gerente/admin, do mesmo jeito que cancelar
+  qualquer venda já pede.
+
+Testei os dois cenários (mesa vazia e mesa com item) antes de
+integrar.
+
+## Senha de cancelamento agora opcional e configurável
+
+Antes, cancelar um item (ou a venda inteira) depois de já ter
+pagamento registrado **sempre** exigia a senha de um gerente/admin —
+sem opção de desligar. Agora tem um toggle em Configurações →
+Segurança: "Exigir senha de gerente para cancelar item ou venda já
+paga" — ligado por padrão (mesmo comportamento de sempre), mas pode
+desligar.
+
+**O que muda desligando**: qualquer operador cancela direto, sem
+pedir senha de ninguém. **O que NÃO muda**: o cancelamento continua
+registrado no histórico de auditoria normalmente — só sem exigir
+aprovação antes. Isso vale tanto pra cancelar um item quanto pra
+cancelar a venda inteira.
+
+Testei as 4 combinações possíveis (com/sem pagamento × configuração
+ligada/desligada) antes de integrar — bateu certinho em todas.
 
 ## Painel de licenciamento — bloqueio imediato, blocos por cliente, múltiplos negócios
 

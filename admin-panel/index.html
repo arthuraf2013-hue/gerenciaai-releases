@@ -219,14 +219,22 @@
   });
 
   function escutarDados() {
-    onSnapshot(query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')), (snap) => {
-      instalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      render();
-    });
-    onSnapshot(query(collection(db, 'clientes'), orderBy('nome')), (snap) => {
-      clientes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      render();
-    });
+    onSnapshot(
+      query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
+      (snap) => {
+        instalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        render();
+      },
+      (err) => mostrarErro(err, 'carregar as instalações')
+    );
+    onSnapshot(
+      query(collection(db, 'clientes'), orderBy('nome')),
+      (snap) => {
+        clientes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        render();
+      },
+      (err) => mostrarErro(err, 'carregar os clientes')
+    );
   }
 
   function diasAtras(timestamp) {

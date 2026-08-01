@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('pdv', {
     login: invoke('auth:login'),
     listActiveUsers: invoke('auth:listActiveUsers'),
     listAuditLog: invoke('auth:listAuditLog'),
+    getSecurityConfig: invoke('auth:getSecurityConfig'),
+    updateSecurityConfig: invoke('auth:updateSecurityConfig'),
     changeOwnPin: invoke('auth:changeOwnPin'),
   },
   products: {
@@ -84,6 +86,7 @@ contextBridge.exposeInMainWorld('pdv', {
     cancelReservation: invoke('table:cancelReservation'),
     transfer: invoke('table:transfer'),
     updatePeople: invoke('table:updatePeople'),
+    desocupar: invoke('table:desocupar'),
   },
   ingredient: {
     list: invoke('ingredient:list'),

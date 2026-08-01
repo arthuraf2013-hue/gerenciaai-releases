@@ -197,6 +197,11 @@ function seedIfEmpty(database) {
     database.prepare(`INSERT INTO scale_hardware_config (id) VALUES ('default')`).run();
   }
 
+  const securityConfigCount = database.prepare('SELECT COUNT(*) as c FROM security_config').get().c;
+  if (securityConfigCount === 0) {
+    database.prepare(`INSERT INTO security_config (id) VALUES ('default')`).run();
+  }
+
   const loyaltyConfigCount = database.prepare('SELECT COUNT(*) as c FROM loyalty_config').get().c;
   if (loyaltyConfigCount === 0) {
     database.prepare(`INSERT INTO loyalty_config (id) VALUES ('default')`).run();

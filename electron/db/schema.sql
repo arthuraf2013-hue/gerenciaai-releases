@@ -425,6 +425,14 @@ CREATE TABLE IF NOT EXISTS scale_hardware_config (
   protocolo   TEXT DEFAULT 'toledo_padrao' -- ver scaleHardwareService.js
 );
 
+-- Configurações de segurança do caixa — hoje só a exigência de senha
+-- de gerente pra cancelar item/venda depois de já ter pagamento
+-- registrado (opcional por padrão exige, mas pode ser desligada).
+CREATE TABLE IF NOT EXISTS security_config (
+  id                                TEXT PRIMARY KEY DEFAULT 'default',
+  exigir_autorizacao_cancelamento   INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS firebase_config (
   id            TEXT PRIMARY KEY DEFAULT 'default',
   api_key       TEXT,

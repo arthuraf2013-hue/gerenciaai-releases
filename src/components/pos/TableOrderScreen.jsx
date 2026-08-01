@@ -93,7 +93,33 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       }
       return;
     }
-    setAuthAction({ itemId });
+    setAuthAction({ type: 'cancelItem', itemId });
+  }
+
+  async function requestDesocupar() {
+    if (!confirm(`Desocupar ${nome || `Mesa ${numero}`}? Isso cancela a comanda em aberto dessa mesa.`)) return;
+
+    if (itensAtivos.length === 0) {
+      // Sem nenhum item lançado ainda -- libera direto, sem pedir
+      // autorização de gerente (não tem risco de fraude nenhum em
+      // cancelar algo que nunca teve nada dentro).
+      const result = await window.pdv.table.desocupar({
+        tableId, locationId: LOCATION_ID, currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
+      });
+      if (result.ok) { onFechar(); } else { setFeedback({ message: result.error, type: 'error' }); }
+      return;
+    }
+
+    const config = await window.pdv.auth.getSecurityConfig();
+    if (config.exigir_autorizacao_cancelamento !== 1) {
+      const result = await window.pdv.table.desocupar({
+        tableId, locationId: LOCATION_ID, currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
+      });
+      if (result.ok) { onFechar(); } else { setFeedback({ message: result.error, type: 'error' }); }
+      return;
+    }
+
+    setAuthAction({ type: 'desocupar' });
   }
 
   function abrirEdicaoObs(item) {
@@ -150,6 +176,18 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }
 
   async function handleAuthConfirm(candidateId, pin, motivo) {
+    if (authAction.type === 'desocupar') {
+      const result = await window.pdv.table.desocupar({
+        tableId, locationId: LOCATION_ID, currentOperatorId: currentUser.id,
+        candidateManagerId: candidateId, pin, motivo, deviceId: DEVICE_ID,
+      });
+      if (result.ok) {
+        setAuthAction(null);
+        onFechar();
+      }
+      return result;
+    }
+
     const item = items.find((i) => i.id === authAction.itemId);
     const result = await window.pdv.sale.cancelItem({
       saleId, saleItemId: authAction.itemId, locationId: LOCATION_ID,
@@ -198,6 +236,9 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             </button>
           )}
           <button className="close-cash-btn" onClick={abrirTransferencia}>Transferir mesa</button>
+          <button className="close-cash-btn" onClick={requestDesocupar} title="Libera a mesa sem precisar fechar a conta — para mesa aberta por engano, ou cliente que foi embora">
+            Desocupar
+          </button>
           <button className="close-cash-btn" onClick={handleImprimirComanda}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" />
@@ -318,7 +359,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
       {authAction && (
         <ManagerAuthModal
-          title="Cancelar item"
+          title={authAction.type === 'desocupar' ? 'Desocupar mesa' : 'Cancelar item'}
           onConfirm={handleAuthConfirm}
           onClose={() => setAuthAction(null)}
         />

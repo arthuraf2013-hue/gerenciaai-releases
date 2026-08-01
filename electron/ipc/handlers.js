@@ -55,6 +55,8 @@ function registerIpcHandlers() {
   safeHandle('auth:login', (_e, { userId, pin }) => authService.login(userId, pin));
   safeHandle('auth:listActiveUsers', (_e, { excludeUserId } = {}) => authService.listActiveUsers({ excludeUserId }));
   safeHandle('auth:listAuditLog', (_e, payload) => authService.listAuditLog(payload));
+  safeHandle('auth:getSecurityConfig', () => authService.getSecurityConfig());
+  safeHandle('auth:updateSecurityConfig', (_e, payload) => authService.updateSecurityConfig(payload));
   safeHandle('auth:changeOwnPin', (_e, { userId, pinAtual, novoPin }) => authService.changeOwnPin(userId, pinAtual, novoPin));
 
   // --- Produtos ---
@@ -120,6 +122,7 @@ function registerIpcHandlers() {
   safeHandle('table:cancelReservation', (_e, { tableId }) => tableService.cancelReservation(tableId));
   safeHandle('table:transfer', (_e, { fromTableId, toTableId }) => tableService.transferTable({ fromTableId, toTableId }));
   safeHandle('table:updatePeople', (_e, { tableId, pessoas }) => tableService.updateTablePeople({ tableId, pessoas }));
+  safeHandle('table:desocupar', (_e, payload) => tableService.desocuparMesa(payload));
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));

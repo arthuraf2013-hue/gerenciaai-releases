@@ -161,7 +161,46 @@ function updateTablePeople({ tableId, pessoas }) {
   return { ok: true };
 }
 
+/**
+ * Desocupa uma mesa direto, sem precisar passar pelo pagamento — pra
+ * quando a mesa foi aberta por engano, ou o cliente foi embora sem
+ * pedir nada (ou sem fechar a conta). Cancela a comanda em aberto
+ * vinculada à mesa.
+ *
+ * Se a comanda estiver VAZIA (nenhum item lançado ainda), libera
+ * direto pra "livre", sem pedir autorização de gerente — não tem
+ * risco nenhum de fraude em cancelar algo que nunca teve nada dentro.
+ *
+ * Se já tiver item lançado, passa pelo cancelamento de venda normal
+ * (mesma trilha de auditoria e mesma exigência de autorização — ou
+ * não, dependendo da configuração em Configurações → Segurança), e
+ * a mesa vai pra "aguardando limpeza" (algo aconteceu ali, mesmo sem
+ * ter sido pago).
+ */
+function desocuparMesa({ tableId, locationId, currentOperatorId, candidateManagerId, pin, motivo, deviceId }) {
+  const db = getDb();
+  const table = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(tableId);
+  if (!table) return { ok: false, error: 'Mesa não encontrada.' };
+  if (table.status !== 'ocupada' || !table.sale_id) return { ok: false, error: 'Essa mesa não está ocupada.' };
+
+  const itensAtivos = db.prepare('SELECT COUNT(*) as c FROM sale_items WHERE sale_id = ? AND cancelado = 0').get(table.sale_id).c;
+
+  if (itensAtivos === 0) {
+    db.prepare(
+      `UPDATE sales SET status = 'cancelada', cancelada_em = NOW_SYNCED(), cancelada_por_id = ?, motivo_cancelamento = ? WHERE id = ?`
+    ).run(currentOperatorId, motivo || 'Mesa desocupada sem consumo', table.sale_id);
+    db.prepare(`UPDATE restaurant_tables SET status = 'livre', sale_id = NULL, pessoas = NULL WHERE id = ?`).run(tableId);
+    return { ok: true, statusFinal: 'livre', autorizadoPor: null };
+  }
+
+  const result = saleService.cancelSale({ saleId: table.sale_id, locationId, currentOperatorId, candidateManagerId, pin, motivo, deviceId });
+  if (!result.ok) return result;
+
+  db.prepare(`UPDATE restaurant_tables SET status = 'aguardando_limpeza', sale_id = NULL, pessoas = NULL WHERE id = ?`).run(tableId);
+  return { ok: true, statusFinal: 'aguardando_limpeza', autorizadoPor: result.autorizadoPor };
+}
+
 module.exports = {
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable,
-  markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople,
+  markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,
 };

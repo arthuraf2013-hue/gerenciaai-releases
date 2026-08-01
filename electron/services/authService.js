@@ -161,4 +161,16 @@ function listAuditLog({ dataInicio, dataFim }) {
   ).all(dataInicio, dataFim);
 }
 
-module.exports = { login, listActiveUsers, authorizeManagerOverride, changeOwnPin, listAuditLog };
+function getSecurityConfig() {
+  const db = getDb();
+  return db.prepare('SELECT * FROM security_config WHERE id = ?').get('default');
+}
+
+function updateSecurityConfig({ exigirAutorizacaoCancelamento }) {
+  const db = getDb();
+  db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = ? WHERE id = ?')
+    .run(exigirAutorizacaoCancelamento ? 1 : 0, 'default');
+  return { ok: true };
+}
+
+module.exports = { login, listActiveUsers, authorizeManagerOverride, changeOwnPin, listAuditLog, getSecurityConfig, updateSecurityConfig };

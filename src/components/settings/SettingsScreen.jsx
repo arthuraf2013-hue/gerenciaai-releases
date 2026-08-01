@@ -66,6 +66,8 @@ export function SettingsScreen() {
   const [updateStatus, setUpdateStatus] = useState(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [somLigado, setSomLigado] = useState(isBeepEnabled());
+  const [exigirAutorizacaoCancelamento, setExigirAutorizacaoCancelamento] = useState(true);
+  const [segurancaSaved, setSegurancaSaved] = useState(false);
   const [backupRunning, setBackupRunning] = useState(false);
   const [backupMsg, setBackupMsg] = useState('');
   const [backupList, setBackupList] = useState([]);
@@ -117,6 +119,7 @@ export function SettingsScreen() {
     });
     window.pdv.update.getStatus().then(setUpdateStatus);
     window.pdv.weightBarcode.listFormatos().then(setFormatosDisponiveis);
+    window.pdv.auth.getSecurityConfig().then((c) => setExigirAutorizacaoCancelamento(c.exigir_autorizacao_cancelamento === 1));
     window.pdv.weightBarcode.getConfig().then((c) => setBalancaForm({ formato: c.formato, campo: c.campo }));
     window.pdv.scaleHardware.getConfig().then((c) => setBalancaHwForm({ porta: c.porta || '', baudRate: c.baud_rate || 9600 }));
   }, []);
@@ -271,6 +274,13 @@ export function SettingsScreen() {
     const result = await window.pdv.print.testPage();
     setTestando(false);
     setTestMsg(result.ok ? 'Página de teste enviada.' : `Erro: ${result.error}`);
+  }
+
+  async function handleToggleAutorizacaoCancelamento(checked) {
+    setExigirAutorizacaoCancelamento(checked);
+    await window.pdv.auth.updateSecurityConfig({ exigirAutorizacaoCancelamento: checked });
+    setSegurancaSaved(true);
+    setTimeout(() => setSegurancaSaved(false), 2000);
   }
 
   async function handleSalvarBalancaFormato() {
@@ -435,6 +445,25 @@ export function SettingsScreen() {
             </div>
           </div>
         )}
+      </section>
+
+      <section className="settings-section">
+        <h2>Segurança</h2>
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox" style={{ width: 'auto' }}
+            checked={exigirAutorizacaoCancelamento}
+            onChange={(e) => handleToggleAutorizacaoCancelamento(e.target.checked)}
+          />
+          Exigir senha de gerente para cancelar item ou venda já paga
+        </label>
+        <p className="screen-hint" style={{ margin: '6px 0 0' }}>
+          Ligado (padrão): depois que a venda já tem algum pagamento registrado, cancelar um item ou a
+          venda inteira exige a senha de um gerente ou admin (nunca a do próprio operador do caixa).
+          Desligado: qualquer operador cancela direto, sem pedir senha — o cancelamento continua sendo
+          registrado no histórico normalmente, só sem exigir aprovação.
+        </p>
+        {segurancaSaved && <p className="io-message">Salvo.</p>}
       </section>
 
       <section className="settings-section">

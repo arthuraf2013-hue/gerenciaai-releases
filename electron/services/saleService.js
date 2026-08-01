@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 const { getCurrentStock, computeProductAlert } = require('./stockService');
-const { authorizeManagerOverride } = require('./authService');
+const { authorizeManagerOverride, getSecurityConfig } = require('./authService');
 const customerService = require('./customerService');
 const profileService = require('./profileService');
 const salesSyncService = require('./salesSyncService');
@@ -363,13 +363,16 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   // registrado — antes disso, o cliente ainda pode pedir mais ou desistir
   // de algo, e isso é ajuste normal do carrinho, não precisa de aprovação.
   // Depois que dinheiro (ou qualquer método) já entrou na venda, mexer
-  // no que foi vendido passa a ter risco de fraude de verdade.
+  // no que foi vendido passa a ter risco de fraude de verdade — A NÃO SER
+  // que a exigência esteja desligada nas configurações (opcional, pra
+  // quem prefere não pedir senha pra isso).
   const jaTemPagamento = db.prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(saleId).c > 0;
+  const exigeAutorizacao = jaTemPagamento && getSecurityConfig().exigir_autorizacao_cancelamento === 1;
 
   let autorizadoPorId = null;
   let autorizadoPorNome = null;
 
-  if (jaTemPagamento) {
+  if (exigeAutorizacao) {
     const auth = authorizeManagerOverride({
       candidateUserId: candidateManagerId,
       pin,
@@ -385,10 +388,12 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   } else {
     // Ainda registra na auditoria, só que sem exigir aprovação — mantém
     // o histórico completo de quem cancelou o quê, mesmo sem gerente.
+    // O tipo de evento distingue os dois motivos de não ter exigido:
+    // ou não tinha pagamento ainda, ou a exigência está desligada.
     db.prepare(
       `INSERT INTO audit_log (id, tipo_evento, sale_id, sale_item_id, solicitante_id, autorizado_por_id, motivo, sucesso)
-       VALUES (?, 'cancelamento_item_pre_pagamento', ?, ?, ?, NULL, ?, 1)`
-    ).run(randomUUID(), saleId, saleItemId, currentOperatorId, motivo || null);
+       VALUES (?, ?, ?, ?, ?, NULL, ?, 1)`
+    ).run(randomUUID(), jaTemPagamento ? 'cancelamento_item_sem_autorizacao_configurada' : 'cancelamento_item_pre_pagamento', saleId, saleItemId, currentOperatorId, motivo || null);
   }
 
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
@@ -407,7 +412,7 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   });
   tx();
 
-  return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: jaTemPagamento };
+  return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: exigeAutorizacao };
 }
 
 function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId, pin, motivo, deviceId }) {
@@ -424,15 +429,26 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
     };
   }
 
-  const auth = authorizeManagerOverride({
-    candidateUserId: candidateManagerId,
-    pin,
-    currentOperatorId,
-    tipoEvento: 'cancelamento_venda',
-    saleId,
-    motivo,
-  });
-  if (!auth.ok) return auth;
+  const exigeAutorizacao = getSecurityConfig().exigir_autorizacao_cancelamento === 1;
+
+  let autorizadoPor = null;
+  if (exigeAutorizacao) {
+    const auth = authorizeManagerOverride({
+      candidateUserId: candidateManagerId,
+      pin,
+      currentOperatorId,
+      tipoEvento: 'cancelamento_venda',
+      saleId,
+      motivo,
+    });
+    if (!auth.ok) return auth;
+    autorizadoPor = auth.autorizadoPor;
+  } else {
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, autorizado_por_id, motivo, sucesso)
+       VALUES (?, 'cancelamento_venda_sem_autorizacao_configurada', ?, ?, NULL, ?, 1)`
+    ).run(randomUUID(), saleId, currentOperatorId, motivo || null);
+  }
 
   const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ? AND cancelado = 0').all(saleId);
 
@@ -441,18 +457,18 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
          VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
-      ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, auth.autorizadoPor.id, deviceId);
+      ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPor?.id || null, deviceId);
 
       db.prepare(`UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED() WHERE id = ?`)
-        .run(auth.autorizadoPor.id, item.id);
+        .run(autorizadoPor?.id || currentOperatorId, item.id);
     }
     db.prepare(
       `UPDATE sales SET status = 'cancelada', cancelada_em = NOW_SYNCED(), cancelada_por_id = ?, motivo_cancelamento = ? WHERE id = ?`
-    ).run(auth.autorizadoPor.id, motivo || null, saleId);
+    ).run(autorizadoPor?.id || currentOperatorId, motivo || null, saleId);
   });
   tx();
 
-  return { ok: true, autorizadoPor: auth.autorizadoPor };
+  return { ok: true, autorizadoPor };
 }
 
 /** Checagem leve, sem efeito colateral — só pra decidir se a tela deve
@@ -461,7 +477,8 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
 function needsManagerAuthForCancel(saleId) {
   const db = getDb();
   const jaTemPagamento = db.prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(saleId).c > 0;
-  return { needsAuth: jaTemPagamento };
+  const exigeAutorizacao = jaTemPagamento && getSecurityConfig().exigir_autorizacao_cancelamento === 1;
+  return { needsAuth: exigeAutorizacao };
 }
 
 module.exports = {
