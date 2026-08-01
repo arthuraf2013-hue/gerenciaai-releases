@@ -4,6 +4,7 @@ import { ProductThumbnail } from '../pos/ProductThumbnail';
 import { StockAdjustModal } from './StockAdjustModal';
 import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const PAGE_SIZE = 60;
 
@@ -14,6 +15,7 @@ export function ProductList() {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
   const [editing, setEditing] = useState(null); // null = fechado, {} = novo, {...} = editar
+  useEscToClose(() => setEditing(null), !!editing);
   const [adjusting, setAdjusting] = useState(null); // produto sendo ajustado, ou null
   const [ioMessage, setIoMessage] = useState(null);
   const [ioBusy, setIoBusy] = useState(false);

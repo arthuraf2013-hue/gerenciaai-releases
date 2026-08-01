@@ -106,6 +106,7 @@ function registerIpcHandlers() {
   // --- Cancelamento seguro (exige autorização de gerente) ---
   safeHandle('sale:cancelItem', (_e, payload) => saleService.cancelSaleItem(payload));
   safeHandle('sale:needsManagerAuthForCancel', (_e, { saleId }) => saleService.needsManagerAuthForCancel(saleId));
+  safeHandle('sale:getItemsDetail', (_e, { saleId }) => saleService.getSaleItemsDetail(saleId));
 
   // --- Controle de mesas (restaurante) ---
   safeHandle('table:list', (_e, { locationId }) => tableService.listTables(locationId));
@@ -380,6 +381,7 @@ function registerIpcHandlers() {
   safeHandle('dashboard:getSummary', (_e, payload) => dashboardService.getSummary(payload));
   safeHandle('dashboard:listStaleProducts', (_e, payload) => dashboardService.listStaleProducts(payload));
   safeHandle('dashboard:getSalesByOperator', (_e, payload) => dashboardService.getSalesByOperator(payload));
+  safeHandle('dashboard:getRelatorioProdutos', (_e, payload) => dashboardService.getRelatorioProdutos(payload));
 
   // --- Vincular cliente / resgatar pontos na venda ---
   safeHandle('sale:setCustomer', (_e, { saleId, customerId }) => saleService.setCustomer(saleId, customerId));

@@ -26,6 +26,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
   const [receita, setReceita] = useState([]); // [{ ingredientId, quantidade }]
   const [mostrarFicha, setMostrarFicha] = useState(false);
   const [custoCalculado, setCustoCalculado] = useState(0);
+  const [margemPercentual, setMargemPercentual] = useState('');
   const [fichaSalva, setFichaSalva] = useState('');
   const [barcodeBusy, setBarcodeBusy] = useState(false);
   const barcodeCanvasRef = useRef(null);
@@ -64,6 +65,11 @@ export function ProductForm({ product, onSaved, onCancel }) {
         ncm: product.ncm || '', cest: product.cest || '', cfop: product.cfop || '',
         cstCsosn: product.cst_csosn || '', origemMercadoria: product.origem_mercadoria || '0',
       });
+      if (product.custo > 0 && product.preco > 0) {
+        setMargemPercentual((((product.preco - product.custo) / product.custo) * 100).toFixed(1));
+      } else {
+        setMargemPercentual('');
+      }
       if (product.foto_path) {
         window.pdv.products.getFotoDataUrl({ productId: product.id }).then(setFotoDataUrl);
       } else {
@@ -103,6 +109,39 @@ export function ProductForm({ product, onSaved, onCancel }) {
 
   function setField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Editar a margem recalcula o preço de venda a partir do custo atual.
+  function handleMargemChange(novaMargem) {
+    setMargemPercentual(novaMargem);
+    const custo = Number(form.custo);
+    const margem = Number(novaMargem);
+    if (custo > 0 && !isNaN(margem)) {
+      setField('preco', (custo * (1 + margem / 100)).toFixed(2));
+    }
+  }
+
+  // Editar o custo, com uma margem já definida, mantém a margem —
+  // recalcula o preço de venda pra continuar com o mesmo aumento
+  // percentual (útil quando a leitura da nota atualiza o custo sozinha).
+  function handleCustoChange(novoCusto) {
+    setField('custo', novoCusto);
+    const custo = Number(novoCusto);
+    const margem = Number(margemPercentual);
+    if (custo > 0 && margemPercentual !== '' && !isNaN(margem)) {
+      setField('preco', (custo * (1 + margem / 100)).toFixed(2));
+    }
+  }
+
+  // Editar o preço direto (sem mexer na margem) atualiza a margem
+  // exibida, só como referência — não força nada.
+  function handlePrecoChange(novoPreco) {
+    setField('preco', novoPreco);
+    const custo = Number(form.custo);
+    const preco = Number(novoPreco);
+    if (custo > 0 && !isNaN(preco)) {
+      setMargemPercentual((((preco - custo) / custo) * 100).toFixed(1));
+    }
   }
 
   function setCustomField(campo, value) {
@@ -221,7 +260,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
           </div>
         )}
         <label>Preço de venda
-          <input type="number" step="0.01" value={form.preco} onChange={(e) => setField('preco', e.target.value)} required />
+          <input type="number" step="0.01" value={form.preco} onChange={(e) => handlePrecoChange(e.target.value)} required />
         </label>
         {form.id && historicoPreco.length > 0 && (
           <div style={{ gridColumn: '1 / -1' }}>
@@ -242,7 +281,15 @@ export function ProductForm({ product, onSaved, onCancel }) {
           </div>
         )}
         <label>Custo
-          <input type="number" step="0.01" value={form.custo} onChange={(e) => setField('custo', e.target.value)} />
+          <input type="number" step="0.01" value={form.custo} onChange={(e) => handleCustoChange(e.target.value)} />
+        </label>
+        <label>Margem sobre o custo (%)
+          <input
+            type="number" step="0.1" value={margemPercentual}
+            onChange={(e) => handleMargemChange(e.target.value)}
+            placeholder="Ex: 40 (calcula o preço de venda sozinho)"
+            disabled={!form.custo || Number(form.custo) <= 0}
+          />
         </label>
         <label>Unidade
           <select value={form.unidade} onChange={(e) => setField('unidade', e.target.value)}>

@@ -2,6 +2,7 @@ const path = require('path');
 const XLSX = require('xlsx');
 const aiService = require('./aiService');
 const batchService = require('./batchService');
+const { getDb } = require('../db/database');
 
 const ALIASES = {
   codigo: ['codigo', 'cod', 'codprod', 'codproduto', 'cod.prod', 'codigoproduto'],
@@ -103,7 +104,9 @@ async function extractFromFile(filePath) {
  * está conferindo a mercadoria física) e cria um lote por linha.
  */
 function confirmEntries({ linhas, locationId, operadorId, deviceId, motivo }) {
-  const resultados = { sucesso: 0, erros: [] };
+  const db = getDb();
+  const resultados = { sucesso: 0, erros: [], linhasComSucesso: [] };
+
   linhas.forEach((linha, i) => {
     const result = batchService.createBatch({
       productId: linha.productId,
@@ -116,8 +119,17 @@ function confirmEntries({ linhas, locationId, operadorId, deviceId, motivo }) {
       deviceId,
       motivo,
     });
-    if (result.ok) resultados.sucesso += 1;
-    else resultados.erros.push({ linha: i + 1, erro: result.error });
+    if (result.ok) {
+      resultados.sucesso += 1;
+      resultados.linhasComSucesso.push(linha.linhaId);
+      // Atualiza o custo do produto pro preço unitário da nota — só se
+      // veio um valor de verdade (nem toda nota traz preço por item).
+      if (linha.precoUnitario > 0) {
+        db.prepare('UPDATE products SET custo = ? WHERE id = ?').run(linha.precoUnitario, linha.productId);
+      }
+    } else {
+      resultados.erros.push({ linha: i + 1, linhaId: linha.linhaId, erro: result.error });
+    }
   });
   return { ok: true, ...resultados };
 }

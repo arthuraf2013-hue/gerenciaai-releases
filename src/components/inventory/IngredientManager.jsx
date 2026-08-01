@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const UNIDADES = ['kg', 'g', 'l', 'ml', 'un'];
 
@@ -10,6 +11,7 @@ export function IngredientManager() {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
   const [editing, setEditing] = useState(null); // null = fechado, {} = novo, {...} = editar
+  useEscToClose(() => setEditing(null), !!editing);
   const [form, setForm] = useState(emptyForm);
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);

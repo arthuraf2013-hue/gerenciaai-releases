@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useEscToClose } from '../../hooks/useEscToClose';
 import { ProfileManager } from './ProfileManager';
 import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
 
@@ -72,6 +73,7 @@ export function SettingsScreen() {
   const [backupMsg, setBackupMsg] = useState('');
   const [backupList, setBackupList] = useState([]);
   const [showRestoreList, setShowRestoreList] = useState(false);
+  useEscToClose(() => setShowRestoreList(false), showRestoreList);
   const [restoring, setRestoring] = useState(false);
 
   useEffect(() => {

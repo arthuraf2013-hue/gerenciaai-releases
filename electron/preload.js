@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld('pdv', {
     finalize: invoke('sale:finalize'),
     cancelItem: invoke('sale:cancelItem'),
     needsManagerAuthForCancel: invoke('sale:needsManagerAuthForCancel'),
+    getItemsDetail: invoke('sale:getItemsDetail'),
     cancel: invoke('sale:cancel'),
   },
   table: {
@@ -224,6 +225,7 @@ contextBridge.exposeInMainWorld('pdv', {
     getSummary: invoke('dashboard:getSummary'),
     listStaleProducts: invoke('dashboard:listStaleProducts'),
     getSalesByOperator: invoke('dashboard:getSalesByOperator'),
+    getRelatorioProdutos: invoke('dashboard:getRelatorioProdutos'),
   },
   backup: {
     getStatus: invoke('backup:getStatus'),

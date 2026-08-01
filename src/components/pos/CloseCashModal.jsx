@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const METODO_LABEL = {
   dinheiro: 'Dinheiro', cartao_credito: 'Cartão crédito', cartao_debito: 'Cartão débito',
@@ -10,6 +11,7 @@ const METODO_LABEL = {
  * @param {{ sessionId: string, onClosed: () => void, onCancel: () => void }} props
  */
 export function CloseCashModal({ sessionId, onClosed, onCancel }) {
+  useEscToClose(onCancel);
   const { currentUser } = useSession();
   const [summary, setSummary] = useState(null);
   const [loadError, setLoadError] = useState('');

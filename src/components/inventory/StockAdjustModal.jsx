@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const TIPOS = [
   { value: 'entrada', label: 'Entrada (recebi mercadoria)', sinal: 1 },
@@ -11,6 +12,7 @@ const TIPOS = [
  * @param {{ product: object, onClose: () => void, onAdjusted: () => void }} props
  */
 export function StockAdjustModal({ product, onClose, onAdjusted }) {
+  useEscToClose(onClose);
   const { currentUser } = useSession();
   const [tipo, setTipo] = useState('entrada');
   const [quantidade, setQuantidade] = useState('');

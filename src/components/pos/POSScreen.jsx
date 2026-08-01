@@ -353,9 +353,10 @@ export function POSScreen() {
         if (showPayment) setShowPayment(false);
         else if (authAction) setAuthAction(null);
         else if (showAttachments) setShowAttachments(false);
+        else if (pesandoProduto) setPesandoProduto(null);
         return;
       }
-      if (showPayment || authAction || showAttachments) return;
+      if (showPayment || authAction || showAttachments || pesandoProduto) return;
 
       if (e.key === 'F2' && itensAtivos.length > 0) {
         e.preventDefault();
@@ -368,7 +369,7 @@ export function POSScreen() {
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showPayment, authAction, showAttachments, itensAtivos.length, selectedItemId]);
+  }, [showPayment, authAction, showAttachments, pesandoProduto, itensAtivos.length, selectedItemId]);
 
   if (cashSession === undefined) {
     return <div className="screen"><p className="empty-state">Carregando...</p></div>;

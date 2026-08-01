@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { TableOrderScreen } from './TableOrderScreen';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const STATUS_LABEL = {
   livre: 'Livre',
@@ -32,12 +33,15 @@ export function RestaurantTables() {
   }
 
   const [showNew, setShowNew] = useState(false);
+  useEscToClose(() => setShowNew(false), showNew);
   const [novoNumero, setNovoNumero] = useState('');
   const [novoNome, setNovoNome] = useState('');
   const [createError, setCreateError] = useState('');
   const [abrindoMesa, setAbrindoMesa] = useState(null); // mesa aguardando número de pessoas antes de abrir
+  useEscToClose(() => setAbrindoMesa(null), !!abrindoMesa);
   const [pessoasInput, setPessoasInput] = useState('2');
   const [reservandoMesa, setReservandoMesa] = useState(null);
+  useEscToClose(() => setReservandoMesa(null), !!reservandoMesa);
   const [reservaDataHora, setReservaDataHora] = useState('');
   const [mesaAberta, setMesaAberta] = useState(null); // { tableId, saleId, numero, nome, pessoas } | null
 

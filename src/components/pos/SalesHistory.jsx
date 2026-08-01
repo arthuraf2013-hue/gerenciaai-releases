@@ -33,6 +33,8 @@ export function SalesHistory({ onDevolver }) {
   const [clienteSelecionado, setClienteSelecionado] = useState(null);
   const [relatorioCliente, setRelatorioCliente] = useState(null);
   const [exportandoRelatorio, setExportandoRelatorio] = useState(false);
+  const [vendaExpandidaId, setVendaExpandidaId] = useState(null);
+  const [itensPorVenda, setItensPorVenda] = useState({}); // cache: { [saleId]: itens[] }
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -107,6 +109,18 @@ export function SalesHistory({ onDevolver }) {
     setExportMsg(result.ok
       ? `Relatório do cliente exportado: ${result.totalPedidos} pedido(s), R$ ${result.totalGasto.toFixed(2)}.`
       : result.error);
+  }
+
+  async function handleToggleVenda(saleId) {
+    if (vendaExpandidaId === saleId) {
+      setVendaExpandidaId(null);
+      return;
+    }
+    setVendaExpandidaId(saleId);
+    if (!itensPorVenda[saleId]) {
+      const itens = await window.pdv.sale.getItemsDetail({ saleId });
+      setItensPorVenda((prev) => ({ ...prev, [saleId]: Array.isArray(itens) ? itens : [] }));
+    }
   }
 
   async function handleExport() {
@@ -236,19 +250,47 @@ export function SalesHistory({ onDevolver }) {
           </thead>
           <tbody>
             {salesFiltradas.map((s) => (
-              <tr key={s.id} className={s.status === 'cancelada' ? 'row-critical' : ''}>
-                <td>{new Date(s.data_efetiva + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })}</td>
-                <td>{s.operador_nome}</td>
-                <td>{s.total_itens}</td>
-                <td>R$ {s.total.toFixed(2)}</td>
-                <td>{formatMetodos(s.metodos_pagamento)}</td>
-                <td>{STATUS_LABEL[s.status] || s.status}</td>
-                <td>
-                  {s.status === 'finalizada' && (
-                    <button className="btn-link" onClick={() => onDevolver?.(s.id)}>Devolver</button>
-                  )}
-                </td>
-              </tr>
+              <Fragment key={s.id}>
+                <tr
+                  className={s.status === 'cancelada' ? 'row-critical' : ''}
+                  onClick={() => handleToggleVenda(s.id)}
+                  style={{ cursor: 'pointer' }}
+                  title="Clique pra ver os produtos dessa venda"
+                >
+                  <td>{new Date(s.data_efetiva + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })}</td>
+                  <td>{s.operador_nome}</td>
+                  <td>{vendaExpandidaId === s.id ? '▾' : '▸'} {s.total_itens}</td>
+                  <td>R$ {s.total.toFixed(2)}</td>
+                  <td>{formatMetodos(s.metodos_pagamento)}</td>
+                  <td>{STATUS_LABEL[s.status] || s.status}</td>
+                  <td>
+                    {s.status === 'finalizada' && (
+                      <button className="btn-link" onClick={(e) => { e.stopPropagation(); onDevolver?.(s.id); }}>Devolver</button>
+                    )}
+                  </td>
+                </tr>
+                {vendaExpandidaId === s.id && (
+                  <tr>
+                    <td colSpan={7} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
+                      {!itensPorVenda[s.id] ? (
+                        <p className="screen-hint" style={{ margin: '8px 0' }}>Carregando itens...</p>
+                      ) : itensPorVenda[s.id].length === 0 ? (
+                        <p className="screen-hint" style={{ margin: '8px 0' }}>Nenhum item nessa venda.</p>
+                      ) : (
+                        <ul className="payment-list" style={{ margin: '8px 0' }}>
+                          {itensPorVenda[s.id].map((item) => (
+                            <li key={item.id} style={item.cancelado ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
+                              {item.nome} × {item.quantidade} — R$ {(item.preco_unitario * item.quantidade).toFixed(2)}
+                              {item.cancelado ? ' (cancelado)' : ''}
+                              {item.observacao && ` — ${item.observacao}`}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

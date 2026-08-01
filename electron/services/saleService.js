@@ -481,8 +481,21 @@ function needsManagerAuthForCancel(saleId) {
   return { needsAuth: exigeAutorizacao };
 }
 
+/** Itens de uma venda específica — pra "mostrar produtos por venda" no
+ * Histórico, sem precisar carregar isso pra toda venda da lista de
+ * uma vez (só quando o usuário expande uma linha). */
+function getSaleItemsDetail(saleId) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT si.id, p.nome, si.quantidade, si.preco_unitario, si.cancelado, si.observacao
+     FROM sale_items si JOIN products p ON p.id = si.product_id
+     WHERE si.sale_id = ? ORDER BY si.criado_em`
+  ).all(saleId);
+}
+
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
   addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson,
+  getSaleItemsDetail,
 };

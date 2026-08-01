@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const TIPO_ICON = { imagem: '🖼', pdf: '📄' };
 const STATUS_LABEL = {
@@ -12,6 +13,7 @@ const STATUS_LABEL = {
  * @param {{ saleId: string, operadorId: string, onClose: () => void, onExtracted: (data: object) => void }} props
  */
 export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted }) {
+  useEscToClose(onClose);
   const [attachments, setAttachments] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);

@@ -9,6 +9,7 @@ export function ProductSearchBox({ onSelect }) {
   const debouncedQuery = useDebouncedValue(query, 180); // mais curto que outras telas — isso é usado durante a venda, precisa continuar ágil
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
+  const [indiceSelecionado, setIndiceSelecionado] = useState(-1);
 
   useEffect(() => {
     let ignore = false;
@@ -21,6 +22,7 @@ export function ProductSearchBox({ onSelect }) {
       if (ignore) return;
       setResults(Array.isArray(list) ? list.slice(0, 8) : []);
       setOpen(true);
+      setIndiceSelecionado(-1); // sempre recomeça sem nada selecionado quando o resultado muda
     });
     return () => { ignore = true; };
   }, [debouncedQuery]);
@@ -30,6 +32,26 @@ export function ProductSearchBox({ onSelect }) {
     setQuery('');
     setResults([]);
     setOpen(false);
+    setIndiceSelecionado(-1);
+  }
+
+  function handleKeyDown(e) {
+    if (!open || results.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setIndiceSelecionado((i) => (i + 1) % results.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setIndiceSelecionado((i) => (i - 1 + results.length) % results.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      // Enter sem nada navegado ainda escolhe o primeiro resultado —
+      // pra quem digita rápido e já aperta Enter sem usar as setas.
+      handleSelect(results[indiceSelecionado >= 0 ? indiceSelecionado : 0]);
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      setIndiceSelecionado(-1);
+    }
   }
 
   return (
@@ -40,12 +62,18 @@ export function ProductSearchBox({ onSelect }) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onFocus={() => results.length > 0 && setOpen(true)}
+        onKeyDown={handleKeyDown}
       />
       {open && results.length > 0 && (
         <ul className="product-search-results">
-          {results.map((p) => (
+          {results.map((p, i) => (
             <li key={p.id}>
-              <button type="button" onClick={() => handleSelect(p)}>
+              <button
+                type="button"
+                className={i === indiceSelecionado ? 'product-search-result-active' : ''}
+                onClick={() => handleSelect(p)}
+                onMouseEnter={() => setIndiceSelecionado(i)}
+              >
                 <span>{p.nome}</span>
                 <span className="product-search-price">R$ {p.preco.toFixed(2)}</span>
               </button>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { AuditLog } from '../users/AuditLog';
+import { ProductProfitReport } from './ProductProfitReport';
 
 function toISODate(d) { return d.toISOString().slice(0, 10); }
 
@@ -143,15 +144,18 @@ export function Dashboard() {
     <div className="screen">
       <h1>Painel</h1>
 
-      {currentUser.role === 'admin' && (
-        <div className="settings-tabs">
-          <button className={aba === 'visaoGeral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('visaoGeral')}>Visão geral</button>
+      <div className="settings-tabs">
+        <button className={aba === 'visaoGeral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('visaoGeral')}>Visão geral</button>
+        <button className={aba === 'produtos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('produtos')}>Produtos e lucro</button>
+        {currentUser.role === 'admin' && (
           <button className={aba === 'auditoria' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('auditoria')}>Auditoria</button>
-        </div>
-      )}
+        )}
+      </div>
 
       {aba === 'auditoria' && currentUser.role === 'admin' ? (
         <AuditLog />
+      ) : aba === 'produtos' ? (
+        <ProductProfitReport />
       ) : (
       <>
       <div className="period-selector">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 export function CustomerList() {
   const { currentUser } = useSession();
@@ -10,6 +11,7 @@ export function CustomerList() {
   const [editing, setEditing] = useState(null); // { id, nome, telefone, cpf } | 'new' | null
   const [form, setForm] = useState({ nome: '', telefone: '', cpf: '', cnpj: '' });
   const [selected, setSelected] = useState(null); // cliente com histórico aberto
+  useEscToClose(() => setSelected(null), !!selected);
   const [history, setHistory] = useState([]);
   const [pagamentoValor, setPagamentoValor] = useState('');
   const [saveError, setSaveError] = useState('');

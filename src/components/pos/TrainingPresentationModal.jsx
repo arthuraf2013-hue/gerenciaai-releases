@@ -1,7 +1,10 @@
+import { useEscToClose } from '../../hooks/useEscToClose';
+
 /**
  * @param {{ onClose: () => void }} props
  */
 export function TrainingPresentationModal({ onClose }) {
+  useEscToClose(onClose);
   return (
     <div className="modal-overlay">
       <div className="training-modal">

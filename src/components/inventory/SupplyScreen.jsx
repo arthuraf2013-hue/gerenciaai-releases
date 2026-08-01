@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductForm } from './ProductForm';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 /** Campo de busca de produto por linha — pré-preenchido com o melhor
  * palpite (busca pela descrição extraída), editável pra corrigir. */
@@ -69,6 +70,7 @@ export function SupplyScreen() {
   const [upcoming, setUpcoming] = useState([]);
   const [loadingUpcoming, setLoadingUpcoming] = useState(false);
   const [cadastrandoLinha, setCadastrandoLinha] = useState(null);
+  useEscToClose(() => setCadastrandoLinha(null), !!cadastrandoLinha);
 
   useEffect(() => {
     window.pdv.suppliers.list({}).then((list) => setFornecedores(Array.isArray(list) ? list : []));
@@ -140,11 +142,13 @@ export function SupplyScreen() {
     setConfirmando(true);
     const result = await window.pdv.supply.confirmEntries({
       linhas: linhasValidas.map((l) => ({
+        linhaId: l.id,
         productId: l.produto.id,
         lote: l.lote || null,
         validade: l.validade || null,
         quantidade: l.quantidade,
         fornecedorId: fornecedorId || null,
+        precoUnitario: l.precoUnitarioOriginal || null,
       })),
       locationId: window.APP_LOCATION_ID,
       operadorId: currentUser.id,
@@ -154,9 +158,21 @@ export function SupplyScreen() {
     setConfirmando(false);
     setResultado(result);
     if (result.sucesso > 0) {
-      setLinhas([]);
+      // Só tira da tela as linhas que realmente entraram — as que
+      // deram erro continuam ali pra corrigir e tentar de novo, em vez
+      // de sumir junto e obrigar a reler a nota inteira.
+      const idsComSucesso = new Set(result.linhasComSucesso || []);
+      setLinhas((prev) => prev.filter((l) => !idsComSucesso.has(l.id)));
       carregarRecomendacao();
     }
+  }
+
+  function handleLimparTudo() {
+    if (linhas.length > 0 && !confirm('Limpar todas as linhas da nota atual? Nada foi confirmado ainda — precisa reler a nota se quiser recomeçar.')) return;
+    setLinhas([]);
+    setArquivoNome('');
+    setResultado(null);
+    setExtractError('');
   }
 
   return (
@@ -223,16 +239,21 @@ export function SupplyScreen() {
             antes de confirmar.
           </p>
 
-          <button className="btn-primary" onClick={handleConfirmar} disabled={confirmando} style={{ marginTop: 8 }}>
-            {confirmando ? 'Confirmando...' : `Confirmar entrada (${linhas.filter((l) => l.produto).length} linha(s))`}
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button className="btn-primary" onClick={handleConfirmar} disabled={confirmando}>
+              {confirmando ? 'Confirmando...' : `Confirmar entrada (${linhas.filter((l) => l.produto).length} linha(s))`}
+            </button>
+            <button type="button" className="btn-secondary" onClick={handleLimparTudo} disabled={confirmando}>
+              Limpar tudo
+            </button>
+          </div>
         </section>
       )}
 
       {resultado && (
         <p className={resultado.erros.length === 0 ? 'io-message' : 'modal-error'}>
           {resultado.sucesso} lote(s) registrado(s) com sucesso.
-          {resultado.erros.length > 0 && ` ${resultado.erros.length} com erro (linha ${resultado.erros[0].linha}: ${resultado.erros[0].erro}).`}
+          {resultado.erros.length > 0 && ` ${resultado.erros.length} com erro (linha ${resultado.erros[0].linha}: ${resultado.erros[0].erro}) — essas linhas continuam na tela pra corrigir e confirmar de novo.`}
         </p>
       )}
 

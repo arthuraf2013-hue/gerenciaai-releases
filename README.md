@@ -698,6 +698,55 @@ continua fechada de verdade. Testei os 3 cenários (mesma mensagem
 continua fechada, texto novo reaparece, mensagem personalizada nova
 reaparece) antes de fechar.
 
+## Suas 6 anotações implementadas
+
+1. **Relatório de produtos com lucro + horário de pico** — aba nova
+   "Produtos e lucro" no Painel (gerente também acessa, não só admin),
+   com período predefinido ou personalizado. Mostra nome, categoria,
+   quantidade, receita e lucro por produto, mais um gráfico de barras
+   do movimento por hora do dia. **Direto na tela, sem gerar arquivo**,
+   exatamente como pedido. Testei o cálculo de lucro e do horário de
+   pico (com o mesmo cuidado de fuso horário do trabalho fiscal —
+   calculado por São Paulo, não pela máquina).
+
+2. **Busca por nome melhorada + navegação por teclado ao máximo**:
+   - A busca agora ignora acento (buscar "pao" acha "Pão") e ranqueia
+     por relevância (nome que começa com o termo vem primeiro) — antes
+     era só ordem alfabética.
+   - A busca de produto no PDV ganhou navegação completa por teclado:
+     setas pra escolher, Enter pra adicionar, sem precisar do mouse.
+   - **Atalho Esc pra fechar subtelas** — apliquei em 13 componentes
+     diferentes (todo modal do sistema: autorização de gerente,
+     fechamento de caixa, ajuste de estoque, anexos de venda, cadastro
+     de produto/insumo/usuário/cliente, transferir mesa, editar
+     pessoas da mesa, observação de item, peso de produto por kg,
+     restaurar backup, treinamento). Conferi um por um que cada Esc
+     está ligado exatamente ao mesmo botão "Cancelar"/"Fechar" que já
+     existia, não inventei nenhum comportamento novo.
+
+3. **Mostrar produtos por venda** — no Histórico, clicar numa linha de
+   venda expande mostrando os itens (nome, quantidade, valor,
+   observação, se foi cancelado).
+
+4. **Abastecimento — linhas não somem mais até finalizar + "Limpar
+   tudo"** — achei a causa real de um bug: se uma nota tinha algumas
+   linhas certas e outras com erro, confirmar apagava a tabela
+   inteira, perdendo até as que deram erro. Agora só remove as que
+   realmente entraram — as com erro ficam na tela pra corrigir.
+   Adicionei "Limpar tudo" pra recomeçar do zero quando quiser.
+
+5. **Margem sobre o custo, calculando o preço de venda sozinho** —
+   campo novo no cadastro de produto: define um % de aumento sobre o
+   custo, e o preço de venda é calculado automaticamente. Funciona nos
+   dois sentidos (editar margem recalcula preço; editar preço
+   recalcula a margem mostrada; editar custo com margem já definida
+   mantém a margem, recalculando o preço).
+
+6. **Custo atualizado pela leitura da nota** — ao confirmar uma
+   entrada de abastecimento, o custo do produto já cadastrado é
+   atualizado pelo preço unitário lido da nota automaticamente (antes
+   isso só acontecia pra produto novo, cadastrado na hora).
+
 ## Estrutura fiscal (NFC-e) — geração do XML, sem transmitir ainda
 
 Pedido de começar pela estrutura completa (cadastro, geração do XML)

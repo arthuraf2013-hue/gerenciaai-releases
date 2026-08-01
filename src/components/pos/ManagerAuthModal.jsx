@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 /**
  * Usado para qualquer ação sensível (cancelar item, cancelar venda).
@@ -11,6 +12,7 @@ import { useSession } from '../../context/SessionContext';
  * @param {{ title: string, onConfirm: (candidateId: string, pin: string, motivo: string) => Promise<{ok:boolean,error?:string}>, onClose: () => void }} props
  */
 export function ManagerAuthModal({ title, onConfirm, onClose }) {
+  useEscToClose(onClose);
   const { currentUser } = useSession();
   const [managers, setManagers] = useState([]);
   const [candidateId, setCandidateId] = useState('');

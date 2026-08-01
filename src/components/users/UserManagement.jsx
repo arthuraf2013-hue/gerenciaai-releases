@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 export function UserManagement() {
   const { currentUser } = useSession();
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
   const [showNew, setShowNew] = useState(false);
+  useEscToClose(() => setShowNew(false), showNew);
   const [novoNome, setNovoNome] = useState('');
   const [novoRole, setNovoRole] = useState('operador');
   const [novoPin, setNovoPin] = useState('');

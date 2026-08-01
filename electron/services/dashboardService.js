@@ -111,4 +111,56 @@ function getSalesByOperator({ locationId, dataInicio, dataFim }) {
   ).all(locationId, dataInicio, dataFim);
 }
 
-module.exports = { getSummary, listStaleProducts, getSalesByOperator };
+/**
+ * Relatório de produtos por período — nome, quantidade vendida,
+ * receita, custo e lucro — e o horário do dia com mais vendas.
+ * Só pra exibir na tela (nada de arquivo) — pedido explícito de poder
+ * ver isso rápido sem precisar exportar planilha nenhuma.
+ */
+function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+
+  const produtos = db.prepare(
+    `SELECT p.nome, p.categoria,
+       SUM(si.quantidade) as quantidade,
+       SUM(si.quantidade * si.preco_unitario) as receita,
+       SUM(si.quantidade * COALESCE(p.custo, 0)) as custo_total,
+       SUM(si.quantidade * si.preco_unitario) - SUM(si.quantidade * COALESCE(p.custo, 0)) as lucro
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     JOIN products p ON p.id = si.product_id
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
+       AND date(COALESCE(s.finalizada_em, s.criado_em)) BETWEEN date(?) AND date(?)
+     GROUP BY p.id
+     ORDER BY lucro DESC`
+  ).all(locationId, dataInicio, dataFim);
+
+  // Horário de maior movimento — calculado no fuso de São Paulo
+  // (mesmo padrão usado em todo o resto do app pra exibir horário),
+  // não no fuso da máquina que roda o processo principal.
+  const timestampsBrutos = db.prepare(
+    `SELECT COALESCE(finalizada_em, criado_em) as quando FROM sales
+     WHERE location_id = ? AND status = 'finalizada'
+       AND date(COALESCE(finalizada_em, criado_em)) BETWEEN date(?) AND date(?)`
+  ).all(locationId, dataInicio, dataFim);
+
+  const contagemPorHora = new Array(24).fill(0);
+  const formatador = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false });
+  for (const row of timestampsBrutos) {
+    const data = new Date(row.quando.includes('Z') ? row.quando : row.quando + 'Z');
+    if (isNaN(data.getTime())) continue;
+    const hora = Number(formatador.format(data)) % 24;
+    contagemPorHora[hora]++;
+  }
+  const totalVendasNoPeriodo = timestampsBrutos.length;
+  const horaDeMaiorMovimento = totalVendasNoPeriodo > 0 ? contagemPorHora.indexOf(Math.max(...contagemPorHora)) : null;
+
+  return {
+    produtos,
+    horariosPorMovimento: contagemPorHora.map((qtd, hora) => ({ hora, quantidade: qtd })),
+    horaDeMaiorMovimento,
+    totalVendasNoPeriodo,
+  };
+}
+
+module.exports = { getSummary, listStaleProducts, getSalesByOperator, getRelatorioProdutos };

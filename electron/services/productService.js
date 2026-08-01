@@ -66,17 +66,58 @@ function findBySku(sku) {
   return db.prepare('SELECT * FROM products WHERE sku = ? AND ativo = 1').get(sku);
 }
 
+/** Remove acento pra comparar — "pão" e "pao" ficam iguais. Buscar
+ * rápido no meio de uma venda não deveria depender de digitar o
+ * acento certo. */
+function normalizarTexto(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
 function list({ query, categoria, limit, offset } = {}) {
   const db = getDb();
+
+  if (query && !categoria) {
+    // Busca por nome/sku/código — insensível a acento, e ranqueada por
+    // relevância (nome que COMEÇA com o termo vem primeiro, depois o
+    // que contém no meio, depois match só em sku/código de barras) —
+    // antes era só ordem alfabética, então um produto pouco relevante
+    // podia aparecer antes de um match muito melhor.
+    const queryNormalizada = normalizarTexto(query);
+    const queryLower = query.toLowerCase();
+    const todosAtivos = db.prepare('SELECT * FROM products WHERE ativo = 1').all();
+
+    const comRelevancia = [];
+    for (const p of todosAtivos) {
+      const nomeNormalizado = normalizarTexto(p.nome);
+      const idxNome = nomeNormalizado.indexOf(queryNormalizada);
+      const skuMatch = p.sku && String(p.sku).toLowerCase().includes(queryLower);
+      const codigoMatch = p.codigo_barras && String(p.codigo_barras).includes(query);
+
+      if (idxNome === -1 && !skuMatch && !codigoMatch) continue;
+
+      let relevancia;
+      if (idxNome === 0) relevancia = 0; // nome começa com o termo — melhor caso
+      else if (idxNome > 0) relevancia = 1; // termo aparece no meio do nome
+      else relevancia = 2; // só bateu em sku/código, não no nome
+
+      comRelevancia.push({ produto: p, relevancia, idxNome: idxNome === -1 ? 9999 : idxNome });
+    }
+
+    comRelevancia.sort((a, b) =>
+      a.relevancia - b.relevancia || a.idxNome - b.idxNome || a.produto.nome.localeCompare(b.produto.nome, 'pt-BR')
+    );
+
+    let resultado = comRelevancia.map((r) => r.produto);
+    if (limit) resultado = resultado.slice(offset || 0, (offset || 0) + limit);
+    return resultado;
+  }
+
   const params = [];
   let sql = 'SELECT * FROM products WHERE ativo = 1';
 
   if (categoria) {
     sql += ' AND categoria = ?';
     params.push(categoria);
-  } else if (query) {
-    sql += ' AND (nome LIKE ? OR sku LIKE ? OR codigo_barras LIKE ?)';
-    params.push(`%${query}%`, `%${query}%`, `%${query}%`);
   }
 
   sql += ' ORDER BY nome';

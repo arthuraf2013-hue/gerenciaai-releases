@@ -523,6 +523,7 @@ input:focus, select:focus, textarea:focus {
   width: 100%; display: flex; justify-content: space-between; background: none; text-align: left; padding: 8px 10px;
 }
 .product-search-results button:hover { background: var(--color-bg); }
+.product-search-result-active { background: var(--color-bg); }
 .product-search-price { color: var(--color-text-muted); }
 
 .scan-feedback { padding: 6px 24px 12px; font-size: 14px; border-radius: 0; }

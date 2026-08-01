@@ -4,6 +4,7 @@ import { ProductSearchBox } from './ProductSearchBox';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { PaymentPanel } from './PaymentPanel';
 import { ManagerAuthModal } from './ManagerAuthModal';
+import { useEscToClose } from '../../hooks/useEscToClose';
 import { playBeep } from '../../utils/sound';
 
 /**
@@ -25,12 +26,16 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [pessoas, setPessoasAtual] = useState(pessoasIniciais);
   const [editandoPessoas, setEditandoPessoas] = useState(false);
+  useEscToClose(() => setEditandoPessoas(false), editandoPessoas);
   const [pessoasInput, setPessoasInput] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [showPayment, setShowPayment] = useState(false);
+  useEscToClose(() => setShowPayment(false), showPayment);
   const [authAction, setAuthAction] = useState(null); // { itemId } | null
   const [editandoObs, setEditandoObs] = useState(null); // { itemId, valor } | null
+  useEscToClose(() => setEditandoObs(null), !!editandoObs);
   const [showTransferir, setShowTransferir] = useState(false);
+  useEscToClose(() => setShowTransferir(false), showTransferir);
   const [mostrarDivisao, setMostrarDivisao] = useState(false);
   const [mesasLivres, setMesasLivres] = useState([]);
   const [transferError, setTransferError] = useState('');
