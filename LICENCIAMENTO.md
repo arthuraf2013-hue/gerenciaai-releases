@@ -58,17 +58,19 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /installations/{installId} {
       // Qualquer instalação pode criar o próprio documento na primeira
-      // vez que fala com o servidor — sempre começando ativa (o
-      // congelamento é sempre uma ação manual sua, depois, pelo painel).
-      allow create: if request.resource.data.ativo == true;
+      // vez que fala com o servidor — sempre começando ativa e sem
+      // bloqueio (o congelamento ou bloqueio é sempre uma ação manual
+      // sua, depois, pelo painel).
+      allow create: if request.resource.data.ativo == true
+        && request.resource.data.bloqueioImediato == false;
 
       // Qualquer um pode ler (só expõe status de licença, nada sensível)
       allow read: if true;
 
       // Uma instalação pode atualizar SÓ os campos de "sinal de vida"
-      // (nunca o campo `ativo` sozinha) — só um admin autenticado
-      // (você, logado no painel) pode mudar `ativo`, `nomeCliente`, ou
-      // qualquer outra coisa.
+      // (nunca `ativo`, `bloqueioImediato`, `clienteId` ou
+      // `nomeNegocio` sozinha) — só um admin autenticado (você, logado
+      // no painel) pode mudar esses campos.
       allow update: if (
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['ultimoContato', 'versaoApp'])
@@ -76,11 +78,24 @@ service cloud.firestore {
 
       allow delete: if request.auth != null;
     }
+
+    // "clientes" é só usado pelo painel administrativo — o app em si
+    // nunca lê nem escreve aqui, só agrupa instalações visualmente e
+    // permite ações em bloco (bloquear todas as máquinas de um dono
+    // de uma vez). Por isso é 100% restrito a admin autenticado.
+    match /clientes/{clienteId} {
+      allow read, write: if request.auth != null;
+    }
   }
 }
 ```
 
 Clique em "Publicar".
+
+**Se você já tinha publicado as regras antigas (antes do bloqueio
+imediato e dos clientes existirem)**: precisa republicar com esse
+bloco novo — a parte de `clientes` é nova, e o `allow create` de
+`installations` agora também confere `bloqueioImediato`.
 
 **Antes de confiar nisso em produção**: eu não tenho como testar essas
 regras ao vivo aqui (não tenho acesso a um projeto Firebase de

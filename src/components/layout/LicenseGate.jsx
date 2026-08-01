@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 const MOTIVO_MSG_BLOQUEIO = {
   congelada: 'O acesso a este sistema foi suspenso por pendência de pagamento.',
+  bloqueio_imediato: 'O acesso a este sistema foi bloqueado.',
   sem_internet: 'Não foi possível confirmar a licença deste sistema — sem conexão com o servidor há vários dias.',
 };
 

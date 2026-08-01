@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 const STATUS_LABEL = {
   aberta: 'Em aberto',
@@ -28,6 +28,11 @@ export function SalesHistory({ onDevolver }) {
   const [sales, setSales] = useState([]);
   const [exportando, setExportando] = useState(false);
   const [exportMsg, setExportMsg] = useState('');
+  const [clienteQuery, setClienteQuery] = useState('');
+  const [clienteSugestoes, setClienteSugestoes] = useState([]);
+  const [clienteSelecionado, setClienteSelecionado] = useState(null);
+  const [relatorioCliente, setRelatorioCliente] = useState(null);
+  const [exportandoRelatorio, setExportandoRelatorio] = useState(false);
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -61,6 +66,49 @@ export function SalesHistory({ onDevolver }) {
     });
   }, [dataInicio, dataFim]);
 
+  // Busca clientes conforme digita (nome, telefone, CPF ou CNPJ) — só
+  // dispara quando tem texto e ainda não escolheu ninguém.
+  useEffect(() => {
+    if (!clienteQuery.trim() || clienteSelecionado) { setClienteSugestoes([]); return; }
+    let ignore = false;
+    window.pdv.customers.list({ query: clienteQuery }).then((list) => {
+      if (!ignore) setClienteSugestoes(Array.isArray(list) ? list.slice(0, 8) : []);
+    });
+    return () => { ignore = true; };
+  }, [clienteQuery, clienteSelecionado]);
+
+  // Carrega o relatório sempre que o cliente ou o período mudam.
+  useEffect(() => {
+    if (!clienteSelecionado || !dataInicio || !dataFim) { setRelatorioCliente(null); return; }
+    window.pdv.report.getCustomerPurchase({ customerId: clienteSelecionado.id, dataInicio, dataFim }).then((r) => {
+      setRelatorioCliente(r.ok ? r : null);
+    });
+  }, [clienteSelecionado, dataInicio, dataFim]);
+
+  function selecionarCliente(cliente) {
+    setClienteSelecionado(cliente);
+    setClienteQuery(cliente.nome);
+    setClienteSugestoes([]);
+  }
+
+  function limparFiltroCliente() {
+    setClienteSelecionado(null);
+    setClienteQuery('');
+    setRelatorioCliente(null);
+  }
+
+  async function handleExportCustomerReport() {
+    setExportandoRelatorio(true);
+    const result = await window.pdv.report.exportCustomerPurchase({
+      customerId: clienteSelecionado.id, dataInicio, dataFim, nomeCliente: clienteSelecionado.nome,
+    });
+    setExportandoRelatorio(false);
+    if (result.canceled) return;
+    setExportMsg(result.ok
+      ? `Relatório do cliente exportado: ${result.totalPedidos} pedido(s), R$ ${result.totalGasto.toFixed(2)}.`
+      : result.error);
+  }
+
   async function handleExport() {
     setExportando(true);
     setExportMsg('');
@@ -72,7 +120,9 @@ export function SalesHistory({ onDevolver }) {
       : result.error);
   }
 
-  const totalDia = sales
+  const salesFiltradas = clienteSelecionado ? sales.filter((s) => s.customer_id === clienteSelecionado.id) : sales;
+
+  const totalDia = salesFiltradas
     .filter((s) => s.status === 'finalizada')
     .reduce((acc, s) => acc + s.total, 0);
 
@@ -107,9 +157,77 @@ export function SalesHistory({ onDevolver }) {
         </button>
       </div>
 
+      <div className="customer-filter-box">
+        <div className="customer-filter-input-wrap">
+          <input
+            value={clienteQuery}
+            onChange={(e) => { setClienteQuery(e.target.value); setClienteSelecionado(null); }}
+            placeholder="Filtrar por cliente (nome, CPF ou CNPJ)..."
+          />
+          {clienteSugestoes.length > 0 && (
+            <ul className="customer-filter-suggestions">
+              {clienteSugestoes.map((c) => (
+                <li key={c.id} onClick={() => selecionarCliente(c)}>
+                  {c.nome} {(c.cnpj || c.cpf) && <span className="screen-hint">({c.cnpj || c.cpf})</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {clienteSelecionado && <button className="btn-link" onClick={limparFiltroCliente}>Limpar filtro</button>}
+      </div>
+
+      {clienteSelecionado && relatorioCliente && (
+        <div className="customer-report-box">
+          <h2>
+            {relatorioCliente.cliente.nome}
+            {(relatorioCliente.cliente.cnpj || relatorioCliente.cliente.cpf) && (
+              <span className="screen-hint" style={{ fontWeight: 400 }}> — {relatorioCliente.cliente.cnpj ? 'CNPJ' : 'CPF'}: {relatorioCliente.cliente.cnpj || relatorioCliente.cliente.cpf}</span>
+            )}
+          </h2>
+          <p className="screen-hint" style={{ margin: '0 0 12px' }}>
+            Período de {new Date(dataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a {new Date(dataFim + 'T00:00:00').toLocaleDateString('pt-BR')} —{' '}
+            <strong>{relatorioCliente.totalPedidos} pedido(s)</strong>, <strong>R$ {relatorioCliente.totalGasto.toFixed(2)}</strong> no total.
+          </p>
+
+          {relatorioCliente.categorias.length === 0 ? (
+            <p className="empty-state">Nenhuma compra finalizada nesse período.</p>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr><th>Categoria</th><th>Produto</th><th>Quantidade</th><th>Valor</th></tr>
+              </thead>
+              <tbody>
+                {relatorioCliente.categorias.map((cat) => (
+                  <Fragment key={cat.categoria}>
+                    <tr className="row-warning">
+                      <td colSpan={2}><strong>{cat.categoria}</strong></td>
+                      <td><strong>{cat.quantidadeTotal}</strong></td>
+                      <td><strong>R$ {cat.valorTotal.toFixed(2)}</strong></td>
+                    </tr>
+                    {cat.produtos.map((p) => (
+                      <tr key={cat.categoria + p.nome}>
+                        <td></td>
+                        <td>{p.nome}</td>
+                        <td>{p.quantidade}</td>
+                        <td>R$ {p.valor.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <button className="btn-secondary" onClick={handleExportCustomerReport} disabled={exportandoRelatorio} style={{ marginTop: 12 }}>
+            {exportandoRelatorio ? 'Exportando...' : 'Exportar esse relatório'}
+          </button>
+        </div>
+      )}
+
       {exportMsg && <p className="io-message">{exportMsg}</p>}
 
-      {sales.length === 0 ? (
+      {salesFiltradas.length === 0 ? (
         <p className="empty-state">Nenhuma venda nesse período.</p>
       ) : (
         <table className="data-table">
@@ -117,7 +235,7 @@ export function SalesHistory({ onDevolver }) {
             <tr><th>Data/hora</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
-            {sales.map((s) => (
+            {salesFiltradas.map((s) => (
               <tr key={s.id} className={s.status === 'cancelada' ? 'row-critical' : ''}>
                 <td>{new Date(s.data_efetiva + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })}</td>
                 <td>{s.operador_nome}</td>

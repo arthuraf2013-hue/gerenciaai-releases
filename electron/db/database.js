@@ -63,6 +63,8 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sale_items', 'pessoa_numero', 'INTEGER');
   adicionarColunaSeFaltando(database, 'receipt_config', 'impressora_padrao', 'TEXT');
   adicionarColunaSeFaltando(database, 'products', 'codigo_balanca', 'TEXT');
+  adicionarColunaSeFaltando(database, 'customers', 'cnpj', 'TEXT');
+  adicionarColunaSeFaltando(database, 'license_state', 'bloqueio_imediato', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 function seedIfEmpty(database) {

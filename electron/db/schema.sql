@@ -176,7 +176,8 @@ CREATE INDEX IF NOT EXISTS idx_waste_log_location ON waste_log(location_id, cria
 CREATE TABLE IF NOT EXISTS license_state (
   id                 INTEGER PRIMARY KEY CHECK (id = 1),
   ultimo_contato_ok  TEXT,    -- última vez que confirmou com o servidor com sucesso, seja ativa ou não
-  congelada_desde    TEXT,    -- quando o servidor disse pela primeira vez "inativa" (NULL enquanto ativa)
+  congelada_desde    TEXT,    -- quando o servidor disse pela primeira vez "inativa" (NULL enquanto ativa) — tem 2 dias de carência
+  bloqueio_imediato  INTEGER NOT NULL DEFAULT 0, -- bloqueio direto, sem carência nenhuma — diferente do congelamento (que avisa e dá 2 dias)
   status_atual       TEXT NOT NULL DEFAULT 'ativa' -- cache do último status conhecido: ativa | inativa
 );
 
@@ -499,6 +500,7 @@ CREATE TABLE IF NOT EXISTS customers (
   nome          TEXT NOT NULL,
   telefone      TEXT,
   cpf           TEXT,
+  cnpj          TEXT, -- cliente pessoa jurídica (opcional, além ou no lugar do CPF)
   pontos        INTEGER NOT NULL DEFAULT 0,
   ativo         INTEGER DEFAULT 1,
   criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())

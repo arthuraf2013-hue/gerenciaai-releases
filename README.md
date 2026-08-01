@@ -606,6 +606,163 @@ aceleração de hardware) — isso ajudaria só em casos bem específicos de
 driver de vídeo com problema, e desligar à toa pioraria a experiência
 na maioria dos PCs normais.
 
+### Continuação — validei de verdade num navegador, e achei + corrigi um bug real
+
+Consegui resolver a maior lacuna que tinha deixado: montei módulos
+simulados do Firebase (Auth/Firestore, com dados de teste incluindo
+exatamente o cenário "um dono, dois negócios diferentes") e carreguei
+o `admin-panel/index.html` **de verdade** num navegador headless,
+interceptando as chamadas pro CDN do Firebase pra usar os simulados.
+Isso permitiu testar de um jeito muito mais forte do que só ler
+código:
+
+- Login → tela principal: sem nenhum erro de JavaScript.
+- Os blocos por cliente renderizam certo, incluindo o João com as duas
+  máquinas (padaria + restaurante) aparecendo juntas dentro do bloco
+  dele, do jeito que foi pedido.
+- **"Bloquear tudo" testado de verdade**: cliquei no botão, confirmei
+  o alerta, e conferi que a escrita em lote realmente marcou as DUAS
+  máquinas do cliente com `bloqueioImediato: true` numa operação só.
+- Criar cliente novo, e vincular uma máquina sem dono a ele — os dois
+  funcionam e gravam os dados certos.
+
+**Achei um bug real nesse processo**: um cliente recém-criado, ainda
+sem nenhuma máquina vinculada, **não aparecia na lista** — só
+mostrava clientes que já tinham pelo menos uma máquina. Isso é
+confuso (você cria o cliente e ele "some" até vincular algo).
+Corrigido — agora aparece com "Nenhuma máquina vinculada ainda", sem
+os botões de ação em bloco (não fazem sentido sem máquina nenhuma).
+Retestei tudo de novo depois da correção pra garantir que não quebrou
+nada.
+
+## Painel de licenciamento — bloqueio imediato, blocos por cliente, múltiplos negócios
+
+Pedido de: bloqueio imediato (além do congelamento com aviso), blocos
+por cliente que expandem pra mostrar as máquinas vinculadas, vínculo
+de múltiplos negócios do mesmo dono, e bloqueio do bloco inteiro de
+uma vez. Implementado nos dois lados:
+
+### No app
+
+- **Bloqueio imediato de verdade** — novo, separado do congelamento
+  com aviso (que continua existindo, com os 2 dias de carência de
+  sempre). Bloqueio imediato não tem carência nenhuma: assim que o app
+  perceber a mudança, para na hora.
+- **"Imediato" agora é imediato de verdade** — antes, qualquer mudança
+  no painel só chegava no app na próxima checagem periódica (a cada
+  6h). Adicionei uma **escuta em tempo real** do Firestore (além da
+  checagem periódica, que continua rodando como reforço) — assim que
+  você bloqueia ou congela pelo painel, o app recebe a mudança em
+  poucos segundos (se estiver online), não em horas. Testei a lógica
+  de prioridade isoladamente: bloqueio imediato sempre vence sobre
+  qualquer outro estado, mesmo um congelamento ainda dentro da
+  carência.
+
+### No painel administrativo (reescrito)
+
+- **Blocos por cliente** — cada cliente é um cartão que expande ao
+  clicar, mostrando as máquinas vinculadas a ele.
+- **Múltiplos negócios do mesmo dono** — vincule quantas instalações
+  quiser ao mesmo cliente (ex: a padaria e o restaurante da mesma
+  pessoa) — aparecem juntas dentro do bloco dele. Testei essa lógica
+  de agrupamento isoladamente com esse cenário exato.
+- **"Bloquear tudo" no bloco do cliente** — bloqueia imediatamente
+  TODAS as máquinas daquele cliente de uma vez (grava tudo junto,
+  numa única operação em lote no Firestore). "Reativar tudo" faz o
+  inverso.
+- Cada máquina individual continua com seus próprios controles
+  (congelar/reativar com aviso, bloquear/desbloquear imediato,
+  vincular/desvincular de um cliente, editar o nome do negócio).
+- Máquinas ainda não vinculadas a nenhum cliente aparecem num bloco
+  separado "Sem vínculo", com um botão pra vincular.
+- Botão "+ Novo cliente" pra cadastrar (nome + CPF/CNPJ opcional).
+- Busca funciona por nome do cliente, nome do negócio, ou ID da
+  máquina.
+
+**O que testei e validei**: sintaxe do JavaScript do painel, todas as
+tags HTML balanceadas, todo `getElementById` batendo com um elemento
+que existe de verdade, escape de HTML (nome de cliente não quebra a
+página), e a lógica de agrupamento por cliente isolada — incluindo
+especificamente o cenário de "um dono, dois negócios diferentes".
+
+**O que não consegui testar**: não tenho como carregar isso num
+navegador real aqui (o CDN do Firebase não é acessível neste
+ambiente), então não vi a interface renderizada de verdade nem testei
+contra o Firestore ao vivo. Teste com calma antes de confiar —
+especialmente o bloqueio em lote (várias escritas de uma vez).
+
+**Atualizei também as regras de segurança do Firestore documentadas no
+`LICENCIAMENTO.md`** — precisa republicar (adicionei a coleção
+`clientes`, restrita a admin autenticado). Se você já tinha as regras
+antigas publicadas, republique com o bloco novo antes de usar o
+bloqueio imediato ou os clientes.
+
+## Auditoria geral (bugs, inconsistências, melhorias)
+
+Fiz uma varredura estruturada, não só leitura solta de código:
+
+1. **Sintaxe** de todo o backend e frontend — limpa.
+2. **IPC nos dois sentidos** — cruzei os três lados (o que o backend
+   registra, o que o preload expõe, o que o frontend chama) pra achar
+   método chamado que não existe, ou exposto sem handler. Zero
+   problemas — sinal forte de que essa camada inteira está coerente.
+3. **Regressão real encontrada e corrigida**: quando fundi "Cardápio
+   Digital" dentro de "Restaurante" (pedido de reduzir itens do menu),
+   a aba ficou visível pra qualquer papel — mas "Cardápio Digital" era
+   restrito a gerente/admin antes da fusão, e essa restrição se perdeu
+   no processo. Corrigido — a aba volta a só aparecer (e só funcionar)
+   pra gerente/admin, igual era antes.
+4. Conferi as OUTRAS telas fundidas (Histórico, Produtos, Abastecimento)
+   pelo mesmo tipo de problema — essas já tinham a restrição certa
+   desde quando fundi, só a de Restaurante escapou.
+5. **Imports não usados** em todo o frontend — nenhum encontrado.
+6. Reconferi o mesmo padrão do bug de `LOCATION_ID` capturado cedo
+   demais (já corrigido antes) em todo o projeto — não reapareceu em
+   lugar nenhum.
+
+Não encontrei mais nada de errado além do item 3. O app está num
+estado consistente.
+
+## Filtro por cliente no Histórico + relatório de compras
+
+Pedido de filtrar o Histórico por cliente, com relatório de acordo com
+o filtro e a quantidade de pedidos, subclassificando por tipo de
+produto. Implementado:
+
+- **Campo de CNPJ novo** no cadastro de cliente (só tinha CPF antes) —
+  seu exemplo era de cliente pessoa jurídica, então adicionei os dois,
+  já que um cliente pode ter só um, os dois, ou nenhum.
+- **Filtro por cliente** no Histórico — busca por nome, CPF ou CNPJ,
+  com sugestões enquanto digita.
+- **Relatório automático** ao escolher um cliente: nome, CPF/CNPJ,
+  período, total de pedidos, valor total gasto — e os produtos
+  comprados **subclassificados por categoria** (quanto de cada
+  categoria, e dentro dela, quanto de cada produto especificamente).
+  Exatamente o formato do seu exemplo: "cliente fulano, CNPJ tal, no
+  período de X a Y, comprou Z produtos do tipo tal".
+- **Exportar esse relatório específico** em planilha, separado do
+  botão de exportar o histórico geral.
+
+Testei o relatório com um cenário completo em SQL puro antes de
+integrar: cliente com duas compras em categorias diferentes, mais uma
+venda de OUTRO cliente (não deve aparecer) e uma venda ainda aberta do
+mesmo cliente (não deve contar) — confirmei que o relatório soma
+certo, agrupa certo por categoria, e ignora exatamente o que devia
+ignorar.
+
+## Config real do Firebase de licenciamento aplicada
+
+Você mandou o `licenseService.js` já preenchido com os dados reais do
+seu projeto Firebase (`gerenciaai-licencas`). Apliquei nos dois lugares
+que precisam da mesma config: `electron/services/licenseService.js` e
+`admin-panel/index.html` — os dois já vêm prontos nessa entrega, sem
+precisar colar mais nada.
+
+**Guardei isso na memória** — a partir de agora, toda entrega nova
+já vai sair com essa config real aplicada automaticamente, sem
+reverter pro placeholder `COLOQUE_AQUI`. Não precisa mais reenviar
+isso nem colar de novo depois de sobrescrever o projeto.
+
 ## Editar número de pessoas da mesa (chegou mais gente)
 
 Clique no badge "X pessoa(s)" no topo da comanda — abre um campo pra

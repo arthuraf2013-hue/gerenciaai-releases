@@ -6,38 +6,71 @@
 <title>Central GerenciaAI — Licenciamento</title>
 <style>
   :root {
-    --bg: #10201d; --surface: #1f312d; --border: #3f5b53; --text: #eef5f2;
-    --text-muted: #aec2ba; --primary: #37ab99; --danger: #e0705d; --warning: #f2ce7a;
+    --bg: #10201d; --surface: #1f312d; --surface2: #294038; --border: #3f5b53; --text: #eef5f2;
+    --text-muted: #aec2ba; --primary: #37ab99; --danger: #e0705d; --danger-strong: #c9422c; --warning: #f2ce7a;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; }
-  .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 20px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 20px; }
   h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 0; }
   .subtitle { color: var(--text-muted); margin: 0 0 24px; font-size: 14px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
-  input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
-  input:focus { outline: none; border-color: var(--primary); }
-  button { cursor: pointer; border: none; border-radius: 8px; padding: 9px 16px; font-size: 14px; font-weight: 600; }
+  input, select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  input:focus, select:focus { outline: none; border-color: var(--primary); }
+  button { cursor: pointer; border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; }
   .btn-primary { background: var(--primary); color: white; }
   .btn-danger { background: var(--danger); color: white; }
+  .btn-danger-strong { background: var(--danger-strong); color: white; }
   .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-small { padding: 5px 10px; font-size: 12px; }
   #login-screen { max-width: 360px; margin: 80px auto; }
   #login-screen form { display: flex; flex-direction: column; gap: 10px; }
   #app-screen { display: none; }
-  .toolbar { display: flex; gap: 10px; margin-bottom: 16px; align-items: center; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
   .toolbar input { flex: 1; }
-  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
-  th { text-transform: uppercase; font-size: 11px; color: var(--text-muted); }
-  .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .status-ativa { background: rgba(55,171,153,0.2); color: var(--primary); }
   .status-inativa { background: rgba(224,112,93,0.2); color: var(--danger); }
+  .status-bloqueio-imediato { background: rgba(201,66,44,0.3); color: #ff9c85; }
   .status-atraso { background: rgba(242,206,122,0.2); color: var(--warning); }
   .error { color: var(--danger); font-size: 13px; }
   .empty { color: var(--text-muted); text-align: center; padding: 32px; }
-  .nome-input { background: transparent; border: none; color: var(--text); font-size: 14px; width: 100%; padding: 4px; border-radius: 4px; }
-  .nome-input:focus { background: var(--bg); border: 1px solid var(--border); outline: none; }
   #sair-btn { float: right; }
+
+  .cliente-card { margin-bottom: 14px; overflow: hidden; }
+  .cliente-header { display: flex; align-items: center; gap: 14px; cursor: pointer; padding: 4px 0; }
+  .cliente-header .chevron { transition: transform 0.15s; color: var(--text-muted); font-size: 12px; }
+  .cliente-header.aberto .chevron { transform: rotate(90deg); }
+  .cliente-info { flex: 1; min-width: 0; }
+  .cliente-nome { font-weight: 700; font-size: 15px; }
+  .cliente-doc { color: var(--text-muted); font-size: 12px; margin-left: 8px; }
+  .cliente-resumo { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+  .cliente-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+  .maquinas-lista { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); display: none; }
+  .maquinas-lista.aberto { display: block; }
+  .maquina-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--surface2);
+    border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .maquina-nome-input {
+    background: transparent; border: none; color: var(--text); font-size: 13px; font-weight: 600;
+    padding: 4px 6px; border-radius: 4px; width: 220px;
+  }
+  .maquina-nome-input:focus { background: var(--bg); border: 1px solid var(--border); outline: none; }
+  .maquina-meta { color: var(--text-muted); font-size: 11px; }
+  .maquina-acoes { display: flex; gap: 6px; margin-left: auto; }
+
+  .nao-vinculados { border-color: var(--warning); }
+  .vincular-select { font-size: 12px; padding: 6px 8px; }
+
+  #novo-cliente-modal, #vincular-modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    align-items: center; justify-content: center; z-index: 50;
+  }
+  #novo-cliente-modal .card, #vincular-modal .card { width: 360px; }
+  .modal-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -59,21 +92,45 @@
   <div class="wrap">
     <button id="sair-btn" class="btn-secondary">Sair</button>
     <h1>Central GerenciaAI</h1>
-    <p class="subtitle">Todas as instalações registradas — congele ou reative o acesso de qualquer uma.</p>
+    <p class="subtitle">
+      Instalações agrupadas por cliente — clique num bloco pra ver as máquinas vinculadas.
+      Congelar avisa e dá 2 dias de carência; bloquear é imediato e suspende na hora.
+    </p>
 
     <div class="toolbar">
-      <input type="text" id="busca" placeholder="Buscar por nome...">
+      <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
+      <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
     </div>
 
-    <div class="card">
-      <table>
-        <thead>
-          <tr><th>Cliente</th><th>Status</th><th>Último contato</th><th>Versão</th><th>Instalada em</th><th></th></tr>
-        </thead>
-        <tbody id="tabela-corpo"></tbody>
-      </table>
-      <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
-    </div>
+    <div id="lista-clientes"></div>
+    <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
+  </div>
+</div>
+
+<div id="novo-cliente-modal">
+  <div class="card">
+    <h2>Novo cliente</h2>
+    <form class="modal-form" id="novo-cliente-form">
+      <input type="text" id="novo-cliente-nome" placeholder="Nome do cliente / dono" required>
+      <input type="text" id="novo-cliente-doc" placeholder="CPF ou CNPJ (opcional)">
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="novo-cliente-cancelar">Cancelar</button>
+        <button type="submit" class="btn-primary">Criar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="vincular-modal">
+  <div class="card">
+    <h2>Vincular máquina a um cliente</h2>
+    <form class="modal-form" id="vincular-form">
+      <select id="vincular-select-cliente" required></select>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="vincular-cancelar">Cancelar</button>
+        <button type="submit" class="btn-primary">Vincular</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -83,12 +140,12 @@
   // app. Veja LICENCIAMENTO.md pra criar o projeto e pegar esses
   // valores, e pra restringir quem pode logar aqui (só você).
   const firebaseConfig = {
-    apiKey: 'COLOQUE_AQUI',
-    authDomain: 'COLOQUE_AQUI.firebaseapp.com',
-    projectId: 'COLOQUE_AQUI',
-    storageBucket: 'COLOQUE_AQUI.appspot.com',
-    messagingSenderId: 'COLOQUE_AQUI',
-    appId: 'COLOQUE_AQUI',
+    apiKey: 'AIzaSyDcfANHaWg7pDGuTZpJJYpHCFXk88DCCrk',
+    authDomain: 'gerenciaai-licencas.firebaseapp.com',
+    projectId: 'gerenciaai-licencas',
+    storageBucket: 'gerenciaai-licencas.firebasestorage.app',
+    messagingSenderId: '178576716496',
+    appId: '1:178576716496:web:c3bbe7d59299fd135524d5',
   };
 
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js';
@@ -96,7 +153,8 @@
     getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
   import {
-    getFirestore, collection, onSnapshot, doc, updateDoc, query, orderBy,
+    getFirestore, collection, onSnapshot, doc, updateDoc, setDoc, addDoc,
+    writeBatch, query, orderBy, serverTimestamp,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
   const app = initializeApp(firebaseConfig);
@@ -107,11 +165,16 @@
   const appScreen = document.getElementById('app-screen');
   const loginForm = document.getElementById('login-form');
   const loginError = document.getElementById('login-error');
-  const tabelaCorpo = document.getElementById('tabela-corpo');
+  const listaClientes = document.getElementById('lista-clientes');
   const vazioDiv = document.getElementById('vazio');
   const buscaInput = document.getElementById('busca');
+  const novoClienteModal = document.getElementById('novo-cliente-modal');
+  const vincularModal = document.getElementById('vincular-modal');
 
   let instalacoes = [];
+  let clientes = [];
+  const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
+  let instalacaoParaVincular = null;
 
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -131,25 +194,27 @@
     if (user) {
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
-      escutarInstalacoes();
+      escutarDados();
     } else {
       loginScreen.style.display = 'block';
       appScreen.style.display = 'none';
     }
   });
 
-  function escutarInstalacoes() {
-    const q = query(collection(db, 'installations'), orderBy('ultimoContato', 'desc'));
-    onSnapshot(q, (snap) => {
+  function escutarDados() {
+    onSnapshot(query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')), (snap) => {
       instalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      render();
+    });
+    onSnapshot(query(collection(db, 'clientes'), orderBy('nome')), (snap) => {
+      clientes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       render();
     });
   }
 
   function diasAtras(timestamp) {
     if (!timestamp) return null;
-    const ms = Date.now() - timestamp.toDate().getTime();
-    return ms / 86400000;
+    return (Date.now() - timestamp.toDate().getTime()) / 86400000;
   }
 
   function formatarData(timestamp) {
@@ -157,59 +222,275 @@
     return timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
   }
 
-  async function alternarStatus(id, ativoAtual) {
-    const acao = ativoAtual ? 'congelar' : 'reativar';
+  function statusDaInstalacao(inst) {
+    const dias = diasAtras(inst.ultimoContato);
+    const semContatoHaTempo = dias !== null && dias >= 2;
+    if (inst.bloqueioImediato) return { texto: 'Bloqueada', classe: 'status-bloqueio-imediato' };
+    if (!inst.ativo) return { texto: 'Congelada', classe: 'status-inativa' };
+    if (semContatoHaTempo) return { texto: `Sem contato há ${Math.floor(dias)}d`, classe: 'status-atraso' };
+    return { texto: 'Ativa', classe: 'status-ativa' };
+  }
+
+  // --- Ações em uma instalação individual ---
+
+  async function alternarCongelamento(id, ativoAtual) {
+    const acao = ativoAtual ? 'congelar (com aviso e 2 dias de carência)' : 'reativar';
     if (!confirm(`Tem certeza que quer ${acao} essa instalação?`)) return;
     await updateDoc(doc(db, 'installations', id), { ativo: !ativoAtual });
   }
 
-  async function salvarNome(id, novoNome) {
-    await updateDoc(doc(db, 'installations', id), { nomeCliente: novoNome });
+  async function alternarBloqueioImediato(id, bloqueadoAtual) {
+    const acao = bloqueadoAtual
+      ? 'desbloquear essa instalação'
+      : 'BLOQUEAR IMEDIATAMENTE essa instalação — o app para de funcionar assim que perceber a mudança (poucos minutos, se estiver online), sem aviso nem carência';
+    if (!confirm(`Tem certeza que quer ${acao}?`)) return;
+    await updateDoc(doc(db, 'installations', id), { bloqueioImediato: !bloqueadoAtual });
+  }
+
+  async function salvarNomeNegocio(id, novoNome) {
+    await updateDoc(doc(db, 'installations', id), { nomeNegocio: novoNome });
+  }
+
+  function abrirVincular(instalacaoId) {
+    instalacaoParaVincular = instalacaoId;
+    const select = document.getElementById('vincular-select-cliente');
+    select.innerHTML = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+    vincularModal.style.display = 'flex';
+  }
+
+  async function desvincular(instalacaoId) {
+    if (!confirm('Desvincular essa máquina do cliente?')) return;
+    await updateDoc(doc(db, 'installations', instalacaoId), { clienteId: null });
+  }
+
+  // --- Ações em bloco (todas as máquinas de um cliente de uma vez) ---
+
+  async function bloquearClienteInteiro(clienteId, maquinasDoCliente) {
+    const qtd = maquinasDoCliente.length;
+    if (!confirm(
+      `BLOQUEAR IMEDIATAMENTE as ${qtd} máquina(s) desse cliente? Todas param de funcionar assim que ` +
+      `perceberem a mudança (poucos minutos, se estiverem online), sem aviso nem carência.`
+    )) return;
+    const batch = writeBatch(db);
+    for (const m of maquinasDoCliente) {
+      batch.update(doc(db, 'installations', m.id), { bloqueioImediato: true });
+    }
+    await batch.commit();
+  }
+
+  async function reativarClienteInteiro(clienteId, maquinasDoCliente) {
+    if (!confirm(`Reativar todas as ${maquinasDoCliente.length} máquina(s) desse cliente?`)) return;
+    const batch = writeBatch(db);
+    for (const m of maquinasDoCliente) {
+      batch.update(doc(db, 'installations', m.id), { bloqueioImediato: false, ativo: true });
+    }
+    await batch.commit();
+  }
+
+  // --- Criar cliente ---
+
+  document.getElementById('novo-cliente-btn').addEventListener('click', () => {
+    document.getElementById('novo-cliente-form').reset();
+    novoClienteModal.style.display = 'flex';
+  });
+  document.getElementById('novo-cliente-cancelar').addEventListener('click', () => {
+    novoClienteModal.style.display = 'none';
+  });
+  document.getElementById('novo-cliente-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const nome = document.getElementById('novo-cliente-nome').value.trim();
+    const documento = document.getElementById('novo-cliente-doc').value.trim();
+    if (!nome) return;
+    await addDoc(collection(db, 'clientes'), { nome, documento: documento || null, criadoEm: serverTimestamp() });
+    novoClienteModal.style.display = 'none';
+  });
+
+  document.getElementById('vincular-cancelar').addEventListener('click', () => {
+    vincularModal.style.display = 'none';
+    instalacaoParaVincular = null;
+  });
+  document.getElementById('vincular-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const clienteId = document.getElementById('vincular-select-cliente').value;
+    if (!instalacaoParaVincular || !clienteId) return;
+    await updateDoc(doc(db, 'installations', instalacaoParaVincular), { clienteId });
+    vincularModal.style.display = 'none';
+    instalacaoParaVincular = null;
+  });
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   function render() {
     const filtro = buscaInput.value.trim().toLowerCase();
-    const filtradas = instalacoes.filter((i) =>
-      !filtro || (i.nomeCliente || '').toLowerCase().includes(filtro) || i.id.toLowerCase().includes(filtro)
-    );
 
-    vazioDiv.style.display = filtradas.length === 0 ? 'block' : 'none';
-    tabelaCorpo.innerHTML = filtradas.map((inst) => {
-      const dias = diasAtras(inst.ultimoContato);
-      const semContatoHaTempo = dias !== null && dias >= 2;
-      let statusHtml;
-      if (!inst.ativo) {
-        statusHtml = '<span class="status-pill status-inativa">Congelada</span>';
-      } else if (semContatoHaTempo) {
-        statusHtml = `<span class="status-pill status-atraso">Sem contato há ${Math.floor(dias)}d</span>`;
-      } else {
-        statusHtml = '<span class="status-pill status-ativa">Ativa</span>';
-      }
-
-      return `
-        <tr>
-          <td>
-            <input class="nome-input" value="${(inst.nomeCliente || '').replace(/"/g, '&quot;')}"
-              placeholder="${inst.id.slice(0, 8)}..." data-id="${inst.id}">
-          </td>
-          <td>${statusHtml}</td>
-          <td>${formatarData(inst.ultimoContato)}</td>
-          <td>${inst.versaoApp || '—'}</td>
-          <td>${formatarData(inst.criadoEm)}</td>
-          <td>
-            <button class="${inst.ativo ? 'btn-danger' : 'btn-primary'}" data-toggle="${inst.id}" data-ativo="${inst.ativo}">
-              ${inst.ativo ? 'Congelar' : 'Reativar'}
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-
-    tabelaCorpo.querySelectorAll('[data-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => alternarStatus(btn.dataset.toggle, btn.dataset.ativo === 'true'));
+    const instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {
+      const cliente = clientes.find((c) => c.id === i.clienteId);
+      return (
+        (i.nomeNegocio || '').toLowerCase().includes(filtro) ||
+        (cliente?.nome || '').toLowerCase().includes(filtro) ||
+        i.id.toLowerCase().includes(filtro)
+      );
     });
-    tabelaCorpo.querySelectorAll('.nome-input').forEach((input) => {
-      input.addEventListener('blur', () => salvarNome(input.dataset.id, input.value.trim()));
+
+    vazioDiv.style.display = instalacoesFiltradas.length === 0 ? 'block' : 'none';
+
+    // Agrupa por cliente — máquinas sem clienteId (ou cujo cliente não existe mais) vão pro grupo "sem vínculo".
+    const porCliente = new Map();
+    const semVinculo = [];
+    for (const inst of instalacoesFiltradas) {
+      const cliente = inst.clienteId && clientes.find((c) => c.id === inst.clienteId);
+      if (cliente) {
+        if (!porCliente.has(cliente.id)) porCliente.set(cliente.id, { cliente, maquinas: [] });
+        porCliente.get(cliente.id).maquinas.push(inst);
+      } else {
+        semVinculo.push(inst);
+      }
+    }
+
+    const blocosHtml = [];
+
+    // Inclui também clientes que ainda não têm nenhuma máquina vinculada
+    // (acabou de ser criado) — sem isso, o cliente "some" da lista até
+    // você vincular alguma máquina a ele, o que é confuso. Só entra se
+    // não tiver busca ativa, ou se o nome dele bater com a busca.
+    for (const cliente of clientes) {
+      if (porCliente.has(cliente.id)) continue;
+      if (filtro && !cliente.nome.toLowerCase().includes(filtro)) continue;
+      porCliente.set(cliente.id, { cliente, maquinas: [] });
+    }
+
+    for (const { cliente, maquinas } of porCliente.values()) {
+      blocosHtml.push(renderBlocoCliente(cliente, maquinas));
+    }
+    if (semVinculo.length > 0) {
+      blocosHtml.push(renderBlocoSemVinculo(semVinculo));
+    }
+
+    listaClientes.innerHTML = blocosHtml.join('');
+    ligarEventosDosBlocos();
+  }
+
+  function renderBlocoCliente(cliente, maquinas) {
+    const aberto = blocosAbertos.has(cliente.id);
+    const algumaBloqueada = maquinas.some((m) => m.bloqueioImediato);
+    const algumaCongelada = maquinas.some((m) => !m.ativo && !m.bloqueioImediato);
+    const todasAtivas = maquinas.length > 0 && maquinas.every((m) => m.ativo && !m.bloqueioImediato);
+    let resumoStatus = maquinas.length === 0 ? 'Nenhuma máquina vinculada ainda' : `${maquinas.length} máquina(s)`;
+    if (algumaBloqueada) resumoStatus += ' — tem máquina bloqueada';
+    else if (algumaCongelada) resumoStatus += ' — tem máquina congelada';
+    else if (todasAtivas) resumoStatus += ' — todas ativas';
+
+    return `
+      <div class="card cliente-card" data-cliente-card="${cliente.id}">
+        <div class="cliente-header ${aberto ? 'aberto' : ''}" data-toggle-cliente="${cliente.id}">
+          <span class="chevron">▶</span>
+          <div class="cliente-info">
+            <span class="cliente-nome">${escapeHtml(cliente.nome)}</span>
+            ${cliente.documento ? `<span class="cliente-doc">${escapeHtml(cliente.documento)}</span>` : ''}
+            <div class="cliente-resumo">${resumoStatus}</div>
+          </div>
+          <div class="cliente-acoes">
+            ${maquinas.length > 0 ? `
+              <button class="btn-danger-strong btn-small" data-bloquear-cliente="${cliente.id}">Bloquear tudo</button>
+              <button class="btn-secondary btn-small" data-reativar-cliente="${cliente.id}">Reativar tudo</button>
+            ` : ''}
+          </div>
+        </div>
+        <div class="maquinas-lista ${aberto ? 'aberto' : ''}" data-maquinas-de="${cliente.id}">
+          ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderBlocoSemVinculo(maquinas) {
+    const aberto = blocosAbertos.has('sem-vinculo');
+    return `
+      <div class="card cliente-card nao-vinculados" data-cliente-card="sem-vinculo">
+        <div class="cliente-header ${aberto ? 'aberto' : ''}" data-toggle-cliente="sem-vinculo">
+          <span class="chevron">▶</span>
+          <div class="cliente-info">
+            <span class="cliente-nome">Sem vínculo</span>
+            <div class="cliente-resumo">${maquinas.length} máquina(s) ainda não vinculada(s) a nenhum cliente</div>
+          </div>
+        </div>
+        <div class="maquinas-lista ${aberto ? 'aberto' : ''}" data-maquinas-de="sem-vinculo">
+          ${maquinas.map((m) => renderMaquinaRow(m, false)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMaquinaRow(inst, temCliente) {
+    const status = statusDaInstalacao(inst);
+    return `
+      <div class="maquina-row">
+        <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
+          placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
+        <span class="status-pill ${status.classe}">${status.texto}</span>
+        <span class="maquina-meta">v${inst.versaoApp || '—'} · último contato: ${formatarData(inst.ultimoContato)}</span>
+        <div class="maquina-acoes">
+          ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${inst.id}">Desvincular</button>`
+                        : `<button class="btn-secondary btn-small" data-vincular="${inst.id}">Vincular a cliente</button>`}
+          <button class="btn-secondary btn-small" data-congelar="${inst.id}" data-ativo="${inst.ativo}">
+            ${inst.ativo ? 'Congelar' : 'Reativar'}
+          </button>
+          <button class="${inst.bloqueioImediato ? 'btn-secondary' : 'btn-danger'} btn-small"
+            data-bloquear="${inst.id}" data-bloqueado="${!!inst.bloqueioImediato}">
+            ${inst.bloqueioImediato ? 'Desbloquear' : 'Bloquear agora'}
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  function ligarEventosDosBlocos() {
+    listaClientes.querySelectorAll('[data-toggle-cliente]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = el.dataset.toggleCliente;
+        if (blocosAbertos.has(id)) blocosAbertos.delete(id); else blocosAbertos.add(id);
+        render();
+      });
+    });
+    listaClientes.querySelectorAll('[data-congelar]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alternarCongelamento(btn.dataset.congelar, btn.dataset.ativo === 'true');
+      });
+    });
+    listaClientes.querySelectorAll('[data-bloquear]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alternarBloqueioImediato(btn.dataset.bloquear, btn.dataset.bloqueado === 'true');
+      });
+    });
+    listaClientes.querySelectorAll('[data-bloquear-cliente]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clienteId = btn.dataset.bloquearCliente;
+        const maquinas = instalacoes.filter((i) => i.clienteId === clienteId);
+        bloquearClienteInteiro(clienteId, maquinas);
+      });
+    });
+    listaClientes.querySelectorAll('[data-reativar-cliente]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const clienteId = btn.dataset.reativarCliente;
+        const maquinas = instalacoes.filter((i) => i.clienteId === clienteId);
+        reativarClienteInteiro(clienteId, maquinas);
+      });
+    });
+    listaClientes.querySelectorAll('[data-vincular]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); abrirVincular(btn.dataset.vincular); });
+    });
+    listaClientes.querySelectorAll('[data-desvincular]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); desvincular(btn.dataset.desvincular); });
+    });
+    listaClientes.querySelectorAll('[data-nome-negocio]').forEach((input) => {
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('blur', () => salvarNomeNegocio(input.dataset.nomeNegocio, input.value.trim()));
     });
   }
 

@@ -8,7 +8,7 @@ export function CustomerList() {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
   const [editing, setEditing] = useState(null); // { id, nome, telefone, cpf } | 'new' | null
-  const [form, setForm] = useState({ nome: '', telefone: '', cpf: '' });
+  const [form, setForm] = useState({ nome: '', telefone: '', cpf: '', cnpj: '' });
   const [selected, setSelected] = useState(null); // cliente com histórico aberto
   const [history, setHistory] = useState([]);
   const [pagamentoValor, setPagamentoValor] = useState('');
@@ -37,12 +37,12 @@ export function CustomerList() {
     : customers;
 
   function startNew() {
-    setForm({ nome: '', telefone: '', cpf: '' });
+    setForm({ nome: '', telefone: '', cpf: '', cnpj: '' });
     setEditing('new');
   }
 
   function startEdit(c) {
-    setForm({ id: c.id, nome: c.nome, telefone: c.telefone || '', cpf: c.cpf || '' });
+    setForm({ id: c.id, nome: c.nome, telefone: c.telefone || '', cpf: c.cpf || '', cnpj: c.cnpj || '' });
     setEditing(c.id);
   }
 
@@ -100,6 +100,7 @@ export function CustomerList() {
             <label>Nome<input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required /></label>
             <label>Telefone<input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></label>
             <label>CPF<input value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} /></label>
+            <label>CNPJ (cliente pessoa jurídica)<input value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></label>
           </div>
           {saveError && <p className="modal-error">{saveError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>

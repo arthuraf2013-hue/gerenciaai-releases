@@ -277,6 +277,19 @@ function registerIpcHandlers() {
     return reportService.exportWasteReport(filePath, { locationId, dataInicio, dataFim });
   });
 
+  safeHandle('report:getCustomerPurchase', (_e, { customerId, dataInicio, dataFim }) =>
+    reportService.getCustomerPurchaseReport({ customerId, dataInicio, dataFim }));
+  safeHandle('report:exportCustomerPurchase', async (_e, { customerId, dataInicio, dataFim, nomeCliente }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Exportar compras do cliente',
+      defaultPath: `compras-${(nomeCliente || 'cliente').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${dataInicio}-a-${dataFim}.xlsx`,
+      filters: [{ name: 'Planilha Excel', extensions: ['xlsx'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    return reportService.exportCustomerPurchaseReport(filePath, { customerId, dataInicio, dataFim });
+  });
+
   // --- Sincronização entre PDVs (Fase 1: numeração por CNPJ, opcional) ---
   safeHandle('pdvRegistry:getConfig', () => pdvRegistryService.getFirebaseConfigPublic());
   safeHandle('pdvRegistry:updateConfig', (_e, payload) => pdvRegistryService.updateFirebaseConfig(payload));

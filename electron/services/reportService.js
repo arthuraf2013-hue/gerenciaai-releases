@@ -116,4 +116,93 @@ function exportWasteReport(filePath, { locationId, dataInicio, dataFim }) {
   return { ok: true, total: rows.length };
 }
 
-module.exports = { exportSalesReport, exportAuditReport, exportPurchaseSuggestions, exportWasteReport };
+/**
+ * Relatório de compras de um cliente específico num período — total
+ * de pedidos, valor total, e os produtos comprados subclassificados
+ * por categoria (quanto de cada categoria, e dentro dela, quanto de
+ * cada produto).
+ */
+function getCustomerPurchaseReport({ customerId, dataInicio, dataFim }) {
+  const db = getDb();
+
+  const cliente = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!cliente) return { ok: false, error: 'Cliente não encontrado.' };
+
+  const vendas = db.prepare(
+    `SELECT * FROM sales WHERE customer_id = ? AND status = 'finalizada'
+     AND date(finalizada_em) BETWEEN date(?) AND date(?)`
+  ).all(customerId, dataInicio, dataFim);
+
+  const totalPedidos = vendas.length;
+  const totalGasto = vendas.reduce((acc, v) => acc + v.total, 0);
+
+  let linhas = [];
+  if (vendas.length > 0) {
+    const placeholders = vendas.map(() => '?').join(',');
+    linhas = db.prepare(
+      `SELECT COALESCE(p.categoria, 'Sem categoria') as categoria, p.nome,
+              SUM(si.quantidade) as quantidade, SUM(si.quantidade * si.preco_unitario) as valor
+       FROM sale_items si
+       JOIN products p ON p.id = si.product_id
+       WHERE si.sale_id IN (${placeholders}) AND si.cancelado = 0
+       GROUP BY p.categoria, p.nome
+       ORDER BY p.categoria, valor DESC`
+    ).all(...vendas.map((v) => v.id));
+  }
+
+  // Agrupa as linhas (por produto) dentro de cada categoria — a
+  // subclassificação pedida.
+  const categoriasMap = new Map();
+  for (const linha of linhas) {
+    if (!categoriasMap.has(linha.categoria)) {
+      categoriasMap.set(linha.categoria, { categoria: linha.categoria, quantidadeTotal: 0, valorTotal: 0, produtos: [] });
+    }
+    const grupo = categoriasMap.get(linha.categoria);
+    grupo.quantidadeTotal += linha.quantidade;
+    grupo.valorTotal += linha.valor;
+    grupo.produtos.push({ nome: linha.nome, quantidade: linha.quantidade, valor: linha.valor });
+  }
+
+  return {
+    ok: true,
+    cliente: { nome: cliente.nome, cpf: cliente.cpf, cnpj: cliente.cnpj },
+    periodo: { dataInicio, dataFim },
+    totalPedidos,
+    totalGasto,
+    categorias: Array.from(categoriasMap.values()).sort((a, b) => b.valorTotal - a.valorTotal),
+  };
+}
+
+function exportCustomerPurchaseReport(filePath, { customerId, dataInicio, dataFim }) {
+  const relatorio = getCustomerPurchaseReport({ customerId, dataInicio, dataFim });
+  if (!relatorio.ok) return relatorio;
+
+  const linhas = [];
+  for (const cat of relatorio.categorias) {
+    for (const p of cat.produtos) {
+      linhas.push({
+        cliente: relatorio.cliente.nome,
+        cpf_cnpj: relatorio.cliente.cnpj || relatorio.cliente.cpf || '',
+        categoria: cat.categoria,
+        produto: p.nome,
+        quantidade: p.quantidade,
+        valor: p.valor,
+      });
+    }
+  }
+  linhas.push({
+    cliente: relatorio.cliente.nome, cpf_cnpj: '', categoria: 'TOTAL', produto: '',
+    quantidade: '', valor: relatorio.totalGasto,
+  });
+
+  const sheet = XLSX.utils.json_to_sheet(linhas, {
+    header: ['cliente', 'cpf_cnpj', 'categoria', 'produto', 'quantidade', 'valor'],
+  });
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Compras por cliente');
+  XLSX.writeFile(workbook, filePath);
+
+  return { ok: true, totalPedidos: relatorio.totalPedidos, totalGasto: relatorio.totalGasto };
+}
+
+module.exports = { exportSalesReport, exportAuditReport, exportPurchaseSuggestions, exportWasteReport, getCustomerPurchaseReport, exportCustomerPurchaseReport };

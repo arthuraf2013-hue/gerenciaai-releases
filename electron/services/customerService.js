@@ -5,8 +5,8 @@ function list({ query } = {}) {
   const db = getDb();
   if (query) {
     return db.prepare(
-      `SELECT * FROM customers WHERE ativo = 1 AND (nome LIKE ? OR telefone LIKE ? OR cpf LIKE ?) ORDER BY nome`
-    ).all(`%${query}%`, `%${query}%`, `%${query}%`);
+      `SELECT * FROM customers WHERE ativo = 1 AND (nome LIKE ? OR telefone LIKE ? OR cpf LIKE ? OR cnpj LIKE ?) ORDER BY nome`
+    ).all(`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`);
   }
   return db.prepare('SELECT * FROM customers WHERE ativo = 1 ORDER BY nome').all();
 }
@@ -16,9 +16,9 @@ function upsert(customer) {
   const db = getDb();
   const id = customer.id || randomUUID();
   db.prepare(
-    `INSERT INTO customers (id, nome, telefone, cpf) VALUES (@id, @nome, @telefone, @cpf)
-     ON CONFLICT(id) DO UPDATE SET nome=excluded.nome, telefone=excluded.telefone, cpf=excluded.cpf`
-  ).run({ id, nome: customer.nome.trim(), telefone: customer.telefone || null, cpf: customer.cpf || null });
+    `INSERT INTO customers (id, nome, telefone, cpf, cnpj) VALUES (@id, @nome, @telefone, @cpf, @cnpj)
+     ON CONFLICT(id) DO UPDATE SET nome=excluded.nome, telefone=excluded.telefone, cpf=excluded.cpf, cnpj=excluded.cnpj`
+  ).run({ id, nome: customer.nome.trim(), telefone: customer.telefone || null, cpf: customer.cpf || null, cnpj: customer.cnpj || null });
   return { ok: true, id };
 }
 

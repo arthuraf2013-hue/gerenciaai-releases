@@ -169,6 +169,8 @@ contextBridge.exposeInMainWorld('pdv', {
     exportAudit: invoke('report:exportAudit'),
     exportPurchaseSuggestions: invoke('report:exportPurchaseSuggestions'),
     exportWaste: invoke('report:exportWaste'),
+    getCustomerPurchase: invoke('report:getCustomerPurchase'),
+    exportCustomerPurchase: invoke('report:exportCustomerPurchase'),
   },
   pdvRegistry: {
     getConfig: invoke('pdvRegistry:getConfig'),

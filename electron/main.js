@@ -87,6 +87,7 @@ app.whenReady().then(() => {
   // segundo plano); o bloqueio de verdade, se acontecer, é decidido
   // pelo próprio React a partir do estado local já salvo.
   licenseService.checkLicense().catch((err) => console.error('[license]', err));
+  licenseService.iniciarEscutaTempoReal();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
 
   app.on('activate', () => {
