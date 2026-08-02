@@ -698,6 +698,54 @@ continua fechada de verdade. Testei os 3 cenários (mesma mensagem
 continua fechada, texto novo reaparece, mensagem personalizada nova
 reaparece) antes de fechar.
 
+## Auditoria de bugs e otimizações
+
+### Bug real encontrado e corrigido — texto digitado sumia no painel
+
+O ping de presença que acabei de implementar (a cada 2 minutos por
+máquina) tinha um efeito colateral que eu não tinha percebido na hora:
+o painel redesenhava a lista inteira via `innerHTML` toda vez que
+QUALQUER instalação atualizava no Firestore — e agora isso acontece a
+cada 2 minutos por máquina, não mais a cada 6h. Se você estivesse no
+meio de digitar alguma coisa (nome do negócio, mensagem de um
+cliente) bem na hora que um ping de outra máquina chegasse, o que
+você tinha digitado sumia.
+
+**Corrigido**: agora o painel diferencia — se só o sinal de presença
+mudou (nada estrutural), atualiza só os pontinhos e os resumos "X
+online agora" no lugar, sem redesenhar o resto. Se algo de verdade
+mudou (bloqueio, vínculo de cliente, mensagem, progresso de
+atualização), aí sim redesenha normalmente. Testei os dois cenários
+no navegador de verdade: confirmei que texto sendo digitado sobrevive
+a um ping chegando, e que uma mudança real (bloquear uma máquina)
+ainda atualiza a tela do jeito certo.
+
+### Otimização que investiguei e NÃO apliquei (testei, não ajudava)
+
+Suspeitei que `listSalesByRange` pudesse estar lenta em históricos
+grandes, por causa de duas subconsultas correlacionadas rodando por
+linha. Testei com 30 mil vendas simuladas comparando a versão atual
+contra uma reescrita com JOIN pré-agregado — **a reescrita não ficou
+mais rápida** (ficou até um pouco pior, dentro da margem de erro).
+Os índices que já existem cobrem bem o padrão de acesso atual, então
+não apliquei nenhuma mudança aqui — prefiro não mexer em algo que já
+funciona bem só por suspeita, sem confirmar com teste de verdade.
+Números de referência, pra registro: 30 dias de histórico (situação
+comum) processam em ~35ms; um ano inteiro (30 mil vendas, caso raro)
+em ~770ms — ainda aceitável pra uma consulta ocasional.
+
+### Conferido e sem problema
+
+- `oculta_historico` só afeta a lista do Histórico, nunca vaza pros
+  relatórios de lucro ou métricas agregadas (conferido no código —
+  é intencional, os relatórios devem refletir o negócio real).
+- Busca de produto por nome (reescrita há algumas entregas pra
+  ignorar acento) continua rápida mesmo com 3.000 produtos no
+  catálogo — ~33ms.
+- Parsing de data no relatório de horário de pico, com o formato
+  exato que o `NOW_SYNCED()` grava (com espaço, sem "Z") — testado e
+  confirmado que funciona certo.
+
 ## Sinal de online/offline por máquina
 
 Pedido de conseguir ver, em cada máquina cadastrada no painel, se ela

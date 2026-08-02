@@ -300,19 +300,49 @@
       // que simplesmente parou de mandar ping só apareceria "offline"
       // quando algum OUTRO dado mudasse no Firestore e disparasse um
       // novo render (o que podia demorar muito, ou nunca acontecer).
-      setInterval(render, 30 * 1000);
+      setInterval(atualizarSinaisOnline, 30 * 1000);
     } else {
       loginScreen.style.display = 'block';
       appScreen.style.display = 'none';
     }
   });
 
+  // Campos que, se mudarem, exigem redesenhar a lista inteira (afetam
+  // estrutura/texto visível além do pontinho online). Os de presença
+  // (ultimoPing, ultimoContato) ficam de fora de propósito — mudam a
+  // cada 2min por máquina, e não merecem reconstruir todo o HTML.
+  const CAMPOS_QUE_EXIGEM_RENDER_COMPLETO = [
+    'ativo', 'bloqueioImediato', 'clienteId', 'nomeNegocio', 'mensagemPersonalizada', 'motivoBloqueio',
+    'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo', 'versaoApp',
+  ];
+  function precisaRenderCompleto(antigas, novas) {
+    if (antigas.length !== novas.length) return true;
+    const porId = new Map(antigas.map((i) => [i.id, i]));
+    for (const nova of novas) {
+      const antiga = porId.get(nova.id);
+      if (!antiga) return true; // instalação nova na lista
+      for (const campo of CAMPOS_QUE_EXIGEM_RENDER_COMPLETO) {
+        if (JSON.stringify(antiga[campo]) !== JSON.stringify(nova[campo])) return true;
+      }
+    }
+    return false;
+  }
+
   function escutarDados() {
     onSnapshot(
       query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
       (snap) => {
-        instalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        render();
+        const novasInstalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const precisaCompleto = precisaRenderCompleto(instalacoes, novasInstalacoes);
+        instalacoes = novasInstalacoes;
+        if (precisaCompleto) {
+          render();
+        } else {
+          // Só presença mudou — atualiza os pontos/resumos sem tocar
+          // no resto do DOM, preservando o que alguém esteja digitando.
+          renderMetricas();
+          atualizarSinaisOnline();
+        }
       },
       (err) => mostrarErro(err, 'carregar as instalações')
     );
@@ -371,6 +401,33 @@
     if (minPing !== null) return minPing <= LIMITE_ONLINE_MIN;
     const minContato = minutosAtras(inst.ultimoContato);
     return minContato !== null && minContato <= LIMITE_ONLINE_MIN;
+  }
+
+  /**
+   * Atualiza só os pontos de online/offline e os resumos "X online
+   * agora" — sem redesenhar a lista inteira. Diferente de render(),
+   * que reconstrói todo o HTML via innerHTML e apagaria o que
+   * alguém estivesse digitando num campo (nome do negócio, mensagem
+   * do cliente) bem na hora que o timer disparasse.
+   */
+  function atualizarSinaisOnline() {
+    for (const inst of instalacoes) {
+      const dot = listaClientes.querySelector(`[data-online-dot="${inst.id}"]`);
+      if (!dot) continue;
+      const online = estaOnline(inst);
+      dot.className = `online-dot ${online ? 'online-dot-on' : 'online-dot-off'}`;
+      dot.title = online ? 'Online agora' : 'Offline';
+    }
+    const clientesComMaquinas = new Map();
+    for (const inst of instalacoes) {
+      if (!inst.clienteId) continue;
+      if (!clientesComMaquinas.has(inst.clienteId)) clientesComMaquinas.set(inst.clienteId, []);
+      clientesComMaquinas.get(inst.clienteId).push(inst);
+    }
+    for (const [clienteId, maquinas] of clientesComMaquinas) {
+      const resumoEl = listaClientes.querySelector(`[data-resumo-cliente="${clienteId}"]`);
+      if (resumoEl) resumoEl.textContent = calcularResumoStatus(maquinas);
+    }
   }
 
   function formatarData(timestamp) {
@@ -754,8 +811,7 @@
     ligarEventosDosBlocos();
   }
 
-  function renderBlocoCliente(cliente, maquinas) {
-    const aberto = blocosAbertos.has(cliente.id);
+  function calcularResumoStatus(maquinas) {
     const algumaBloqueada = maquinas.some((m) => m.bloqueioImediato);
     const algumaCongelada = maquinas.some((m) => !m.ativo && !m.bloqueioImediato);
     const todasAtivas = maquinas.length > 0 && maquinas.every((m) => m.ativo && !m.bloqueioImediato);
@@ -764,6 +820,12 @@
     if (algumaBloqueada) resumoStatus += ' — tem máquina bloqueada';
     else if (algumaCongelada) resumoStatus += ' — tem máquina congelada';
     else if (todasAtivas) resumoStatus += ' — todas ativas';
+    return resumoStatus;
+  }
+
+  function renderBlocoCliente(cliente, maquinas) {
+    const aberto = blocosAbertos.has(cliente.id);
+    const resumoStatus = calcularResumoStatus(maquinas);
 
     return `
       <div class="card cliente-card" data-cliente-card="${cliente.id}">
@@ -772,7 +834,7 @@
           <div class="cliente-info">
             <span class="cliente-nome">${escapeHtml(cliente.nome)}</span>
             ${cliente.documento ? `<span class="cliente-doc">${escapeHtml(cliente.documento)}</span>` : ''}
-            <div class="cliente-resumo">${resumoStatus}</div>
+            <div class="cliente-resumo" data-resumo-cliente="${cliente.id}">${resumoStatus}</div>
           </div>
           <div class="cliente-acoes">
             ${maquinas.length > 0 ? `
@@ -818,7 +880,7 @@
     const online = estaOnline(inst);
     return `
       <div class="maquina-row">
-        <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}"></span>
+        <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}" data-online-dot="${inst.id}"></span>
         <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
           placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
         <span class="status-pill ${status.classe}">${status.texto}</span>
