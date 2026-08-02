@@ -46,6 +46,13 @@ function updateFirebaseConfig(payload) {
 function getOrCreateDeviceUid() {
   const db = getDb();
   const location = db.prepare('SELECT * FROM locations LIMIT 1').get();
+  if (!location) {
+    // Não deveria acontecer numa instalação normal — seedIfEmpty()
+    // sempre garante pelo menos um local na inicialização — mas se por
+    // algum motivo acontecer, isso quebraria checkLicense() inteiro
+    // sem aviso nenhum. Melhor um erro claro do que um crash silencioso.
+    throw new Error('Nenhum local (location) cadastrado — o banco pode não ter sido inicializado corretamente.');
+  }
   if (location.device_uid) return location.device_uid;
 
   const uid = randomUUID();

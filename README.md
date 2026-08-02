@@ -698,6 +698,68 @@ continua fechada de verdade. Testei os 3 cenários (mesma mensagem
 continua fechada, texto novo reaparece, mensagem personalizada nova
 reaparece) antes de fechar.
 
+### Verificação de ponta a ponta — não só relendo o código
+
+Você pediu pra verificar se as métricas vão funcionar de verdade
+agora, então fui além de só reler o código:
+
+- Inicializei um banco do jeito **real** que o app usa (schema +
+  migrações + os mesmos seeds automáticos), não um banco de teste
+  simplificado.
+- Simulei o Firestore de verdade e rodei o `checkLicense()` **inteiro**
+  (não só o pedaço de métricas isolado) nos dois cenários possíveis:
+  instalação nova, e instalação que já existia antes (o caso real do
+  Arthur) — com vendas de verdade cadastradas no banco.
+- Resultado: **zero erros nos dois cenários**, a versão nova é escrita
+  corretamente, e as métricas batem exatamente com o que estava no
+  banco (testei com 7 vendas cadastradas — chegou 7 no Firestore, sem
+  arredondamento nem erro de contagem).
+
+**Achei e corrigi um ponto frágil a mais nesse processo** (não a causa
+raiz, mas uma proteção a mais): `getOrCreateDeviceUid()` quebraria sem
+nenhum aviso se a tabela de locais estivesse vazia — não deveria
+acontecer numa instalação normal (o local principal é sempre criado
+sozinho na inicialização), mas agora dá um erro claro em vez de
+quebrar silenciosamente, caso aconteça por algum motivo que eu não
+previ.
+
+**O que isso significa pra você**: o código, testado do jeito mais
+realista que consigo simular aqui, está correto. Se depois de
+instalar essa versão a métrica ainda não aparecer, não é mais uma
+questão de "pode ter um bug escondido no meu código" — ou é a versão
+antiga ainda rodando (única/segunda instância, versão não
+incrementada), ou é algo específico da sua máquina que só vai
+aparecer no painel → Erros agora que ele não fica mais em silêncio.
+
+## Versão ainda travada — achei um problema mais sério por trás
+
+Reparei em um detalhe importante no seu print: o "último contato"
+está **congelado exatamente em 01/08, 18:53**, mesmo depois de mais de
+15 horas passarem. Isso não bate com "só precisa reabrir o app" — se
+o app tivesse rodado de novo em qualquer momento nesse intervalo, esse
+horário teria mudado. Isso me fez suspeitar de algo mais grave.
+
+**Achei**: o `catch` do `checkLicense()` engolia **qualquer erro**
+completamente em silêncio — nem log no console, nem nada. Se alguma
+coisa ali dentro (talvez até o próprio código de métricas que
+adicionei há pouco) estivesse lançando um erro de verdade, isso
+travaria a atualização de `ultimoContato`/versão **pra sempre**, sem
+nenhum rastro pra eu ou você descobrir o motivo — casando exatamente
+com o comportamento do seu print.
+
+**Corrigido**: agora, se o erro não parecer coisa de rede/sem-internet
+(que continua silencioso, como sempre foi — não quero te encher de
+ruído por causa de instabilidade normal de conexão), ele é reportado
+pro painel → Erros. Testei a lógica que separa "erro de rede" de
+"bug de verdade" com vários casos.
+
+**Isso não é uma garantia de que resolvi o problema raiz** — é uma
+correção que torna o problema **visível**, caso ele ainda esteja
+acontecendo. Depois de instalar essa versão: se a versão continuar
+travada, agora deve aparecer alguma coisa em Erros no painel — me
+manda o que aparecer lá que eu consigo investigar a causa real, em
+vez de continuar chutando.
+
 ## Contraste ruim em campo com autofill — corrigido em todo o app
 
 Achei a causa: não era um problema de cor definida errada no app — o

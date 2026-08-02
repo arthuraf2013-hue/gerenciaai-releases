@@ -123,9 +123,20 @@ async function checkLicense() {
       aplicarDadosDoServidor({ ativo: true, bloqueioImediato: false });
     }
   } catch (err) {
-    // Sem internet, servidor fora, ou config ainda não preenchida —
-    // silenciosamente não atualiza nada. computeAccessStatus() decide
-    // o que fazer com base no último contato bem-sucedido.
+    // Sem internet ou servidor fora é normal e não deveria virar
+    // ruído — mas qualquer OUTRO erro (ex: um bug de verdade em algo
+    // chamado aqui dentro) ficava completamente invisível antes disso,
+    // sem log nenhum, sem rastro nenhum. Se checkLicense() parar de
+    // funcionar de vez (por qualquer motivo que não seja rede), agora
+    // pelo menos aparece no painel → Erros, em vez de falhar pra
+    // sempre em silêncio sem ninguém saber por quê.
+    const pareceErroDeRede = /network|fetch|ECONNREFUSED|ENOTFOUND|timeout|offline/i.test(err?.message || '');
+    if (!pareceErroDeRede) {
+      console.error('[checkLicense] falhou (não parece ser erro de rede):', err);
+      require('./errorReportService').reportarErro({
+        mensagem: err?.message, stack: err?.stack, contexto: 'checkLicense',
+      });
+    }
   }
 
   try {
