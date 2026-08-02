@@ -251,7 +251,16 @@ CREATE TABLE IF NOT EXISTS sales (
   -- Taxa de serviço opcional (restaurante) — percentual (ex: 10 = 10%)
   -- aplicado sobre o total na hora do pagamento. Sempre opcional, começa
   -- em 0; quem decide ativar é quem está atendendo a mesa.
-  taxa_servico_percentual REAL NOT NULL DEFAULT 0
+  taxa_servico_percentual REAL NOT NULL DEFAULT 0,
+  -- Excluir do histórico é diferente de cancelar: some da LISTA (só
+  -- gerente/admin vê a opção), mas não apaga nada por baixo — estoque,
+  -- pagamento, e qualquer NFC-e já emitida continuam intactos. Nunca é
+  -- um DELETE de verdade, pra nunca arriscar quebrar referência de
+  -- outra tabela nem um documento fiscal já gerado.
+  oculta_historico            INTEGER NOT NULL DEFAULT 0,
+  oculta_historico_por_id     TEXT REFERENCES users(id),
+  oculta_historico_em         TEXT,
+  oculta_historico_motivo     TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_location_status_criado ON sales(location_id, status, criado_em);
@@ -454,6 +463,19 @@ CREATE TABLE IF NOT EXISTS home_message_state (
   global_ativa                INTEGER NOT NULL DEFAULT 0,
   mensagem_personalizada      TEXT,
   motivo_bloqueio             TEXT
+);
+
+-- Rascunho da leitura de nota em andamento no Abastecimento — sem
+-- isso, trocar de aba no meio da conferência perdia tudo que a IA já
+-- tinha extraído (só existia como estado do componente React, que
+-- reseta ao desmontar a tela). Singleton — só uma leitura em
+-- andamento por vez faz sentido nesse fluxo.
+CREATE TABLE IF NOT EXISTS supply_draft (
+  id             TEXT PRIMARY KEY DEFAULT 'default',
+  arquivo_nome   TEXT,
+  fornecedor_id  TEXT,
+  linhas_json    TEXT, -- array JSON das linhas em conferência
+  atualizado_em  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS firebase_config (

@@ -698,6 +698,74 @@ continua fechada de verdade. Testei os 3 cenários (mesma mensagem
 continua fechada, texto novo reaparece, mensagem personalizada nova
 reaparece) antes de fechar.
 
+## Sinal de online/offline por máquina
+
+Pedido de conseguir ver, em cada máquina cadastrada no painel, se ela
+está online ou não. Implementei um "ping de presença" novo — separado
+do sinal de vida de 6h que já existia (esse é grosso demais pra dar um
+sinal de "está online agora?" confiável: uma máquina rodando fazia
+horas podia aparecer como "sem contato" só por não ter batido o
+checkpoint de 6h ainda).
+
+- **App**: manda um ping bem leve pro Firestore a cada 2 minutos (só
+  isso, não reavalia licença nem nada — bem mais barato que a checagem
+  completa).
+- **Painel**: pontinho colorido antes do nome de cada máquina — verde
+  pulsando = online (ping nos últimos 3 minutos), cinza = offline. O
+  resumo do bloco de cada cliente também mostra "X online agora".
+  Reavalia sozinho a cada 30s, mesmo sem nenhum dado novo chegar do
+  Firestore (senão uma máquina que só parou de mandar ping ficaria
+  "online" pra sempre até algum outro evento disparar um recálculo).
+- **Instalação que ainda não atualizou** (versão de antes dessa
+  mudança) não trava nem quebra — o painel usa o `ultimoContato` de
+  sempre como reserva, então ainda mostra alguma coisa razoável até o
+  cliente atualizar.
+
+**Limitação honesta**: o Firestore não tem um mecanismo de presença
+nativo tipo "avisa quando desconectar" (isso existe no Realtime
+Database, não no Firestore que esse projeto usa). Então se o app
+fechar de forma abrupta (queda de luz, processo morto à força), o
+painel só percebe alguns minutos depois, quando o ping para de chegar
+— não é instantâneo. Pra a maioria dos casos de uso (saber se a loja
+está com o sistema rodando agora) isso é suficiente, mas não é 100%
+em tempo real no sentido mais estrito.
+
+Testei os 3 cenários no navegador de verdade: máquina que pingou
+recente (online), máquina que parou de pingar há tempo (offline), e
+uma instalação simulando versão antiga sem `ultimoPing` nenhum
+(confirmei que cai certinho no fallback).
+
+**Precisa republicar as regras do Firestore de novo** (Passo 3 do
+`LICENCIAMENTO.md`) — sem isso, o campo `ultimoPing` não consegue ser
+escrito, e todo mundo aparece offline pra sempre.
+
+## Feedback do print do Histórico — 3 pedidos
+
+1. **"Só mostrar o que realmente foi vendido"** — corrigido no
+   Histórico: a lista expandida de itens de uma venda agora filtra
+   itens cancelados completamente (antes aparecia riscado, misturado
+   com o que foi vendido de verdade).
+
+2. **Excluir vendas do histórico, dependendo do perfil** (esse era um
+   pedido de antes, que ficou pendente) — implementado: só
+   gerente/admin veem a opção "Excluir do histórico" em cada venda.
+   Isso **esconde da lista**, mas nunca apaga nada de verdade — estoque,
+   pagamento, e qualquer NFC-e já emitida continuam intactos por baixo.
+   Um toggle "Mostrar excluídas" deixa reverter se precisar. Testei
+   isso a fundo: some da lista normal, aparece com incluirOcultas=true,
+   fica registrado na auditoria, e reexibir traz de volta.
+
+3. **Rascunho da leitura de nota persistente** — no Abastecimento,
+   trocar de aba no meio da conferência de uma nota lida pela IA não
+   perde mais nada. Salva automaticamente a cada mudança, carrega
+   sozinho quando você volta pra tela, com um aviso "Retomando a
+   conferência de onde você parou". Testado com um cenário completo
+   (salvar, editar, recarregar).
+
+4. **Filtros no relatório de produtos do Painel** — botões de ordenar
+   por Lucro (padrão), Mais vendido, Receita, Vendido recentemente, e
+   Alfabética. Testei as 4 ordenações.
+
 ## Suas 6 anotações implementadas
 
 1. **Relatório de produtos com lucro + horário de pico** — aba nova

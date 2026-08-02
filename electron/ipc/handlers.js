@@ -107,6 +107,8 @@ function registerIpcHandlers() {
   safeHandle('sale:cancelItem', (_e, payload) => saleService.cancelSaleItem(payload));
   safeHandle('sale:needsManagerAuthForCancel', (_e, { saleId }) => saleService.needsManagerAuthForCancel(saleId));
   safeHandle('sale:getItemsDetail', (_e, { saleId }) => saleService.getSaleItemsDetail(saleId));
+  safeHandle('sale:excluirDoHistorico', (_e, payload) => saleService.excluirDoHistorico(payload));
+  safeHandle('sale:reexibirNoHistorico', (_e, payload) => saleService.reexibirNoHistorico(payload));
 
   // --- Controle de mesas (restaurante) ---
   safeHandle('table:list', (_e, { locationId }) => tableService.listTables(locationId));
@@ -439,6 +441,9 @@ function registerIpcHandlers() {
     return { ...result, arquivo: filePaths[0].split(/[\\/]/).pop() };
   });
   safeHandle('supply:confirmEntries', (_e, payload) => supplyService.confirmEntries(payload));
+  safeHandle('supply:getDraft', () => supplyService.getDraft());
+  safeHandle('supply:saveDraft', (_e, payload) => supplyService.saveDraft(payload));
+  safeHandle('supply:clearDraft', () => supplyService.clearDraft());
   safeHandle('supply:listUpcomingExpiry', (_e, payload) => batchService.listUpcomingExpiry(payload));
   safeHandle('batch:listForProduct', (_e, { productId }) => batchService.listBatchesForProduct(productId));
 

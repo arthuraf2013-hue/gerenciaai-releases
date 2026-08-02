@@ -113,6 +113,7 @@ app.whenReady().then(() => {
   // pelo próprio React a partir do estado local já salvo.
   licenseService.checkLicense().catch((err) => console.error('[license]', err));
   licenseService.iniciarEscutaTempoReal();
+  licenseService.iniciarPingDePresenca();
   require('./services/messageService').iniciarEscutaMensagemGlobal();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
 

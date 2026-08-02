@@ -19,6 +19,7 @@ const LICENSE_FIREBASE_CONFIG = {
 const GRACE_CONGELADA_DIAS = 2;
 const GRACE_SEM_INTERNET_DIAS = 3;
 const INTERVALO_CHECAGEM_MS = 6 * 60 * 60 * 1000; // confere a cada 6h (reconciliação de reserva — a escuta em tempo real é o caminho principal enquanto online)
+const INTERVALO_PING_MS = 2 * 60 * 1000; // ping de presença a cada 2min — só pra "está online agora?" no painel, escrita bem mais leve que checkLicense()
 
 let licenseApp = null;
 function getLicenseFirestore() {
@@ -177,6 +178,39 @@ function iniciarEscutaTempoReal() {
 }
 
 /**
+ * Ping de presença — escreve `ultimoPing` no próprio documento a cada
+ * 2 minutos, só isso, sem rodar o resto da lógica de checkLicense()
+ * (não precisa reavaliar licença toda hora, só dar sinal de vida
+ * leve). É o que o painel usa pra mostrar "online agora" de verdade —
+ * o heartbeat de 6h sozinho é grosso demais pra isso (uma instalação
+ * podia estar rodando faz horas e ainda aparecer "sem contato" se
+ * dependesse só dele).
+ *
+ * Limitação honesta: como o Firestore não tem um mecanismo de
+ * presença nativo tipo onDisconnect() (isso existe no Realtime
+ * Database, não no Firestore), se o app fechar de forma abrupta
+ * (queda de luz, processo morto à força), o painel só vai mostrar
+ * "offline" depois de alguns minutos sem ping novo — não instantâneo.
+ */
+async function enviarPing() {
+  try {
+    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+    const firestore = getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+    const ref = doc(firestore, 'installations', installId);
+    await setDoc(ref, { ultimoPing: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    // Sem internet, ou o app acabou de abrir e ainda nem criou o
+    // documento — não tem problema, o próximo ping tenta de novo.
+  }
+}
+
+function iniciarPingDePresenca() {
+  enviarPing();
+  setInterval(enviarPing, INTERVALO_PING_MS);
+}
+
+/**
  * Decide se o app deve funcionar normal, mostrar aviso, ou bloquear —
  * baseado só no estado LOCAL, sem chamada de rede. Pode ser chamado a
  * qualquer momento, inclusive totalmente offline.
@@ -212,6 +246,6 @@ function computeAccessStatus() {
 }
 
 module.exports = {
-  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, getLicenseFirestore,
-  GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS,
+  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, getLicenseFirestore,
+  GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS, INTERVALO_PING_MS,
 };

@@ -53,6 +53,14 @@
     display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--surface2);
     border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap;
   }
+  .online-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .online-dot-on { background: var(--primary); box-shadow: 0 0 0 rgba(55,171,153,0.5); animation: pulso-online 2s infinite; }
+  .online-dot-off { background: var(--text-muted); opacity: 0.5; }
+  @keyframes pulso-online {
+    0% { box-shadow: 0 0 0 0 rgba(55,171,153,0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(55,171,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(55,171,153,0); }
+  }
   .maquina-nome-input {
     background: transparent; border: none; color: var(--text); font-size: 13px; font-weight: 600;
     padding: 4px 6px; border-radius: 4px; width: 220px;
@@ -288,6 +296,11 @@
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       escutarDados();
+      // Reavalia online/offline periodicamente — sem isso, uma máquina
+      // que simplesmente parou de mandar ping só apareceria "offline"
+      // quando algum OUTRO dado mudasse no Firestore e disparasse um
+      // novo render (o que podia demorar muito, ou nunca acontecer).
+      setInterval(render, 30 * 1000);
     } else {
       loginScreen.style.display = 'block';
       appScreen.style.display = 'none';
@@ -340,6 +353,24 @@
   function diasAtras(timestamp) {
     if (!timestamp) return null;
     return (Date.now() - timestamp.toDate().getTime()) / 86400000;
+  }
+
+  function minutosAtras(timestamp) {
+    if (!timestamp) return null;
+    return (Date.now() - timestamp.toDate().getTime()) / 60000;
+  }
+
+  // Considera "online" se o ping de presença chegou nos últimos 3min
+  // (o app manda a cada 2min — 3min dá folga pra latência sem
+  // demorar demais pra virar "offline" quando realmente cai).
+  // Fallback pro ultimoContato de sempre, pra instalações antigas que
+  // ainda não atualizaram pra versão que manda ultimoPing.
+  const LIMITE_ONLINE_MIN = 3;
+  function estaOnline(inst) {
+    const minPing = minutosAtras(inst.ultimoPing);
+    if (minPing !== null) return minPing <= LIMITE_ONLINE_MIN;
+    const minContato = minutosAtras(inst.ultimoContato);
+    return minContato !== null && minContato <= LIMITE_ONLINE_MIN;
   }
 
   function formatarData(timestamp) {
@@ -728,7 +759,8 @@
     const algumaBloqueada = maquinas.some((m) => m.bloqueioImediato);
     const algumaCongelada = maquinas.some((m) => !m.ativo && !m.bloqueioImediato);
     const todasAtivas = maquinas.length > 0 && maquinas.every((m) => m.ativo && !m.bloqueioImediato);
-    let resumoStatus = maquinas.length === 0 ? 'Nenhuma máquina vinculada ainda' : `${maquinas.length} máquina(s)`;
+    const qtdOnline = maquinas.filter((m) => estaOnline(m)).length;
+    let resumoStatus = maquinas.length === 0 ? 'Nenhuma máquina vinculada ainda' : `${maquinas.length} máquina(s) — ${qtdOnline} online agora`;
     if (algumaBloqueada) resumoStatus += ' — tem máquina bloqueada';
     else if (algumaCongelada) resumoStatus += ' — tem máquina congelada';
     else if (todasAtivas) resumoStatus += ' — todas ativas';
@@ -783,8 +815,10 @@
 
   function renderMaquinaRow(inst, temCliente) {
     const status = statusDaInstalacao(inst);
+    const online = estaOnline(inst);
     return `
       <div class="maquina-row">
+        <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}"></span>
         <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
           placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
         <span class="status-pill ${status.classe}">${status.texto}</span>

@@ -65,6 +65,10 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'products', 'codigo_balanca', 'TEXT');
   adicionarColunaSeFaltando(database, 'customers', 'cnpj', 'TEXT');
   adicionarColunaSeFaltando(database, 'license_state', 'bloqueio_imediato', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sales', 'oculta_historico', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_por_id', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_em', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_motivo', 'TEXT');
 }
 
 function seedIfEmpty(database) {

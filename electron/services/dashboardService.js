@@ -125,7 +125,8 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
        SUM(si.quantidade) as quantidade,
        SUM(si.quantidade * si.preco_unitario) as receita,
        SUM(si.quantidade * COALESCE(p.custo, 0)) as custo_total,
-       SUM(si.quantidade * si.preco_unitario) - SUM(si.quantidade * COALESCE(p.custo, 0)) as lucro
+       SUM(si.quantidade * si.preco_unitario) - SUM(si.quantidade * COALESCE(p.custo, 0)) as lucro,
+       MAX(COALESCE(s.finalizada_em, s.criado_em)) as ultima_venda
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id

@@ -68,7 +68,7 @@ function listRecentlySold({ locationId, limit = 12 }) {
  * dataInicio/dataFim no formato 'YYYY-MM-DD' (inclusive nos dois lados).
  * Já traz os métodos de pagamento usados em cada venda.
  */
-function listSalesByRange({ locationId, dataInicio, dataFim }) {
+function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = false }) {
   const db = getDb();
   return db.prepare(
     `SELECT s.*, u.nome as operador_nome,
@@ -87,8 +87,45 @@ function listSalesByRange({ locationId, dataInicio, dataFim }) {
        -- uma venda de verdade. Carrinho aberto COM item ainda aparece
        -- (o estoque já foi debitado nele, vale saber que ficou pendente).
        AND NOT (s.status = 'aberta' AND (SELECT COUNT(*) FROM sale_items si2 WHERE si2.sale_id = s.id AND si2.cancelado = 0) = 0)
+       ${incluirOcultas ? '' : 'AND s.oculta_historico = 0'}
      ORDER BY data_efetiva DESC`
   ).all(locationId, dataInicio, dataFim);
+}
+
+/**
+ * "Excluir do histórico" — some da LISTA (só gerente/admin tem essa
+ * opção na tela), mas nunca é um DELETE de verdade. Estoque, pagamento
+ * e qualquer NFC-e já emitida continuam intactos por baixo — é só uma
+ * questão de visualização, pra não poluir a lista com teste/engano.
+ */
+function excluirDoHistorico({ saleId, operadorId, motivo }) {
+  const db = getDb();
+  const sale = db.prepare('SELECT id FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+
+  db.prepare(
+    `UPDATE sales SET oculta_historico = 1, oculta_historico_por_id = ?, oculta_historico_em = NOW_SYNCED(), oculta_historico_motivo = ? WHERE id = ?`
+  ).run(operadorId, motivo || null, saleId);
+
+  db.prepare(
+    `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, autorizado_por_id, motivo, sucesso)
+     VALUES (?, 'venda_excluida_do_historico', ?, ?, ?, ?, 1)`
+  ).run(randomUUID(), saleId, operadorId, operadorId, motivo || null);
+
+  return { ok: true };
+}
+
+/** Desfaz a exclusão — a venda volta a aparecer na lista normal. */
+function reexibirNoHistorico({ saleId, operadorId }) {
+  const db = getDb();
+  db.prepare(
+    `UPDATE sales SET oculta_historico = 0, oculta_historico_por_id = NULL, oculta_historico_em = NULL, oculta_historico_motivo = NULL WHERE id = ?`
+  ).run(saleId);
+  db.prepare(
+    `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, autorizado_por_id, sucesso)
+     VALUES (?, 'venda_reexibida_no_historico', ?, ?, ?, 1)`
+  ).run(randomUUID(), saleId, operadorId, operadorId);
+  return { ok: true };
 }
 
 /** Vincula (ou desvincula, passando null) um cliente à venda — usado
@@ -497,5 +534,5 @@ module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
   addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson,
-  getSaleItemsDetail,
+  getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico,
 };

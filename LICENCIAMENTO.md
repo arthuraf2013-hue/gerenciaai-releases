@@ -75,7 +75,7 @@ service cloud.firestore {
       allow update: if (
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
-            'ultimoContato', 'versaoApp',
+            'ultimoContato', 'versaoApp', 'ultimoPing',
             'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo'
           ])
       ) || request.auth != null;
@@ -121,14 +121,12 @@ service cloud.firestore {
 Clique em "Publicar".
 
 **Se você já tinha publicado as regras antigas** (antes do bloqueio
-imediato, dos clientes, da atualização obrigatória, ou dos erros
-reportados existirem): precisa republicar com esse bloco novo de novo
-— **isso vale ainda
-mais agora**, já que sem a parte de `config/atualizacao` e os campos
-novos no `hasOnly` de `installations`, a atualização obrigatória
-simplesmente não vai funcionar (o app não vai conseguir nem ler se
-tem atualização publicada, nem reportar o progresso do download pro
-painel).
+imediato, dos clientes, da atualização obrigatória, dos erros
+reportados, ou do sinal de online/offline existirem): precisa
+republicar com esse bloco novo de novo — sem isso, o campo
+`ultimoPing` novo não vai conseguir ser escrito pelo app, e o sinal de
+online do painel vai ficar sempre cinza/offline, mesmo com o cliente
+rodando normalmente.
 
 **Antes de confiar nisso em produção**: eu não tenho como testar essas
 regras ao vivo aqui (não tenho acesso a um projeto Firebase de

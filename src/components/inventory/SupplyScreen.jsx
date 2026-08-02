@@ -71,11 +71,37 @@ export function SupplyScreen() {
   const [loadingUpcoming, setLoadingUpcoming] = useState(false);
   const [cadastrandoLinha, setCadastrandoLinha] = useState(null);
   useEscToClose(() => setCadastrandoLinha(null), !!cadastrandoLinha);
+  const [draftCarregado, setDraftCarregado] = useState(false);
+  const [restauradoDeDraft, setRestauradoDeDraft] = useState(false);
 
   useEffect(() => {
     window.pdv.suppliers.list({}).then((list) => setFornecedores(Array.isArray(list) ? list : []));
     carregarRecomendacao();
+    // Retoma a conferência de onde parou, se tinha uma leitura de nota
+    // em andamento — sem isso, trocar de aba no meio perdia tudo que
+    // a IA já tinha extraído.
+    window.pdv.supply.getDraft().then((draft) => {
+      if (draft && draft.linhas?.length > 0) {
+        setArquivoNome(draft.arquivoNome || '');
+        setFornecedorId(draft.fornecedorId || '');
+        setLinhas(draft.linhas || []);
+        setRestauradoDeDraft(true);
+      }
+      setDraftCarregado(true);
+    });
   }, []);
+
+  // Salva o rascunho a cada mudança nas linhas — só depois que o
+  // carregamento inicial terminou, senão o estado vazio do primeiro
+  // render sobrescreveria um rascunho de verdade que ainda ia chegar.
+  useEffect(() => {
+    if (!draftCarregado) return;
+    if (linhas.length === 0) {
+      window.pdv.supply.clearDraft();
+      return;
+    }
+    window.pdv.supply.saveDraft({ arquivoNome, fornecedorId, linhas });
+  }, [linhas, arquivoNome, fornecedorId, draftCarregado]);
 
   async function carregarRecomendacao() {
     setLoadingUpcoming(true);
@@ -88,6 +114,7 @@ export function SupplyScreen() {
     setExtracting(true);
     setExtractError('');
     setResultado(null);
+    setRestauradoDeDraft(false);
     const result = await window.pdv.supply.pickAndExtract();
     setExtracting(false);
     if (result.canceled) return;
@@ -173,6 +200,7 @@ export function SupplyScreen() {
     setArquivoNome('');
     setResultado(null);
     setExtractError('');
+    setRestauradoDeDraft(false);
   }
 
   return (
@@ -192,6 +220,11 @@ export function SupplyScreen() {
       {linhas.length > 0 && (
         <section className="settings-section" style={{ marginTop: 20 }}>
           <h2>Conferir e confirmar entrada — {arquivoNome}</h2>
+          {restauradoDeDraft && (
+            <p className="screen-hint" style={{ color: 'var(--color-primary)' }}>
+              Retomando a conferência de onde você parou.
+            </p>
+          )}
 
           <label style={{ maxWidth: 320, marginBottom: 12 }}>
             Fornecedor desta nota (opcional)

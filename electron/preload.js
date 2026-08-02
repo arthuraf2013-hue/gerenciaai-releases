@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld('pdv', {
     cancelItem: invoke('sale:cancelItem'),
     needsManagerAuthForCancel: invoke('sale:needsManagerAuthForCancel'),
     getItemsDetail: invoke('sale:getItemsDetail'),
+    excluirDoHistorico: invoke('sale:excluirDoHistorico'),
+    reexibirNoHistorico: invoke('sale:reexibirNoHistorico'),
     cancel: invoke('sale:cancel'),
   },
   table: {
@@ -238,6 +240,9 @@ contextBridge.exposeInMainWorld('pdv', {
   supply: {
     pickAndExtract: invoke('supply:pickAndExtract'),
     confirmEntries: invoke('supply:confirmEntries'),
+    getDraft: invoke('supply:getDraft'),
+    saveDraft: invoke('supply:saveDraft'),
+    clearDraft: invoke('supply:clearDraft'),
     listUpcomingExpiry: invoke('supply:listUpcomingExpiry'),
   },
   batches: {

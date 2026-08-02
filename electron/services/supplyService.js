@@ -134,4 +134,37 @@ function confirmEntries({ linhas, locationId, operadorId, deviceId, motivo }) {
   return { ok: true, ...resultados };
 }
 
-module.exports = { extractFromFile, confirmEntries };
+/**
+ * Rascunho da leitura em andamento — salva a cada mudança, carrega ao
+ * abrir a tela. Sem isso, trocar de aba no meio da conferência perdia
+ * tudo que a IA já tinha extraído da nota.
+ */
+function getDraft() {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM supply_draft WHERE id = ?').get('default');
+  if (!row) return null;
+  return {
+    arquivoNome: row.arquivo_nome,
+    fornecedorId: row.fornecedor_id,
+    linhas: JSON.parse(row.linhas_json || '[]'),
+  };
+}
+
+function saveDraft({ arquivoNome, fornecedorId, linhas }) {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO supply_draft (id, arquivo_nome, fornecedor_id, linhas_json, atualizado_em)
+     VALUES ('default', ?, ?, ?, NOW_SYNCED())
+     ON CONFLICT(id) DO UPDATE SET arquivo_nome=excluded.arquivo_nome, fornecedor_id=excluded.fornecedor_id,
+       linhas_json=excluded.linhas_json, atualizado_em=excluded.atualizado_em`
+  ).run(arquivoNome || null, fornecedorId || null, JSON.stringify(linhas || []));
+  return { ok: true };
+}
+
+function clearDraft() {
+  const db = getDb();
+  db.prepare('DELETE FROM supply_draft WHERE id = ?').run('default');
+  return { ok: true };
+}
+
+module.exports = { extractFromFile, confirmEntries, getDraft, saveDraft, clearDraft };

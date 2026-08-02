@@ -9,6 +9,7 @@ export function ProductProfitReport() {
   const [dataFim, setDataFim] = useState('');
   const [relatorio, setRelatorio] = useState(null);
   const [carregando, setCarregando] = useState(false);
+  const [ordenacao, setOrdenacao] = useState('lucro'); // 'lucro' | 'quantidade' | 'receita' | 'nome' | 'recente'
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -46,6 +47,14 @@ export function ProductProfitReport() {
   const totalLucro = relatorio?.produtos.reduce((acc, p) => acc + p.lucro, 0) || 0;
   const maiorQtdHora = relatorio ? Math.max(1, ...relatorio.horariosPorMovimento.map((h) => h.quantidade)) : 1;
 
+  const produtosOrdenados = relatorio ? [...relatorio.produtos].sort((a, b) => {
+    if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR');
+    if (ordenacao === 'quantidade') return b.quantidade - a.quantidade;
+    if (ordenacao === 'receita') return b.receita - a.receita;
+    if (ordenacao === 'recente') return new Date(b.ultima_venda) - new Date(a.ultima_venda);
+    return b.lucro - a.lucro; // 'lucro', padrão
+  }) : [];
+
   return (
     <div>
       <div className="period-selector">
@@ -79,12 +88,31 @@ export function ProductProfitReport() {
             </span>
           </div>
 
+          <div className="period-selector" style={{ marginTop: 12 }}>
+            <span className="screen-hint" style={{ marginRight: 4 }}>Ordenar por:</span>
+            {[
+              { valor: 'lucro', label: 'Lucro' },
+              { valor: 'quantidade', label: 'Mais vendido' },
+              { valor: 'receita', label: 'Receita' },
+              { valor: 'recente', label: 'Vendido recentemente' },
+              { valor: 'nome', label: 'Alfabética' },
+            ].map((op) => (
+              <button
+                key={op.valor}
+                className={ordenacao === op.valor ? 'category-btn category-btn-active' : 'category-btn'}
+                onClick={() => setOrdenacao(op.valor)}
+              >
+                {op.label}
+              </button>
+            ))}
+          </div>
+
           <table className="data-table" style={{ marginTop: 12 }}>
             <thead>
               <tr><th>Produto</th><th>Categoria</th><th>Quantidade</th><th>Receita</th><th>Lucro</th></tr>
             </thead>
             <tbody>
-              {relatorio.produtos.map((p) => (
+              {produtosOrdenados.map((p) => (
                 <tr key={p.nome + p.categoria}>
                   <td>{p.nome}</td>
                   <td>{p.categoria || '—'}</td>

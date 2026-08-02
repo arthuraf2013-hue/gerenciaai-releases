@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { useSession } from '../../context/SessionContext';
 
 const STATUS_LABEL = {
   aberta: 'Em aberto',
@@ -21,11 +22,14 @@ function formatMetodos(str) {
 }
 
 export function SalesHistory({ onDevolver }) {
+  const { currentUser } = useSession();
+  const podeExcluir = currentUser.role === 'gerente' || currentUser.role === 'admin';
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('hoje'); // 'hoje' | 'semana' | 'mes' | 'personalizado'
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [sales, setSales] = useState([]);
+  const [mostrarExcluidas, setMostrarExcluidas] = useState(false);
   const [exportando, setExportando] = useState(false);
   const [exportMsg, setExportMsg] = useState('');
   const [clienteQuery, setClienteQuery] = useState('');
@@ -61,12 +65,28 @@ export function SalesHistory({ onDevolver }) {
     // 'personalizado' não mexe nas datas — o usuário escolhe manualmente
   }, [periodo, offsetMs]);
 
-  useEffect(() => {
+  function recarregarVendas() {
     if (!dataInicio || !dataFim) return;
-    window.pdv.sale.listByRange({ locationId: window.APP_LOCATION_ID, dataInicio, dataFim }).then((list) => {
+    window.pdv.sale.listByRange({ locationId: window.APP_LOCATION_ID, dataInicio, dataFim, incluirOcultas: mostrarExcluidas }).then((list) => {
       setSales(Array.isArray(list) ? list : []);
     });
-  }, [dataInicio, dataFim]);
+  }
+
+  useEffect(() => {
+    recarregarVendas();
+  }, [dataInicio, dataFim, mostrarExcluidas]);
+
+  async function handleExcluirDoHistorico(saleId) {
+    const motivo = prompt('Motivo de excluir essa venda do histórico (opcional — some da lista, mas nada é apagado de verdade):', '');
+    if (motivo === null) return; // cancelou o prompt
+    const result = await window.pdv.sale.excluirDoHistorico({ saleId, operadorId: currentUser.id, motivo: motivo || null });
+    if (result.ok) recarregarVendas();
+  }
+
+  async function handleReexibir(saleId) {
+    const result = await window.pdv.sale.reexibirNoHistorico({ saleId, operadorId: currentUser.id });
+    if (result.ok) recarregarVendas();
+  }
 
   // Busca clientes conforme digita (nome, telefone, CPF ou CNPJ) — só
   // dispara quando tem texto e ainda não escolheu ninguém.
@@ -166,7 +186,13 @@ export function SalesHistory({ onDevolver }) {
           </>
         )}
 
-        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: 'auto' }}>
+        {podeExcluir && (
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
+            Mostrar excluídas do histórico
+          </label>
+        )}
+        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: podeExcluir ? 0 : 'auto' }}>
           {exportando ? 'Exportando...' : 'Exportar relatório'}
         </button>
       </div>
@@ -252,7 +278,7 @@ export function SalesHistory({ onDevolver }) {
             {salesFiltradas.map((s) => (
               <Fragment key={s.id}>
                 <tr
-                  className={s.status === 'cancelada' ? 'row-critical' : ''}
+                  className={s.status === 'cancelada' ? 'row-critical' : s.oculta_historico ? 'row-warning' : ''}
                   onClick={() => handleToggleVenda(s.id)}
                   style={{ cursor: 'pointer' }}
                   title="Clique pra ver os produtos dessa venda"
@@ -262,10 +288,17 @@ export function SalesHistory({ onDevolver }) {
                   <td>{vendaExpandidaId === s.id ? '▾' : '▸'} {s.total_itens}</td>
                   <td>R$ {s.total.toFixed(2)}</td>
                   <td>{formatMetodos(s.metodos_pagamento)}</td>
-                  <td>{STATUS_LABEL[s.status] || s.status}</td>
+                  <td>{STATUS_LABEL[s.status] || s.status}{s.oculta_historico ? ' (excluída)' : ''}</td>
                   <td>
                     {s.status === 'finalizada' && (
                       <button className="btn-link" onClick={(e) => { e.stopPropagation(); onDevolver?.(s.id); }}>Devolver</button>
+                    )}
+                    {podeExcluir && (
+                      s.oculta_historico ? (
+                        <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleReexibir(s.id); }}>Reexibir</button>
+                      ) : (
+                        <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); handleExcluirDoHistorico(s.id); }}>Excluir do histórico</button>
+                      )
                     )}
                   </td>
                 </tr>
@@ -274,14 +307,13 @@ export function SalesHistory({ onDevolver }) {
                     <td colSpan={7} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
                       {!itensPorVenda[s.id] ? (
                         <p className="screen-hint" style={{ margin: '8px 0' }}>Carregando itens...</p>
-                      ) : itensPorVenda[s.id].length === 0 ? (
-                        <p className="screen-hint" style={{ margin: '8px 0' }}>Nenhum item nessa venda.</p>
+                      ) : itensPorVenda[s.id].filter((item) => !item.cancelado).length === 0 ? (
+                        <p className="screen-hint" style={{ margin: '8px 0' }}>Nenhum item vendido de verdade nessa venda (tudo foi cancelado).</p>
                       ) : (
                         <ul className="payment-list" style={{ margin: '8px 0' }}>
-                          {itensPorVenda[s.id].map((item) => (
-                            <li key={item.id} style={item.cancelado ? { textDecoration: 'line-through', opacity: 0.6 } : undefined}>
+                          {itensPorVenda[s.id].filter((item) => !item.cancelado).map((item) => (
+                            <li key={item.id}>
                               {item.nome} × {item.quantidade} — R$ {(item.preco_unitario * item.quantidade).toFixed(2)}
-                              {item.cancelado ? ' (cancelado)' : ''}
                               {item.observacao && ` — ${item.observacao}`}
                             </li>
                           ))}
