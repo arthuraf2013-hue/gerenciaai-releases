@@ -63,7 +63,7 @@ export function Dashboard() {
 
   useEffect(() => {
     function checar() {
-      window.pdv.pdvRegistry.checkConnection().then((r) => setConexaoPdvs(r.ok));
+      window.pdv.pdvRegistry.getStatus().then((s) => setConexaoPdvs(s.sincronizacaoAtiva));
     }
     checar();
     const id = setInterval(checar, 60 * 1000); // confere de novo a cada 1 min enquanto a tela estiver aberta
@@ -318,15 +318,15 @@ export function Dashboard() {
             <h2>
               Consolidado entre PDVs
               {conexaoPdvs !== null && (
-                <span className={`connection-dot ${conexaoPdvs ? 'connection-dot-ok' : 'connection-dot-off'}`} title={conexaoPdvs ? 'Conectado ao Firebase' : 'Sem conexão com o Firebase agora — o consolidado pode estar desatualizado'}>
-                  {conexaoPdvs ? '● conectado' : '○ offline'}
+                <span className={`connection-dot ${conexaoPdvs ? 'connection-dot-ok' : 'connection-dot-off'}`} title={conexaoPdvs ? 'Sincronização ativa' : 'Sincronização não configurada para este terminal'}>
+                  {conexaoPdvs ? '● sincronizado' : '○ não configurado'}
                 </span>
               )}
             </h2>
             <p className="screen-hint">
-              Soma as vendas de todos os PDVs registrados com o mesmo CNPJ (Configurações →
-              Sincronização) — vem do Firebase, não só deste terminal. Só funciona com a
-              sincronização configurada e ativada.
+              Soma as vendas de todos os PDVs agrupados com este terminal (configurado
+              centralmente pelo suporte, veja em Configurações → Sincronização). Só funciona se
+              este terminal já tiver sido colocado num grupo.
             </p>
             <button className="btn-secondary" onClick={handleCarregarConsolidado} disabled={carregandoConsolidado}>
               {carregandoConsolidado ? 'Consultando...' : 'Consultar consolidado'}
@@ -335,13 +335,13 @@ export function Dashboard() {
             {consolidado && (
               <div style={{ marginTop: 14 }}>
                 <p><strong>Total geral:</strong> {consolidado.totalVendas} venda(s) — R$ {consolidado.totalFaturado.toFixed(2)}</p>
-                {consolidado.porPdv.length > 0 && (
+                {consolidado.porInstalacao.length > 0 && (
                   <table className="data-table">
-                    <thead><tr><th>PDV</th><th>Vendas</th><th>Faturado</th></tr></thead>
+                    <thead><tr><th>Terminal</th><th>Vendas</th><th>Faturado</th></tr></thead>
                     <tbody>
-                      {consolidado.porPdv.map((p) => (
-                        <tr key={p.numeroPdv}>
-                          <td>{p.numeroPdv}</td>
+                      {consolidado.porInstalacao.map((p) => (
+                        <tr key={p.nome}>
+                          <td>{p.nome}</td>
                           <td>{p.totalVendas}</td>
                           <td>R$ {p.totalFaturado.toFixed(2)}</td>
                         </tr>

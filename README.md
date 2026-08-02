@@ -759,6 +759,56 @@ atualizado. Depois disso, a próxima vez que o app rodar (não precisa
 esperar 6h — pode só reabrir), a versão e as métricas devem começar a
 aparecer certinho.
 
+## Desconto opcional/percentual, e Pix sem QR Code obrigatório
+
+### 1 e 2 — Senha de desconto opcional + porcentagem
+
+Mesmo padrão do cancelamento: novo toggle em **Configurações →
+Segurança** — "Exigir senha de gerente para aplicar desconto manual"
+(ligado por padrão, pode desligar). E o campo de desconto agora aceita
+**R$ ou %** — um seletor do lado do campo. A porcentagem é calculada
+sobre o que resta da venda (depois de qualquer desconto de fidelidade
+já aplicado), não sobre o total bruto — testei os dois casos.
+
+**Achei e corrigi uma inconsistência própria nesse processo**: quando
+criei o novo tipo de evento pra "desconto sem autorização configurada",
+esqueci de incluir ele no filtro da tela de Auditoria que ajustei na
+resposta anterior (a mesma lógica de "não deve poluir a lista" que
+você pediu pro cancelamento). Testei e confirmei que agora esse tipo
+também fica de fora da lista, mas continua gravado no banco.
+
+### 3 — Pix sem exigir QR Code
+
+O backend nunca tratou Pix de forma especial — a única barreira era
+no frontend, que só oferecia o fluxo de gerar QR Code. Adicionei um
+segundo botão, "Registrar sem QR", ao lado do "Gerar QR Code" — pra
+quando o cliente já pagou por fora (QR fixo no balcão, chave Pix,
+transferência direta) e só precisa registrar o valor, sem o app gerar
+nada. Usa exatamente o mesmo caminho de registro dos outros métodos de
+pagamento (dinheiro, cartão) — testado e confirmado que o backend já
+tratava Pix genericamente, sem nenhuma validação especial que
+dependesse do QR Code.
+
+## Auditoria limpa — sem cancelamento pré-pagamento poluindo a lista
+
+Cancelamento antes do pagamento (ajuste normal de carrinho — cliente
+desiste de um item antes de fechar a conta) nunca teve autorizador
+nem motivo, porque nunca precisou de aprovação de gerente pra
+acontecer. Continuava sendo gravado, corretamente, pra manter o
+histórico completo — mas aparecer na TELA de Auditoria não fazia
+sentido, já que essa tela é pra mostrar o que precisou de aprovação,
+e isso só enterrava os eventos que realmente importam (descontos,
+cancelamentos autorizados) no meio de dezenas de linhas sem
+autorizador nenhum.
+
+**Corrigido**: esses cancelamentos (e o mesmo tipo de evento quando a
+exigência de senha está desligada nas configurações) continuam
+gravados no banco normalmente — nada se perde — só não aparecem mais
+na tela de Auditoria. Testei reproduzindo o cenário do seu print (12
+cancelamentos pré-pagamento + eventos com autorização de verdade
+misturados): confirmei que os 12 continuam no banco, mas só os
+autorizados aparecem na lista.
+
 ## Versão ainda travada — achei um problema mais sério por trás
 
 Reparei em um detalhe importante no seu print: o "último contato"
@@ -2929,64 +2979,79 @@ rodar normalmente na sua máquina.
   linguagem natural via IA (reaproveita a mesma configuração da extração
   de receitas).
 
-## Múltiplos PDVs — Fase 1: numeração automática por CNPJ (não testado contra Firebase real)
+## Múltiplos PDVs — sincronização centralizada pelo seu painel
 
-**Aviso importante**: esta é a primeira peça de infraestrutura em nuvem do
-GerenciaAI. Todo o código segue a documentação oficial do SDK do Firebase
-e foi validado localmente (sintaxe, imports, lógica da transação), mas eu
-**não tenho como testar contra um projeto Firebase real** neste ambiente
-— sem internet aqui. Teste com atenção antes de confiar em produção.
+Redesenhado a pedido — a primeira versão (Fase 1) exigia que CADA
+CLIENTE criasse e configurasse o próprio projeto Firebase, uma
+barreira técnica grande pra quem não é técnico. Agora usa **o mesmo
+projeto central que já existe pro licenciamento** — nenhum cliente
+precisa configurar nada.
+
+### Como funciona agora
+
+- Em Central GerenciaAI → **🔗 Sincronização**, você cria um "grupo"
+  (ex: "Padaria do João — caixas") e vincula as instalações que
+  pertencem ao MESMO negócio fisicamente (duas caixas da mesma loja,
+  por exemplo).
+- **Diferente do agrupamento por cliente**: um cliente pode ter dois
+  negócios diferentes (padaria e restaurante) que NÃO deveriam somar
+  vendas juntos — por isso grupo de sincronização é um conceito
+  separado de "cliente", mais granular.
+- Cada instalação só pertence a UM grupo por vez — vincular a um novo
+  automaticamente tira do anterior.
+- Uma máquina dentro do grupo pode ser marcada como "Servidor" — hoje
+  isso é só um rótulo/referência (o mecanismo de sincronização em si é
+  descentralizado, cada PDV escreve seu próprio resumo direto no
+  Firestore, não existe de fato um "servidor" técnico necessário) —
+  mas fica registrado caso você queira usar isso como referência visual
+  de qual terminal é o principal daquele grupo.
+- No app do cliente, a tela de Configurações → Sincronização virou
+  **somente leitura** — mostra "sincronização ativa" ou "não
+  configurada", sem nenhum campo pra preencher. Quem atribui o grupo é
+  você, no seu painel.
 
 ### O que foi implementado
-- `electron/services/pdvRegistryService.js`: registra este PDV no
-  Firestore, sob o CNPJ configurado em Fiscal, usando uma **transação
-  atômica** — dois PDVs registrando ao mesmo tempo nunca recebem o mesmo
-  número. Idempotente: se este PDV já tem número, reabrir o app ou clicar
-  em "Registrar" de novo devolve o mesmo número, nunca cria um segundo.
-- Cada PDV tem um `device_uid` gerado uma única vez, localmente
-  (`locations.device_uid`), independente do Firebase — é a chave que
-  garante a idempotência.
-- Configurações → Sincronização entre PDVs: cole as credenciais do seu
-  projeto Firebase, ative, e clique em "Registrar este PDV".
-- O número aparece na sidebar (perto do seu usuário) assim que registrado.
-- **Totalmente opcional** — sem configurar nada, o app continua 100%
-  local, como sempre foi.
 
-### Checklist no Firebase Console (obrigatório antes de usar)
+- `electron/services/syncStateService.js`: cache local de qual grupo
+  essa instalação pertence — vem do mesmo documento/escuta em tempo
+  real já usado pra mensagem personalizada e motivo de bloqueio, sem
+  precisar de nenhuma consulta nova ao Firestore.
+- `electron/services/salesSyncService.js` (reescrito): manda o resumo
+  de cada venda finalizada pra `grupos_sincronizacao/{grupoId}/vendas`
+  no projeto central — só roda se essa instalação já tiver um grupo
+  atribuído; senão, fica em silêncio (sincronização não configurada
+  ainda pra ela).
+- `electron/services/pdvRegistryService.js` (simplificado): removi a
+  numeração automática (PDV001, PDV002...) e toda a configuração de
+  Firebase por cliente — não fazem mais sentido nesse modelo. Ficou só
+  o essencial: identidade do dispositivo e status de sincronização.
+- Painel administrativo: seção "🔗 Sincronização" — criar grupo,
+  vincular/desvincular máquina, marcar como servidor, apagar grupo
+  (libera as máquinas vinculadas de volta pra "sem grupo").
 
-1. **Criar o projeto**: [console.firebase.google.com](https://console.firebase.google.com) → "Adicionar projeto".
-2. **Ativar o Firestore**: menu lateral → Firestore Database → "Criar banco de dados" → modo produção.
-3. **Ativar autenticação anônima**: Authentication → Sign-in method → ative "Anônimo". O app usa isso só para ter uma identidade estável nas regras de segurança — não pede login nenhum ao operador.
-4. **Pegar as credenciais**: Configurações do projeto (engrenagem) → Geral → role até "Seus apps" → "</> Web" → registre um app → copie `apiKey`, `authDomain`, `projectId`, `appId`. Cole esses 4 valores em Configurações → Sincronização no GerenciaAI.
-5. **Configurar as regras de segurança do Firestore** (Firestore Database → Regras) — sem isso, o banco fica aberto para qualquer um escrever:
+### Verificação de ponta a ponta que fiz antes de fechar
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /cnpjs/{cnpj} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
-                   && request.resource.data.keys().hasOnly(['proximoNumero'])
-                   && request.resource.data.proximoNumero is int;
+Simulei o painel num navegador de verdade: criei um grupo, vinculei
+duas máquinas do mesmo cliente, marquei uma como servidor, removi uma
+do grupo — confirmei cada passo. Também revalidei que o mecanismo
+antigo (registro de PDV com numeração atômica, testado numa entrega
+anterior) continua com a mesma lógica de fundo, só que agora escrevendo
+no projeto central em vez do Firebase de cada cliente.
 
-      match /pdvs/{pdvId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null
-                      && request.resource.data.keys().hasAll(['numero', 'nomeLocal', 'registradoEm']);
-        allow update, delete: if false; // um PDV registrado nunca é reescrito nem apagado pelo app
-      }
-    }
-  }
-}
-```
+**O que ainda não dá pra eu confirmar daqui**: o app de verdade
+sincronizando contra o Firestore de produção — a lógica foi testada
+com Firestore simulado (incluindo as regras de segurança aplicadas de
+verdade contra escrita mal formada), mas o teste final contra o
+ambiente real é seu.
 
-6. Teste em **dois computadores diferentes** (ou dois perfis do app) com o
-   mesmo CNPJ antes de confiar isso numa loja de verdade — confirme que
-   viram PDV001 e PDV002, não os dois PDV001.
+### Regras de segurança
 
-### O que fica pra depois (Fase 2, se você decidir seguir)
-Descoberta entre PDVs pela rede local (mDNS), como conversamos — só faz
+Isso agora faz parte do **mesmo bloco de regras do projeto de
+licenciamento** — não é mais um projeto separado por cliente. Veja o
+Passo 3 do `LICENCIAMENTO.md` (seção `grupos_sincronizacao`) —
+**precisa republicar as regras de novo** se você já tinha publicado
+antes dessa mudança.
+
 sentido avaliar depois que a Fase 1 estiver rodando de verdade numa loja.
 
 ## Fiscal (NFC-e) — fundação pronta, emissão real pendente

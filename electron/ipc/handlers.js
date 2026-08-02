@@ -300,11 +300,7 @@ function registerIpcHandlers() {
   });
 
   // --- Sincronização entre PDVs (Fase 1: numeração por CNPJ, opcional) ---
-  safeHandle('pdvRegistry:getConfig', () => pdvRegistryService.getFirebaseConfigPublic());
-  safeHandle('pdvRegistry:updateConfig', (_e, payload) => pdvRegistryService.updateFirebaseConfig(payload));
-  safeHandle('pdvRegistry:getStatus', () => pdvRegistryService.getStatus());
-  safeHandle('pdvRegistry:register', () => pdvRegistryService.registerPdv());
-  safeHandle('pdvRegistry:checkConnection', () => pdvRegistryService.checkConnection());
+  safeHandle('pdvRegistry:getStatus', () => pdvRegistryService.getSyncStatus());
   safeHandle('salesSync:getConsolidated', (_e, payload) => salesSyncService.getConsolidated(payload));
 
   // --- Clientes, fiado e fidelidade ---

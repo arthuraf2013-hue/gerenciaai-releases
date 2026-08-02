@@ -83,6 +83,14 @@ function aplicarDadosDoServidor(dados) {
   } catch (err) {
     console.error('[licenseService] aplicarMensagemDaInstalacao falhou:', err);
   }
+
+  // Mesma ideia pro grupo de sincronização entre PDVs, atribuído
+  // centralmente pelo painel — vem junto no mesmo documento.
+  try {
+    require('./syncStateService').aplicarGrupoDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarGrupoDaInstalacao falhou:', err);
+  }
 }
 
 /**

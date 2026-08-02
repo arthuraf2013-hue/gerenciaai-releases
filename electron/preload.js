@@ -183,11 +183,7 @@ contextBridge.exposeInMainWorld('pdv', {
     exportCustomerPurchase: invoke('report:exportCustomerPurchase'),
   },
   pdvRegistry: {
-    getConfig: invoke('pdvRegistry:getConfig'),
-    updateConfig: invoke('pdvRegistry:updateConfig'),
     getStatus: invoke('pdvRegistry:getStatus'),
-    register: invoke('pdvRegistry:register'),
-    checkConnection: invoke('pdvRegistry:checkConnection'),
   },
   salesSync: {
     getConsolidated: invoke('salesSync:getConsolidated'),

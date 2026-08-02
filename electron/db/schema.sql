@@ -439,7 +439,8 @@ CREATE TABLE IF NOT EXISTS scale_hardware_config (
 -- registrado (opcional por padrão exige, mas pode ser desligada).
 CREATE TABLE IF NOT EXISTS security_config (
   id                                TEXT PRIMARY KEY DEFAULT 'default',
-  exigir_autorizacao_cancelamento   INTEGER NOT NULL DEFAULT 1
+  exigir_autorizacao_cancelamento   INTEGER NOT NULL DEFAULT 1,
+  exigir_autorizacao_desconto       INTEGER NOT NULL DEFAULT 1
 );
 
 -- Cache local do que o painel de licenciamento publicou como
@@ -476,6 +477,17 @@ CREATE TABLE IF NOT EXISTS supply_draft (
   fornecedor_id  TEXT,
   linhas_json    TEXT, -- array JSON das linhas em conferência
   atualizado_em  TEXT
+);
+
+-- Cache local de qual grupo de sincronização entre PDVs essa
+-- instalação pertence — atribuído centralmente pelo painel de
+-- licenciamento (Central GerenciaAI → Sincronização), não configurado
+-- pelo cliente. Vem do mesmo documento/escuta em tempo real que já
+-- traz mensagem personalizada e motivo de bloqueio, então não precisa
+-- de nenhuma consulta nova ao Firestore.
+CREATE TABLE IF NOT EXISTS sync_state (
+  id                       TEXT PRIMARY KEY DEFAULT 'default',
+  grupo_sincronizacao_id   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS firebase_config (

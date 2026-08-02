@@ -1,30 +1,32 @@
 const pdvRegistryService = require('./pdvRegistryService');
+const syncStateService = require('./syncStateService');
 
 /**
- * Envia um RESUMO da venda pro Firestore (não os itens individuais, não
- * dados de cliente) — só o suficiente pra um relatório consolidado entre
- * PDVs. Isso é puramente aditivo: nunca sincroniza estoque nem impede
- * uma venda de acontecer se a rede cair ou a sincronização não estiver
- * configurada. Deliberadamente não implementa sincronização de estoque
- * entre PDVs — isso exigiria um banco compartilhado de verdade ou
- * resolução de conflitos, um projeto bem mais arriscado que decidimos
- * não fazer agora.
+ * Envia um RESUMO da venda pro Firestore central do Arthur (não os
+ * itens individuais, não dado de cliente) — só o suficiente pra um
+ * relatório consolidado entre PDVs do mesmo grupo. Puramente aditivo:
+ * nunca sincroniza estoque nem impede uma venda de acontecer se a
+ * rede cair ou o grupo ainda não tiver sido configurado pelo painel.
+ *
+ * Diferente da primeira versão desse serviço, não precisa mais de
+ * nenhuma configuração de Firebase por parte do cliente — usa a MESMA
+ * conexão já usada pra licenciamento, e o grupo é atribuído
+ * centralmente pelo Arthur em Central GerenciaAI → Sincronização.
  */
 async function pushSale({ saleId, total, totalItens, finalizadaEm, operadorNome, locationNome }) {
   try {
-    const cnpjLimpo = pdvRegistryService.getCnpjLimpo();
-    if (!cnpjLimpo) return; // sem CNPJ configurado, sem sincronização — silencioso, é opcional
+    const grupoId = syncStateService.getGrupoSincronizacaoId();
+    if (!grupoId) return; // essa instalação ainda não foi colocada em nenhum grupo — sem sincronização, silencioso
 
-    const connection = await pdvRegistryService.getFirestoreConnection();
-    const status = pdvRegistryService.getStatus();
+    const licenseService = require('./licenseService');
+    const firestore = licenseService.getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
     const { doc, setDoc } = require('firebase/firestore');
 
     const diaISO = (finalizadaEm || '').slice(0, 10);
-    const ref = doc(connection.db, 'cnpjs', cnpjLimpo, 'vendas', saleId);
+    const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', saleId);
     await setDoc(ref, {
-      numeroPdv: status.numeroPdv || 'sem-numero',
-      total, totalItens, operadorNome, locationNome,
-      finalizadaEm, diaISO,
+      installId, total, totalItens, operadorNome, locationNome, finalizadaEm, diaISO,
     });
   } catch (err) {
     // Best-effort de propósito — a venda já está gravada localmente, isso
@@ -34,46 +36,46 @@ async function pushSale({ saleId, total, totalItens, finalizadaEm, operadorNome,
 }
 
 /**
- * Consolidado de vendas de TODOS os PDVs do mesmo CNPJ, num período —
- * vem do Firebase, não do banco local (que só tem as vendas deste PDV).
+ * Consolidado de vendas de todas as instalações do MESMO grupo de
+ * sincronização, num período — vem do Firestore central, não do banco
+ * local (que só tem as vendas desta instalação).
  */
 async function getConsolidated({ dataInicio, dataFim }) {
-  const cnpjLimpo = pdvRegistryService.getCnpjLimpo();
-  if (!cnpjLimpo) return { ok: false, error: 'Configure o CNPJ em Configurações → Fiscal antes de consolidar.' };
-
-  let connection;
-  try {
-    connection = await pdvRegistryService.getFirestoreConnection();
-  } catch (err) {
-    return { ok: false, error: err.message };
+  const grupoId = syncStateService.getGrupoSincronizacaoId();
+  if (!grupoId) {
+    return { ok: false, error: 'Esta instalação ainda não foi colocada em nenhum grupo de sincronização. Fale com o suporte.' };
   }
 
+  const licenseService = require('./licenseService');
+  const firestore = licenseService.getLicenseFirestore();
   const { collection, query, where, getDocs } = require('firebase/firestore');
-  const vendasRef = collection(connection.db, 'cnpjs', cnpjLimpo, 'vendas');
+
+  const vendasRef = collection(firestore, 'grupos_sincronizacao', grupoId, 'vendas');
   const q = query(vendasRef, where('diaISO', '>=', dataInicio), where('diaISO', '<=', dataFim));
 
   let snapshot;
   try {
     snapshot = await getDocs(q);
   } catch (err) {
-    return { ok: false, error: `Falha ao consultar o Firebase: ${err.message}` };
+    return { ok: false, error: `Falha ao consultar o servidor: ${err.message}` };
   }
 
   const vendas = snapshot.docs.map((d) => d.data());
-  const porPdv = {};
+  const porInstalacao = {};
   let totalGeral = 0;
   for (const v of vendas) {
     totalGeral += v.total || 0;
-    if (!porPdv[v.numeroPdv]) porPdv[v.numeroPdv] = { numeroPdv: v.numeroPdv, totalVendas: 0, totalFaturado: 0 };
-    porPdv[v.numeroPdv].totalVendas += 1;
-    porPdv[v.numeroPdv].totalFaturado += v.total || 0;
+    const chave = v.locationNome || v.installId;
+    if (!porInstalacao[chave]) porInstalacao[chave] = { nome: chave, totalVendas: 0, totalFaturado: 0 };
+    porInstalacao[chave].totalVendas += 1;
+    porInstalacao[chave].totalFaturado += v.total || 0;
   }
 
   return {
     ok: true,
     totalVendas: vendas.length,
     totalFaturado: totalGeral,
-    porPdv: Object.values(porPdv).sort((a, b) => a.numeroPdv.localeCompare(b.numeroPdv)),
+    porInstalacao: Object.values(porInstalacao).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
   };
 }
 

@@ -37,6 +37,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
 
   // Desconto manual, a critério do gerente — separado do de fidelidade.
   const [descontoGerenteInput, setDescontoGerenteInput] = useState('');
+  const [descontoGerenteTipo, setDescontoGerenteTipo] = useState('valor'); // 'valor' | 'percentual'
   const [descontoGerente, setDescontoGerente] = useState(0);
   const [descontoGerenteMotivo, setDescontoGerenteMotivo] = useState('');
   const [showDescontoAuth, setShowDescontoAuth] = useState(false);
@@ -92,16 +93,38 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
     setPontosResgate('');
   }
 
-  function solicitarDescontoGerente() {
+  async function solicitarDescontoGerente() {
     const valorNumerico = Number(descontoGerenteInput);
     if (!valorNumerico || valorNumerico <= 0) return setError('Informe um valor de desconto válido.');
+    if (descontoGerenteTipo === 'percentual' && valorNumerico > 100) return setError('Porcentagem não pode passar de 100%.');
     setError('');
+
+    const payload = descontoGerenteTipo === 'percentual'
+      ? { percentual: valorNumerico }
+      : { valor: valorNumerico };
+
+    const config = await window.pdv.auth.getSecurityConfig();
+    if (config.exigir_autorizacao_desconto !== 1) {
+      // Sem exigência configurada — aplica direto, sem pedir senha.
+      const result = await window.pdv.sale.applyManagerDiscount({
+        saleId, ...payload, motivo: null, currentOperatorId: currentUser.id,
+      });
+      if (!result.ok) return setError(result.error);
+      setDescontoGerente(result.desconto);
+      setDescontoGerenteMotivo('');
+      setDescontoGerenteInput('');
+      return;
+    }
     setShowDescontoAuth(true);
   }
 
   async function confirmarDescontoGerente(candidateId, pin, motivo) {
+    const valorNumerico = Number(descontoGerenteInput);
+    const payload = descontoGerenteTipo === 'percentual'
+      ? { percentual: valorNumerico }
+      : { valor: valorNumerico };
     const result = await window.pdv.sale.applyManagerDiscount({
-      saleId, valor: Number(descontoGerenteInput), motivo,
+      saleId, ...payload, motivo,
       currentOperatorId: currentUser.id, candidateManagerId: candidateId, pin,
     });
     if (result.ok) {
@@ -261,13 +284,21 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
 
       {descontoGerente === 0 ? (
         <div className="inline-form">
+          <select
+            value={descontoGerenteTipo}
+            onChange={(e) => setDescontoGerenteTipo(e.target.value)}
+            style={{ maxWidth: 90 }}
+          >
+            <option value="valor">R$</option>
+            <option value="percentual">%</option>
+          </select>
           <input
-            type="number" step="0.01" min="0.01"
-            placeholder="Desconto a critério do gerente (R$)"
+            type="number" step="0.01" min="0.01" max={descontoGerenteTipo === 'percentual' ? 100 : undefined}
+            placeholder={descontoGerenteTipo === 'percentual' ? 'Desconto (%)' : 'Desconto a critério do gerente (R$)'}
             value={descontoGerenteInput}
             onChange={(e) => setDescontoGerenteInput(e.target.value)}
           />
-          <button className="btn-secondary" onClick={solicitarDescontoGerente}>Solicitar desconto</button>
+          <button className="btn-secondary" onClick={solicitarDescontoGerente}>Aplicar desconto</button>
         </div>
       ) : (
         <p className="io-message">
@@ -331,9 +362,14 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
             autoFocus
           />
           {metodo === 'pix' ? (
-            <button className="btn-secondary" onClick={gerarQrPix} disabled={pixGerando}>
-              {pixGerando ? 'Gerando...' : 'Gerar QR Code'}
-            </button>
+            <>
+              <button className="btn-secondary" onClick={gerarQrPix} disabled={pixGerando}>
+                {pixGerando ? 'Gerando...' : 'Gerar QR Code'}
+              </button>
+              <button className="btn-secondary" onClick={addPayment} title="Cliente já pagou por fora (QR fixo, chave, transferência) — só registra o valor, sem gerar nada aqui">
+                Registrar sem QR
+              </button>
+            </>
           ) : (
             <button className="btn-secondary" onClick={addPayment}>Adicionar</button>
           )}

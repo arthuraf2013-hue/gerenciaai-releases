@@ -115,6 +115,27 @@ service cloud.firestore {
       allow read, delete: if request.auth != null;
       allow update: if false; // um relato de erro nunca precisa ser editado, só criado ou apagado
     }
+
+    // "grupos_sincronizacao" — agrupa instalações do MESMO negócio (ex:
+    // duas caixas da mesma loja) pra somarem vendas juntas no
+    // consolidado. Só você (autenticado no painel) cria/edita/apaga
+    // grupos — o app nunca escreve aqui, só nas "vendas" dentro dele.
+    match /grupos_sincronizacao/{grupoId} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null;
+
+      // O app em si NUNCA se autentica (mesmo padrão de installations)
+      // — a validação é só pela forma dos campos, não por quem está
+      // escrevendo. Qualquer instalação com o grupoId certo consegue
+      // mandar o resumo da própria venda.
+      match /vendas/{vendaId} {
+        allow read: if true;
+        allow create, update: if request.resource.data.keys().hasAll(['installId', 'total', 'totalItens', 'finalizadaEm', 'diaISO'])
+                      && request.resource.data.total is number
+                      && request.resource.data.totalItens is number;
+        allow delete: if request.auth != null;
+      }
+    }
   }
 }
 ```

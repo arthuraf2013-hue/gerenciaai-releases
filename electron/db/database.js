@@ -69,6 +69,7 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_por_id', 'TEXT');
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_em', 'TEXT');
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_motivo', 'TEXT');
+  adicionarColunaSeFaltando(database, 'security_config', 'exigir_autorizacao_desconto', 'INTEGER NOT NULL DEFAULT 1');
 }
 
 function seedIfEmpty(database) {
@@ -214,6 +215,11 @@ function seedIfEmpty(database) {
   const homeMessageStateCount = database.prepare('SELECT COUNT(*) as c FROM home_message_state').get().c;
   if (homeMessageStateCount === 0) {
     database.prepare(`INSERT INTO home_message_state (id) VALUES ('default')`).run();
+  }
+
+  const syncStateCount = database.prepare('SELECT COUNT(*) as c FROM sync_state').get().c;
+  if (syncStateCount === 0) {
+    database.prepare(`INSERT INTO sync_state (id) VALUES ('default')`).run();
   }
 
   const loyaltyConfigCount = database.prepare('SELECT COUNT(*) as c FROM loyalty_config').get().c;

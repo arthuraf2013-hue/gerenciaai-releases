@@ -33,12 +33,7 @@ export function SettingsScreen() {
   const [pixSaving, setPixSaving] = useState(false);
   const [pixSaved, setPixSaved] = useState(false);
 
-  const [syncForm, setSyncForm] = useState({ apiKey: '', authDomain: '', projectId: '', appId: '', ativado: false });
-  const [syncSaving, setSyncSaving] = useState(false);
-  const [syncSaved, setSyncSaved] = useState(false);
-  const [pdvStatus, setPdvStatus] = useState(null);
-  const [registrando, setRegistrando] = useState(false);
-  const [registroErro, setRegistroErro] = useState('');
+  const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
 
   const [loyaltyForm, setLoyaltyForm] = useState({ ativado: false, reaisPorPonto: 10, valorResgatePonto: 0.05 });
   const [loyaltySaving, setLoyaltySaving] = useState(false);
@@ -68,6 +63,7 @@ export function SettingsScreen() {
   const [updateBusy, setUpdateBusy] = useState(false);
   const [somLigado, setSomLigado] = useState(isBeepEnabled());
   const [exigirAutorizacaoCancelamento, setExigirAutorizacaoCancelamento] = useState(true);
+  const [exigirAutorizacaoDesconto, setExigirAutorizacaoDesconto] = useState(true);
   const [segurancaSaved, setSegurancaSaved] = useState(false);
   const [backupRunning, setBackupRunning] = useState(false);
   const [backupMsg, setBackupMsg] = useState('');
@@ -107,8 +103,7 @@ export function SettingsScreen() {
         pixNomeRecebedor: p.pix_nome_recebedor || '', pixCidade: p.pix_cidade || '',
       });
     });
-    window.pdv.pdvRegistry.getConfig().then((c) => setSyncForm(c));
-    window.pdv.pdvRegistry.getStatus().then(setPdvStatus);
+    window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
     window.pdv.loyalty.getConfig().then((l) => setLoyaltyForm({
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
     }));
@@ -121,7 +116,10 @@ export function SettingsScreen() {
     });
     window.pdv.update.getStatus().then(setUpdateStatus);
     window.pdv.weightBarcode.listFormatos().then(setFormatosDisponiveis);
-    window.pdv.auth.getSecurityConfig().then((c) => setExigirAutorizacaoCancelamento(c.exigir_autorizacao_cancelamento === 1));
+    window.pdv.auth.getSecurityConfig().then((c) => {
+      setExigirAutorizacaoCancelamento(c.exigir_autorizacao_cancelamento === 1);
+      setExigirAutorizacaoDesconto(c.exigir_autorizacao_desconto === 1);
+    });
     window.pdv.weightBarcode.getConfig().then((c) => setBalancaForm({ formato: c.formato, campo: c.campo }));
     window.pdv.scaleHardware.getConfig().then((c) => setBalancaHwForm({ porta: c.porta || '', baudRate: c.baud_rate || 9600 }));
   }, []);
@@ -188,25 +186,6 @@ export function SettingsScreen() {
     setPixSaving(false);
     setPixSaved(true);
     setTimeout(() => setPixSaved(false), 2000);
-  }
-
-  async function handleSyncSave(e) {
-    e.preventDefault();
-    setSyncSaving(true);
-    await window.pdv.pdvRegistry.updateConfig(syncForm);
-    setSyncSaving(false);
-    setSyncSaved(true);
-    setTimeout(() => setSyncSaved(false), 2000);
-  }
-
-  async function handleRegisterPdv() {
-    setRegistrando(true);
-    setRegistroErro('');
-    const result = await window.pdv.pdvRegistry.register();
-    setRegistrando(false);
-    if (!result.ok) return setRegistroErro(result.error);
-    const status = await window.pdv.pdvRegistry.getStatus();
-    setPdvStatus(status);
   }
 
   async function handleLoyaltySave(e) {
@@ -281,6 +260,13 @@ export function SettingsScreen() {
   async function handleToggleAutorizacaoCancelamento(checked) {
     setExigirAutorizacaoCancelamento(checked);
     await window.pdv.auth.updateSecurityConfig({ exigirAutorizacaoCancelamento: checked });
+    setSegurancaSaved(true);
+    setTimeout(() => setSegurancaSaved(false), 2000);
+  }
+
+  async function handleToggleAutorizacaoDesconto(checked) {
+    setExigirAutorizacaoDesconto(checked);
+    await window.pdv.auth.updateSecurityConfig({ exigirAutorizacaoDesconto: checked });
     setSegurancaSaved(true);
     setTimeout(() => setSegurancaSaved(false), 2000);
   }
@@ -464,6 +450,20 @@ export function SettingsScreen() {
           venda inteira exige a senha de um gerente ou admin (nunca a do próprio operador do caixa).
           Desligado: qualquer operador cancela direto, sem pedir senha — o cancelamento continua sendo
           registrado no histórico normalmente, só sem exigir aprovação.
+        </p>
+
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16 }}>
+          <input
+            type="checkbox" style={{ width: 'auto' }}
+            checked={exigirAutorizacaoDesconto}
+            onChange={(e) => handleToggleAutorizacaoDesconto(e.target.checked)}
+          />
+          Exigir senha de gerente para aplicar desconto manual
+        </label>
+        <p className="screen-hint" style={{ margin: '6px 0 0' }}>
+          Ligado (padrão): aplicar um desconto manual (valor fixo ou porcentagem) exige a senha de um
+          gerente ou admin. Desligado: qualquer operador aplica direto, sem pedir senha — continua
+          registrado no histórico normalmente.
         </p>
         {segurancaSaved && <p className="io-message">Salvo.</p>}
       </section>
@@ -718,43 +718,17 @@ export function SettingsScreen() {
       <section className="settings-section">
         <h2>Sincronização entre PDVs (opcional)</h2>
         <p className="screen-hint">
-          <strong>Fase 1 do roadmap de múltiplos PDVs.</strong> Quando ativado, todo PDV com o
-          mesmo CNPJ (configurado em Fiscal) recebe um número automático (PDV001, PDV002...) via
-          Firebase. Sem isso configurado, o app continua 100% local, como sempre foi — nada muda.
+          Quando ativo, esse terminal soma no relatório consolidado do Painel junto com os outros
+          PDVs do mesmo negócio. É configurado centralmente pelo suporte — não precisa mexer em
+          nada aqui, só entrar em contato caso queira ativar ou tenha dúvida.
         </p>
-        {pdvStatus?.numeroPdv && (
-          <div className="pdv-number-badge">Este terminal é o <strong>{pdvStatus.numeroPdv}</strong></div>
-        )}
-        <form className="product-form" onSubmit={handleSyncSave}>
-          <div className="form-grid">
-            <label>API Key
-              <input value={syncForm.apiKey} onChange={(e) => setSyncForm({ ...syncForm, apiKey: e.target.value })} />
-            </label>
-            <label>Auth Domain
-              <input value={syncForm.authDomain} onChange={(e) => setSyncForm({ ...syncForm, authDomain: e.target.value })} placeholder="seu-projeto.firebaseapp.com" />
-            </label>
-            <label>Project ID
-              <input value={syncForm.projectId} onChange={(e) => setSyncForm({ ...syncForm, projectId: e.target.value })} />
-            </label>
-            <label>App ID
-              <input value={syncForm.appId} onChange={(e) => setSyncForm({ ...syncForm, appId: e.target.value })} />
-            </label>
-          </div>
-          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={syncForm.ativado} onChange={(e) => setSyncForm({ ...syncForm, ativado: e.target.checked })} style={{ width: 'auto' }} />
-            Ativar sincronização entre PDVs
-          </label>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn-primary" type="submit" disabled={syncSaving}>
-              {syncSaving ? 'Salvando...' : 'Salvar configuração'}
-            </button>
-            <button type="button" className="btn-secondary" onClick={handleRegisterPdv} disabled={registrando || !syncForm.ativado}>
-              {registrando ? 'Registrando...' : 'Registrar este PDV'}
-            </button>
-          </div>
-        </form>
-        {registroErro && <p className="modal-error">{registroErro}</p>}
-        {syncSaved && <p className="io-message">Configuração de sincronização salva.</p>}
+        <div className="pdv-number-badge">
+          {sincronizacaoAtiva ? (
+            <>🔗 <strong>Sincronização ativa</strong> — este terminal está agrupado com outros PDVs.</>
+          ) : (
+            <>Sincronização não configurada para este terminal ainda.</>
+          )}
+        </div>
       </section>
 
       <section className="settings-section">

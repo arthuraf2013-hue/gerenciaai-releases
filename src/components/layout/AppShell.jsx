@@ -39,12 +39,12 @@ export function AppShell() {
   const { currentUser, logout } = useSession();
   const { profile } = useProfile();
   const [screen, setScreen] = useState('pos');
-  const [pdvNumero, setPdvNumero] = useState(null);
+  const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
   const [returnPreselectId, setReturnPreselectId] = useState(null);
 
   useEffect(() => {
-    window.pdv.pdvRegistry.getStatus().then((s) => setPdvNumero(s.numeroPdv));
+    window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
   }, []);
 
   useEffect(() => {
@@ -81,7 +81,7 @@ export function AppShell() {
           ))}
         </ul>
         <div className="sidebar-footer">
-          {pdvNumero && <span className="sidebar-pdv-number">{pdvNumero}</span>}
+          {sincronizacaoAtiva && <span className="sidebar-pdv-number" title="Sincronizado com outros PDVs">🔗 Sincronizado</span>}
 
           <div className="sidebar-user">
             <div className="sidebar-user-avatar">{currentUser.nome.charAt(0).toUpperCase()}</div>

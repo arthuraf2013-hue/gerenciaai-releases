@@ -166,35 +166,57 @@ function redeemLoyaltyPoints({ saleId, pontos }) {
  * rastro em audit_log. Separado do desconto de fidelidade: os dois
  * convivem sem um sobrescrever o outro.
  */
-function applyManagerDiscount({ saleId, valor, motivo, currentOperatorId, candidateManagerId, pin }) {
+function applyManagerDiscount({ saleId, valor, percentual, motivo, currentOperatorId, candidateManagerId, pin }) {
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
   if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
 
-  const desc = Number(valor);
-  if (!(desc > 0)) return { ok: false, error: 'Informe um valor de desconto maior que zero.' };
-
   const totalDisponivel = sale.total - sale.desconto; // não deixa passar do que sobra depois do desconto de fidelidade
+
+  // Aceita ou um valor fixo em R$, ou uma porcentagem — a porcentagem é
+  // calculada sobre o que resta da venda (depois do desconto de
+  // fidelidade, se tiver), não sobre o total bruto original.
+  let desc;
+  if (percentual != null && Number(percentual) > 0) {
+    const pct = Number(percentual);
+    if (pct > 100) return { ok: false, error: 'Porcentagem de desconto não pode passar de 100%.' };
+    desc = totalDisponivel * (pct / 100);
+  } else {
+    desc = Number(valor);
+  }
+  if (!(desc > 0)) return { ok: false, error: 'Informe um valor ou porcentagem de desconto maior que zero.' };
+
   if (desc > totalDisponivel) {
     return { ok: false, error: `Desconto não pode passar de R$ ${totalDisponivel.toFixed(2)} (valor restante da venda).` };
   }
 
-  const auth = authorizeManagerOverride({
-    candidateUserId: candidateManagerId,
-    pin,
-    currentOperatorId,
-    tipoEvento: 'desconto_manual',
-    saleId,
-    motivo,
-  });
-  if (!auth.ok) return auth;
+  const exigeAutorizacao = getSecurityConfig().exigir_autorizacao_desconto === 1;
+
+  let autorizadoPor = null;
+  if (exigeAutorizacao) {
+    const auth = authorizeManagerOverride({
+      candidateUserId: candidateManagerId,
+      pin,
+      currentOperatorId,
+      tipoEvento: 'desconto_manual',
+      saleId,
+      motivo,
+    });
+    if (!auth.ok) return auth;
+    autorizadoPor = auth.autorizadoPor;
+  } else {
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, motivo, sucesso)
+       VALUES (?, 'desconto_manual_sem_autorizacao_configurada', ?, ?, ?, 1)`
+    ).run(randomUUID(), saleId, currentOperatorId, motivo || null);
+  }
 
   db.prepare(
     `UPDATE sales SET desconto_gerente = ?, desconto_gerente_motivo = ?, desconto_autorizado_por_id = ? WHERE id = ?`
-  ).run(desc, motivo || null, auth.autorizadoPor.id, saleId);
+  ).run(desc, motivo || null, autorizadoPor?.id || null, saleId);
 
-  return { ok: true, desconto: desc, autorizadoPor: auth.autorizadoPor };
+  return { ok: true, desconto: desc, autorizadoPor };
 }
 
 /** Remove o desconto manual antes de finalizar (ex: operador mudou de ideia). */

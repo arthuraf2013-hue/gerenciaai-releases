@@ -138,7 +138,23 @@
       <button class="btn-secondary" id="erros-toggle-btn">⚠️ Erros</button>
       <button class="btn-secondary" id="mensagem-toggle-btn">💬 Mensagem</button>
       <button class="btn-secondary" id="atualizacao-toggle-btn">⬆ Atualização</button>
+      <button class="btn-secondary" id="sincronizacao-toggle-btn">🔗 Sincronização</button>
       <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
+    </div>
+
+    <div id="sincronizacao-card" class="card" style="display:none; margin-bottom: 20px;">
+      <h2>Sincronização entre PDVs</h2>
+      <p class="subtitle" style="margin-bottom: 14px;">
+        Agrupe instalações do mesmo negócio (ex: duas caixas registradoras da mesma loja) pra elas
+        somarem vendas juntas no relatório consolidado. Diferente do agrupamento por cliente — um
+        cliente pode ter negócios diferentes que NÃO deveriam somar vendas juntos (padaria e
+        restaurante, por exemplo); um grupo de sincronização é só pra terminais do MESMO negócio.
+      </p>
+      <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 480px; margin-bottom: 16px;">
+        <input type="text" id="grupo-nome-input" placeholder="Nome do grupo (ex: Padaria do João — caixas)" style="flex: 1;">
+        <button class="btn-primary" id="grupo-criar-btn">Criar grupo</button>
+      </div>
+      <div id="grupos-lista"></div>
     </div>
 
     <div id="metricas-card" class="card" style="display:none; margin-bottom: 20px;">
@@ -283,6 +299,7 @@
   let atualizacaoConfig = null;
   let mensagemConfig = null;
   let errosReportados = [];
+  let gruposSincronizacao = [];
   const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
   let instalacaoParaVincular = null;
 
@@ -323,6 +340,7 @@
   const CAMPOS_QUE_EXIGEM_RENDER_COMPLETO = [
     'ativo', 'bloqueioImediato', 'clienteId', 'nomeNegocio', 'mensagemPersonalizada', 'motivoBloqueio',
     'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo', 'versaoApp',
+    'grupoSincronizacaoId', 'servidorDoGrupo',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -386,6 +404,14 @@
         renderErros();
       },
       (err) => mostrarErro(err, 'carregar os erros reportados')
+    );
+    onSnapshot(
+      query(collection(db, 'grupos_sincronizacao'), orderBy('nome')),
+      (snap) => {
+        gruposSincronizacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        renderGrupos();
+      },
+      (err) => mostrarErro(err, 'carregar os grupos de sincronização')
     );
   }
 
@@ -685,6 +711,142 @@
     card.style.display = card.style.display === 'none' ? 'block' : 'none';
   });
 
+  // --- Sincronização entre PDVs ---
+
+  document.getElementById('sincronizacao-toggle-btn').addEventListener('click', () => {
+    const card = document.getElementById('sincronizacao-card');
+    card.style.display = card.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.getElementById('grupo-criar-btn').addEventListener('click', async () => {
+    const nome = document.getElementById('grupo-nome-input').value.trim();
+    if (!nome) return;
+    limparErro();
+    try {
+      await addDoc(collection(db, 'grupos_sincronizacao'), { nome, criadoEm: serverTimestamp() });
+      document.getElementById('grupo-nome-input').value = '';
+    } catch (err) {
+      mostrarErro(err, 'criar o grupo de sincronização');
+    }
+  });
+
+  async function vincularAoGrupo(instalacaoId, grupoId) {
+    limparErro();
+    try {
+      // Uma instalação só faz parte de UM grupo por vez — trocar de
+      // grupo tira do anterior automaticamente (o merge sobrescreve).
+      await updateDoc(doc(db, 'installations', instalacaoId), { grupoSincronizacaoId: grupoId, servidorDoGrupo: false });
+    } catch (err) {
+      mostrarErro(err, 'vincular a máquina ao grupo');
+    }
+  }
+
+  async function desvincularDoGrupo(instalacaoId) {
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', instalacaoId), { grupoSincronizacaoId: null, servidorDoGrupo: false });
+    } catch (err) {
+      mostrarErro(err, 'desvincular a máquina do grupo');
+    }
+  }
+
+  async function alternarServidorDoGrupo(instalacaoId, valorAtual) {
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', instalacaoId), { servidorDoGrupo: !valorAtual });
+    } catch (err) {
+      mostrarErro(err, 'marcar como servidor');
+    }
+  }
+
+  async function apagarGrupo(grupoId) {
+    const maquinasDoGrupo = instalacoes.filter((i) => i.grupoSincronizacaoId === grupoId);
+    if (!confirm(`Apagar esse grupo? As ${maquinasDoGrupo.length} máquina(s) vinculada(s) ficam sem sincronização (precisa vincular a outro grupo depois, se quiser).`)) return;
+    limparErro();
+    try {
+      const batch = writeBatch(db);
+      for (const m of maquinasDoGrupo) {
+        batch.update(doc(db, 'installations', m.id), { grupoSincronizacaoId: null, servidorDoGrupo: false });
+      }
+      batch.delete(doc(db, 'grupos_sincronizacao', grupoId));
+      await batch.commit();
+    } catch (err) {
+      mostrarErro(err, 'apagar o grupo');
+    }
+  }
+
+  function nomeDaInstalacaoComCliente(inst) {
+    const cliente = inst.clienteId && clientes.find((c) => c.id === inst.clienteId);
+    const nome = inst.nomeNegocio || inst.id.slice(0, 8) + '...';
+    return cliente ? `${nome} (${cliente.nome})` : nome;
+  }
+
+  function renderGrupos() {
+    const div = document.getElementById('grupos-lista');
+    if (gruposSincronizacao.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhum grupo criado ainda.</p>';
+      return;
+    }
+
+    div.innerHTML = gruposSincronizacao.map((grupo) => {
+      const maquinasDoGrupo = instalacoes.filter((i) => i.grupoSincronizacaoId === grupo.id);
+      const maquinasForaDoGrupo = instalacoes.filter((i) => i.grupoSincronizacaoId !== grupo.id);
+
+      return `
+        <div class="card cliente-card" style="margin-bottom: 14px;">
+          <div class="cliente-header" style="cursor: default;">
+            <div class="cliente-info">
+              <span class="cliente-nome">${escapeHtml(grupo.nome)}</span>
+              <div class="cliente-resumo">${maquinasDoGrupo.length} máquina(s) sincronizando juntas</div>
+            </div>
+            <div class="cliente-acoes">
+              <button class="btn-secondary btn-small" data-apagar-grupo="${grupo.id}">Apagar grupo</button>
+            </div>
+          </div>
+          <div class="maquinas-lista aberto">
+            ${maquinasDoGrupo.length === 0 ? '<p class="cliente-resumo">Nenhuma máquina vinculada ainda.</p>' : maquinasDoGrupo.map((m) => `
+              <div class="maquina-row">
+                <span>${escapeHtml(nomeDaInstalacaoComCliente(m))}</span>
+                <label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-left:auto;">
+                  <input type="checkbox" data-servidor-toggle="${m.id}" ${m.servidorDoGrupo ? 'checked' : ''} style="width:auto;">
+                  Servidor
+                </label>
+                <div class="maquina-acoes">
+                  <button class="btn-secondary btn-small" data-desvincular-grupo="${m.id}">Remover do grupo</button>
+                </div>
+              </div>
+            `).join('')}
+            <div class="mensagem-cliente-wrap">
+              <select data-adicionar-select="${grupo.id}">
+                <option value="">Adicionar máquina ao grupo...</option>
+                ${maquinasForaDoGrupo.map((m) => `<option value="${m.id}">${escapeHtml(nomeDaInstalacaoComCliente(m))}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    div.querySelectorAll('[data-apagar-grupo]').forEach((btn) => {
+      btn.addEventListener('click', () => apagarGrupo(btn.dataset.apagarGrupo));
+    });
+    div.querySelectorAll('[data-desvincular-grupo]').forEach((btn) => {
+      btn.addEventListener('click', () => desvincularDoGrupo(btn.dataset.desvincularGrupo));
+    });
+    div.querySelectorAll('[data-servidor-toggle]').forEach((chk) => {
+      chk.addEventListener('change', () => {
+        const inst = instalacoes.find((i) => i.id === chk.dataset.servidorToggle);
+        alternarServidorDoGrupo(chk.dataset.servidorToggle, inst?.servidorDoGrupo);
+      });
+    });
+    div.querySelectorAll('[data-adicionar-select]').forEach((select) => {
+      select.addEventListener('change', () => {
+        if (!select.value) return;
+        vincularAoGrupo(select.value, select.dataset.adicionarSelect);
+      });
+    });
+  }
+
   function renderStatusAtualizacao() {
     const div = document.getElementById('atualizacao-status-atual');
     if (!atualizacaoConfig || !atualizacaoConfig.obrigatoria) {
@@ -771,6 +933,7 @@
 
   function render() {
     renderMetricas();
+    renderGrupos();
     const filtro = buscaInput.value.trim().toLowerCase();
 
     const instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {

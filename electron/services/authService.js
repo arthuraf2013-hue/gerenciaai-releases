@@ -156,6 +156,18 @@ function listAuditLog({ dataInicio, dataFim }) {
      LEFT JOIN users u1 ON u1.id = a.solicitante_id
      LEFT JOIN users u2 ON u2.id = a.autorizado_por_id
      WHERE date(a.criado_em) BETWEEN date(?) AND date(?)
+       -- A Auditoria é pra mostrar o que precisou de aprovação — um
+       -- cancelamento antes do pagamento (ajuste normal de carrinho) ou
+       -- com a exigência de senha desligada nas configurações nunca tem
+       -- autorizador nem motivo, só teria poluído a lista sem servir
+       -- pra fiscalização nenhuma. Continua tudo gravado em audit_log,
+       -- só não aparece nessa tela.
+       AND a.tipo_evento NOT IN (
+         'cancelamento_item_pre_pagamento',
+         'cancelamento_item_sem_autorizacao_configurada',
+         'cancelamento_venda_sem_autorizacao_configurada',
+         'desconto_manual_sem_autorizacao_configurada'
+       )
      ORDER BY a.criado_em DESC
      LIMIT 500`
   ).all(dataInicio, dataFim);
@@ -166,10 +178,15 @@ function getSecurityConfig() {
   return db.prepare('SELECT * FROM security_config WHERE id = ?').get('default');
 }
 
-function updateSecurityConfig({ exigirAutorizacaoCancelamento }) {
+function updateSecurityConfig({ exigirAutorizacaoCancelamento, exigirAutorizacaoDesconto }) {
   const db = getDb();
-  db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = ? WHERE id = ?')
-    .run(exigirAutorizacaoCancelamento ? 1 : 0, 'default');
+  const atual = getSecurityConfig();
+  db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = ?, exigir_autorizacao_desconto = ? WHERE id = ?')
+    .run(
+      exigirAutorizacaoCancelamento !== undefined ? (exigirAutorizacaoCancelamento ? 1 : 0) : atual.exigir_autorizacao_cancelamento,
+      exigirAutorizacaoDesconto !== undefined ? (exigirAutorizacaoDesconto ? 1 : 0) : atual.exigir_autorizacao_desconto,
+      'default'
+    );
   return { ok: true };
 }
 
