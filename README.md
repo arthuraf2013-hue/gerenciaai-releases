@@ -731,6 +731,34 @@ antiga ainda rodando (única/segunda instância, versão não
 incrementada), ou é algo específico da sua máquina que só vai
 aparecer no painel → Erros agora que ele não fica mais em silêncio.
 
+### Causa raiz encontrada e confirmada — era eu mesmo
+
+O sistema de erros que construí funcionou exatamente pra isso: seu
+print mostrou o erro real pela primeira vez —
+`PERMISSION_DENIED: Missing or insufficient permissions` — e isso
+resolveu o mistério de vez.
+
+**A causa**: quando adicionei o reporte de métricas
+(`totalVendasHistorico`, `vendasUltimos30Dias`, `perfilAtivo`) há
+algumas entregas, esqueci de incluir esses 3 campos na lista de
+permitidos das regras do Firestore. O Firestore recusa a escrita
+**inteira** quando isso acontece — não só os campos novos — por isso
+nem o `ultimoContato` nem a versão conseguiam atualizar, mesmo com o
+app rodando a versão certa (o erro mostrou v0.5.9 tentando às 10:18
+de hoje) e tentando normalmente a cada 6h. Fazia sentido perfeito com
+tudo que você vinha reportando.
+
+**Corrigido**: adicionei os 3 campos na lista de permitidos, e
+conferi TODOS os outros campos que o app escreve na própria
+instalação (reuni de todos os arquivos que fazem isso) contra a lista
+— confirmado que agora está completa, nada mais faltando.
+
+**Só falta uma coisa pra isso valer**: republicar as regras do
+Firestore de novo (Passo 3 do `LICENCIAMENTO.md`) com o bloco
+atualizado. Depois disso, a próxima vez que o app rodar (não precisa
+esperar 6h — pode só reabrir), a versão e as métricas devem começar a
+aparecer certinho.
+
 ## Versão ainda travada — achei um problema mais sério por trás
 
 Reparei em um detalhe importante no seu print: o "último contato"
@@ -759,6 +787,37 @@ acontecendo. Depois de instalar essa versão: se a versão continuar
 travada, agora deve aparecer alguma coisa em Erros no painel — me
 manda o que aparecer lá que eu consigo investigar a causa real, em
 vez de continuar chutando.
+
+### Continuação — a causa real era outra (e agora testei de verdade)
+
+Seu print seguinte mostrou que a letra ainda estava escura — mas não
+na busca em si, na **lista de resultados** que aparece embaixo dela
+(os produtos sugeridos, tipo "ibuprof 600mg..."). Isso é um problema
+diferente do de autofill que corrigi antes: é `<button>` puro, sem
+autofill nenhum envolvido.
+
+**A causa real**: `<button>` no navegador não herda a cor de texto do
+elemento pai do jeito que uma `<div>` ou `<span>` herdaria — o
+navegador aplica uma cor própria (escura) por padrão, a não ser que o
+CSS diga explicitamente qual cor usar. A regra base de `button` no
+projeto nunca definia isso — cada botão "estilizado" (Primário,
+Secundário, etc.) define a própria cor certinho, mas qualquer botão
+"cru" sem uma dessas classes cai na cor escura padrão do navegador,
+mesmo com fundo escuro do tema.
+
+**Corrigido na raiz** — a regra base de `button` (que toda a
+aplicação usa) agora já define a cor do texto certa. Isso conserta a
+lista de resultados da busca, e qualquer outro botão "cru" que exista
+ou venha a existir no projeto, sem precisar corrigir um por um.
+Apliquei a mesma correção no painel administrativo também (CSS
+separado).
+
+**Dessa vez consegui testar de verdade, num navegador renderizado**
+(diferente do caso de autofill, que depende de um estado do navegador
+difícil de forçar) — confirmei com números reais: fundo em
+`rgb(16,32,29)` (escuro) e texto em `rgb(238,245,242)` (bem claro),
+alto contraste, e também vi o resultado renderizado num print antes
+de fechar essa entrega.
 
 ## Contraste ruim em campo com autofill — corrigido em todo o app
 

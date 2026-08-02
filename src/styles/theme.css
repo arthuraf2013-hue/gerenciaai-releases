@@ -166,7 +166,7 @@ body { margin: 0; background: var(--color-bg); color: var(--color-text); font-fa
 }
 .pos-total { font-size: 18px; }
 
-button { font-family: inherit; font-size: 14px; border-radius: var(--radius); border: none; padding: 10px 16px; cursor: pointer; }
+button { font-family: inherit; font-size: 14px; border-radius: var(--radius); border: none; padding: 10px 16px; cursor: pointer; color: var(--color-text); }
 
 .update-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .update-actions button {

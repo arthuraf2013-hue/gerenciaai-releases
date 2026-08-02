@@ -76,7 +76,8 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
             'ultimoContato', 'versaoApp', 'ultimoPing',
-            'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo'
+            'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo',
+            'totalVendasHistorico', 'vendasUltimos30Dias', 'perfilAtivo'
           ])
       ) || request.auth != null;
 
@@ -120,10 +121,21 @@ service cloud.firestore {
 
 Clique em "Publicar".
 
+**⚠️ Se a versão do app está aparecendo travada no painel, mesmo depois
+de atualizar de verdade**: isso é quase certamente porque as regras
+publicadas ainda não têm os campos de métrica (`totalVendasHistorico`,
+`vendasUltimos30Dias`, `perfilAtivo`) na lista de permitidos — um erro
+meu, que esqueci de atualizar as regras junto quando adicionei essa
+funcionalidade. O Firestore recusa a escrita **inteira** (não só os
+campos novos) quando isso acontece — por isso nem o `ultimoContato`
+nem a versão conseguiam atualizar, mesmo o app rodando normal e
+tentando a cada 6h. **Republicar as regras com o bloco abaixo resolve
+isso de vez.**
+
 **Se você já tinha publicado as regras antigas** (antes do bloqueio
 imediato, dos clientes, da atualização obrigatória, dos erros
-reportados, ou do sinal de online/offline existirem): precisa
-republicar com esse bloco novo de novo — sem isso, o campo
+reportados, do sinal de online/offline, ou das métricas existirem):
+precisa republicar com esse bloco novo de novo — sem isso, o campo
 `ultimoPing` novo não vai conseguir ser escrito pelo app, e o sinal de
 online do painel vai ficar sempre cinza/offline, mesmo com o cliente
 rodando normalmente.
