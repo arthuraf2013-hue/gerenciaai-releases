@@ -698,6 +698,64 @@ continua fechada de verdade. Testei os 3 cenários (mesma mensagem
 continua fechada, texto novo reaparece, mensagem personalizada nova
 reaparece) antes de fechar.
 
+## Contraste ruim em campo com autofill — corrigido em todo o app
+
+Achei a causa: não era um problema de cor definida errada no app — o
+Chromium (base do Electron) força fundo claro + letra preta em
+qualquer campo que tenha uma sugestão de preenchimento automático
+(autofill), ignorando o `color`/`background` normais do CSS. Isso
+afeta qualquer campo já usado antes — busca de produto, nome de
+cliente, etc. — não é algo específico de um campo só.
+
+**Corrigido de forma global**, nos dois CSS do projeto (app principal
+e painel administrativo, que são independentes) — usando a técnica
+padrão pra isso (`-webkit-text-fill-color` + `box-shadow inset`
+simulando o fundo, já que só sobrescrever `color`/`background` não
+funciona nesse caso específico). Cobre todo campo do app de uma vez,
+não só a busca de produto.
+
+**O que não consegui confirmar visualmente**: tentei forçar o estado
+de autofill de verdade via protocolo do Chrome DevTools pra tirar um
+print comparando antes/depois, mas o comando específico pra isso não
+está disponível na versão do Chromium desse ambiente. A técnica que
+apliquei é o padrão amplamente documentado e usado nesse exato
+cenário — mas vale você conferir na prática: usa a busca de produto
+umas duas vezes (pra ela "lembrar" o que foi digitado), fecha e abre
+o campo de novo, e confere se o texto sugerido aparece legível.
+
+## Bug real: versão não atualizava no painel
+
+Você confirmou que já estava incrementando a versão antes de cada
+build, então descartei minha primeira hipótese e procurei mais fundo.
+
+**Achei uma explicação plausível**: o app não tinha nenhuma trava
+contra rodar **duas instâncias ao mesmo tempo** na mesma máquina. Se
+uma instalação de teste anterior ficasse aberta (minimizada, esquecida
+depois de um teste) enquanto você abre um build novo pra testar, as
+duas ficam rodando o próprio `checkLicense()` periódico em paralelo —
+cada uma escrevendo sua própria versão no mesmo documento do
+Firestore. Se a instância ANTIGA escrever por último (o que pode
+acontecer dependendo do timing dos ciclos de 6h de cada uma), ela
+sobrescreve a versão nova com a velha, e o painel fica "preso" mesmo
+depois de você ter atualizado de verdade.
+
+**Corrigido**: o app agora usa `requestSingleInstanceLock()` do
+Electron — só uma instância roda por vez. Se você tentar abrir o app
+de novo enquanto já tem um aberto, ele só foca a janela existente em
+vez de abrir outra por cima.
+
+**Não tive como testar isso da forma mais direta** — simular duas
+instâncias reais de um app Electron competindo pelo mesmo lock do
+sistema operacional não é algo que dá pra reproduzir no ambiente
+sandbox que uso aqui (não é um Windows de verdade rodando o app
+empacotado). Validei que o código compila e segue exatamente o padrão
+documentado do Electron pra isso, mas o teste final é seu: **antes de
+instalar essa versão, abre o Gerenciador de Tarefas do Windows e
+confere se não tem mais de um processo do GerenciaAI rodando** — se
+tiver, é essa a causa, confirmada. Depois de instalar essa correção,
+tentar abrir o app duas vezes deve só trazer a janela já aberta pra
+frente, nunca abrir uma segunda.
+
 ## Auditoria de bugs e otimizações
 
 ### Bug real encontrado e corrigido — texto digitado sumia no painel

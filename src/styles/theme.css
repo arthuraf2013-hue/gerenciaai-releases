@@ -203,6 +203,20 @@ input::placeholder, textarea::placeholder { color: var(--color-text-muted); opac
 input:focus, select:focus, textarea:focus {
   outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
+/* O Chromium (base do Electron) força fundo claro + letra preta em
+   campo com sugestão de preenchimento automático — ignora `color` e
+   `background` normais, só dá pra corrigir com esse truque específico
+   (-webkit-text-fill-color + box-shadow inset simulando o fundo). Sem
+   isso, qualquer campo que já tenha sido preenchido antes (busca de
+   produto, nome de cliente, etc.) fica com letra preta ilegível em
+   cima do fundo escuro do app. */
+input:-webkit-autofill, input:-webkit-autofill:hover,
+input:-webkit-autofill:focus, input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--color-text) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--color-surface) inset !important;
+  caret-color: var(--color-text);
+  transition: background-color 9999s ease-in-out 0s;
+}
 
 .payment-panel { display: flex; flex-direction: column; gap: 12px; }
 .payment-summary { display: flex; justify-content: space-between; font-size: 14px; }

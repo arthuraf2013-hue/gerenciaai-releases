@@ -34,6 +34,28 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
+// Impede duas instâncias do app rodando ao mesmo tempo na mesma
+// máquina. Sem isso, uma instância antiga esquecida aberta (minimizada,
+// ou de um teste anterior) continua rodando seu próprio checkLicense()
+// periódico com a versão ANTIGA embutida — e pode sobrescrever, no
+// Firestore, o que a instância nova acabou de escrever, fazendo a
+// versão parecer "travada" no painel mesmo depois de atualizar de
+// verdade e abrir o app novo. Quem tenta abrir uma segunda vez só foca
+// a janela que já está aberta, em vez de abrir outra por cima.
+const temOLock = app.requestSingleInstanceLock();
+if (!temOLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const janelas = BrowserWindow.getAllWindows();
+    if (janelas.length > 0) {
+      const win = janelas[0];
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
@@ -73,6 +95,12 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Segunda camada de proteção do lock de instância única — o
+  // app.quit() chamado mais acima é assíncrono, então sem essa
+  // checagem aqui, uma instância "perdedora" ainda podia chegar a
+  // inicializar serviço (checkLicense, ping de presença) antes do
+  // quit() terminar de verdade.
+  if (!temOLock) return;
   if (!isDev) {
     protocol.handle('app', (request) => {
       const { pathname } = new URL(request.url);
