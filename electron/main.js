@@ -143,6 +143,7 @@ app.whenReady().then(() => {
   licenseService.iniciarEscutaTempoReal();
   licenseService.iniciarPingDePresenca();
   require('./services/productSyncService').iniciarEscutaProdutos();
+  require('./services/salesSyncService').pushTodoOHistorico();
   require('./services/messageService').iniciarEscutaMensagemGlobal();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
 

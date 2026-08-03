@@ -2981,6 +2981,26 @@ rodar normalmente na sua máquina.
 
 ## Clone entre PDVs — catálogo, histórico compartilhado, e estoque centralizado na servidor
 
+### Correções no histórico compartilhado (depois do primeiro teste)
+
+Dois problemas reais no seu print:
+
+**1. Histórico não aparecia** — a causa: o envio pro grupo só acontecia
+quando uma venda era **finalizada**, então vendas de ANTES de
+configurar a sincronização nunca tinham sido mandadas — o histórico
+compartilhado só existia dali pra frente, não pra trás. **Corrigido**:
+agora, ao entrar num grupo (ou a cada vez que o app abre, pra cobrir
+quem já estava num grupo antes dessa correção), todo o histórico local
+já finalizado é mandado de uma vez. Testei com vendas simuladas de
+antes de entrar no grupo — confirmado que chegam certinho, com item e
+forma de pagamento inclusos.
+
+**2. Não deveria ter checkbox** — removido. Agora, sempre que a
+sincronização está ativa, o Histórico já mostra o grupo inteiro
+automaticamente — sem precisar marcar nada. No lugar do checkbox, um
+filtro "Filtrar por PDV" (com "Todos os PDVs" como padrão) pra
+estreitar pra um terminal específico quando quiser.
+
 Pedido pra ir além do relatório consolidado: catálogo de produtos
 "igual" entre as máquinas do grupo, histórico de vendas compartilhado
 mostrando qual PDV vendeu, e — pedido logo em seguida — checagem de

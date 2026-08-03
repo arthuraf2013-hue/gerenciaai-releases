@@ -37,10 +37,68 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
 }
 
 /**
+ * Manda TODAS as vendas finalizadas locais pro grupo de uma vez —
+ * chamado quando essa instalação entra num grupo pela primeira vez,
+ * pra levar o histórico que já existia antes de configurar a
+ * sincronização (sem isso, só vendas finalizadas DEPOIS de entrar no
+ * grupo apareceriam no histórico compartilhado).
+ */
+async function pushTodoOHistorico() {
+  try {
+    const grupoId = syncStateService.getGrupoSincronizacaoId();
+    if (!grupoId) return;
+
+    const { getDb } = require('../db/database');
+    const db = getDb();
+    const vendas = db.prepare(
+      `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
+       FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
+       WHERE s.status = 'finalizada'`
+    ).all();
+    if (vendas.length === 0) return;
+
+    const licenseService = require('./licenseService');
+    const firestore = licenseService.getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+    const { doc, writeBatch } = require('firebase/firestore');
+
+    // Em lotes de 400 (limite de 500 operações por batch do Firestore,
+    // com folga) — um histórico grande não pode estourar isso.
+    for (let i = 0; i < vendas.length; i += 400) {
+      const lote = vendas.slice(i, i + 400);
+      const batch = writeBatch(firestore);
+      for (const v of lote) {
+        const itensDetalhados = db.prepare(
+          `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
+           JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+        ).all(v.id);
+        const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(v.id).map((p) => p.metodo);
+        const diaISO = (v.finalizada_em || '').slice(0, 10);
+        const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', v.id);
+        batch.set(ref, {
+          installId,
+          total: v.total - v.desconto - v.desconto_gerente,
+          totalItens: itensDetalhados.length,
+          itens: itensDetalhados.map((it) => ({ nome: it.nome, quantidade: it.quantidade, precoUnitario: it.preco_unitario })),
+          metodosPagamento,
+          operadorNome: v.operador_nome,
+          locationNome: v.location_nome,
+          finalizadaEm: v.finalizada_em,
+          diaISO,
+        });
+      }
+      await batch.commit();
+    }
+  } catch (err) {
+    console.error('[salesSyncService] falha ao mandar o histórico inteiro pro grupo:', err.message);
+  }
+}
+
+/**
  * Histórico COMPLETO do grupo (todas as vendas de todos os PDVs, com
  * itens e forma de pagamento) — diferente de getConsolidated, que só
- * soma totais. Usado na tela de Histórico quando "ver o grupo todo"
- * está ativado, pra mostrar cada venda com o nome do PDV que vendeu.
+ * soma totais. Usado na tela de Histórico pra mostrar cada venda com
+ * o nome do PDV que vendeu.
  */
 async function getGroupHistory({ dataInicio, dataFim }) {
   const grupoId = syncStateService.getGrupoSincronizacaoId();
@@ -113,4 +171,4 @@ async function getConsolidated({ dataInicio, dataFim }) {
   };
 }
 
-module.exports = { pushSale, getConsolidated, getGroupHistory };
+module.exports = { pushSale, pushTodoOHistorico, getConsolidated, getGroupHistory };

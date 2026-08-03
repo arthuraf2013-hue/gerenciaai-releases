@@ -40,10 +40,10 @@ export function SalesHistory({ onDevolver }) {
   const [vendaExpandidaId, setVendaExpandidaId] = useState(null);
   const [itensPorVenda, setItensPorVenda] = useState({}); // cache: { [saleId]: itens[] }
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
-  const [verGrupoTodo, setVerGrupoTodo] = useState(false);
   const [vendasDoGrupo, setVendasDoGrupo] = useState(null);
   const [carregandoGrupo, setCarregandoGrupo] = useState(false);
   const [erroGrupo, setErroGrupo] = useState('');
+  const [filtroPdv, setFiltroPdv] = useState('todos');
 
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
@@ -86,7 +86,7 @@ export function SalesHistory({ onDevolver }) {
   }, [dataInicio, dataFim, mostrarExcluidas]);
 
   useEffect(() => {
-    if (!verGrupoTodo || !dataInicio || !dataFim) return;
+    if (!sincronizacaoAtiva || !dataInicio || !dataFim) return;
     setCarregandoGrupo(true);
     setErroGrupo('');
     window.pdv.salesSync.getGroupHistory({ dataInicio, dataFim }).then((result) => {
@@ -94,7 +94,7 @@ export function SalesHistory({ onDevolver }) {
       if (!result.ok) return setErroGrupo(result.error);
       setVendasDoGrupo(result.vendas);
     });
-  }, [verGrupoTodo, dataInicio, dataFim]);
+  }, [sincronizacaoAtiva, dataInicio, dataFim]);
 
   async function handleExcluirDoHistorico(saleId) {
     const motivo = prompt('Motivo de excluir essa venda do histórico (opcional — some da lista, mas nada é apagado de verdade):', '');
@@ -175,6 +175,8 @@ export function SalesHistory({ onDevolver }) {
   }
 
   const salesFiltradas = clienteSelecionado ? sales.filter((s) => s.customer_id === clienteSelecionado.id) : sales;
+  const pdvsDisponiveis = vendasDoGrupo ? [...new Set(vendasDoGrupo.map((v) => v.locationNome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : [];
+  const vendasDoGrupoFiltradas = !vendasDoGrupo ? [] : filtroPdv === 'todos' ? vendasDoGrupo : vendasDoGrupo.filter((v) => v.locationNome === filtroPdv);
 
   const totalDia = salesFiltradas
     .filter((s) => s.status === 'finalizada')
@@ -206,19 +208,22 @@ export function SalesHistory({ onDevolver }) {
           </>
         )}
 
-        {podeExcluir && (
-          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: sincronizacaoAtiva ? 0 : 'auto', fontSize: 13 }}>
+        {podeExcluir && !sincronizacaoAtiva && (
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13 }}>
             <input type="checkbox" style={{ width: 'auto' }} checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
             Mostrar excluídas do histórico
           </label>
         )}
         {sincronizacaoAtiva && (
-          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: podeExcluir ? 0 : 'auto', fontSize: 13 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={verGrupoTodo} onChange={(e) => setVerGrupoTodo(e.target.checked)} />
-            Ver vendas de todo o grupo (todos os PDVs)
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13 }}>
+            Filtrar por PDV:
+            <select value={filtroPdv} onChange={(e) => setFiltroPdv(e.target.value)} style={{ maxWidth: 220 }}>
+              <option value="todos">Todos os PDVs</option>
+              {pdvsDisponiveis.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
+            </select>
           </label>
         )}
-        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: (podeExcluir || sincronizacaoAtiva) ? 0 : 'auto' }}>
+        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: sincronizacaoAtiva ? 0 : (podeExcluir ? 0 : 'auto') }}>
           {exportando ? 'Exportando...' : 'Exportar relatório'}
         </button>
       </div>
@@ -293,20 +298,20 @@ export function SalesHistory({ onDevolver }) {
 
       {exportMsg && <p className="io-message">{exportMsg}</p>}
 
-      {verGrupoTodo ? (
+      {sincronizacaoAtiva ? (
         <>
           {carregandoGrupo && <p className="empty-state">Carregando vendas do grupo...</p>}
           {erroGrupo && <p className="modal-error">{erroGrupo}</p>}
-          {!carregandoGrupo && !erroGrupo && (!vendasDoGrupo || vendasDoGrupo.length === 0) && (
+          {!carregandoGrupo && !erroGrupo && vendasDoGrupoFiltradas.length === 0 && (
             <p className="empty-state">Nenhuma venda do grupo nesse período.</p>
           )}
-          {!carregandoGrupo && vendasDoGrupo && vendasDoGrupo.length > 0 && (
+          {!carregandoGrupo && vendasDoGrupoFiltradas.length > 0 && (
             <table className="data-table">
               <thead>
                 <tr><th>Data/hora</th><th>PDV</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th></tr>
               </thead>
               <tbody>
-                {vendasDoGrupo.map((v) => (
+                {vendasDoGrupoFiltradas.map((v) => (
                   <Fragment key={v.id}>
                     <tr>
                       <td>{v.finalizadaEm ? new Date(v.finalizadaEm.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : '—'}</td>

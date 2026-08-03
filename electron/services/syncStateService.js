@@ -26,6 +26,7 @@ function aplicarGrupoDaInstalacao(dadosInstalacao) {
     try {
       require('./productSyncService').iniciarEscutaProdutos();
       if (novoGrupoId) require('./productSyncService').pushTodosOsProdutos();
+      if (novoGrupoId) require('./salesSyncService').pushTodoOHistorico();
       if (novoGrupoId && novoServidor) require('./stockSyncService').pushEstoqueInicial();
     } catch (err) {
       console.error('[syncStateService] falha ao reagir à mudança de grupo:', err);
