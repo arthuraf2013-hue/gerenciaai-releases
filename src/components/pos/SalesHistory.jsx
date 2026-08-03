@@ -39,6 +39,15 @@ export function SalesHistory({ onDevolver }) {
   const [exportandoRelatorio, setExportandoRelatorio] = useState(false);
   const [vendaExpandidaId, setVendaExpandidaId] = useState(null);
   const [itensPorVenda, setItensPorVenda] = useState({}); // cache: { [saleId]: itens[] }
+  const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
+  const [verGrupoTodo, setVerGrupoTodo] = useState(false);
+  const [vendasDoGrupo, setVendasDoGrupo] = useState(null);
+  const [carregandoGrupo, setCarregandoGrupo] = useState(false);
+  const [erroGrupo, setErroGrupo] = useState('');
+
+  useEffect(() => {
+    window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
+  }, []);
 
   useEffect(() => {
     window.pdv.time.getStatus().then((s) => setOffsetMs(s.offsetMs || 0));
@@ -75,6 +84,17 @@ export function SalesHistory({ onDevolver }) {
   useEffect(() => {
     recarregarVendas();
   }, [dataInicio, dataFim, mostrarExcluidas]);
+
+  useEffect(() => {
+    if (!verGrupoTodo || !dataInicio || !dataFim) return;
+    setCarregandoGrupo(true);
+    setErroGrupo('');
+    window.pdv.salesSync.getGroupHistory({ dataInicio, dataFim }).then((result) => {
+      setCarregandoGrupo(false);
+      if (!result.ok) return setErroGrupo(result.error);
+      setVendasDoGrupo(result.vendas);
+    });
+  }, [verGrupoTodo, dataInicio, dataFim]);
 
   async function handleExcluirDoHistorico(saleId) {
     const motivo = prompt('Motivo de excluir essa venda do histórico (opcional — some da lista, mas nada é apagado de verdade):', '');
@@ -187,12 +207,18 @@ export function SalesHistory({ onDevolver }) {
         )}
 
         {podeExcluir && (
-          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13 }}>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: sincronizacaoAtiva ? 0 : 'auto', fontSize: 13 }}>
             <input type="checkbox" style={{ width: 'auto' }} checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
             Mostrar excluídas do histórico
           </label>
         )}
-        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: podeExcluir ? 0 : 'auto' }}>
+        {sincronizacaoAtiva && (
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: podeExcluir ? 0 : 'auto', fontSize: 13 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={verGrupoTodo} onChange={(e) => setVerGrupoTodo(e.target.checked)} />
+            Ver vendas de todo o grupo (todos os PDVs)
+          </label>
+        )}
+        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: (podeExcluir || sincronizacaoAtiva) ? 0 : 'auto' }}>
           {exportando ? 'Exportando...' : 'Exportar relatório'}
         </button>
       </div>
@@ -267,7 +293,45 @@ export function SalesHistory({ onDevolver }) {
 
       {exportMsg && <p className="io-message">{exportMsg}</p>}
 
-      {salesFiltradas.length === 0 ? (
+      {verGrupoTodo ? (
+        <>
+          {carregandoGrupo && <p className="empty-state">Carregando vendas do grupo...</p>}
+          {erroGrupo && <p className="modal-error">{erroGrupo}</p>}
+          {!carregandoGrupo && !erroGrupo && (!vendasDoGrupo || vendasDoGrupo.length === 0) && (
+            <p className="empty-state">Nenhuma venda do grupo nesse período.</p>
+          )}
+          {!carregandoGrupo && vendasDoGrupo && vendasDoGrupo.length > 0 && (
+            <table className="data-table">
+              <thead>
+                <tr><th>Data/hora</th><th>PDV</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th></tr>
+              </thead>
+              <tbody>
+                {vendasDoGrupo.map((v) => (
+                  <Fragment key={v.id}>
+                    <tr>
+                      <td>{v.finalizadaEm ? new Date(v.finalizadaEm.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : '—'}</td>
+                      <td><strong>{v.locationNome || '—'}</strong></td>
+                      <td>{v.operadorNome || '—'}</td>
+                      <td>{v.totalItens}</td>
+                      <td>R$ {(v.total || 0).toFixed(2)}</td>
+                      <td>{formatMetodos((v.metodosPagamento || []).join(','))}</td>
+                    </tr>
+                    {v.itens && v.itens.length > 0 && (
+                      <tr>
+                        <td colSpan={6} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
+                          <span className="screen-hint">
+                            {v.itens.map((i) => `${i.nome} × ${i.quantidade}`).join(', ')}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      ) : salesFiltradas.length === 0 ? (
         <p className="empty-state">Nenhuma venda nesse período.</p>
       ) : (
         <table className="data-table">

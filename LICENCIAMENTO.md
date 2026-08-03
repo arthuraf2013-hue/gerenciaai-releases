@@ -135,6 +135,29 @@ service cloud.firestore {
                       && request.resource.data.totalItens is number;
         allow delete: if request.auth != null;
       }
+
+      // "produtos" é o catálogo compartilhado entre os PDVs do grupo —
+      // nome, preço, categoria etc. NUNCA inclui estoque (isso é físico,
+      // sempre local de cada máquina, nunca sincronizado). Mesmo padrão
+      // de "vendas": o app nunca se autentica, valida só pela forma.
+      match /produtos/{produtoId} {
+        allow read: if true;
+        allow create, update: if request.resource.data.keys().hasAll(['nome', 'preco'])
+                      && request.resource.data.preco is number;
+        allow delete: if request.auth != null;
+      }
+
+      // "estoque" é o contador compartilhado que impede duas máquinas
+      // venderem a mesma última unidade ao mesmo tempo — só a
+      // quantidade, nada de detalhe de venda. Qualquer instalação do
+      // grupo pode ler e debitar (isso é o que torna a checagem na
+      // hora de finalizar possível); só precisa ser um número.
+      match /estoque/{produtoId} {
+        allow read: if true;
+        allow create, update: if request.resource.data.keys().hasOnly(['quantidade', 'atualizadoEm'])
+                      && request.resource.data.quantidade is number;
+        allow delete: if request.auth != null;
+      }
     }
   }
 }

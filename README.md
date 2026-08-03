@@ -2979,6 +2979,75 @@ rodar normalmente na sua máquina.
   linguagem natural via IA (reaproveita a mesma configuração da extração
   de receitas).
 
+## Clone entre PDVs — catálogo, histórico compartilhado, e estoque centralizado na servidor
+
+Pedido pra ir além do relatório consolidado: catálogo de produtos
+"igual" entre as máquinas do grupo, histórico de vendas compartilhado
+mostrando qual PDV vendeu, e — pedido logo em seguida — checagem de
+estoque centralizada na máquina marcada como "servidor", aceitando um
+pequeno atraso na finalização da venda pra garantir isso.
+
+### Catálogo de produtos sincronizado
+Cadastrar ou editar um produto em qualquer PDV do grupo aparece nos
+outros automaticamente (nome, preço, categoria, SKU, etc.) —
+`electron/services/productSyncService.js`. **Nunca inclui estoque** —
+isso é tratado à parte, olha o próximo tópico.
+
+### Histórico compartilhado com etiqueta de PDV
+No Histórico, um novo toggle "Ver vendas de todo o grupo" — quando
+ativo, mostra as vendas de TODOS os PDVs do grupo, com o nome de qual
+terminal vendeu cada uma, itens e forma de pagamento inclusos.
+
+### Estoque centralizado na servidor — o pedido mais delicado
+Isso muda a decisão original (estoque sempre local) a pedido seu, de
+propósito, com a garantia certa: **na hora de finalizar uma venda**,
+se essa instalação estiver num grupo, o app faz uma consulta atômica
+contra um contador de estoque compartilhado no Firestore (transação
+— não um simples "ler e depois escrever", que teria brecha) — só
+confirma a venda se sobrar estoque suficiente ali, e já debita nessa
+mesma operação. Se duas máquinas tentarem vender a última unidade ao
+mesmo tempo, só uma consegue — a outra recebe "Estoque insuficiente
+no grupo" antes de finalizar, exatamente o pedido.
+
+- A máquina marcada como **servidor** (no painel → Sincronização) é
+  quem alimenta esse contador com a contagem física real — manda o
+  estoque inteiro quando é designada, e atualiza produto a produto
+  sempre que o estoque dela muda (abastecimento, ajuste manual).
+- **Sem grupo configurado, nada muda** — zero atraso, zero chamada de
+  rede, exatamente como sempre foi.
+- **Se a rede cair na hora da checagem**: decisão deliberada de NÃO
+  deixar passar sem confirmar — bloqueia a finalização com um erro
+  claro, em vez de arriscar vender em duplicidade silenciosamente.
+  Isso segue à risca o que foi pedido ("garantir a consulta"), mas
+  vale saber que significa que a internet caindo bloqueia a
+  finalização de vendas nas máquinas não-servidor enquanto durar.
+
+**O que ainda não cobri**: devolução e cancelamento de item/venda não
+devolvem estoque pro contador compartilhado ainda (só abastecimento e
+ajuste manual mandam atualização) — se isso for importante, é uma
+extensão direta do mesmo padrão.
+
+### Testado a fundo, incluindo o cenário de concorrência real
+- Catálogo sincroniza nos dois sentidos (criar num PDV aparece no
+  outro; editar em qualquer um volta pros dois).
+- Histórico do grupo mostra a venda com o PDV certo, itens batendo,
+  total batendo — e confirmei que o **estoque nunca vaza** entre
+  máquinas (continua 100% local pra fins de relatório).
+- A parte mais importante: simulei **duas "máquinas" tentando vender
+  a última unidade do mesmo produto ao mesmo tempo** — confirmado que
+  exatamente uma consegue, nunca as duas, e o contador final bate
+  certinho (zero, não fica negativo).
+- Confirmei que estoque local generoso NÃO ajuda se o estoque do
+  GRUPO estiver insuficiente — a checagem remota é quem manda,
+  mesmo que a máquina local ache que tem de sobra.
+- Confirmei que sem grupo configurado, finalizar venda continua
+  idêntico a antes — não fica mais lento nem depende de rede.
+
+### Regras de segurança
+Duas coleções novas dentro do bloco de sincronização já existente —
+`produtos` e `estoque`. Já estão no Passo 3 do `LICENCIAMENTO.md`,
+precisa republicar de novo.
+
 ## Múltiplos PDVs — sincronização centralizada pelo seu painel
 
 Redesenhado a pedido — a primeira versão (Fase 1) exigia que CADA

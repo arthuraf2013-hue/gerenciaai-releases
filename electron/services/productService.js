@@ -226,7 +226,58 @@ function upsert(product) {
     ).run(randomUUID(), id, existente.preco, precoNovo, product.operadorId || null);
   }
 
+  // Sincroniza pro grupo (se essa instalação estiver em um) — nunca
+  // bloqueia o cadastro local por causa disso, roda em segundo plano.
+  require('./productSyncService').pushProduct({
+    id, nome: product.nome.trim(), categoria: product.categoria || null, preco: precoNovo,
+    custo: Number(product.custo) || 0, unidade: product.unidade || 'un', sku: product.sku || null,
+    codigoBarras: product.codigoBarras || null, ncm: product.ncm || null, cest: product.cest || null,
+    cfop: product.cfop || null, cstCsosn: product.cstCsosn || null,
+    origemMercadoria: product.origemMercadoria || '0', estoqueMinimo: Number(product.estoqueMinimo) || 0,
+    ativo: true,
+  }).catch(() => {});
+
   return { ok: true, id };
+}
+
+/**
+ * Aplica um produto vindo da sincronização do grupo — nunca dispara
+ * push de volta (senão viraria um loop entre as máquinas). Não mexe
+ * em estoque nenhum — só o catálogo (nome, preço, categoria etc) é
+ * compartilhado; a quantidade física continua sempre local.
+ */
+function aplicarProdutoSincronizado(productId, dados) {
+  const db = getDb();
+  const jaExiste = db.prepare('SELECT id FROM products WHERE id = ?').get(productId);
+
+  db.prepare(
+    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, ativo)
+     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @ativo)
+     ON CONFLICT(id) DO UPDATE SET
+       sku=excluded.sku, codigo_barras=excluded.codigo_barras, nome=excluded.nome,
+       categoria=excluded.categoria, preco=excluded.preco, custo=excluded.custo,
+       unidade=excluded.unidade, estoque_minimo=excluded.estoque_minimo,
+       ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
+       cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria, ativo=excluded.ativo`
+  ).run({
+    id: productId,
+    sku: dados.sku || null,
+    codigoBarras: dados.codigoBarras || null,
+    nome: dados.nome || '(sem nome)',
+    categoria: dados.categoria || null,
+    preco: Number(dados.preco) || 0,
+    custo: Number(dados.custo) || 0,
+    unidade: dados.unidade || 'un',
+    estoqueMinimo: Number(dados.estoqueMinimo) || 0,
+    ncm: dados.ncm || null,
+    cest: dados.cest || null,
+    cfop: dados.cfop || null,
+    cstCsosn: dados.cstCsosn || null,
+    origemMercadoria: dados.origemMercadoria || '0',
+    ativo: dados.ativo === false ? 0 : 1,
+  });
+
+  return { novo: !jaExiste };
 }
 
 /** Histórico de alteração de preço de um produto, mais recente primeiro. */
@@ -356,4 +407,4 @@ function clearAllProducts() {
   return { ok: true, apagados, desativados };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts };
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado };

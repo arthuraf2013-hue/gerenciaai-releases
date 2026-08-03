@@ -487,7 +487,12 @@ CREATE TABLE IF NOT EXISTS supply_draft (
 -- de nenhuma consulta nova ao Firestore.
 CREATE TABLE IF NOT EXISTS sync_state (
   id                       TEXT PRIMARY KEY DEFAULT 'default',
-  grupo_sincronizacao_id   TEXT
+  grupo_sincronizacao_id   TEXT,
+  -- Se essa máquina é a "servidor" do grupo — a que centraliza a
+  -- consulta de estoque na hora de finalizar uma venda, pra impedir
+  -- duas máquinas venderem a última unidade do mesmo produto ao mesmo
+  -- tempo. Atribuído pelo painel, junto com o grupo.
+  servidor_do_grupo        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS firebase_config (

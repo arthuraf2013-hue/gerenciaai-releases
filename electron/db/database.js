@@ -70,6 +70,7 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_em', 'TEXT');
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_motivo', 'TEXT');
   adicionarColunaSeFaltando(database, 'security_config', 'exigir_autorizacao_desconto', 'INTEGER NOT NULL DEFAULT 1');
+  adicionarColunaSeFaltando(database, 'sync_state', 'servidor_do_grupo', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 function seedIfEmpty(database) {

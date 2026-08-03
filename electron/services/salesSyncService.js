@@ -13,7 +13,7 @@ const syncStateService = require('./syncStateService');
  * conexão já usada pra licenciamento, e o grupo é atribuído
  * centralmente pelo Arthur em Central GerenciaAI → Sincronização.
  */
-async function pushSale({ saleId, total, totalItens, finalizadaEm, operadorNome, locationNome }) {
+async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, finalizadaEm, operadorNome, locationNome }) {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId) return; // essa instalação ainda não foi colocada em nenhum grupo — sem sincronização, silencioso
@@ -26,13 +26,47 @@ async function pushSale({ saleId, total, totalItens, finalizadaEm, operadorNome,
     const diaISO = (finalizadaEm || '').slice(0, 10);
     const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', saleId);
     await setDoc(ref, {
-      installId, total, totalItens, operadorNome, locationNome, finalizadaEm, diaISO,
+      installId, total, totalItens, itens: itens || [], metodosPagamento: metodosPagamento || [],
+      operadorNome, locationNome, finalizadaEm, diaISO,
     });
   } catch (err) {
     // Best-effort de propósito — a venda já está gravada localmente, isso
     // é só um espelho pro relatório consolidado. Nunca deixa o erro subir.
     console.error('[salesSyncService] falha ao sincronizar venda (não afeta a venda local):', err.message);
   }
+}
+
+/**
+ * Histórico COMPLETO do grupo (todas as vendas de todos os PDVs, com
+ * itens e forma de pagamento) — diferente de getConsolidated, que só
+ * soma totais. Usado na tela de Histórico quando "ver o grupo todo"
+ * está ativado, pra mostrar cada venda com o nome do PDV que vendeu.
+ */
+async function getGroupHistory({ dataInicio, dataFim }) {
+  const grupoId = syncStateService.getGrupoSincronizacaoId();
+  if (!grupoId) {
+    return { ok: false, error: 'Esta instalação ainda não foi colocada em nenhum grupo de sincronização.' };
+  }
+
+  const licenseService = require('./licenseService');
+  const firestore = licenseService.getLicenseFirestore();
+  const { collection, query, where, getDocs } = require('firebase/firestore');
+
+  const vendasRef = collection(firestore, 'grupos_sincronizacao', grupoId, 'vendas');
+  const q = query(vendasRef, where('diaISO', '>=', dataInicio), where('diaISO', '<=', dataFim));
+
+  let snapshot;
+  try {
+    snapshot = await getDocs(q);
+  } catch (err) {
+    return { ok: false, error: `Falha ao consultar o servidor: ${err.message}` };
+  }
+
+  const vendas = snapshot.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.finalizadaEm || '').localeCompare(a.finalizadaEm || ''));
+
+  return { ok: true, vendas };
 }
 
 /**
@@ -79,4 +113,4 @@ async function getConsolidated({ dataInicio, dataFim }) {
   };
 }
 
-module.exports = { pushSale, getConsolidated };
+module.exports = { pushSale, getConsolidated, getGroupHistory };

@@ -101,7 +101,7 @@ function registerIpcHandlers() {
   safeHandle('sale:removePayment', (_e, payload) => saleService.removePayment(payload));
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
-  safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSale(saleId));
+  safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSaleComVerificacaoDeGrupo(saleId));
 
   // --- Cancelamento seguro (exige autorização de gerente) ---
   safeHandle('sale:cancelItem', (_e, payload) => saleService.cancelSaleItem(payload));
@@ -302,6 +302,7 @@ function registerIpcHandlers() {
   // --- Sincronização entre PDVs (Fase 1: numeração por CNPJ, opcional) ---
   safeHandle('pdvRegistry:getStatus', () => pdvRegistryService.getSyncStatus());
   safeHandle('salesSync:getConsolidated', (_e, payload) => salesSyncService.getConsolidated(payload));
+  safeHandle('salesSync:getGroupHistory', (_e, payload) => salesSyncService.getGroupHistory(payload));
 
   // --- Clientes, fiado e fidelidade ---
   safeHandle('customer:list', (_e, opts) => customerService.listWithSaldo(opts));

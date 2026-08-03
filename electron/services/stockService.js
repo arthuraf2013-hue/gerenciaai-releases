@@ -52,6 +52,9 @@ function adjustStock({ productId, locationId, quantidade, tipo, motivo, operador
     `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, operador_id, device_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(id, productId, locationId, tipo, qtd, motivo || null, operadorId, deviceId);
+
+  require('./stockSyncService').pushEstoqueProduto(productId).catch(() => {});
+
   return { ok: true, id, estoqueAtual: getCurrentStock(productId, locationId) };
 }
 

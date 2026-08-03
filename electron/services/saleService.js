@@ -388,8 +388,14 @@ function finalizeSale(saleId) {
   tx();
 
   // Best-effort, em segundo plano — nunca atrasa nem falha a venda local
-  // por causa disso. Só um espelho pra relatório consolidado entre PDVs.
-  const totalItens = db.prepare('SELECT COUNT(*) as c FROM sale_items WHERE sale_id = ? AND cancelado = 0').get(saleId).c;
+  // por causa disso. Um espelho pra relatório consolidado E pro
+  // histórico compartilhado entre PDVs do mesmo grupo.
+  const itensDetalhados = db.prepare(
+    `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
+     JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+  ).all(saleId);
+  const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(saleId).map((p) => p.metodo);
+  const totalItens = itensDetalhados.length;
   const operador = db.prepare('SELECT nome FROM users WHERE id = ?').get(sale.operador_id);
   const location = db.prepare('SELECT nome FROM locations WHERE id = ?').get(sale.location_id);
   const saleAtualizada = db.prepare('SELECT finalizada_em FROM sales WHERE id = ?').get(saleId);
@@ -397,6 +403,8 @@ function finalizeSale(saleId) {
     saleId,
     total: sale.total - sale.desconto - sale.desconto_gerente,
     totalItens,
+    itens: itensDetalhados.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario })),
+    metodosPagamento,
     finalizadaEm: saleAtualizada.finalizada_em,
     operadorNome: operador?.nome,
     locationNome: location?.nome,
@@ -552,9 +560,34 @@ function getSaleItemsDetail(saleId) {
   ).all(saleId);
 }
 
+/**
+ * Finaliza a venda, mas antes — se essa instalação estiver num grupo
+ * de sincronização — confere e debita o estoque compartilhado numa
+ * transação atômica contra o Firestore. Pedido explícito: prefere
+ * atrasar um pouco a finalização a arriscar vender a mesma última
+ * unidade em duas máquinas ao mesmo tempo.
+ *
+ * Sem grupo configurado, se comporta exatamente como antes — sem
+ * nenhum atraso nem chamada de rede.
+ */
+async function finalizeSaleComVerificacaoDeGrupo(saleId) {
+  const db = getDb();
+  const itens = db.prepare(
+    `SELECT si.product_id as productId, si.quantidade, p.nome
+     FROM sale_items si JOIN products p ON p.id = si.product_id
+     WHERE si.sale_id = ? AND si.cancelado = 0`
+  ).all(saleId);
+
+  const stockSyncService = require('./stockSyncService');
+  const checagem = await stockSyncService.verificarEDebitarEstoqueRemoto(itens);
+  if (!checagem.ok) return checagem;
+
+  return finalizeSale(saleId);
+}
+
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
-  addItem, addPayment, removePayment, finalizeSale, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson,
+  addItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson,
   getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico,
 };

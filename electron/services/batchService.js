@@ -29,6 +29,8 @@ function createBatch({ productId, locationId, lote, validade, quantidade, fornec
   });
   tx();
 
+  require('./stockSyncService').pushEstoqueProduto(productId).catch(() => {});
+
   return { ok: true, batchId };
 }
 
