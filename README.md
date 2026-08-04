@@ -3032,6 +3032,32 @@ minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
 venda local, incluindo essas duas. Não precisa de nenhuma ação manual
 além de atualizar e abrir o app.
 
+## Duplicados: exclusão direta em vez de fundir estoque
+
+Troquei o comportamento — o botão "Ver duplicados" agora deixa marcar
+vários produtos com **checkbox** e excluir de uma vez, sem somar
+estoque em nenhum outro produto (era isso que fazia antes; agora só
+remove mesmo, direto).
+
+- "Selecionar todos os duplicados" marca automaticamente todos os
+  duplicados de todos os grupos, **mantendo o de maior estoque** de
+  cada grupo desmarcado (sugestão de qual manter, mas você pode
+  ajustar manualmente antes de confirmar).
+- "Selecionar este grupo" faz a mesma coisa só num grupo específico.
+- Confirmação antes de excluir, avisando claramente que o estoque não
+  é somado em lugar nenhum.
+
+**Corrigi também uma lacuna que existia antes de mexer nisso**: excluir
+um produto (o botão normal "Excluir" da lista, não só esse novo fluxo
+de duplicados) nunca avisava o grupo de sincronização — a próxima
+sincronização podia trazer o produto excluído de volta. Agora avisa,
+reaproveitando a mesma "lápide" que já uso quando mescla produtos.
+
+Testei o fluxo completo com navegador: seleção automática mantém o de
+maior estoque, exclui só os marcados, e confirmei que excluir agora
+sempre avisa o grupo (testei isolado, com um produto qualquer, não só
+via duplicados).
+
 ## Produtos duplicados entre PDVs sincronizados — botão de mesclar
 
 O cenário do seu print: duas máquinas sincronizadas, cada uma

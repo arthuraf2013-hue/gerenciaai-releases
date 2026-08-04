@@ -277,9 +277,8 @@ export function ProductList() {
 
       {showDuplicates && (
         <DuplicateProductsModal
-          currentUserId={currentUser.id}
           onFechar={() => setShowDuplicates(false)}
-          onMesclado={() => { carregarContagemDuplicados(); reloadRef.current(); }}
+          onExcluido={() => { carregarContagemDuplicados(); reloadRef.current(); }}
         />
       )}
     </div>

@@ -322,6 +322,17 @@ function deactivate(productId) {
   ).get(productId).total;
 
   db.prepare('UPDATE products SET ativo = 0 WHERE id = ?').run(productId);
+
+  // Avisa o grupo de sincronização (se tiver) que esse produto foi
+  // excluído — sem isso, a próxima sincronização podia trazer ele de
+  // volta, já que a outra máquina continuaria mandando a própria
+  // cópia dele sem saber que foi excluído aqui.
+  try {
+    require('./productSyncService').marcarProdutoExcluidoNoGrupo(productId);
+  } catch (err) {
+    console.error('[productService] falha ao avisar o grupo sobre produto excluído (não afeta a exclusão local):', err);
+  }
+
   return { ok: true, estoqueRestante: estoqueAtual };
 }
 
