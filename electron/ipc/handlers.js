@@ -307,7 +307,7 @@ function registerIpcHandlers() {
   safeHandle('pdvRegistry:getStatus', () => pdvRegistryService.getSyncStatus());
   safeHandle('salesSync:getConsolidated', (_e, payload) => salesSyncService.getConsolidated(payload));
   safeHandle('salesSync:getGroupHistory', (_e, payload) => salesSyncService.getGroupHistory(payload));
-  safeHandle('salesSync:pushTodoOHistorico', () => salesSyncService.pushTodoOHistorico());
+  safeHandle('salesSync:pushTodoOHistorico', () => salesSyncService.pushTodoOHistorico({ diasRecentes: 60 }));
 
   // --- Clientes, fiado e fidelidade ---
   safeHandle('customer:list', (_e, opts) => customerService.listWithSaldo(opts));

@@ -143,7 +143,7 @@ app.whenReady().then(() => {
   licenseService.iniciarEscutaTempoReal();
   licenseService.iniciarPingDePresenca();
   require('./services/productSyncService').iniciarEscutaProdutos();
-  require('./services/salesSyncService').pushTodoOHistorico();
+  require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 });
   require('./services/messageService').iniciarEscutaMensagemGlobal();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
   // Reenvio periódico de segurança — o push de cada venda ao finalizar
@@ -151,7 +151,12 @@ app.whenReady().then(() => {
   // exato); sem isso, uma falha silenciosa isolada só seria corrigida
   // no próximo reinício do app. Reescrever a mesma venda de novo é
   // inofensivo (mesmo ID sobrescreve), então repetir isso não tem risco.
-  setInterval(() => require('./services/salesSyncService').pushTodoOHistorico(), 15 * 60 * 1000);
+  // Limitado aos últimos 60 dias — o objetivo é só recuperar uma
+  // sincronização recente que falhou, não reprocessar o histórico
+  // inteiro toda vez (isso ficava mais lento conforme o histórico
+  // crescia, sem ganho nenhum — vendas de anos atrás já sincronizadas
+  // não precisam ser reenviadas de novo pra sempre).
+  setInterval(() => require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 }), 15 * 60 * 1000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

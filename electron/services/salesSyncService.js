@@ -58,18 +58,35 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
  * sincronização (sem isso, só vendas finalizadas DEPOIS de entrar no
  * grupo apareceriam no histórico compartilhado).
  */
-async function pushTodoOHistorico() {
+/**
+ * @param {{ diasRecentes?: number }} opts diasRecentes limita a busca
+ * a vendas dos últimos N dias — sem isso, cada chamada reprocessava o
+ * histórico INTEIRO desde sempre, ficando mais lento conforme o
+ * histórico crescia. Passe `null`/omita pra pegar tudo (usado só uma
+ * vez, ao entrar num grupo pela primeira vez — ali sim precisa do
+ * histórico completo). As chamadas recorrentes (ciclo automático,
+ * botão "Atualizar", abertura do app) usam um período recente — o
+ * objetivo delas é só corrigir alguma sincronização que falhou
+ * silenciosamente há pouco tempo, não reprocessar anos de vendas.
+ */
+async function pushTodoOHistorico({ diasRecentes } = {}) {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId) return;
 
     const { getDb } = require('../db/database');
     const db = getDb();
-    const vendas = db.prepare(
-      `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
-       FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-       WHERE s.status = 'finalizada'`
-    ).all();
+    const vendas = diasRecentes
+      ? db.prepare(
+          `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
+           FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
+           WHERE s.status = 'finalizada' AND date(s.finalizada_em) >= date('now', ?)`
+        ).all(`-${diasRecentes} days`)
+      : db.prepare(
+          `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
+           FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
+           WHERE s.status = 'finalizada'`
+        ).all();
     if (vendas.length === 0) return;
 
     const licenseService = require('./licenseService');

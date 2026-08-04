@@ -3032,6 +3032,40 @@ minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
 venda local, incluindo essas duas. Não precisa de nenhuma ação manual
 além de atualizar e abrir o app.
 
+## Duas perguntas: lentidão e "cache"
+
+**Sobre "servidor desligado"**: não existe essa peça na arquitetura
+que causaria isso — o Firestore (onde tudo é sincronizado) é do
+Google, sempre ligado, não tem "desligar". A única coisa parecida com
+"servidor" é a máquina marcada como responsável pelo estoque
+compartilhado, e ela só afeta a checagem de estoque na hora de
+finalizar venda, não a velocidade de atualizar o histórico.
+
+**Mas achei um problema real de lentidão, sem relação com isso**: o
+reenvio de segurança (que criei pra corrigir sincronização que falhou)
+buscava e reprocessava o **histórico inteiro desde sempre**, toda vez
+que rodava — a cada 15 minutos, a cada abertura do app, e a cada
+clique em "Atualizar". Isso ficava mais lento conforme o histórico
+crescia, sem necessidade nenhuma (vendas de anos atrás que já
+sincronizaram não precisam ser reenviadas de novo pra sempre).
+
+**Corrigido**: essas chamadas recorrentes agora olham só os últimos 60
+dias — o objetivo delas é só recuperar alguma sincronização recente
+que falhou, não reprocessar anos de histórico. A única exceção
+continua sendo a primeira vez que uma máquina entra num grupo — aí sim
+precisa do histórico completo, uma única vez. Medi o ganho com 2 anos
+de histórico simulado (20 mil vendas): **92% menos vendas processadas**
+a cada ciclo.
+
+**Sobre "cache" e vendas de ontem aparecendo hoje**: isso já tinha
+outra causa, identificada e corrigida numa entrega anterior — não
+tinha nada a ver com cache nem com "servidor". Era um bug de fuso
+horário: o campo que decide em qual dia uma venda aparece cortava a
+data gravada em UTC sem converter pro horário de Brasília, então
+vendas de fim de noite (depois de 21h) apareciam um dia adiante. Já
+corrigi isso, incluindo uma forma de corrigir na hora o dado que já
+tinha sido gravado errado antes da correção (o botão "Atualizar").
+
 ## Erro de conflito de código de barras subindo repetido — corrigido
 
 Achei a causa exata: o Firestore reenvia a coleção de produtos
