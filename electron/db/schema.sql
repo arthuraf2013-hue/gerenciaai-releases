@@ -87,6 +87,13 @@ CREATE TABLE IF NOT EXISTS products (
   -- como JSON livre, sem exigir migração de schema por vertical.
   custom_fields   TEXT DEFAULT '{}',
   ativo           INTEGER DEFAULT 1,
+  -- Preenchido só quando esse produto chegou da sincronização entre
+  -- PDVs com um código de barras que já pertencia a OUTRO produto
+  -- local — guarda qual seria o código de barras "de verdade" dele,
+  -- pra você conseguir achar e resolver manualmente (decidir qual dos
+  -- dois produtos deveria ficar com o código). Fica NULL assim que
+  -- alguém editar o produto e definir o código de barras dele.
+  conflito_codigo_barras_pendente TEXT,
   criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE INDEX IF NOT EXISTS idx_products_codigo_barras ON products(codigo_barras);

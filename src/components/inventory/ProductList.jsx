@@ -11,6 +11,7 @@ const PAGE_SIZE = 60;
 export function ProductList() {
   const { currentUser } = useSession();
   const [products, setProducts] = useState([]);
+  const [soConflitos, setSoConflitos] = useState(false);
   const [estoquePorProduto, setEstoquePorProduto] = useState({});
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
@@ -190,6 +191,10 @@ export function ProductList() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 12 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={soConflitos} onChange={(e) => setSoConflitos(e.target.checked)} />
+        Mostrar só produtos com conflito de código de barras pendente
+      </label>
 
       <table className="data-table">
         <thead>
@@ -198,13 +203,24 @@ export function ProductList() {
           </tr>
         </thead>
         <tbody>
-          {products.map((p) => {
+          {(soConflitos ? products.filter((p) => p.conflito_codigo_barras_pendente) : products).map((p) => {
             const estoqueAtual = estoquePorProduto[p.id] ?? '—';
             const abaixoDoMinimo = typeof estoqueAtual === 'number' && estoqueAtual <= p.estoque_minimo;
             return (
               <tr key={p.id}>
                 <td><ProductThumbnail product={p} size={36} /></td>
-                <td>{p.nome}</td>
+                <td>
+                  {p.nome}
+                  {p.conflito_codigo_barras_pendente && (
+                    <span
+                      className="badge-warning"
+                      style={{ marginLeft: 6, fontSize: 11 }}
+                      title={`Chegou da sincronização com o código de barras "${p.conflito_codigo_barras_pendente}", mas esse código já pertence a outro produto local. Resolva manualmente: defina o código de barras certo pra esse produto (ou apague o outro, se for duplicado).`}
+                    >
+                      ⚠ conflito de código de barras
+                    </span>
+                  )}
+                </td>
                 <td>{p.sku}</td>
                 <td>{p.categoria}</td>
                 <td>R$ {p.preco.toFixed(2)}</td>

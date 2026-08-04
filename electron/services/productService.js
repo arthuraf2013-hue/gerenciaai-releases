@@ -200,7 +200,8 @@ function upsert(product) {
        unidade=excluded.unidade, estoque_minimo=excluded.estoque_minimo,
        ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
        cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria,
-       custom_fields=excluded.custom_fields, codigo_balanca=excluded.codigo_balanca`
+       custom_fields=excluded.custom_fields, codigo_balanca=excluded.codigo_balanca,
+       conflito_codigo_barras_pendente=NULL`
   ).run({
     id,
     sku: product.sku || null,
@@ -251,14 +252,15 @@ function aplicarProdutoSincronizado(productId, dados) {
   const jaExiste = db.prepare('SELECT id FROM products WHERE id = ?').get(productId);
 
   db.prepare(
-    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, ativo)
-     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @ativo)
+    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, ativo, conflito_codigo_barras_pendente)
+     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @ativo, @conflitoCodigoBarrasPendente)
      ON CONFLICT(id) DO UPDATE SET
        sku=excluded.sku, codigo_barras=excluded.codigo_barras, nome=excluded.nome,
        categoria=excluded.categoria, preco=excluded.preco, custo=excluded.custo,
        unidade=excluded.unidade, estoque_minimo=excluded.estoque_minimo,
        ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
-       cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria, ativo=excluded.ativo`
+       cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria, ativo=excluded.ativo,
+       conflito_codigo_barras_pendente=excluded.conflito_codigo_barras_pendente`
   ).run({
     id: productId,
     sku: dados.sku || null,
@@ -275,6 +277,10 @@ function aplicarProdutoSincronizado(productId, dados) {
     cstCsosn: dados.cstCsosn || null,
     origemMercadoria: dados.origemMercadoria || '0',
     ativo: dados.ativo === false ? 0 : 1,
+    // Só usado quando esse produto está sendo salvo SEM o código de
+    // barras por causa de um conflito — guarda qual seria, pra dar pra
+    // achar e resolver depois. undefined vira NULL normalmente aqui.
+    conflitoCodigoBarrasPendente: dados.conflitoCodigoBarrasPendente || null,
   });
 
   return { novo: !jaExiste };

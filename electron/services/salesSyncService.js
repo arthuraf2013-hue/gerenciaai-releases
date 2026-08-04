@@ -2,6 +2,21 @@ const pdvRegistryService = require('./pdvRegistryService');
 const syncStateService = require('./syncStateService');
 
 /**
+ * `finalizada_em` é gravado em UTC (NOW_SYNCED()) — cortar a string
+ * direto pega o dia em UTC, não o dia local. Pra vendas tarde da noite
+ * (horário de Brasília, UTC-3), isso empurra a venda pro dia SEGUINTE
+ * em UTC — uma venda às 21:45 vira "00:45 do dia seguinte" em UTC, e
+ * cortar ingenuamente a data dava o dia errado no histórico do grupo.
+ * Sempre usa isso pra calcular diaISO, nunca `.slice(0, 10)` direto.
+ */
+function calcularDiaISO(finalizadaEmUTC) {
+  if (!finalizadaEmUTC) return '';
+  const data = new Date(finalizadaEmUTC.includes('Z') ? finalizadaEmUTC : finalizadaEmUTC + 'Z');
+  if (isNaN(data.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(data);
+}
+
+/**
  * Envia um RESUMO da venda pro Firestore central do Arthur (não os
  * itens individuais, não dado de cliente) — só o suficiente pra um
  * relatório consolidado entre PDVs do mesmo grupo. Puramente aditivo:
@@ -23,7 +38,7 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const { doc, setDoc } = require('firebase/firestore');
 
-    const diaISO = (finalizadaEm || '').slice(0, 10);
+    const diaISO = calcularDiaISO(finalizadaEm);
     const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', saleId);
     await setDoc(ref, {
       installId, total, totalItens, itens: itens || [], metodosPagamento: metodosPagamento || [],
@@ -73,7 +88,7 @@ async function pushTodoOHistorico() {
            JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
         ).all(v.id);
         const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(v.id).map((p) => p.metodo);
-        const diaISO = (v.finalizada_em || '').slice(0, 10);
+        const diaISO = calcularDiaISO(v.finalizada_em);
         const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', v.id);
         batch.set(ref, {
           installId,

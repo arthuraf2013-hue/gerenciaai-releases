@@ -415,6 +415,10 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .bar-fill-gold { background: var(--gold, #d9a84e); }
 .bar-value { font-size: 12px; text-align: right; font-weight: 600; }
 .row-warning { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.badge-warning {
+  background: var(--color-warning-bg); color: var(--color-warning-text); padding: 2px 8px;
+  border-radius: 999px; display: inline-block; white-space: nowrap;
+}
 .row-critical { background: var(--color-critical-bg); color: var(--color-critical-text); }
 
 .btn-link { background: none; color: var(--color-primary); padding: 4px 8px; text-decoration: underline; }

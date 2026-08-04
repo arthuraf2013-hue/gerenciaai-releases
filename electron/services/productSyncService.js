@@ -132,7 +132,7 @@ function aplicarComTratamentoDeConflito(productId, dados, erroOriginal) {
 
   try {
     const productService = require('./productService');
-    productService.aplicarProdutoSincronizado(productId, { ...dados, codigoBarras: null });
+    productService.aplicarProdutoSincronizado(productId, { ...dados, codigoBarras: null, conflitoCodigoBarrasPendente: dados.codigoBarras });
     console.error(
       `[productSyncService] produto ${productId} tem código de barras "${dados.codigoBarras}" que já pertence a outro produto local — ` +
       'sincronizou o resto (nome, preço) sem o código de barras. Precisa resolver manualmente qual dos dois deveria ter esse código.'

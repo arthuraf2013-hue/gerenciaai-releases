@@ -2979,6 +2979,59 @@ rodar normalmente na sua máquina.
   linguagem natural via IA (reaproveita a mesma configuração da extração
   de receitas).
 
+## Vendas de fim de noite indo pro dia errado — bug de fuso horário
+
+As duas vendas voltaram (a correção anterior funcionou), mas apareciam
+no dia seguinte — exatamente as 21:41 e 21:45, que é a pista: o
+`finalizada_em` é gravado em UTC no banco, e o campo `diaISO` (que
+decide em qual dia a venda aparece no histórico do grupo) só cortava
+a string direto, sem converter fuso. Uma venda às 21:41 em horário de
+Brasília (UTC-3) já é meia-noite e pouco em UTC — **do dia seguinte**
+— então cortar a data crua sempre empurrava vendas de fim de noite pro
+dia errado.
+
+Achei que já tinha corrigido esse EXATO padrão de bug antes, só que no
+frontend (`src/utils/date.js`, função `toISODate`, com um comentário
+descrevendo esse mesmo problema) — só nunca tinha propagado a mesma
+correção pro campo `diaISO` do backend, usado especificamente na
+sincronização entre PDVs.
+
+**Corrigido**: `diaISO` agora usa a mesma conversão de fuso correta
+(`Intl.DateTimeFormat` com fuso de São Paulo) em vez de cortar a
+string crua — testei com os horários exatos do seu print (21:41 e
+21:45) e confirmei que agora calculam pro dia certo (03/08), e não
+vazam mais pro filtro "Hoje" quando já é 04/08.
+
+**As duas vendas que já estavam com o dado errado no Firestore vão se
+corrigir sozinhas** — o reenvio periódico que já existe (a cada 15
+minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
+venda local, incluindo essas duas. Não precisa de nenhuma ação manual
+além de atualizar e abrir o app.
+
+## Achando e resolvendo conflitos de código de barras
+
+Sua observação era certeira: a correção anterior evitava o crash, mas
+deixava dois produtos desconectados — o original (com o código de
+barras) e o sincronizado (sem ele, silenciosamente) — sem nenhum jeito
+fácil de achar qual precisava de atenção. Escanear o código só achava
+o original; o outro só aparecia buscando pelo nome.
+
+**Adicionado**: quando um conflito acontece, o produto sincronizado
+agora guarda **qual seria o código de barras dele** (não só descarta).
+Na tela de Produtos:
+- Um selo "⚠ conflito de código de barras" aparece do lado do nome,
+  com o código pendente explicado ao passar o mouse.
+- Um filtro "Mostrar só produtos com conflito de código de barras
+  pendente" — pra ver todos de uma vez, sem precisar rolar a lista
+  inteira procurando o selo.
+- Assim que você edita o produto pela tela normal (e decide o código
+  de barras certo — o pendente, um diferente, ou apaga o outro
+  produto duplicado), o aviso some sozinho.
+
+Testei o fluxo inteiro: o conflito grava o aviso corretamente, e
+editar o produto pela tela normal limpa o aviso automaticamente,
+sem precisar de nenhuma ação manual além de salvar o produto.
+
 ## Dois bugs reais dos erros reportados
 
 ### 1. `window.prompt()` não funciona no Electron — bug sério, afetava 4 telas

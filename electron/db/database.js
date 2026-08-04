@@ -74,6 +74,7 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_original', 'REAL');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_por_id', 'TEXT');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_motivo', 'TEXT');
+  adicionarColunaSeFaltando(database, 'products', 'conflito_codigo_barras_pendente', 'TEXT');
 }
 
 function seedIfEmpty(database) {
