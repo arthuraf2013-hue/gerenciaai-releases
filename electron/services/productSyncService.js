@@ -130,9 +130,25 @@ function aplicarComTratamentoDeConflito(productId, dados, erroOriginal) {
     return;
   }
 
+  // O Firestore reenvia a coleção inteira toda vez que QUALQUER produto
+  // do grupo muda (não só o conflitante) — sem essa checagem, o mesmo
+  // conflito seria detectado e reportado de novo a cada disparo do
+  // listener, enchendo a tela de Erros com o mesmo aviso repetido. Só
+  // reporta na primeira vez que ESSE conflito específico (mesmo
+  // produto, mesmo código pendente) aparece — mas continua aplicando o
+  // resto do produto (nome, preço) silenciosamente a cada vez, pra não
+  // ficar desatualizado enquanto o conflito não é resolvido.
+  const { getDb } = require('../db/database');
+  const db = getDb();
+  const estadoAtual = db.prepare('SELECT conflito_codigo_barras_pendente FROM products WHERE id = ?').get(productId);
+  const jaReportadoParaEsseCodigo = estadoAtual && estadoAtual.conflito_codigo_barras_pendente === dados.codigoBarras;
+
   try {
     const productService = require('./productService');
     productService.aplicarProdutoSincronizado(productId, { ...dados, codigoBarras: null, conflitoCodigoBarrasPendente: dados.codigoBarras });
+
+    if (jaReportadoParaEsseCodigo) return; // mesmo conflito de antes, já foi avisado -- só atualizou o resto em silêncio
+
     console.error(
       `[productSyncService] produto ${productId} tem código de barras "${dados.codigoBarras}" que já pertence a outro produto local — ` +
       'sincronizou o resto (nome, preço) sem o código de barras. Precisa resolver manualmente qual dos dois deveria ter esse código.'

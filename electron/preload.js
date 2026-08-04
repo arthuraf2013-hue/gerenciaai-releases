@@ -193,6 +193,7 @@ contextBridge.exposeInMainWorld('pdv', {
   salesSync: {
     getConsolidated: invoke('salesSync:getConsolidated'),
     getGroupHistory: invoke('salesSync:getGroupHistory'),
+    pushTodoOHistorico: invoke('salesSync:pushTodoOHistorico'),
   },
   customers: {
     list: invoke('customer:list'),

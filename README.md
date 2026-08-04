@@ -2981,6 +2981,30 @@ rodar normalmente na sua máquina.
 
 ## Vendas de fim de noite indo pro dia errado — bug de fuso horário
 
+### Continuação — corrigindo o dado antigo na hora, sem esperar
+
+Seu segundo print mostrou o mesmo problema ainda acontecendo — não
+porque a correção anterior estava errada, mas porque o dado **já
+gravado** no Firestore (com o `diaISO` errado, de antes da correção)
+só se corrigia sozinho no próximo ciclo de 15 minutos ou reabertura
+do app. Se testou logo depois de atualizar, ainda não tinha dado
+tempo.
+
+**Corrigido**: o botão "↻ Atualizar" (e a primeira busca ao abrir a
+tela de Histórico) agora **reenvia o dado desta máquina primeiro,
+corrigindo qualquer coisa desatualizada, e só depois busca de novo**
+— tudo na mesma ação, sem esperar nada. O ciclo automático de 20s
+continua leve (só relê, sem reenviar toda hora, pra não gerar
+escrita desnecessária no Firestore a cada 20 segundos).
+
+**Testei reproduzindo o cenário exato do bug**: simulei o Firestore
+com o `diaISO` errado já gravado (do jeito que ficou pras suas duas
+vendas), confirmei que aparecia em "Hoje" por engano, forcei a
+correção (a mesma ação que o botão faz agora), e confirmei que a
+venda sai de "Hoje" e passa a aparecer certinho no dia de ontem.
+
+
+
 As duas vendas voltaram (a correção anterior funcionou), mas apareciam
 no dia seguinte — exatamente as 21:41 e 21:45, que é a pista: o
 `finalizada_em` é gravado em UTC no banco, e o campo `diaISO` (que
@@ -3007,6 +3031,28 @@ corrigir sozinhas** — o reenvio periódico que já existe (a cada 15
 minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
 venda local, incluindo essas duas. Não precisa de nenhuma ação manual
 além de atualizar e abrir o app.
+
+## Erro de conflito de código de barras subindo repetido — corrigido
+
+Achei a causa exata: o Firestore reenvia a coleção de produtos
+**inteira** toda vez que QUALQUER produto do grupo muda (não só o que
+está em conflito) — e como o dado no Firestore nunca é corrigido (só
+a cópia local), o mesmo conflito era detectado, aplicado, e reportado
+de novo a cada disparo do listener, enchendo a tela de Erros com o
+mesmo aviso repetido sem parar.
+
+**Corrigido**: agora só reporta na **primeira vez** que um conflito
+específico (mesmo produto, mesmo código de barras pendente) aparece —
+mas continua atualizando o resto do produto (nome, preço) em silêncio
+a cada vez, pra não ficar desatualizado enquanto o conflito não é
+resolvido. Assim que você resolve pela tela de Produtos (o aviso some
+do produto), se um conflito genuinamente novo aparecer depois, volta
+a reportar normalmente.
+
+Testei os dois lados: o mesmo conflito disparando 5 vezes seguidas
+gera só 1 relato de erro (não 5); e dois conflitos **diferentes**
+continuam sendo reportados um por um, normalmente — só a repetição
+do mesmo é que some.
 
 ## Achando e resolvendo conflitos de código de barras
 

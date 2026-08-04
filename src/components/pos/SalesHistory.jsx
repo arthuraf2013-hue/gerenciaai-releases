@@ -87,10 +87,17 @@ export function SalesHistory({ onDevolver }) {
     recarregarVendas();
   }, [dataInicio, dataFim, mostrarExcluidas]);
 
-  function carregarHistoricoDoGrupo(mostrarCarregando = true) {
+  async function carregarHistoricoDoGrupo(mostrarCarregando = true, forcarReenvio = false) {
     if (!sincronizacaoAtiva || !dataInicio || !dataFim) return;
     if (mostrarCarregando) setCarregandoGrupo(true);
     setErroGrupo('');
+    if (forcarReenvio) {
+      // Corrige na hora qualquer dado desatualizado desta máquina no
+      // Firestore antes de reler — sem isso, dependia só do ciclo
+      // automático de 15 minutos (ou reabrir o app) pra dado antigo se
+      // corrigir sozinho.
+      await window.pdv.salesSync.pushTodoOHistorico();
+    }
     window.pdv.salesSync.getGroupHistory({ dataInicio, dataFim }).then((result) => {
       setCarregandoGrupo(false);
       if (!result.ok) return setErroGrupo(result.error);
@@ -99,7 +106,7 @@ export function SalesHistory({ onDevolver }) {
   }
 
   useEffect(() => {
-    carregarHistoricoDoGrupo();
+    carregarHistoricoDoGrupo(true, true);
   }, [sincronizacaoAtiva, dataInicio, dataFim]);
 
   useEffect(() => {
@@ -241,7 +248,7 @@ export function SalesHistory({ onDevolver }) {
           </label>
         )}
         {sincronizacaoAtiva && (
-          <button className="btn-secondary" onClick={() => carregarHistoricoDoGrupo(true)} disabled={carregandoGrupo} title="O histórico do grupo atualiza sozinho a cada 20s, mas você pode forçar agora">
+          <button className="btn-secondary" onClick={() => carregarHistoricoDoGrupo(true, true)} disabled={carregandoGrupo} title="Reenvia o dado desta máquina (corrige qualquer coisa desatualizada) e busca de novo na hora">
             {carregandoGrupo ? 'Atualizando...' : '↻ Atualizar'}
           </button>
         )}
