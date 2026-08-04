@@ -3032,6 +3032,27 @@ minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
 venda local, incluindo essas duas. Não precisa de nenhuma ação manual
 além de atualizar e abrir o app.
 
+## Modal de duplicados em tela cheia
+
+Seu print mostrava exatamente o problema: com 1146 grupos de
+duplicados, o modal pequeno (largura fixa, sem rolagem própria)
+ficava cortado e ilegível. Reescrevi:
+
+- **Ocupa quase a tela toda** (95% da largura, 92% da altura).
+- **Uma tabela única contínua**, em vez de uma tabela por grupo — bem
+  mais rápida de renderizar com centenas de grupos, e mais fácil de
+  escanear.
+- **"Selecionar todos" em destaque no topo**, sempre visível — marca
+  automaticamente o de menor estoque de cada grupo, mantendo o de
+  maior estoque como sugestão.
+- **Rolagem só na lista**, os botões de ação (Fechar, Excluir) ficam
+  sempre visíveis embaixo, nunca saem da tela.
+
+Testei simulando os mesmos 1146 grupos (2292 produtos) que você tem
+de verdade — renderiza em cerca de 1,3 segundo, a seleção automática
+marca certo, a rolagem interna funciona, e os botões continuam
+alcançáveis o tempo todo.
+
 ## Duplicados: exclusão direta em vez de fundir estoque
 
 Troquei o comportamento — o botão "Ver duplicados" agora deixa marcar

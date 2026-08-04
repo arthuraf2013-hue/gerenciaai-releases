@@ -430,6 +430,11 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .product-photo-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .modal-card-wide { width: 640px; max-height: 85vh; overflow-y: auto; }
+.modal-card-fullscreen {
+  width: 95vw; height: 92vh; max-width: none; max-height: none;
+  display: flex; flex-direction: column;
+}
+.modal-card-fullscreen-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
 .settings-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
 .settings-section { margin-bottom: 28px; }

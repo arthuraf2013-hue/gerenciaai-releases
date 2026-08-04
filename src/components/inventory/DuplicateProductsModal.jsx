@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
 
 /**
@@ -12,11 +12,30 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
   useEscToClose(onFechar);
 
   function carregar() {
+    setGrupos(null);
     window.pdv.products.findDuplicates().then(setGrupos);
     setSelecionados(new Set());
   }
 
   useEffect(carregar, []);
+
+  // Uma lista única, "achatada", em vez de uma tabela por grupo —
+  // com muitos grupos (centenas) isso fica bem mais rápido de
+  // renderizar e mais fácil de rolar/escanear que várias tabelas
+  // pequenas empilhadas.
+  const totalProdutos = useMemo(() => grupos ? grupos.reduce((acc, g) => acc + g.length, 0) : 0, [grupos]);
+
+  // Sugestão padrão de seleção: em cada grupo, marca todos MENOS o de
+  // maior estoque (o candidato mais razoável a manter).
+  const sugestaoDeSelecao = useMemo(() => {
+    if (!grupos) return new Set();
+    const novo = new Set();
+    grupos.forEach((grupo) => {
+      const maiorEstoque = [...grupo].sort((a, b) => b.estoque_atual - a.estoque_atual)[0];
+      grupo.forEach((p) => { if (p.id !== maiorEstoque.id) novo.add(p.id); });
+    });
+    return novo;
+  }, [grupos]);
 
   function toggleSelecionado(productId) {
     setSelecionados((prev) => {
@@ -26,27 +45,12 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
     });
   }
 
-  function selecionarTodosMenosOMaior(grupo) {
-    // Marca todos do grupo pra excluir, exceto o de maior estoque —
-    // um jeito rápido de "limpar" um grupo inteiro de uma vez, sem
-    // precisar clicar item por item.
-    const maiorEstoque = [...grupo].sort((a, b) => b.estoque_atual - a.estoque_atual)[0];
-    setSelecionados((prev) => {
-      const novo = new Set(prev);
-      grupo.forEach((p) => { if (p.id !== maiorEstoque.id) novo.add(p.id); });
-      return novo;
-    });
+  function selecionarTodosOsDuplicados() {
+    setSelecionados(new Set(sugestaoDeSelecao));
   }
 
-  function selecionarTodosOsDuplicados() {
-    // Aplica a mesma lógica (mantém o de maior estoque) em TODOS os
-    // grupos de uma vez.
-    const novo = new Set();
-    grupos.forEach((grupo) => {
-      const maiorEstoque = [...grupo].sort((a, b) => b.estoque_atual - a.estoque_atual)[0];
-      grupo.forEach((p) => { if (p.id !== maiorEstoque.id) novo.add(p.id); });
-    });
-    setSelecionados(novo);
+  function limparSelecao() {
+    setSelecionados(new Set());
   }
 
   async function handleExcluirSelecionados() {
@@ -66,53 +70,56 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
 
   return (
     <div className="modal-overlay">
-      <div className="modal-card" style={{ maxWidth: 700 }}>
-        <h2>Produtos duplicados</h2>
-        <p className="screen-hint" style={{ margin: '0 0 12px' }}>
-          Produtos com o mesmo nome — comum quando duas máquinas sincronizadas cadastram
-          "o mesmo" produto de forma independente. Marque os que quer excluir e confirme —
-          <strong> o estoque deles não é somado em nenhum outro produto</strong>, é só removido.
-        </p>
-        {erro && <p className="modal-error">{erro}</p>}
-        {grupos === null && <p className="empty-state">Carregando...</p>}
-        {grupos !== null && grupos.length === 0 && <p className="empty-state">Nenhum produto duplicado encontrado.</p>}
-
-        {grupos && grupos.length > 0 && (
-          <button className="btn-link" style={{ marginBottom: 12 }} onClick={selecionarTodosOsDuplicados}>
-            Selecionar todos os duplicados (mantém o de maior estoque em cada grupo)
-          </button>
-        )}
-
-        {grupos && grupos.map((grupo, indice) => (
-          <div key={indice} className="screen-section-box" style={{ margin: '0 0 16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <strong>{grupo[0].nome}</strong>
-              <button className="btn-link" onClick={() => selecionarTodosMenosOMaior(grupo)}>Selecionar este grupo</button>
+      <div className="modal-card modal-card-fullscreen">
+        <div>
+          <h2>Produtos duplicados{grupos && grupos.length > 0 ? ` — ${grupos.length} grupos, ${totalProdutos} produtos` : ''}</h2>
+          <p className="screen-hint" style={{ margin: '4px 0 12px' }}>
+            Produtos com o mesmo nome — comum quando duas máquinas sincronizadas cadastram
+            "o mesmo" produto de forma independente. Marque os que quer excluir e confirme —
+            <strong> o estoque deles não é somado em nenhum outro produto</strong>, é só removido.
+          </p>
+          {erro && <p className="modal-error">{erro}</p>}
+          {grupos && grupos.length > 0 && (
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}>
+              <button className="btn-primary" onClick={selecionarTodosOsDuplicados}>
+                Selecionar todos ({sugestaoDeSelecao.size}) — mantém o de maior estoque em cada grupo
+              </button>
+              <button className="btn-link" onClick={limparSelecao}>Limpar seleção</button>
+              <span className="screen-hint">{selecionados.size} selecionado(s)</span>
             </div>
-            <table className="data-table" style={{ marginTop: 8 }}>
-              <thead><tr><th></th><th>Preço</th><th>Estoque</th><th>Mín.</th></tr></thead>
+          )}
+        </div>
+
+        <div className="modal-card-fullscreen-scroll">
+          {grupos === null && <p className="empty-state">Carregando...</p>}
+          {grupos !== null && grupos.length === 0 && <p className="empty-state">Nenhum produto duplicado encontrado.</p>}
+          {grupos && grupos.length > 0 && (
+            <table className="data-table">
+              <thead>
+                <tr><th></th><th>Nome</th><th>Preço</th><th>Estoque</th><th>Mín.</th></tr>
+              </thead>
               <tbody>
-                {grupo.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {grupos.map((grupo, indiceGrupo) => (
+                  grupo.map((p, indiceNoGrupo) => (
+                    <tr key={p.id} style={indiceNoGrupo === 0 && indiceGrupo > 0 ? { borderTop: '2px solid var(--color-border)' } : undefined}>
+                      <td>
                         <input
                           type="checkbox" style={{ width: 'auto' }}
                           checked={selecionados.has(p.id)}
                           onChange={() => toggleSelecionado(p.id)}
                         />
-                        excluir
-                      </label>
-                    </td>
-                    <td>R$ {p.preco.toFixed(2)}</td>
-                    <td>{p.estoque_atual}</td>
-                    <td>{p.estoque_minimo}</td>
-                  </tr>
+                      </td>
+                      <td>{p.nome}</td>
+                      <td>R$ {p.preco.toFixed(2)}</td>
+                      <td>{p.estoque_atual}</td>
+                      <td>{p.estoque_minimo}</td>
+                    </tr>
+                  ))
                 ))}
               </tbody>
             </table>
-          </div>
-        ))}
+          )}
+        </div>
 
         <div className="modal-actions">
           <button type="button" className="btn-secondary" onClick={onFechar}>Fechar</button>
