@@ -2979,6 +2979,53 @@ rodar normalmente na sua máquina.
   linguagem natural via IA (reaproveita a mesma configuração da extração
   de receitas).
 
+## PDV estático, blocos, e mais personalização
+
+### 1. Por que o PDV "não era estático"
+
+Achei duas causas reais, diferentes uma da outra:
+
+**A tela inteira desmontava ao trocar de aba.** O `AppShell` usava
+`{screen === 'pos' && <POSScreen />}` — quando você saía do PDV, o
+React literalmente destruía o componente inteiro; ao voltar, recriava
+do zero (refazia buscas, perdia o que estava digitado na busca
+manual). **Corrigido**: PDV e Restaurante agora ficam sempre
+montados, só escondidos com CSS ao trocar de aba — voltar preserva
+tudo. Testei isso especificamente, comparando os dois padrões lado a
+lado: o novo preserva o texto digitado, o antigo (como prova de que o
+diagnóstico batia) realmente perde.
+
+**"Vendidos recentemente" reordenava a cada venda.** Era ordenado por
+"última venda" — qualquer venda de qualquer produto reembaralhava a
+fileira inteira, fazendo o botão do produto favorito de quem opera o
+caixa pular de lugar no meio do expediente (péssimo pra memória
+muscular). Adicionei um modo "mais vendido" (baseado nos últimos 30
+dias) — bem mais estável, já que uma venda isolada quase nunca muda a
+posição relativa. Configurável, veja abaixo.
+
+### 2. Blocos em vez de lista — sua escolha
+
+A busca manual de produto (quando o leitor não funciona) agora pode
+mostrar os resultados em blocos com miniatura, em vez de lista — é
+uma preferência, não uma troca definitiva.
+
+### 3. Personalização do PDV — nova seção em Configurações
+
+Quatro opções novas, cada terminal guarda a própria preferência
+(não sincroniza entre PDVs — cada máquina pode preferir diferente):
+
+- **Modo de busca**: Lista ou Blocos.
+- **Ordem de "vendidos recentemente"**: mais recente (de sempre) ou
+  mais vendido (estável).
+- **Quantidade de produtos** mostrados nessa fileira.
+- **Tamanho dos blocos**: confortável ou compacto (cabe mais produtos
+  na tela).
+
+Testei o fluxo inteiro de ponta a ponta: salvar uma preferência,
+reler ela, e confirmar que o backend realmente respeita o que foi
+configurado (testei especificamente a quantidade customizada de
+"vendidos recentemente").
+
 ## Código de barras exigindo clique — a causa real
 
 Sua observação era certeira: o campo de busca manual tinha uma corrida

@@ -23,6 +23,7 @@ const timeService = require('../services/timeService');
 const reportService = require('../services/reportService');
 const pdvRegistryService = require('../services/pdvRegistryService');
 const salesSyncService = require('../services/salesSyncService');
+const posDisplayService = require('../services/posDisplayService');
 const backupService = require('../services/backupService');
 const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
@@ -96,6 +97,8 @@ function registerIpcHandlers() {
   safeHandle('sale:getOrOpenCurrent', (_e, payload) => saleService.getOrOpenCurrentSale(payload));
   safeHandle('sale:listByRange', (_e, payload) => saleService.listSalesByRange(payload));
   safeHandle('sale:listRecentlySold', (_e, payload) => saleService.listRecentlySold(payload));
+  safeHandle('posDisplay:getConfig', () => posDisplayService.getConfig());
+  safeHandle('posDisplay:updateConfig', (_e, payload) => posDisplayService.updateConfig(payload));
   safeHandle('sale:addItem', (_e, payload) => saleService.addItem(payload));
   safeHandle('sale:addPayment', (_e, payload) => saleService.addPayment(payload));
   safeHandle('sale:removePayment', (_e, payload) => saleService.removePayment(payload));

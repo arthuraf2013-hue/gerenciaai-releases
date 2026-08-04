@@ -118,8 +118,18 @@ export function AppShell() {
         </div>
       </nav>
       <main className="main-content">
-        {screen === 'pos' && <POSScreen />}
-        {screen === 'restaurant' && <RestaurantScreen />}
+        {/* PDV e Restaurante ficam sempre montados, só escondidos com
+            CSS, em vez de desmontados/recriados a cada troca de aba —
+            sem isso, voltar pro PDV no meio de um atendimento perdia o
+            que estava digitado na busca, reiniciava buscas, etc. As
+            outras telas continuam recriando ao revisitar de propósito
+            (faz sentido querer dado fresco no Histórico, por exemplo). */}
+        <div style={{ display: screen === 'pos' ? 'block' : 'none', height: '100%' }}>
+          <POSScreen />
+        </div>
+        <div style={{ display: screen === 'restaurant' ? 'block' : 'none', height: '100%' }}>
+          <RestaurantScreen />
+        </div>
         {screen === 'dashboard' && <Dashboard />}
         {screen === 'history' && (
           <HistoryScreen onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />

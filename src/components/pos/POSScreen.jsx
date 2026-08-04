@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { useSession } from '../../context/SessionContext';
+import { toISODate } from '../../utils/date';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { PaymentPanel } from './PaymentPanel';
 import { ProductSearchBox } from './ProductSearchBox';
@@ -77,7 +78,7 @@ export function POSScreen() {
   // pra dar um retorno rápido do próprio ritmo do turno, sem expor
   // faturamento nem nada financeiro (isso fica reservado pro Painel).
   async function carregarVendasHoje() {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = toISODate(new Date());
     const list = await window.pdv.sale.listByRange({ locationId: LOCATION_ID, dataInicio: hoje, dataFim: hoje });
     if (Array.isArray(list)) {
       setVendasHoje(list.filter((s) => s.status === 'finalizada' && s.operador_id === currentUser.id).length);

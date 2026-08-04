@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { toISODate } from '../../utils/date';
 
 const STATUS_LABEL = {
   aberta: 'Em aberto',
@@ -12,9 +13,7 @@ const METODO_LABEL = {
   pix: 'Pix', fiado: 'Fiado', outro: 'Outro',
 };
 
-function toISODate(d) {
-  return d.toISOString().slice(0, 10);
-}
+
 
 function formatMetodos(str) {
   if (!str) return '—';

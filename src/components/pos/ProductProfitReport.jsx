@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
+import { toISODate } from '../../utils/date';
 
-function toISODate(d) { return d.toISOString().slice(0, 10); }
 
 export function ProductProfitReport() {
   const [offsetMs, setOffsetMs] = useState(0);

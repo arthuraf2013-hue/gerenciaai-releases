@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { toISODate } from '../../utils/date';
 import { ManagerAuthModal } from './ManagerAuthModal';
 
 export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
@@ -44,7 +45,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
   }, [preselectSaleId]);
 
   async function reloadRecentes() {
-    const hoje = new Date(Date.now() + offsetMs).toISOString().slice(0, 10);
+    const hoje = toISODate(new Date(Date.now() + offsetMs));
     const list = await window.pdv.returns.list({ locationId: window.APP_LOCATION_ID, dataInicio: '2000-01-01', dataFim: hoje });
     setRecentes(Array.isArray(list) ? list.slice(0, 10) : []);
   }

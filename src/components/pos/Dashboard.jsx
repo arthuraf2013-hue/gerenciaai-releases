@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { AuditLog } from '../users/AuditLog';
 import { ProductProfitReport } from './ProductProfitReport';
+import { toISODate } from '../../utils/date';
 
-function toISODate(d) { return d.toISOString().slice(0, 10); }
 
 /** Gráfico de barras simples em SVG — sem depender de nenhuma
  * biblioteca de gráficos, só pra mostrar a tendência de vendas por dia

@@ -9,7 +9,12 @@ export function CategoryProductBrowser({ onSelectProduct }) {
   const [activeCategory, setActiveCategory] = useState(null);
   const [products, setProducts] = useState([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [tamanhoBlocos, setTamanhoBlocos] = useState('confortavel');
   const activeCategoryRef = useRef(activeCategory);
+
+  useEffect(() => {
+    window.pdv.posDisplay.getConfig().then((c) => setTamanhoBlocos(c.tamanho_blocos));
+  }, []);
 
   // As categorias vêm direto do que já está cadastrado nos produtos —
   // cadastrar um produto com categoria nova já faz o botão aparecer aqui,
@@ -58,11 +63,11 @@ export function CategoryProductBrowser({ onSelectProduct }) {
       </div>
 
       {activeCategory && (
-        <div className="product-grid">
+        <div className={`product-grid ${tamanhoBlocos === 'compacto' ? 'product-grid-compacto' : ''}`}>
           {loadingProducts && <p className="empty-state">Carregando...</p>}
           {!loadingProducts && products.map((p) => (
             <button key={p.id} className="product-card" onClick={() => onSelectProduct(p)}>
-              <ProductThumbnail product={p} size={64} />
+              <ProductThumbnail product={p} size={tamanhoBlocos === 'compacto' ? 44 : 64} />
               <span className="product-card-name">{p.nome}</span>
               <span className="product-card-price">R$ {p.preco.toFixed(2)}</span>
             </button>

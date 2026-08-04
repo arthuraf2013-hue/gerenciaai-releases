@@ -64,6 +64,8 @@ export function SettingsScreen() {
   const [somLigado, setSomLigado] = useState(isBeepEnabled());
   const [exigirAutorizacaoCancelamento, setExigirAutorizacaoCancelamento] = useState(true);
   const [exigirAutorizacaoDesconto, setExigirAutorizacaoDesconto] = useState(true);
+  const [posDisplay, setPosDisplay] = useState({ modo_busca: 'lista', modo_vendidos_recentes: 'recente', qtd_vendidos_recentes: 12, tamanho_blocos: 'confortavel' });
+  const [posDisplaySaved, setPosDisplaySaved] = useState(false);
   const [segurancaSaved, setSegurancaSaved] = useState(false);
   const [backupRunning, setBackupRunning] = useState(false);
   const [backupMsg, setBackupMsg] = useState('');
@@ -120,6 +122,7 @@ export function SettingsScreen() {
       setExigirAutorizacaoCancelamento(c.exigir_autorizacao_cancelamento === 1);
       setExigirAutorizacaoDesconto(c.exigir_autorizacao_desconto === 1);
     });
+    window.pdv.posDisplay.getConfig().then(setPosDisplay);
     window.pdv.weightBarcode.getConfig().then((c) => setBalancaForm({ formato: c.formato, campo: c.campo }));
     window.pdv.scaleHardware.getConfig().then((c) => setBalancaHwForm({ porta: c.porta || '', baudRate: c.baud_rate || 9600 }));
   }, []);
@@ -269,6 +272,22 @@ export function SettingsScreen() {
     await window.pdv.auth.updateSecurityConfig({ exigirAutorizacaoDesconto: checked });
     setSegurancaSaved(true);
     setTimeout(() => setSegurancaSaved(false), 2000);
+  }
+
+  async function handlePosDisplaySave(mudanca) {
+    // Atualiza a tela na hora (não espera o backend confirmar), e
+    // salva no banco em paralelo — resposta visual instantânea pra
+    // quem está ajustando o select/número.
+    setPosDisplay((prev) => ({
+      ...prev,
+      ...(mudanca.modoBusca !== undefined && { modo_busca: mudanca.modoBusca }),
+      ...(mudanca.modoVendidosRecentes !== undefined && { modo_vendidos_recentes: mudanca.modoVendidosRecentes }),
+      ...(mudanca.qtdVendidosRecentes !== undefined && { qtd_vendidos_recentes: mudanca.qtdVendidosRecentes }),
+      ...(mudanca.tamanhoBlocos !== undefined && { tamanho_blocos: mudanca.tamanhoBlocos }),
+    }));
+    await window.pdv.posDisplay.updateConfig(mudanca);
+    setPosDisplaySaved(true);
+    setTimeout(() => setPosDisplaySaved(false), 2000);
   }
 
   async function handleSalvarBalancaFormato() {
@@ -466,6 +485,53 @@ export function SettingsScreen() {
           registrado no histórico normalmente.
         </p>
         {segurancaSaved && <p className="io-message">Salvo.</p>}
+      </section>
+
+      <section className="settings-section">
+        <h2>Personalização do PDV</h2>
+        <p className="screen-hint">
+          Só afeta esta máquina — cada terminal pode preferir um jeito diferente de exibir.
+        </p>
+
+        <label>
+          Como mostrar os resultados da busca manual de produto
+          <select value={posDisplay.modo_busca} onChange={(e) => handlePosDisplaySave({ modoBusca: e.target.value })}>
+            <option value="lista">Lista (um abaixo do outro)</option>
+            <option value="blocos">Blocos (grade, com miniatura)</option>
+          </select>
+        </label>
+
+        <label style={{ marginTop: 12 }}>
+          Ordem dos produtos em "Vendidos recentemente"
+          <select value={posDisplay.modo_vendidos_recentes} onChange={(e) => handlePosDisplaySave({ modoVendidosRecentes: e.target.value })}>
+            <option value="recente">Mais recente primeiro (reordena a cada venda)</option>
+            <option value="frequente">Mais vendido primeiro (posição fixa, não pula)</option>
+          </select>
+        </label>
+        <p className="screen-hint" style={{ margin: '6px 0 0' }}>
+          "Mais recente" muda de posição toda vez que alguém vende qualquer coisa — o botão do produto
+          favorito de quem opera o caixa pode pular de lugar no meio do expediente. "Mais vendido"
+          olha os últimos 30 dias inteiros, então a posição fica bem mais estável — uma venda isolada
+          quase nunca muda a ordem.
+        </p>
+
+        <label style={{ marginTop: 12 }}>
+          Quantos produtos mostrar em "Vendidos recentemente"
+          <input
+            type="number" min="4" max="30" value={posDisplay.qtd_vendidos_recentes}
+            onChange={(e) => handlePosDisplaySave({ qtdVendidosRecentes: Number(e.target.value) || 12 })}
+            style={{ maxWidth: 100 }}
+          />
+        </label>
+
+        <label style={{ marginTop: 12 }}>
+          Tamanho dos blocos de produto
+          <select value={posDisplay.tamanho_blocos} onChange={(e) => handlePosDisplaySave({ tamanhoBlocos: e.target.value })}>
+            <option value="confortavel">Confortável (mais fácil de acertar o dedo/mouse)</option>
+            <option value="compacto">Compacto (cabe mais produtos na tela)</option>
+          </select>
+        </label>
+        {posDisplaySaved && <p className="io-message">Salvo.</p>}
       </section>
 
       <section className="settings-section">

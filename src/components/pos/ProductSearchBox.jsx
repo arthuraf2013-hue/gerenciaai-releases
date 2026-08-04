@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { ProductThumbnail } from './ProductThumbnail';
 
 /**
  * @param {{ onSelect: (product: object) => void }} props
@@ -10,6 +11,11 @@ export function ProductSearchBox({ onSelect }) {
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
   const [indiceSelecionado, setIndiceSelecionado] = useState(-1);
+  const [modoBusca, setModoBusca] = useState('lista');
+
+  useEffect(() => {
+    window.pdv.posDisplay.getConfig().then((c) => setModoBusca(c.modo_busca));
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -81,7 +87,24 @@ export function ProductSearchBox({ onSelect }) {
         onFocus={() => results.length > 0 && setOpen(true)}
         onKeyDown={handleKeyDown}
       />
-      {open && results.length > 0 && (
+      {open && results.length > 0 && modoBusca === 'blocos' && (
+        <div className="product-search-results product-search-results-blocks">
+          {results.map((p, i) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`product-card ${i === indiceSelecionado ? 'product-search-result-active' : ''}`}
+              onClick={() => handleSelect(p)}
+              onMouseEnter={() => setIndiceSelecionado(i)}
+            >
+              <ProductThumbnail product={p} size={56} />
+              <span className="product-card-name">{p.nome}</span>
+              <span className="product-card-price">R$ {p.preco.toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {open && results.length > 0 && modoBusca !== 'blocos' && (
         <ul className="product-search-results">
           {results.map((p, i) => (
             <li key={p.id}>

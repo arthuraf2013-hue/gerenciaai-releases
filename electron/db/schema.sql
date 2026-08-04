@@ -486,6 +486,25 @@ CREATE TABLE IF NOT EXISTS supply_draft (
   atualizado_em  TEXT
 );
 
+-- Preferências de exibição do PDV — puramente visuais, cada instalação
+-- guarda a sua própria (não sincroniza entre máquinas, cada terminal
+-- pode preferir um jeito diferente de exibir).
+CREATE TABLE IF NOT EXISTS pos_display_config (
+  id                       TEXT PRIMARY KEY DEFAULT 'default',
+  -- 'lista' (padrão) ou 'blocos' -- como os resultados da busca manual
+  -- de produto aparecem.
+  modo_busca               TEXT NOT NULL DEFAULT 'lista',
+  -- 'recente' (padrão de sempre, reordena a cada venda) ou 'frequente'
+  -- (mais estável, ordena por total vendido nos últimos 30 dias — o
+  -- botão de um produto não fica pulando de lugar a cada venda).
+  modo_vendidos_recentes   TEXT NOT NULL DEFAULT 'recente',
+  -- Quantos produtos mostrar na fileira de "vendidos recentemente".
+  qtd_vendidos_recentes    INTEGER NOT NULL DEFAULT 12,
+  -- Tamanho dos blocos de produto (compacto cabe mais na tela,
+  -- confortável fica mais fácil de acertar o dedo/mouse).
+  tamanho_blocos           TEXT NOT NULL DEFAULT 'confortavel'
+);
+
 -- Cache local de qual grupo de sincronização entre PDVs essa
 -- instalação pertence — atribuído centralmente pelo painel de
 -- licenciamento (Central GerenciaAI → Sincronização), não configurado

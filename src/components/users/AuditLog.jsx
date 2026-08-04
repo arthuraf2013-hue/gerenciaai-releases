@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toISODate } from '../../utils/date';
 
 const TIPO_LABEL = {
   cancelamento_item: 'Cancelamento de item',
@@ -8,8 +9,6 @@ const TIPO_LABEL = {
   ajuste_estoque: 'Ajuste de estoque',
   preco_item_alterado: 'Preço de item alterado',
 };
-
-function toISODate(d) { return d.toISOString().slice(0, 10); }
 
 export function AuditLog() {
   const [offsetMs, setOffsetMs] = useState(0);

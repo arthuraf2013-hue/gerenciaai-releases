@@ -98,7 +98,7 @@ function marcarResultado(sucesso) {
  * pra não gerar backup toda vez que o app abre no meio do expediente. */
 async function runBackupIfNeeded() {
   const config = getBackupConfig();
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = require('./timeService').hojeLocalISO();
   const ultimoDia = config.ultimo_backup_em ? config.ultimo_backup_em.slice(0, 10) : null;
   if (ultimoDia === hoje) return { ok: true, skipped: true };
   return runBackup();

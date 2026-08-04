@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { toISODate } from '../../utils/date';
 
 export function CashReport() {
   const [periodo, setPeriodo] = useState('semana');
@@ -8,11 +9,11 @@ export function CashReport() {
 
   function datasDoPeriodo() {
     const hoje = new Date();
-    const dataFim = hoje.toISOString().slice(0, 10);
+    const dataFim = toISODate(hoje);
     const inicio = new Date(hoje);
     if (periodo === 'semana') inicio.setDate(inicio.getDate() - 7);
     if (periodo === 'mes') inicio.setDate(inicio.getDate() - 30);
-    const dataInicio = periodo === 'hoje' ? dataFim : inicio.toISOString().slice(0, 10);
+    const dataInicio = periodo === 'hoje' ? dataFim : toISODate(inicio);
     return { dataInicio, dataFim };
   }
 

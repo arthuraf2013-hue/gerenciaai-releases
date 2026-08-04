@@ -49,8 +49,30 @@ function getOrOpenCurrentSale({ locationId, operadorId }) {
 
 /** Produtos vendidos recentemente no local — para o atalho rápido no PDV.
  * Cada produto aparece uma vez só (o mais recente), mesmo se vendido várias vezes. */
-function listRecentlySold({ locationId, limit = 12 }) {
+/**
+ * @param {{ locationId: string, limit?: number, modo?: 'recente'|'frequente' }} opts
+ * modo 'recente' (padrão de sempre): ordena por última venda — reordena
+ * a CADA venda, então a posição dos botões muda toda hora.
+ * modo 'frequente': ordena por quantidade total vendida nos últimos 30
+ * dias — muito mais estável, uma venda isolada quase nunca muda a
+ * posição relativa dos produtos, então o botão fica sempre no mesmo
+ * lugar (memória muscular de quem opera o caixa).
+ */
+function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
   const db = getDb();
+  if (modo === 'frequente') {
+    return db.prepare(
+      `SELECT p.*, SUM(si.quantidade) as total_vendido
+       FROM sale_items si
+       JOIN sales s ON s.id = si.sale_id
+       JOIN products p ON p.id = si.product_id
+       WHERE s.location_id = ? AND si.cancelado = 0
+         AND date(COALESCE(s.finalizada_em, s.criado_em)) >= date('now', '-30 days')
+       GROUP BY p.id
+       ORDER BY total_vendido DESC, p.nome
+       LIMIT ?`
+    ).all(locationId, limit);
+  }
   return db.prepare(
     `SELECT p.*, MAX(si.criado_em) as ultima_venda_em
      FROM sale_items si

@@ -186,6 +186,10 @@ contextBridge.exposeInMainWorld('pdv', {
   pdvRegistry: {
     getStatus: invoke('pdvRegistry:getStatus'),
   },
+  posDisplay: {
+    getConfig: invoke('posDisplay:getConfig'),
+    updateConfig: invoke('posDisplay:updateConfig'),
+  },
   salesSync: {
     getConsolidated: invoke('salesSync:getConsolidated'),
     getGroupHistory: invoke('salesSync:getGroupHistory'),

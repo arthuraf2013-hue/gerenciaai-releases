@@ -226,6 +226,11 @@ function seedIfEmpty(database) {
     database.prepare(`INSERT INTO sync_state (id) VALUES ('default')`).run();
   }
 
+  const posDisplayCount = database.prepare('SELECT COUNT(*) as c FROM pos_display_config').get().c;
+  if (posDisplayCount === 0) {
+    database.prepare(`INSERT INTO pos_display_config (id) VALUES ('default')`).run();
+  }
+
   const loyaltyConfigCount = database.prepare('SELECT COUNT(*) as c FROM loyalty_config').get().c;
   if (loyaltyConfigCount === 0) {
     database.prepare(`INSERT INTO loyalty_config (id) VALUES ('default')`).run();
