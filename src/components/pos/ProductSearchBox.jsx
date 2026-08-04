@@ -35,19 +35,36 @@ export function ProductSearchBox({ onSelect }) {
     setIndiceSelecionado(-1);
   }
 
-  function handleKeyDown(e) {
-    if (!open || results.length === 0) return;
+  async function handleKeyDown(e) {
     if (e.key === 'ArrowDown') {
+      if (!open || results.length === 0) return;
       e.preventDefault();
       setIndiceSelecionado((i) => (i + 1) % results.length);
     } else if (e.key === 'ArrowUp') {
+      if (!open || results.length === 0) return;
       e.preventDefault();
       setIndiceSelecionado((i) => (i - 1 + results.length) % results.length);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      // Enter sem nada navegado ainda escolhe o primeiro resultado —
-      // pra quem digita rápido e já aperta Enter sem usar as setas.
-      handleSelect(results[indiceSelecionado >= 0 ? indiceSelecionado : 0]);
+      if (query.trim().length < 2) return;
+
+      // Se a busca (com debounce) já tinha resultado pronto — inclusive
+      // se a pessoa navegou com as setas — usa ele direto.
+      if (open && results.length > 0) {
+        handleSelect(results[indiceSelecionado >= 0 ? indiceSelecionado : 0]);
+        return;
+      }
+
+      // Senão, o Enter chegou ANTES do debounce de 180ms terminar —
+      // isso é exatamente o que acontece com uma pistola de código de
+      // barras (digita tudo e já manda Enter bem mais rápido que
+      // digitação humana). Busca na hora, sem esperar o debounce, e
+      // adiciona direto — sem isso, o código ficava "esperando" no
+      // campo até o dropdown aparecer sozinho, exigindo clicar depois.
+      const listaFresca = await window.pdv.products.list({ query: query.trim() });
+      if (Array.isArray(listaFresca) && listaFresca.length > 0) {
+        handleSelect(listaFresca[0]);
+      }
     } else if (e.key === 'Escape') {
       setOpen(false);
       setIndiceSelecionado(-1);

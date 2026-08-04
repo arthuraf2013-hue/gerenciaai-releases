@@ -101,6 +101,7 @@ function registerIpcHandlers() {
   safeHandle('sale:removePayment', (_e, payload) => saleService.removePayment(payload));
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
+  safeHandle('sale:setItemPrice', (_e, payload) => saleService.setItemPrice(payload));
   safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSaleComVerificacaoDeGrupo(saleId));
 
   // --- Cancelamento seguro (exige autorização de gerente) ---

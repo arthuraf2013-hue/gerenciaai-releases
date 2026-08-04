@@ -343,6 +343,52 @@ function setItemPerson({ saleItemId, pessoaNumero }) {
   return { ok: true };
 }
 
+/**
+ * Altera o preço unitário de um item já no carrinho — restrito a
+ * gerente/admin, verificado aqui no backend (não só escondido no
+ * frontend, pra não dar pra contornar). Usado tanto pra dar um valor
+ * de cortesia (cobrar menos) quanto pra cobrar um valor diferente do
+ * catálogo por algum motivo — sempre registrado, com o preço
+ * original preservado e o motivo opcional.
+ */
+function setItemPrice({ saleId, saleItemId, novoPreco, motivo, currentOperatorId }) {
+  const db = getDb();
+
+  const operador = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(currentOperatorId);
+  if (!operador || !['gerente', 'admin'].includes(operador.role)) {
+    return { ok: false, error: 'Só gerente ou admin pode alterar o preço de um item.' };
+  }
+
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
+
+  const item = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ?').get(saleItemId, saleId);
+  if (!item) return { ok: false, error: 'Item não encontrado nessa venda.' };
+  if (item.cancelado) return { ok: false, error: 'Este item já foi cancelado.' };
+
+  const preco = Number(novoPreco);
+  if (!(preco >= 0)) return { ok: false, error: 'Informe um preço válido (maior ou igual a zero).' };
+
+  const precoAntigo = item.preco_unitario;
+  const diferenca = (preco - precoAntigo) * item.quantidade;
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE sale_items SET preco_unitario = ?, preco_original = COALESCE(preco_original, ?), preco_alterado_por_id = ?, preco_alterado_motivo = ? WHERE id = ?`
+    ).run(preco, precoAntigo, currentOperatorId, motivo || null, saleItemId);
+    db.prepare('UPDATE sales SET total = total + ? WHERE id = ?').run(diferenca, saleId);
+  });
+  tx();
+
+  db.prepare(
+    `INSERT INTO audit_log (id, tipo_evento, sale_id, sale_item_id, solicitante_id, motivo, sucesso)
+     VALUES (?, 'preco_item_alterado', ?, ?, ?, ?, 1)`
+  ).run(randomUUID(), saleId, saleItemId, currentOperatorId, `De R$ ${precoAntigo.toFixed(2)} para R$ ${preco.toFixed(2)}${motivo ? ' — ' + motivo : ''}`);
+
+  return { ok: true, novoPreco: preco };
+}
+
 function removePayment({ paymentId, saleId }) {
   const db = getDb();
   const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
@@ -588,6 +634,6 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
-  addItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson,
+  addItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
   getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico,
 };

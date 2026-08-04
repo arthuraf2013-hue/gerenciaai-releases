@@ -306,6 +306,24 @@ export function POSScreen() {
     setAuthAction({ type: 'sale' });
   }
 
+  async function handleEditarPrecoItem(item) {
+    const novoPrecoStr = prompt(`Novo preço unitário para "${item.nome}" (preço atual: R$ ${item.precoUnitario.toFixed(2)}):`, item.precoUnitario.toFixed(2));
+    if (novoPrecoStr === null) return; // cancelou o prompt
+    const novoPreco = Number(novoPrecoStr.replace(',', '.'));
+    if (!(novoPreco >= 0)) return setFeedback({ message: 'Preço inválido.', type: 'error' });
+
+    const motivo = prompt('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
+
+    const result = await window.pdv.sale.setItemPrice({
+      saleId, saleItemId: item.id, novoPreco, motivo: motivo || null, currentOperatorId: currentUser.id,
+    });
+    if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
+
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, precoUnitario: result.novoPreco } : i)));
+    setTotal((prev) => prev - item.precoUnitario * item.quantidade + result.novoPreco * item.quantidade);
+    setFeedback({ message: `Preço de "${item.nome}" atualizado.`, type: 'success' });
+  }
+
   async function handleAuthConfirm(candidateId, pin, motivo) {
     if (authAction.type === 'item') {
       const item = items.find((i) => i.id === authAction.itemId);
@@ -467,6 +485,11 @@ export function POSScreen() {
                 )}
               </span>
               <span>R$ {(item.precoUnitario * item.quantidade).toFixed(2)}</span>
+              {(currentUser.role === 'gerente' || currentUser.role === 'admin') && (
+                <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleEditarPrecoItem(item); }}>
+                  Editar preço
+                </button>
+              )}
               <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); requestCancelItem(item.id); }}>
                 Cancelar
               </button>

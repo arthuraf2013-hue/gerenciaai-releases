@@ -287,7 +287,14 @@ CREATE TABLE IF NOT EXISTS sale_items (
   -- Qual pessoa da mesa pediu esse item (1, 2, 3...) — só usado quando
   -- a mesa tem mais de uma pessoa e alguém quer dividir a conta por
   -- item em vez de dividir o total igualmente.
-  pessoa_numero   INTEGER
+  pessoa_numero   INTEGER,
+  -- Preço unitário alterado manualmente na hora da venda (admin/gerente
+  -- só) — preco_original guarda o preço de catálogo de antes da
+  -- alteração, pra nunca perder o rastro de quanto era o preço "de
+  -- verdade" versus o que foi realmente cobrado.
+  preco_original       REAL,
+  preco_alterado_por_id TEXT REFERENCES users(id),
+  preco_alterado_motivo TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);

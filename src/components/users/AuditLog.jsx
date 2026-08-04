@@ -6,6 +6,7 @@ const TIPO_LABEL = {
   devolucao: 'Devolução',
   desconto_manual: 'Desconto manual',
   ajuste_estoque: 'Ajuste de estoque',
+  preco_item_alterado: 'Preço de item alterado',
 };
 
 function toISODate(d) { return d.toISOString().slice(0, 10); }

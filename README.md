@@ -2979,6 +2979,79 @@ rodar normalmente na sua máquina.
   linguagem natural via IA (reaproveita a mesma configuração da extração
   de receitas).
 
+## Código de barras exigindo clique — a causa real
+
+Sua observação era certeira: o campo de busca manual tinha uma corrida
+contra o próprio debounce. A busca espera 180ms de silêncio antes de
+consultar o banco — mas uma pistola de código de barras digita um
+código de 13 dígitos inteiro e já manda Enter em bem menos que isso.
+O Enter chegava com o resultado da busca ainda vazio (o debounce nem
+tinha rodado ainda), então nada acontecia — só ~180ms depois o
+dropdown aparecia sozinho, exigindo clicar no produto.
+
+**Corrigido**: se o Enter chegar antes do debounce terminar, o campo
+agora faz a busca na hora, sem esperar, e adiciona o produto direto —
+sem precisar de clique nenhum. Digitação humana normal continua
+funcionando exatamente como antes (sem regressão).
+
+**Testei os dois extremos com um navegador de verdade**, usando o
+componente real do app: Enter chegando 17ms depois de preencher o
+campo (corrida clara, sem ambiguidade) — adicionou direto. Digitação
+humana normal, esperando o debounce terminar sozinho antes do Enter —
+também adicionou direto, confirmando que nada quebrou pro fluxo de
+digitação manual.
+
+## Quatro pedidos: código de barras, preço editável, zoom, e o rodapé escondido
+
+### 1. Código de barras direto no carrinho
+No PDV normal já funcionava assim. Achei a lacuna real: **o modo
+restaurante (mesas) não tinha leitura de código de barras nenhuma** —
+corrigido, mesmo padrão do PDV (leitor USB/Bluetooth detectado
+automaticamente, sem precisar clicar em nada).
+
+### 2. Preço editável por item, restrito a admin/gerente
+Botão "Editar preço" no carrinho — só aparece pra quem é gerente ou
+admin, **e o backend também confere o papel** (não dá pra contornar
+escondendo/mostrando botão no navegador). Funciona pra cobrar mais ou
+menos que o catálogo — cortesia, ou o contrário. Guarda o preço
+original de catálogo separado do que foi cobrado, e cada alteração
+vira um registro na Auditoria com o motivo. Implementado no PDV normal
+e no modo mesa/restaurante. Testei o fluxo completo: operador comum
+recusado, gerente ajustando pra cima e pra baixo, total da venda
+sempre batendo certo, e os dois registros de auditoria certinhos.
+
+### 3. "Vetorizar" pro zoom
+Investiguei e o app já não usa nenhuma imagem raster (PNG/JPG) dentro
+do conteúdo — o logo já é SVG, e o resto é tudo CSS/texto. As únicas
+imagens raster que existem são ícones do próprio sistema operacional
+(barra de tarefas, instalador) — esses ficam fora da área que o zoom
+do navegador afeta, não faz sentido vetorizar. A causa real do "não
+preenche bem" era outra coisa — o item 4 abaixo.
+
+### 4. O rodapé (botão de finalizar) sumindo, precisando rolar
+**Achei a causa exata**: um bug clássico de Flexbox. O container do
+carrinho tinha `flex: 1; overflow-y: auto` (que parece que deveria
+rolar por dentro), mas faltava `min-height: 0` — sem isso, o
+navegador deixa o container CRESCER pra caber todo o conteúdo em vez
+de respeitar o espaço disponível e rolar internamente. Isso empurra o
+rodapé (com o botão de finalizar) pra fora da tela, exigindo rolar a
+página inteira — exatamente o que foi reportado, e exatamente o tipo
+de problema que fica pior com zoom (mais zoom = precisa de mais
+espaço vertical pro mesmo conteúdo, estourando mais fácil).
+
+**Corrigido em 3 lugares**: o carrinho do PDV, o carrinho do modo
+mesa, e — o mais importante — o `.main-content`, que é o container
+usado por **todas as telas do app** (Histórico, Produtos,
+Configurações, etc.), não só o PDV. Esse bug provavelmente afetava
+mais telas do que só a que foi reportada.
+
+**Testei com um navegador de verdade**, incluindo o cenário de zoom:
+simulei um carrinho com 40 itens (situação extrema) e confirmei que o
+botão "Ir para pagamento" continua visível sem rolar a página — só o
+carrinho rola por dentro. Testei também simulando zoom de 150%
+(reduzindo a área disponível proporcionalmente, que é como o zoom de
+verdade se comporta) — confirmado que o rodapé continua alcançável.
+
 ## Clone entre PDVs — catálogo, histórico compartilhado, e estoque centralizado na servidor
 
 ### Correções no histórico compartilhado (depois do primeiro teste)

@@ -69,6 +69,7 @@ contextBridge.exposeInMainWorld('pdv', {
     removePayment: invoke('sale:removePayment'),
     setItemNote: invoke('sale:setItemNote'),
     setItemPerson: invoke('sale:setItemPerson'),
+    setItemPrice: invoke('sale:setItemPrice'),
     finalize: invoke('sale:finalize'),
     cancelItem: invoke('sale:cancelItem'),
     needsManagerAuthForCancel: invoke('sale:needsManagerAuthForCancel'),

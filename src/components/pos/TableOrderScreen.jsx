@@ -1,11 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductSearchBox } from './ProductSearchBox';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { PaymentPanel } from './PaymentPanel';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { playBeep } from '../../utils/sound';
+
+function playErrorBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 220;
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.18);
+  } catch (err) { /* sem suporte a áudio, sem problema — só não toca o som */ }
+}
 
 /**
  * @param {{ tableId: string, saleId: string, numero: string, nome?: string, onFechar: () => void }} props
@@ -81,6 +98,18 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
   }
 
+  const handleScan = useCallback(async (codigoBarras) => {
+    const product = await window.pdv.products.findByBarcode(codigoBarras);
+    if (!product) {
+      setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
+      playErrorBeep();
+      return;
+    }
+    addProductToCart(product);
+  }, [addProductToCart]);
+
+  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas });
+
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
     if (!check.needsAuth) {
@@ -136,6 +165,24 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     await window.pdv.sale.setItemNote({ saleItemId: editandoObs.itemId, observacao: editandoObs.valor });
     setItems((prev) => prev.map((i) => (i.id === editandoObs.itemId ? { ...i, observacao: editandoObs.valor.trim() } : i)));
     setEditandoObs(null);
+  }
+
+  async function handleEditarPrecoItem(item) {
+    const novoPrecoStr = prompt(`Novo preço unitário para "${item.nome}" (preço atual: R$ ${item.precoUnitario.toFixed(2)}):`, item.precoUnitario.toFixed(2));
+    if (novoPrecoStr === null) return;
+    const novoPreco = Number(novoPrecoStr.replace(',', '.'));
+    if (!(novoPreco >= 0)) return setFeedback({ message: 'Preço inválido.', type: 'error' });
+
+    const motivo = prompt('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
+
+    const result = await window.pdv.sale.setItemPrice({
+      saleId, saleItemId: item.id, novoPreco, motivo: motivo || null, currentOperatorId: currentUser.id,
+    });
+    if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
+
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, precoUnitario: result.novoPreco } : i)));
+    setTotal((prev) => prev - item.precoUnitario * item.quantidade + result.novoPreco * item.quantidade);
+    setFeedback({ message: `Preço de "${item.nome}" atualizado.`, type: 'success' });
   }
 
   async function abrirTransferencia() {
@@ -307,6 +354,11 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               <button className="btn-link" onClick={(e) => { e.stopPropagation(); abrirEdicaoObs(item); }}>
                 {item.observacao ? 'Editar obs.' : '+ Observação'}
               </button>
+              {(currentUser.role === 'gerente' || currentUser.role === 'admin') && (
+                <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleEditarPrecoItem(item); }}>
+                  Editar preço
+                </button>
+              )}
               <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); requestCancelItem(item.id); }}>
                 Cancelar
               </button>

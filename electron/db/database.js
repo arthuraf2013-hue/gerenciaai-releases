@@ -71,6 +71,9 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_motivo', 'TEXT');
   adicionarColunaSeFaltando(database, 'security_config', 'exigir_autorizacao_desconto', 'INTEGER NOT NULL DEFAULT 1');
   adicionarColunaSeFaltando(database, 'sync_state', 'servidor_do_grupo', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sale_items', 'preco_original', 'REAL');
+  adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_por_id', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_motivo', 'TEXT');
 }
 
 function seedIfEmpty(database) {
