@@ -77,7 +77,7 @@ service cloud.firestore {
           .hasOnly([
             'ultimoContato', 'versaoApp', 'ultimoPing',
             'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo',
-            'totalVendasHistorico', 'vendasUltimos30Dias', 'perfilAtivo'
+            'totalVendasHistorico', 'vendasUltimos30Dias', 'perfilAtivo', 'conflitosCodigoBarrasPendentes'
           ])
       ) || request.auth != null;
 

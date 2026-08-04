@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ProductForm } from './ProductForm';
 import { ProductThumbnail } from '../pos/ProductThumbnail';
 import { StockAdjustModal } from './StockAdjustModal';
+import { DuplicateProductsModal } from './DuplicateProductsModal';
 import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
@@ -12,6 +13,8 @@ export function ProductList() {
   const { currentUser } = useSession();
   const [products, setProducts] = useState([]);
   const [soConflitos, setSoConflitos] = useState(false);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [duplicatasCount, setDuplicatasCount] = useState(0);
   const [estoquePorProduto, setEstoquePorProduto] = useState({});
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
@@ -32,6 +35,11 @@ export function ProductList() {
   // efeito, compartilhando uma única bandeira "ignore" e variáveis
   // locais (não React state) pra controlar o que já foi carregado.
   // Isso evita depender de várias referências sincronizadas por efeitos
+  function carregarContagemDuplicados() {
+    window.pdv.products.findDuplicates().then((lista) => setDuplicatasCount(lista.length));
+  }
+  useEffect(carregarContagemDuplicados, []);
+
   // separados — que tinham uma pequena janela de tempo entre o texto de
   // busca mudar e cada referência terminar de atualizar, janela essa
   // onde a rolagem infinita podia disparar com dados de uma busca
@@ -172,6 +180,9 @@ export function ProductList() {
         <div className="screen-actions">
           <button className="btn-secondary" onClick={handleImport} disabled={ioBusy}>Importar planilha</button>
           <button className="btn-secondary" onClick={handleExport} disabled={ioBusy}>Exportar planilha</button>
+          <button className="btn-secondary" onClick={() => setShowDuplicates(true)}>
+            Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
+          </button>
           <button className="btn-link-danger" onClick={handleClearAll}>Limpar todos os produtos</button>
           <button className="btn-primary" onClick={() => setEditing({})}>+ Novo produto</button>
         </div>
@@ -261,6 +272,14 @@ export function ProductList() {
           product={adjusting}
           onClose={() => setAdjusting(null)}
           onAdjusted={() => { setAdjusting(null); reloadRef.current(); }}
+        />
+      )}
+
+      {showDuplicates && (
+        <DuplicateProductsModal
+          currentUserId={currentUser.id}
+          onFechar={() => setShowDuplicates(false)}
+          onMesclado={() => { carregarContagemDuplicados(); reloadRef.current(); }}
         />
       )}
     </div>

@@ -20,10 +20,18 @@ function getMetricasAgregadas() {
 
   const perfilAtivo = db.prepare(`SELECT perfil_ativo FROM business_profile WHERE id = ?`).get('default');
 
+  // Quantos produtos estão com conflito de código de barras pendente
+  // de resolver — dá pra você ver no painel sem precisar entrar em
+  // cada máquina uma por uma pra descobrir.
+  const conflitosCodigoBarrasPendentes = db.prepare(
+    `SELECT COUNT(*) as c FROM products WHERE conflito_codigo_barras_pendente IS NOT NULL`
+  ).get().c;
+
   return {
     totalVendasHistorico,
     vendasUltimos30Dias,
     perfilAtivo: perfilAtivo?.perfil_ativo || null,
+    conflitosCodigoBarrasPendentes,
   };
 }
 

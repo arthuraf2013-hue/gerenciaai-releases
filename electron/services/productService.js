@@ -153,6 +153,15 @@ function listCategories() {
 /** Total de produtos ativos que batem com o mesmo filtro do list — usado
  * pra mostrar "X produtos no total" na tela, já que a rolagem infinita
  * nunca carrega o catálogo inteiro de uma vez só. */
+/** Quantos produtos ativos estão com conflito de código de barras
+ * pendente de resolver — usado pro aviso no menu lateral do app. */
+function countConflitosCodigoBarrasPendentes() {
+  const db = getDb();
+  return db.prepare(
+    `SELECT COUNT(*) as total FROM products WHERE conflito_codigo_barras_pendente IS NOT NULL AND ativo = 1`
+  ).get().total;
+}
+
 function count({ query, categoria } = {}) {
   const db = getDb();
   const params = [];
@@ -413,4 +422,79 @@ function clearAllProducts() {
   return { ok: true, apagados, desativados };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado };
+/**
+ * Acha produtos com o MESMO nome (ignorando maiúsculas/espaços nas
+ * pontas) — o cenário mais comum é duas máquinas cadastrando
+ * independentemente "o mesmo" produto de verdade antes de nunca
+ * terem sincronizado, cada uma com seu próprio ID. Agrupa pra você
+ * decidir qual manter.
+ */
+function findDuplicateProducts() {
+  const db = getDb();
+  const produtos = db.prepare(
+    `SELECT p.*, COALESCE(SUM(sm.quantidade), 0) as estoque_atual
+     FROM products p LEFT JOIN stock_movements sm ON sm.product_id = p.id
+     WHERE p.ativo = 1 GROUP BY p.id`
+  ).all();
+
+  const porNomeNormalizado = new Map();
+  for (const p of produtos) {
+    const chave = p.nome.trim().toUpperCase();
+    if (!porNomeNormalizado.has(chave)) porNomeNormalizado.set(chave, []);
+    porNomeNormalizado.get(chave).push(p);
+  }
+
+  return [...porNomeNormalizado.values()].filter((grupo) => grupo.length > 1);
+}
+
+const TABELAS_COM_PRODUCT_ID = [
+  'product_price_history', 'dish_ingredients', 'waste_log',
+  'product_batches', 'stock_movements', 'sale_items', 'return_items',
+];
+
+/**
+ * Mescla dois produtos duplicados num só — todo o histórico
+ * (vendas, movimentos de estoque, lotes, devoluções, etc) do produto
+ * removido é realocado pro produto mantido, então nada se perde: o
+ * estoque atual do produto mantido passa a refletir a SOMA dos dois
+ * automaticamente (é a soma dos movimentos, que agora apontam todos
+ * pro mesmo produto).
+ *
+ * Se essa instalação estiver num grupo de sincronização, avisa o
+ * grupo que o produto removido não existe mais (senão a próxima
+ * sincronização traria ele de volta).
+ */
+function mergeProducts({ manterId, removerId, currentOperatorId }) {
+  const db = getDb();
+  if (manterId === removerId) return { ok: false, error: 'Selecione dois produtos diferentes pra mesclar.' };
+
+  const manter = db.prepare('SELECT * FROM products WHERE id = ?').get(manterId);
+  const remover = db.prepare('SELECT * FROM products WHERE id = ?').get(removerId);
+  if (!manter) return { ok: false, error: 'Produto a manter não encontrado.' };
+  if (!remover) return { ok: false, error: 'Produto a remover não encontrado.' };
+
+  const tx = db.transaction(() => {
+    for (const tabela of TABELAS_COM_PRODUCT_ID) {
+      db.prepare(`UPDATE ${tabela} SET product_id = ? WHERE product_id = ?`).run(manterId, removerId);
+    }
+    db.prepare('DELETE FROM products WHERE id = ?').run(removerId);
+  });
+  tx();
+
+  try {
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso)
+       VALUES (?, 'produtos_mesclados', ?, ?, 1)`
+    ).run(require('crypto').randomUUID(), currentOperatorId, `Mesclado "${remover.nome}" em "${manter.nome}" — histórico realocado`);
+  } catch (err) { /* auditoria não deve travar a mesclagem se falhar */ }
+
+  try {
+    require('./productSyncService').marcarProdutoExcluidoNoGrupo(removerId);
+  } catch (err) {
+    console.error('[productService] falha ao avisar o grupo sobre produto mesclado (não afeta a mesclagem local):', err);
+  }
+
+  return { ok: true, estoqueFinal: db.prepare('SELECT COALESCE(SUM(quantidade),0) as t FROM stock_movements WHERE product_id = ?').get(manterId).t };
+}
+
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts };

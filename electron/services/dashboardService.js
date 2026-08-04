@@ -164,4 +164,50 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
   };
 }
 
-module.exports = { getSummary, listStaleProducts, getSalesByOperator, getRelatorioProdutos };
+/**
+ * Resultado simples do período: receita (vendas finalizadas) menos
+ * custo dos produtos vendidos (custo ATUAL de cadastro, mesma
+ * limitação de getRelatorioProdutos) menos despesas lançadas no
+ * mesmo período. Não é uma DRE contábil de verdade — não considera
+ * impostos, depreciação, etc — é uma visão rápida de "como está indo
+ * o negócio", pensada pra quem não tem contador acompanhando dia a
+ * dia.
+ */
+function getResultadoSimples({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+
+  const receita = db.prepare(
+    `SELECT COALESCE(SUM(total - desconto - desconto_gerente), 0) as total
+     FROM sales WHERE location_id = ? AND status = 'finalizada'
+       AND date(finalizada_em) >= date(?) AND date(finalizada_em) <= date(?)`
+  ).get(locationId, dataInicio, dataFim).total;
+
+  const custoProdutos = db.prepare(
+    `SELECT COALESCE(SUM(si.quantidade * COALESCE(p.custo, 0)), 0) as total
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     JOIN products p ON p.id = si.product_id
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
+       AND date(s.finalizada_em) >= date(?) AND date(s.finalizada_em) <= date(?)`
+  ).get(locationId, dataInicio, dataFim).total;
+
+  const despesas = db.prepare(
+    `SELECT COALESCE(SUM(valor), 0) as total FROM expenses
+     WHERE location_id = ? AND date(criado_em) >= date(?) AND date(criado_em) <= date(?)`
+  ).get(locationId, dataInicio, dataFim).total;
+
+  const despesasPorCategoria = db.prepare(
+    `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM expenses
+     WHERE location_id = ? AND date(criado_em) >= date(?) AND date(criado_em) <= date(?)
+     GROUP BY categoria ORDER BY total DESC`
+  ).all(locationId, dataInicio, dataFim);
+
+  return {
+    receita, custoProdutos, despesas,
+    lucroBruto: receita - custoProdutos,
+    resultado: receita - custoProdutos - despesas,
+    despesasPorCategoria,
+  };
+}
+
+module.exports = { getSummary, listStaleProducts, getSalesByOperator, getRelatorioProdutos, getResultadoSimples };

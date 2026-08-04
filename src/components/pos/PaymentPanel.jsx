@@ -220,12 +220,20 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
     setPrintMsg(result.ok ? '' : result.error);
   }
 
+  async function handleEnviarWhatsapp() {
+    setPrintMsg('Abrindo WhatsApp...');
+    const result = await window.pdv.print.sendReceiptWhatsapp({ saleId });
+    if (!result.ok) return setPrintMsg(result.error);
+    setPrintMsg(result.temTelefoneCliente ? '' : 'Abriu o WhatsApp — escolha o contato pra enviar (essa venda não tem cliente com telefone cadastrado).');
+  }
+
   if (finalizada) {
     return (
       <div className="payment-panel">
         <p className="io-message">Venda finalizada com sucesso.</p>
 
         <button className="btn-secondary" onClick={handleImprimir}>Imprimir recibo</button>
+        <button className="btn-secondary" onClick={handleEnviarWhatsapp} style={{ marginLeft: 8 }}>Enviar por WhatsApp</button>
         {printMsg && <p className="modal-error" style={{ marginTop: 4 }}>{printMsg}</p>}
 
         <div className="nfce-box">

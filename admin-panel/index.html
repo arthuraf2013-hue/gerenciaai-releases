@@ -39,6 +39,7 @@
   .toolbar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
   .toolbar input { flex: 1; }
   .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge-warning { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; background: #453a1f; color: #f6c453; }
   .status-ativa { background: rgba(55,171,153,0.2); color: var(--primary); }
   .status-inativa { background: rgba(224,112,93,0.2); color: var(--danger); }
   .status-bloqueio-imediato { background: rgba(201,66,44,0.3); color: #ff9c85; }
@@ -340,7 +341,7 @@
   const CAMPOS_QUE_EXIGEM_RENDER_COMPLETO = [
     'ativo', 'bloqueioImediato', 'clienteId', 'nomeNegocio', 'mensagemPersonalizada', 'motivoBloqueio',
     'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo', 'versaoApp',
-    'grupoSincronizacaoId', 'servidorDoGrupo',
+    'grupoSincronizacaoId', 'servidorDoGrupo', 'conflitosCodigoBarrasPendentes',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -1056,6 +1057,7 @@
         <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
           placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
         <span class="status-pill ${status.classe}">${status.texto}</span>
+        ${inst.conflitosCodigoBarrasPendentes > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">⚠ ${inst.conflitosCodigoBarrasPendentes} conflito(s)</span>` : ''}
         <span class="maquina-meta">v${inst.versaoApp || '—'} · último contato: ${formatarData(inst.ultimoContato)}</span>
         <div class="maquina-acoes">
           ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${inst.id}">Desvincular</button>`

@@ -7,6 +7,7 @@ import { HistoryScreen } from '../pos/HistoryScreen';
 import { CommandPalette } from './CommandPalette';
 import { ProductsScreen } from '../inventory/ProductsScreen';
 import { SupplyAndSuppliersScreen } from '../inventory/SupplyAndSuppliersScreen';
+import { FinanceiroScreen } from '../inventory/FinanceiroScreen';
 import { StockAlerts } from '../inventory/StockAlerts';
 import { SettingsScreen } from '../settings/SettingsScreen';
 import { UserManagement } from '../users/UserManagement';
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'] },
   { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'] },
   { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'] },
+  { id: 'financeiro', label: 'Financeiro', roles: ['gerente', 'admin'] },
   { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
   { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'] },
   { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
@@ -42,10 +44,23 @@ export function AppShell() {
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
   const [returnPreselectId, setReturnPreselectId] = useState(null);
+  const [conflitosProdutos, setConflitosProdutos] = useState(0);
 
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
   }, []);
+
+  useEffect(() => {
+    if (!sincronizacaoAtiva) return;
+    function checarConflitos() {
+      window.pdv.products.countConflitosCodigoBarrasPendentes().then(setConflitosProdutos);
+    }
+    checarConflitos();
+    // A cada 2 minutos é o suficiente — não é algo que muda toda hora,
+    // só depois de a sincronização detectar um conflito novo.
+    const id = setInterval(checarConflitos, 2 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [sincronizacaoAtiva]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
@@ -76,6 +91,11 @@ export function AppShell() {
                 onClick={() => setScreen(item.id)}
               >
                 {item.label}
+                {item.id === 'products' && conflitosProdutos > 0 && (
+                  <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
+                    ⚠ {conflitosProdutos}
+                  </span>
+                )}
               </button>
             </li>
           ))}
@@ -136,6 +156,7 @@ export function AppShell() {
         )}
         {screen === 'products' && <ProductsScreen />}
         {screen === 'supply' && <SupplyAndSuppliersScreen />}
+        {screen === 'financeiro' && <FinanceiroScreen />}
         {screen === 'customers' && <CustomerList />}
         {screen === 'returns' && (
           <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />

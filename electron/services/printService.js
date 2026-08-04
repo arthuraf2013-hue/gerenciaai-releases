@@ -118,6 +118,71 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
  * impressão nativo do sistema — a janela fecha assim que o diálogo
  * fecha (impresso ou cancelado). Formato (térmica 58/80mm ou A4) vem de
  * Configurações → Recibo. */
+/**
+ * Gera um link `wa.me` com o recibo já formatado como mensagem — abre
+ * o WhatsApp (app ou Web) com o texto pronto, só falta a pessoa
+ * conferir e apertar enviar. Não usa nenhuma API paga do WhatsApp (não
+ * precisa de credencial nem conta comercial) — é só um link especial
+ * que o próprio WhatsApp entende.
+ *
+ * Se a venda tiver cliente com telefone cadastrado, o número já vem
+ * preenchido. Sem telefone, o link abre o WhatsApp pra escolher o
+ * contato na hora.
+ */
+function buildReceiptWhatsappLink(saleId) {
+  const db = getDb();
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+
+  const items = db.prepare(
+    `SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+  ).all(saleId);
+  const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
+  const location = db.prepare('SELECT * FROM locations WHERE id = ?').get(sale.location_id);
+  const { rodape_texto: rodapeTexto } = getReceiptConfig();
+
+  let cliente = null;
+  if (sale.customer_id) {
+    cliente = db.prepare('SELECT telefone FROM customers WHERE id = ?').get(sale.customer_id);
+  }
+
+  const totalFinal = sale.total - sale.desconto - sale.desconto_gerente;
+  const dataHora = new Date(sale.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+  // *negrito* é a formatação de texto do próprio WhatsApp — nada de
+  // HTML aqui, é tudo texto puro mesmo.
+  const linhasItens = items.map((i) =>
+    `${i.quantidade}x ${i.nome} — R$ ${(i.preco_unitario * i.quantidade).toFixed(2)}`
+  ).join('\n');
+  const linhasPagamento = payments.map((p) => `${p.metodo}: R$ ${p.valor.toFixed(2)}`).join('\n');
+
+  const mensagem = [
+    `*${location.nome}*`,
+    `Venda ${sale.id.slice(0, 8)} — ${dataHora}`,
+    '',
+    linhasItens,
+    '',
+    sale.desconto > 0 ? `Desconto fidelidade: -R$ ${sale.desconto.toFixed(2)}` : null,
+    sale.desconto_gerente > 0 ? `Desconto autorizado: -R$ ${sale.desconto_gerente.toFixed(2)}` : null,
+    `*Total: R$ ${totalFinal.toFixed(2)}*`,
+    '',
+    linhasPagamento,
+    '',
+    rodapeTexto || 'Obrigado pela preferência!',
+  ].filter((linha) => linha !== null).join('\n');
+
+  // Só dígitos, com código do país -- 55 (Brasil) se o telefone
+  // cadastrado não tiver o código já incluso.
+  let numeroLimpo = '';
+  if (cliente?.telefone) {
+    const digitos = cliente.telefone.replace(/\D/g, '');
+    numeroLimpo = digitos.startsWith('55') ? digitos : '55' + digitos;
+  }
+
+  const url = `https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagem)}`;
+  return { ok: true, url, temTelefoneCliente: !!cliente?.telefone };
+}
+
 function printReceipt(saleId) {
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
@@ -285,4 +350,4 @@ function printDailyMenu(itens) {
   return { ok: true };
 }
 
-module.exports = { printReceipt, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage };
+module.exports = { printReceipt, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink };

@@ -8,6 +8,8 @@ const TIPO_LABEL = {
   desconto_manual: 'Desconto manual',
   ajuste_estoque: 'Ajuste de estoque',
   preco_item_alterado: 'Preço de item alterado',
+  historico_venda_editado: 'Histórico de venda editado',
+  produtos_mesclados: 'Produtos duplicados mesclados',
 };
 
 export function AuditLog() {

@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('pdv', {
     findByBalancaCode: invoke('product:findByBalancaCode'),
     list: invoke('product:list'),
     count: invoke('product:count'),
+    countConflitosCodigoBarrasPendentes: invoke('product:countConflitosCodigoBarrasPendentes'),
+    findDuplicates: invoke('product:findDuplicates'),
+    merge: invoke('product:merge'),
     listCategories: invoke('product:listCategories'),
     upsert: invoke('product:upsert'),
     deactivate: invoke('product:deactivate'),
@@ -70,6 +73,7 @@ contextBridge.exposeInMainWorld('pdv', {
     setItemNote: invoke('sale:setItemNote'),
     setItemPerson: invoke('sale:setItemPerson'),
     setItemPrice: invoke('sale:setItemPrice'),
+    editarHistorico: invoke('sale:editarHistorico'),
     finalize: invoke('sale:finalize'),
     cancelItem: invoke('sale:cancelItem'),
     needsManagerAuthForCancel: invoke('sale:needsManagerAuthForCancel'),
@@ -210,6 +214,13 @@ contextBridge.exposeInMainWorld('pdv', {
     upsert: invoke('supplier:upsert'),
     suggestPurchases: invoke('supplier:suggestPurchases'),
   },
+  expenses: {
+    create: invoke('expense:create'),
+    markAsPaid: invoke('expense:markAsPaid'),
+    list: invoke('expense:list'),
+    listPending: invoke('expense:listPending'),
+    remove: invoke('expense:remove'),
+  },
   returns: {
     findFinalizedSales: invoke('return:findFinalizedSales'),
     getSaleItems: invoke('return:getSaleItems'),
@@ -218,6 +229,7 @@ contextBridge.exposeInMainWorld('pdv', {
   },
   print: {
     receipt: invoke('print:receipt'),
+    sendReceiptWhatsapp: invoke('print:sendReceiptWhatsapp'),
     label: invoke('print:label'),
     kitchenTicket: invoke('print:kitchenTicket'),
     dailyMenu: invoke('print:dailyMenu'),
@@ -231,6 +243,7 @@ contextBridge.exposeInMainWorld('pdv', {
     listStaleProducts: invoke('dashboard:listStaleProducts'),
     getSalesByOperator: invoke('dashboard:getSalesByOperator'),
     getRelatorioProdutos: invoke('dashboard:getRelatorioProdutos'),
+    getResultadoSimples: invoke('dashboard:getResultadoSimples'),
   },
   backup: {
     getStatus: invoke('backup:getStatus'),

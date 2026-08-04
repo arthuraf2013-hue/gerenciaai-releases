@@ -1,6 +1,6 @@
 {
   "name": "gerenciaai",
-  "version": "0.5.18",
+  "version": "0.5.21",
   "description": "GerenciaAI — gerenciamento de estoque com PDV, perfil inicial para farmácias, automações e espaço reservado para funcionalidades de IA",
   "author": "Arthur",
   "main": "electron/main.js",
@@ -14,24 +14,27 @@
     "postversion": "git push && git push --tags"
   },
   "dependencies": {
-    "better-sqlite3": "^11.3.0",
     "bcryptjs": "^2.4.3",
-    "xlsx": "^0.18.5",
-    "firebase": "^11.0.0",
+    "better-sqlite3": "^11.3.0",
     "electron-updater": "^6.3.9",
-    "serialport": "^12.0.0"
+    "firebase": "^11.0.0",
+    "node-forge": "^1.4.0",
+    "serialport": "^12.0.0",
+    "xlsx": "^0.18.5",
+    "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "@xmldom/xmldom": "^0.9.10",
     "concurrently": "^8.2.2",
     "electron": "^31.3.0",
     "electron-builder": "^24.13.3",
-    "vite": "^5.4.1",
-    "wait-on": "^7.2.0",
+    "jsbarcode": "^3.11.6",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "qrcode": "^1.5.4",
-    "jsbarcode": "^3.11.6"
+    "vite": "^5.4.1",
+    "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.arthur.gerenciaai",

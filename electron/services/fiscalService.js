@@ -5,6 +5,9 @@ const { app } = require('electron');
 const { getDb } = require('../db/database');
 const secrets = require('./secretsService');
 const { gerarXmlNFCe } = require('./nfceXmlService');
+const { carregarCertificado } = require('./nfceCertificateService');
+const { assinarXmlNFCe } = require('./nfceSignatureService');
+const { enviarNFCe } = require('./nfceTransmissionService');
 
 function getFiscalConfig() {
   const db = getDb();
@@ -125,33 +128,102 @@ async function emitirNFCe(saleId) {
     return { ok: false, error: `Erro ao montar o XML: ${err.message}` };
   }
 
-  // Salva o XML em disco, separado por ambiente (nunca mistura teste
-  // com produção, mesmo que troque a config depois).
+  // Carrega o certificado e assina ANTES de gravar qualquer coisa —
+  // se o certificado estiver com problema (senha errada, vencido,
+  // arquivo sumiu), o número da NFC-e não é "queimado" à toa.
+  let certificado, xmlAssinado;
+  try {
+    const senhaDescriptografada = secrets.decrypt(config.certificado_senha);
+    certificado = carregarCertificado(config.certificado_path, senhaDescriptografada);
+    if (certificado.validoAte.getTime() < Date.now()) {
+      return { ok: false, error: `O certificado digital venceu em ${certificado.validoAte.toLocaleDateString('pt-BR')} — renove antes de emitir.` };
+    }
+    xmlAssinado = assinarXmlNFCe(xml, certificado);
+  } catch (err) {
+    return { ok: false, error: `Não foi possível assinar o XML com o certificado configurado: ${err.message}` };
+  }
+
+  // Só a partir daqui grava de verdade — o XML já está assinado, e o
+  // número só é incrementado depois de garantir que chegou até aqui.
   const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
   fs.mkdirSync(pastaDestino, { recursive: true });
   const xmlPath = path.join(pastaDestino, `${chaveAcesso}.xml`);
-  fs.writeFileSync(xmlPath, xml, 'utf-8');
+  fs.writeFileSync(xmlPath, xmlAssinado, 'utf-8');
 
   const id = randomUUID();
   db.prepare(
     `INSERT INTO nfce_emitidas (id, sale_id, numero, serie, chave_acesso, status, ambiente, xml_path)
      VALUES (?, ?, ?, ?, ?, 'pendente', ?, ?)`
   ).run(id, saleId, numero, config.serie_nfce, chaveAcesso, config.ambiente, xmlPath);
-
-  // Só incrementa o número DEPOIS de gerar com sucesso — se desse erro
-  // antes, o número não é "queimado" à toa.
   db.prepare(`UPDATE fiscal_config SET proximo_numero_nfce = ? WHERE id = 'default'`).run(numero + 1);
 
-  return {
-    ok: true,
-    xmlGerado: true,
-    transmitido: false,
-    numero,
-    chaveAcesso,
-    xmlPath,
-    aviso: 'XML gerado e salvo com sucesso — mas ainda NÃO foi assinado nem transmitido pra SEFAZ ' +
-      '(essa parte ainda está em desenvolvimento). A venda já está registrada normalmente independente disso.',
-  };
+  // Transmite pra SEFAZ — isso PODE falhar por rede/indisponibilidade
+  // sem que seja um erro de verdade: a NFC-e já está gerada, assinada
+  // e registrada como 'pendente' aqui, dá pra tentar de novo depois
+  // (função separada, reenviarNFCe) sem perder o número nem o XML.
+  try {
+    const resultadoTransmissao = await enviarNFCe({ xmlNFeAssinado: xmlAssinado, config, certificado, idLote: numero });
+
+    if (!resultadoTransmissao.ok) {
+      return {
+        ok: true, xmlGerado: true, assinado: true, transmitido: false, numero, chaveAcesso, xmlPath, id,
+        aviso: `XML gerado, assinado e salvo — mas não foi possível transmitir agora (${resultadoTransmissao.error}). Continua registrada como pendente, pode tentar reenviar depois.`,
+      };
+    }
+
+    const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
+    db.prepare(
+      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ? WHERE id = ?`
+    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, id);
+
+    return {
+      ok: true, xmlGerado: true, assinado: true, transmitido: true,
+      autorizada: resultadoTransmissao.autorizada, numero, chaveAcesso, xmlPath, id,
+      protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao,
+      motivo: resultadoTransmissao.motivo,
+    };
+  } catch (err) {
+    // erro de comunicação de verdade (rede fora, timeout) -- a NFC-e
+    // continua 'pendente', registrada, pronta pra reenviar.
+    return {
+      ok: true, xmlGerado: true, assinado: true, transmitido: false, numero, chaveAcesso, xmlPath, id,
+      aviso: `XML gerado, assinado e salvo — mas a transmissão falhou (${err.message}). Continua pendente, pode tentar reenviar depois.`,
+    };
+  }
+}
+
+/** Tenta transmitir de novo uma NFC-e que ficou 'pendente' (já
+ * assinada, só não conseguiu falar com a SEFAZ da primeira vez). */
+async function reenviarNFCe(nfceId) {
+  const db = getDb();
+  const nfce = db.prepare('SELECT * FROM nfce_emitidas WHERE id = ?').get(nfceId);
+  if (!nfce) return { ok: false, error: 'NFC-e não encontrada.' };
+  if (nfce.status !== 'pendente') return { ok: false, error: `Essa NFC-e já está com status "${nfce.status}" — só dá pra reenviar as pendentes.` };
+
+  const config = getFiscalConfig();
+  let certificado;
+  try {
+    const senhaDescriptografada = secrets.decrypt(config.certificado_senha);
+    certificado = carregarCertificado(config.certificado_path, senhaDescriptografada);
+  } catch (err) {
+    return { ok: false, error: `Não foi possível abrir o certificado: ${err.message}` };
+  }
+
+  const xmlAssinado = fs.readFileSync(nfce.xml_path, 'utf-8');
+
+  try {
+    const resultadoTransmissao = await enviarNFCe({ xmlNFeAssinado: xmlAssinado, config, certificado, idLote: nfce.numero });
+    if (!resultadoTransmissao.ok) return { ok: false, error: resultadoTransmissao.error };
+
+    const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
+    db.prepare(
+      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ? WHERE id = ?`
+    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, nfceId);
+
+    return { ok: true, autorizada: resultadoTransmissao.autorizada, protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao, motivo: resultadoTransmissao.motivo };
+  } catch (err) {
+    return { ok: false, error: `Transmissão falhou de novo: ${err.message}` };
+  }
 }
 
 function listNfceForSale(saleId) {
@@ -159,4 +231,4 @@ function listNfceForSale(saleId) {
   return db.prepare('SELECT * FROM nfce_emitidas WHERE sale_id = ? ORDER BY criado_em DESC').all(saleId);
 }
 
-module.exports = { getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, listNfceForSale };
+module.exports = { getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe, listNfceForSale };

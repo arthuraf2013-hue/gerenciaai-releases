@@ -28,6 +28,7 @@ const backupService = require('../services/backupService');
 const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
 const supplierService = require('../services/supplierService');
+const expenseService = require('../services/expenseService');
 const returnService = require('../services/returnService');
 const printService = require('../services/printService');
 const dashboardService = require('../services/dashboardService');
@@ -66,6 +67,9 @@ function registerIpcHandlers() {
   safeHandle('product:findByBalancaCode', (_e, { codigoBalanca }) => productService.findByBalancaCode(codigoBalanca));
   safeHandle('product:list', (_e, opts) => productService.list(opts));
   safeHandle('product:count', (_e, opts) => productService.count(opts));
+  safeHandle('product:countConflitosCodigoBarrasPendentes', () => productService.countConflitosCodigoBarrasPendentes());
+  safeHandle('product:findDuplicates', () => productService.findDuplicateProducts());
+  safeHandle('product:merge', (_e, payload) => productService.mergeProducts(payload));
   safeHandle('product:listCategories', () => productService.listCategories());
   safeHandle('product:upsert', (_e, product) => productService.upsert(product));
   safeHandle('product:deactivate', (_e, { productId }) => productService.deactivate(productId));
@@ -105,6 +109,7 @@ function registerIpcHandlers() {
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
   safeHandle('sale:setItemPrice', (_e, payload) => saleService.setItemPrice(payload));
+  safeHandle('sale:editarHistorico', (_e, payload) => saleService.editarHistoricoVenda(payload));
   safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSaleComVerificacaoDeGrupo(saleId));
 
   // --- Cancelamento seguro (exige autorização de gerente) ---
@@ -321,6 +326,11 @@ function registerIpcHandlers() {
   safeHandle('supplier:list', (_e, opts) => supplierService.list(opts));
   safeHandle('supplier:upsert', (_e, supplier) => supplierService.upsert(supplier));
   safeHandle('supplier:suggestPurchases', (_e, payload) => supplierService.suggestPurchases(payload));
+  safeHandle('expense:create', (_e, payload) => expenseService.create(payload));
+  safeHandle('expense:markAsPaid', (_e, payload) => expenseService.markAsPaid(payload));
+  safeHandle('expense:list', (_e, payload) => expenseService.list(payload));
+  safeHandle('expense:listPending', (_e, payload) => expenseService.listPending(payload));
+  safeHandle('expense:remove', (_e, payload) => expenseService.remove(payload));
 
   // --- Devolução pós-venda ---
   safeHandle('return:findFinalizedSales', (_e, payload) => returnService.findFinalizedSales(payload));
@@ -330,6 +340,12 @@ function registerIpcHandlers() {
 
   // --- Impressão de recibo ---
   safeHandle('print:receipt', (_e, { saleId }) => printService.printReceipt(saleId));
+  safeHandle('print:sendReceiptWhatsapp', (_e, { saleId }) => {
+    const result = printService.buildReceiptWhatsappLink(saleId);
+    if (!result.ok) return result;
+    require('electron').shell.openExternal(result.url);
+    return { ok: true, temTelefoneCliente: result.temTelefoneCliente };
+  });
   safeHandle('print:label', (_e, payload) => printService.printLabel(payload));
   safeHandle('print:kitchenTicket', (_e, { saleId, mesaLabel }) => printService.printKitchenTicket(saleId, mesaLabel));
   safeHandle('print:dailyMenu', (_e, { itens }) => printService.printDailyMenu(itens));
@@ -386,6 +402,7 @@ function registerIpcHandlers() {
   safeHandle('dashboard:listStaleProducts', (_e, payload) => dashboardService.listStaleProducts(payload));
   safeHandle('dashboard:getSalesByOperator', (_e, payload) => dashboardService.getSalesByOperator(payload));
   safeHandle('dashboard:getRelatorioProdutos', (_e, payload) => dashboardService.getRelatorioProdutos(payload));
+  safeHandle('dashboard:getResultadoSimples', (_e, payload) => dashboardService.getResultadoSimples(payload));
 
   // --- Vincular cliente / resgatar pontos na venda ---
   safeHandle('sale:setCustomer', (_e, { saleId, customerId }) => saleService.setCustomer(saleId, customerId));

@@ -3032,6 +3032,108 @@ minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
 venda local, incluindo essas duas. Não precisa de nenhuma ação manual
 além de atualizar e abrir o app.
 
+## Produtos duplicados entre PDVs sincronizados — botão de mesclar
+
+O cenário do seu print: duas máquinas sincronizadas, cada uma
+cadastrando "o mesmo" produto de forma independente antes de nunca
+terem sincronizado — resultado, dois registros com o mesmo nome, cada
+um com seu próprio estoque e histórico de vendas.
+
+**Botão novo "Ver duplicados" na aba Produtos** (mostra a contagem
+quando tem algum) — abre um comparativo por nome idêntico, você
+escolhe qual manter, e mesclar:
+- **Soma o estoque automaticamente** — o estoque final é a soma dos
+  dois, sem precisar fazer conta na mão.
+- **Realoca todo o histórico** (vendas, movimentos de estoque, lotes,
+  devoluções) do produto removido pro produto mantido — nada se
+  perde, os relatórios continuam batendo certo.
+- **Avisa o grupo de sincronização** que o produto removido não
+  existe mais — sem isso, a próxima sincronização traria ele de
+  volta. A outra máquina recebe esse aviso e desativa a cópia dela
+  automaticamente (sem apagar o histórico local dela também).
+- Fica registrado na Auditoria.
+
+Testei o cenário completo, fiel ao seu print: dois produtos com o
+mesmo nome e estoques diferentes, um deles com uma venda no
+histórico — confirmei que a venda continua existindo (só realocada
+pro produto mantido, não perdida), o estoque final soma certo, o
+duplicado remove de verdade, e o aviso pro grupo funciona nos dois
+lados (quem mescla e quem recebe o aviso).
+
+## Preço de custo vindo com "0" — corrigido
+
+No formulário de produto, o campo de custo usava uma checagem que só
+tratava `null`/vazio como "sem valor" — mas o banco guarda `0` como
+padrão quando o custo nunca foi preenchido, e `0` passava por essa
+checagem como se fosse um valor real. Corrigido — agora `0` também é
+tratado como vazio, o campo fica em branco pra você preencher.
+
+## Continuação da lista grande: reabastecimento, financeiro, contas a pagar
+
+### Nota sobre NFC-e (retomado nesta sessão, ainda sem tela)
+Comecei a construir a assinatura digital e transmissão SEFAZ de
+verdade (certificado .pfx, assinatura XMLDSig testada
+criptograficamente, transmissão SOAP com certificado mútuo testada
+contra um servidor real) — o backend (`fiscalService.emitirNFCe`)
+já assina e transmite. **Mas ainda não conectei nenhum botão nem tela
+pra isso** — não tem como emitir uma NFC-e pela interface ainda,
+só o código de backend existe. Continuo isso na próxima rodada.
+
+
+
+### Sugestão de reabastecimento — já existia
+Investiguei antes de construir e achei que isso **já estava
+implementado** de uma sessão anterior (`supplierService.suggestPurchases`)
+— calcula velocidade de venda dos últimos 30 dias e sugere quantidade
+pra cobrir o mínimo ou 30 dias de venda, o que for maior. Já tem tela
+(dentro de Abastecimento → Fornecedores) e exportação em Excel. Não
+precisei mexer em nada.
+
+### Financeiro — novo, tela "Financeiro" no menu (gerente/admin)
+Unifiquei "despesas simples" e "contas a pagar de fornecedor" no mesmo
+recurso — uma despesa sem vencimento é lançada já paga; com
+vencimento, fica pendente até marcar como paga.
+
+- **Resultado simples do período**: receita − custo dos produtos
+  vendidos − despesas = resultado. Não é uma DRE contábil de verdade
+  (deixei isso explícito na própria tela) — não considera impostos
+  sobre a receita nem depreciação, é uma visão rápida de "como está
+  indo o negócio".
+- **Contas a pagar em aberto**, destacando as vencidas.
+- **Lançar despesa** — categoria, descrição, valor, fornecedor
+  (quando aplicável) e vencimento opcional.
+
+Testei o cálculo do resultado com números reais (receita, custo,
+despesas, lucro bruto, resultado final todos batendo), e o fluxo
+completo do formulário de lançar despesa com um navegador de verdade.
+
+## Editar histórico de venda (data/hora e valor) — admin
+
+Válvula de escape manual: um botão "Editar" na tela de Histórico
+(só aparece pra admin) que abre um formulário pra corrigir
+diretamente a data/hora e o valor de uma venda já finalizada. Pensado
+especificamente pra você conseguir resolver o caso do Sidney sem
+depender de mais nenhuma correção automática.
+
+- **Data e hora** — o campo mostra e recebe horário de Brasília (o que
+  você vê no relógio), a conversão pra UTC (formato interno do banco)
+  acontece sozinha por trás.
+- **Valor total** — corrige o total da venda; zera descontos antigos
+  automaticamente (evita ficar com desconto velho aplicado sobre um
+  total substituído na mão).
+- **Motivo** opcional, pra deixar registrado por quê.
+- Fica **registrado na Auditoria**, com o valor antigo e o novo, em
+  horário de Brasília pra ficar legível.
+- Se a venda fizer parte de um grupo de PDVs sincronizados, a correção
+  é **reenviada pro grupo na mesma hora** — o `diaISO` é recalculado a
+  partir da data nova, então isso resolve a venda aparecer no dia
+  errado pros outros PDVs do grupo também, sem precisar esperar nada.
+
+Restrito a admin, verificado no backend (não só escondido na tela).
+Testei o fluxo inteiro: operador comum recusado, admin corrigindo
+data e valor juntos, conversão de horário Brasília↔UTC batendo nos
+dois sentidos, e o reenvio pro grupo levando o `diaISO` já corrigido.
+
 ## Duas perguntas: lentidão e "cache"
 
 **Sobre "servidor desligado"**: não existe essa peça na arquitetura

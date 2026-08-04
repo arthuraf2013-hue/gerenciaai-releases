@@ -57,7 +57,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         nome: product.nome || '',
         categoria: product.categoria || '',
         preco: product.preco ?? '',
-        custo: product.custo ?? '',
+        custo: product.custo || '',
         unidade: product.unidade || 'un',
         codigoBalanca: product.codigo_balanca || '',
         estoqueMinimo: product.estoque_minimo ?? '',

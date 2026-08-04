@@ -547,6 +547,8 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   });
   tx();
 
+  require('./stockSyncService').pushEstoqueProduto(item.product_id).catch(() => {});
+
   return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: exigeAutorizacao };
 }
 
@@ -603,6 +605,12 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
   });
   tx();
 
+  const stockSyncService = require('./stockSyncService');
+  const produtosUnicos = [...new Set(items.map((item) => item.product_id))];
+  for (const productId of produtosUnicos) {
+    stockSyncService.pushEstoqueProduto(productId).catch(() => {});
+  }
+
   return { ok: true, autorizadoPor };
 }
 
@@ -653,9 +661,114 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   return finalizeSale(saleId);
 }
 
+/**
+ * Corrige diretamente uma venda já no histórico — data/hora e/ou
+ * valor total. Restrito a admin (checado aqui no backend, não só
+ * escondido na tela). Pensado como válvula de escape manual pra
+ * quando algo ficou errado (ex: fuso horário de uma sincronização
+ * antiga) e não dá pra esperar uma correção automática — ou pra
+ * simplesmente corrigir um erro de digitação/registro.
+ *
+ * Sempre registrado na auditoria com o valor antigo e o novo. Se a
+ * venda fizer parte de um grupo de sincronização, reenvia ela
+ * corrigida pro Firestore na mesma hora — é exatamente isso que
+ * resolve "aparece no dia errado pros outros PDVs do grupo": o
+ * diaISO é recalculado a partir da data nova.
+ */
+async function editarHistoricoVenda({ saleId, novaDataHora, novoTotal, motivo, currentOperatorId }) {
+  const db = getDb();
+
+  const operador = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(currentOperatorId);
+  if (!operador || operador.role !== 'admin') {
+    return { ok: false, error: 'Só admin pode editar o histórico de uma venda.' };
+  }
+
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'finalizada') {
+    return { ok: false, error: 'Só é possível editar vendas já finalizadas (não vendas canceladas ou em aberto).' };
+  }
+
+  const dataAntiga = sale.finalizada_em;
+  const totalAntigo = sale.total - sale.desconto - sale.desconto_gerente;
+
+  const campos = [];
+  const valores = [];
+  let novaDataHoraUTC = null;
+
+  if (novaDataHora) {
+    // O admin digita horário de Brasília (é o que ele vê na tela e no
+    // relógio da parede) — o banco guarda tudo em UTC, então converte
+    // aqui antes de gravar. Brasil não tem mais horário de verão desde
+    // 2019, então a diferença é sempre exatamente 3 horas — soma 3h no
+    // horário local digitado pra chegar no instante UTC certo.
+    const match = novaDataHora.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (!match) return { ok: false, error: 'Data/hora inválida.' };
+    const [, ano, mes, dia, hora, minuto, segundo] = match;
+    const dataLocalComoSeUTC = new Date(Date.UTC(+ano, +mes - 1, +dia, +hora, +minuto, +(segundo || 0)));
+    if (isNaN(dataLocalComoSeUTC.getTime())) return { ok: false, error: 'Data/hora inválida.' };
+    const dataUTCReal = new Date(dataLocalComoSeUTC.getTime() + 3 * 60 * 60 * 1000);
+    novaDataHoraUTC = dataUTCReal.toISOString().slice(0, 19).replace('T', ' ');
+    campos.push('finalizada_em = ?');
+    valores.push(novaDataHoraUTC);
+  }
+
+  if (novoTotal !== undefined && novoTotal !== null && novoTotal !== '') {
+    const totalNumerico = Number(novoTotal);
+    if (!(totalNumerico >= 0)) return { ok: false, error: 'Valor inválido (precisa ser maior ou igual a zero).' };
+    // Zera os descontos ao ajustar o total manualmente — editar o
+    // histórico já é uma correção direta; manter descontos antigos
+    // junto de um total substituído na mão só criaria confusão sobre
+    // qual número é "de verdade".
+    campos.push('total = ?', 'desconto = 0', 'desconto_gerente = 0');
+    valores.push(totalNumerico);
+  }
+
+  if (campos.length === 0) return { ok: false, error: 'Informe uma data/hora nova ou um valor novo pra alterar.' };
+
+  db.prepare(`UPDATE sales SET ${campos.join(', ')} WHERE id = ?`).run(...valores, saleId);
+
+  const saleAtualizada = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  const totalNovo = saleAtualizada.total - saleAtualizada.desconto - saleAtualizada.desconto_gerente;
+
+  const formatarLocal = (utcString) => utcString ? new Date(utcString + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—';
+
+  db.prepare(
+    `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, motivo, sucesso)
+     VALUES (?, 'historico_venda_editado', ?, ?, ?, 1)`
+  ).run(
+    randomUUID(), saleId, currentOperatorId,
+    `Data: ${formatarLocal(dataAntiga)} -> ${formatarLocal(saleAtualizada.finalizada_em)} | Total: R$ ${totalAntigo.toFixed(2)} -> R$ ${totalNovo.toFixed(2)}${motivo ? ' — ' + motivo : ''}`
+  );
+
+  // Reenvia a venda corrigida pro grupo (se essa instalação estiver
+  // sincronizada) — o diaISO é recalculado a partir da data nova, o
+  // que resolve a venda aparecer no dia errado pra quem mais está no
+  // grupo, na mesma hora que você corrige aqui.
+  try {
+    const itensDetalhados = db.prepare(
+      `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
+       JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+    ).all(saleId);
+    const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(saleId).map((p) => p.metodo);
+    const operadorDaVenda = db.prepare('SELECT nome FROM users WHERE id = ?').get(saleAtualizada.operador_id);
+    const location = db.prepare('SELECT nome FROM locations WHERE id = ?').get(saleAtualizada.location_id);
+    require('./salesSyncService').pushSale({
+      saleId, total: totalNovo, totalItens: itensDetalhados.length,
+      itens: itensDetalhados.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario })),
+      metodosPagamento, finalizadaEm: saleAtualizada.finalizada_em,
+      operadorNome: operadorDaVenda?.nome, locationNome: location?.nome,
+    }).catch(() => {});
+  } catch (err) {
+    console.error('[saleService] falha ao reenviar venda editada pro grupo (não afeta a edição local):', err);
+  }
+
+  return { ok: true, dataAntiga, dataNova: saleAtualizada.finalizada_em, totalAntigo, totalNovo };
+}
+
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
   addItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
-  getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico,
+  getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
 };

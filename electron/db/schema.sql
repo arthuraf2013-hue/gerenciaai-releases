@@ -643,6 +643,26 @@ CREATE TABLE IF NOT EXISTS suppliers (
   criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 
+-- Despesas e contas a pagar — o mesmo registro serve pros dois casos.
+-- Uma despesa simples (aluguel, luz) não tem fornecedor nem
+-- vencimento, só é lançada já paga. Uma conta a pagar de fornecedor
+-- tem fornecedor_id e data_vencimento, e fica com data_pagamento NULL
+-- até alguém marcar como paga.
+CREATE TABLE IF NOT EXISTS expenses (
+  id              TEXT PRIMARY KEY,
+  categoria       TEXT NOT NULL, -- 'aluguel', 'contas_consumo', 'fornecedor', 'salario', 'impostos', 'outro'
+  descricao       TEXT NOT NULL,
+  valor           REAL NOT NULL,
+  fornecedor_id   TEXT REFERENCES suppliers(id), -- opcional
+  data_vencimento TEXT, -- opcional -- quando não informado, considera já paga na hora de lançar
+  data_pagamento  TEXT, -- NULL = ainda pendente
+  location_id     TEXT NOT NULL REFERENCES locations(id),
+  operador_id     TEXT NOT NULL REFERENCES users(id),
+  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_expenses_vencimento ON expenses(data_vencimento);
+CREATE INDEX IF NOT EXISTS idx_expenses_pagamento ON expenses(data_pagamento);
+
 -- ============================================================
 -- Devoluções pós-venda — separado do cancelamento (que só existe durante
 -- a venda aberta). Mesma exigência de autorização de gerente.

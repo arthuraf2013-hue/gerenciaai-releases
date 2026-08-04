@@ -87,6 +87,18 @@ function iniciarEscutaProdutos() {
       (snap) => {
         const productService = require('./productService');
         for (const docSnap of snap.docs) {
+          const dados = docSnap.data();
+          // Lápide de exclusão -- outra máquina mesclou ou apagou esse
+          // produto de propósito. Desativa a cópia local (não apaga de
+          // verdade, pra não perder o histórico de vendas dela).
+          if (dados.excluido === true) {
+            try {
+              productService.deactivate(docSnap.id);
+            } catch (err) {
+              console.error('[productSyncService] falha ao desativar produto excluído pelo grupo:', err);
+            }
+            continue;
+          }
           // Cada produto é aplicado isoladamente — se UM tiver problema
           // (ex: código de barras que já pertence a outro produto
           // cadastrado localmente antes da sincronização começar), os
@@ -95,9 +107,9 @@ function iniciarEscutaProdutos() {
           // inteira pra sempre (o Firestore reenvia a lista toda a
           // cada mudança, então o mesmo erro se repetia sem parar).
           try {
-            productService.aplicarProdutoSincronizado(docSnap.id, docSnap.data());
+            productService.aplicarProdutoSincronizado(docSnap.id, dados);
           } catch (err) {
-            aplicarComTratamentoDeConflito(docSnap.id, docSnap.data(), err);
+            aplicarComTratamentoDeConflito(docSnap.id, dados, err);
           }
         }
       },
@@ -162,4 +174,26 @@ function aplicarComTratamentoDeConflito(productId, dados, erroOriginal) {
   }
 }
 
-module.exports = { pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos };
+/**
+ * Marca um produto como excluído no grupo (mesclado com outro, ou
+ * apagado de propósito) — em vez de simplesmente apagar o documento
+ * do Firestore (o que outras máquinas podem não perceber de forma
+ * confiável), grava uma "lápide" explícita que o listener de cada
+ * máquina reconhece e reage desativando a própria cópia local.
+ */
+async function marcarProdutoExcluidoNoGrupo(productId) {
+  try {
+    const grupoId = syncStateService.getGrupoSincronizacaoId();
+    if (!grupoId) return;
+
+    const licenseService = require('./licenseService');
+    const firestore = licenseService.getLicenseFirestore();
+    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+    const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'produtos', productId);
+    await setDoc(ref, { excluido: true, atualizadoEm: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    console.error('[productSyncService] falha ao marcar produto excluído no grupo:', err.message);
+  }
+}
+
+module.exports = { pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos, marcarProdutoExcluidoNoGrupo };

@@ -97,6 +97,15 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
   });
   tx();
 
+  const stockSyncService = require('./stockSyncService');
+  const produtosDevolvidos = [...new Set(itens.map((item) => {
+    const saleItem = db.prepare('SELECT product_id FROM sale_items WHERE id = ?').get(item.saleItemId);
+    return saleItem?.product_id;
+  }).filter(Boolean))];
+  for (const productId of produtosDevolvidos) {
+    stockSyncService.pushEstoqueProduto(productId).catch(() => {});
+  }
+
   return { ok: true, returnId, valorDevolvido: valorTotal, autorizadoPor: auth.autorizadoPor };
 }
 

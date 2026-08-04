@@ -117,6 +117,7 @@ async function checkLicense() {
         totalVendasHistorico: metricas.totalVendasHistorico,
         vendasUltimos30Dias: metricas.vendasUltimos30Dias,
         perfilAtivo: metricas.perfilAtivo,
+        conflitosCodigoBarrasPendentes: metricas.conflitosCodigoBarrasPendentes,
       }, { merge: true });
       aplicarDadosDoServidor(snap.data());
     } else {

@@ -3,6 +3,7 @@ import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
+import { EditHistoricoModal } from './EditHistoricoModal';
 
 const STATUS_LABEL = {
   aberta: 'Em aberto',
@@ -26,6 +27,8 @@ export function SalesHistory({ onDevolver }) {
   const { currentUser } = useSession();
   const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
   const podeExcluir = currentUser.role === 'gerente' || currentUser.role === 'admin';
+  const podeEditarHistorico = currentUser.role === 'admin';
+  const [vendaEditando, setVendaEditando] = useState(null);
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('hoje'); // 'hoje' | 'semana' | 'mes' | 'personalizado'
   const [dataInicio, setDataInicio] = useState('');
@@ -125,6 +128,15 @@ export function SalesHistory({ onDevolver }) {
     if (motivo === null) return; // cancelou o prompt
     const result = await window.pdv.sale.excluirDoHistorico({ saleId, operadorId: currentUser.id, motivo: motivo || null });
     if (result.ok) recarregarVendas();
+  }
+
+  async function handleSalvarEdicaoHistorico({ novaDataHora, novoTotal, motivo }) {
+    const result = await window.pdv.sale.editarHistorico({
+      saleId: vendaEditando.id, novaDataHora, novoTotal, motivo: motivo || null, currentOperatorId: currentUser.id,
+    });
+    if (!result.ok) { alert(result.error); return; }
+    setVendaEditando(null);
+    recarregarVendas();
   }
 
   async function handleReexibir(saleId) {
@@ -391,6 +403,9 @@ export function SalesHistory({ onDevolver }) {
                     {s.status === 'finalizada' && (
                       <button className="btn-link" onClick={(e) => { e.stopPropagation(); onDevolver?.(s.id); }}>Devolver</button>
                     )}
+                    {podeEditarHistorico && (
+                      <button className="btn-link" onClick={(e) => { e.stopPropagation(); setVendaEditando(s); }}>Editar</button>
+                    )}
                     {podeExcluir && (
                       s.oculta_historico ? (
                         <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleReexibir(s.id); }}>Reexibir</button>
@@ -427,6 +442,9 @@ export function SalesHistory({ onDevolver }) {
       )}
       {promptState && (
         <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
+      )}
+      {vendaEditando && (
+        <EditHistoricoModal sale={vendaEditando} onConfirmar={handleSalvarEdicaoHistorico} onCancelar={() => setVendaEditando(null)} />
       )}
     </div>
   );
