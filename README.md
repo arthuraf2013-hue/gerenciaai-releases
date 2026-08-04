@@ -3032,6 +3032,99 @@ minutos, e toda vez que o app abre) reescreve o `diaISO` de toda
 venda local, incluindo essas duas. Não precisa de nenhuma ação manual
 além de atualizar e abrir o app.
 
+## O código de barras "fantasma" — achei a causa real
+
+Você tinha razão: buscou o código e não achou nenhum produto com ele.
+A causa era exatamente essa lacuna — **excluir um produto nunca
+liberava o código de barras dele**. A busca só mostra produtos ativos,
+então um produto excluído fica invisível pra você, mas o banco ainda
+recusa qualquer outro produto tentar usar aquele mesmo código —
+provavelmente um dos duplicados que você já excluiu recentemente.
+
+**Corrigido em três frentes**:
+- Excluir um produto agora **libera o código de barras e o SKU** dele
+  na hora — fica disponível pro próximo produto que precisar.
+- A checagem de conflito (a que criei na resposta anterior) agora
+  também ignora produtos inativos, como segunda camada de proteção.
+- **Limpeza automática**: produtos que já ficaram "presos" antes
+  dessa correção são liberados sozinhos na próxima vez que o app
+  abrir — não precisa fazer nada manual, roda uma vez só e é seguro
+  rodar de novo (não faz nada se não tiver mais nada preso).
+
+Testei o cenário exato: produto duplicado excluído, código de barras
+liberado na hora, um produto novo conseguindo usar aquele mesmo
+código sem erro — e simulei também o caso de quem já tinha ficado
+preso antes dessa correção, confirmando que a limpeza automática
+libera certinho.
+
+## Dois problemas dos seus últimos prints
+
+### PERMISSION_DENIED recorrente — não é bug, é a regra desatualizada no Firebase de verdade
+
+O primeiro print mostra o mesmo erro se repetindo desde a **v0.5.18**
+até a v0.5.24 — isso não é um bug novo, é sinal de que **as regras de
+segurança publicadas no seu console do Firebase não foram atualizadas**
+desde antes de eu adicionar os últimos campos nas métricas
+(`perfilAtivo`, `totalVendasHistorico`, `vendasUltimos30Dias`,
+`conflitosCodigoBarrasPendentes`). Toda vez que o app tenta reportar
+esses dados novos, a SEFAZ... digo, o Firestore recusa porque a regra
+publicada não conhece esses campos ainda.
+
+**O que fazer**: abre o console do Firebase → Firestore Database →
+Regras, e cola o bloco COMPLETO que está em `LICENCIAMENTO.md` deste
+projeto (comece a colar a partir de `rules_version = '2';`, sem nada
+de texto em português junto — isso já causou esse mesmo tipo de erro
+antes). Confirmei que o bloco documentado aqui já inclui todos os
+campos atuais — só precisa publicar ele de novo no Firebase de
+verdade.
+
+### Erro cru "UNIQUE constraint failed" ao editar produto — corrigido
+
+O segundo print mostra o banco recusando salvar porque o código de
+barras já pertencia a outro produto — mas a mensagem que aparecia era
+o erro técnico cru do SQLite, sem dizer qual produto nem o que fazer.
+
+**Corrigido**: agora confere ANTES de tentar salvar, e se o código já
+pertence a outro produto, mostra uma mensagem clara **nomeando esse
+produto** — editar o PRÓPRIO produto com o mesmo código continua
+funcionando normalmente (não trava em si mesmo). Testei os dois
+cenários: conflito real com outro produto (mensagem clara, nomeando
+"ALCOOL 70% 1LT PETRIBU" no teste) e edição do próprio produto sem
+falso positivo.
+
+## Sincronização de catálogo virou só consulta — trava a clonagem na raiz
+
+Decisão sua, direta na causa da duplicidade: catálogo de produtos
+sincronizado entre PDVs **não deve mais copiar nada pra base local
+sozinho**. Investigando o que realmente "clonava": estoque e
+histórico **já funcionavam só por consulta** (o histórico do grupo é
+lido direto do Firestore pra exibir, nunca grava nada localmente; o
+estoque compartilhado é um contador à parte, também nunca grava
+estoque "de outra máquina" na sua base). O único que de fato escrevia
+produtos de outras máquinas na tabela local — criando duplicidade
+quando duas máquinas cadastravam "o mesmo" produto de forma
+independente — era o catálogo.
+
+**Corrigido**: a escuta do catálogo do grupo agora só atualiza um
+**cache em memória** (nunca a tabela `products` de verdade) — dá pra
+consultar o que outras máquinas têm cadastrado, mas nada vira produto
+local sozinho. Cada máquina continua **publicando** o próprio
+catálogo pro grupo (isso não mudou — é assim que a consulta consegue
+ver os produtos dela), só parou de **importar automaticamente** o que
+vê. A lápide de exclusão (quando um produto é mesclado/apagado em
+outra máquina) também parou de mexer na base local — só reflete na
+consulta.
+
+Testei os dois cenários centrais: produtos chegando de outra máquina
+não alteram mais a contagem da tabela local (fica exatamente igual a
+antes), mas continuam encontráveis pela busca no catálogo do grupo; e
+uma lápide de exclusão não desativa mais o produto local
+correspondente, só some da consulta.
+
+**Combinado com você**: o backup/restore que promoveria uma máquina a
+"novo servidor" (pra recuperar de uma quebra) fica pra depois — por
+enquanto isso é só a trava, sem mecanismo de restauração ainda.
+
 ## Modal de duplicados em tela cheia
 
 Seu print mostrava exatamente o problema: com 1146 grupos de

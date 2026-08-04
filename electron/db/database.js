@@ -75,6 +75,14 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_por_id', 'TEXT');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_motivo', 'TEXT');
   adicionarColunaSeFaltando(database, 'products', 'conflito_codigo_barras_pendente', 'TEXT');
+
+  // Correção pontual: produtos desativados de antes dessa correção
+  // (excluir não liberava o código de barras/SKU) ficaram "segurando"
+  // o código pra sempre, invisíveis na busca mas bloqueando qualquer
+  // outro produto de usar o mesmo código. Libera de uma vez só.
+  database.prepare(
+    `UPDATE products SET codigo_barras = NULL, sku = NULL WHERE ativo = 0 AND (codigo_barras IS NOT NULL OR sku IS NOT NULL)`
+  ).run();
 }
 
 function seedIfEmpty(database) {

@@ -195,6 +195,22 @@ function upsert(product) {
   const customFields = JSON.stringify(product.customFields || {});
   const precoNovo = Number(product.preco) || 0;
 
+  // Confere ANTES de tentar salvar se o código de barras já pertence
+  // a outro produto — sem isso, o erro cru do banco (UNIQUE constraint
+  // failed) vazava direto pra tela, sem dizer qual produto já usa
+  // aquele código nem o que fazer a respeito.
+  if (product.codigoBarras) {
+    const outroComEsseCodigo = db.prepare(
+      'SELECT id, nome FROM products WHERE codigo_barras = ? AND id != ? AND ativo = 1'
+    ).get(product.codigoBarras, id);
+    if (outroComEsseCodigo) {
+      return {
+        ok: false,
+        error: `Esse código de barras já está cadastrado em outro produto: "${outroComEsseCodigo.nome}". Cada código só pode pertencer a um produto — ajuste o código aqui ou vá no outro produto e libere ele primeiro.`,
+      };
+    }
+  }
+
   // Se já existir (edição), compara com o preço anterior antes de
   // sobrescrever — só registra no histórico se o preço de venda
   // realmente mudou (não dispara em toda edição de produto).
@@ -321,7 +337,12 @@ function deactivate(productId) {
     `SELECT COALESCE(SUM(quantidade), 0) as total FROM stock_movements WHERE product_id = ?`
   ).get(productId).total;
 
-  db.prepare('UPDATE products SET ativo = 0 WHERE id = ?').run(productId);
+  // Libera o código de barras e o SKU ao desativar — sem isso, um
+  // produto excluído continua "segurando" o código pra sempre (fica
+  // invisível na busca, que só mostra ativos, mas o UNIQUE constraint
+  // do banco não liga pra isso e recusa qualquer outro produto tentar
+  // usar o mesmo código, sem dar nenhuma pista visível do motivo).
+  db.prepare('UPDATE products SET ativo = 0, codigo_barras = NULL, sku = NULL WHERE id = ?').run(productId);
 
   // Avisa o grupo de sincronização (se tiver) que esse produto foi
   // excluído — sem isso, a próxima sincronização podia trazer ele de

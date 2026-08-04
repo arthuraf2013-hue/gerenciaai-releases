@@ -1,5 +1,17 @@
 const syncStateService = require('./syncStateService');
 
+/**
+ * Cache do catálogo do grupo — só em MEMÓRIA, nunca gravado na tabela
+ * local `products`, e some quando o app fecha. Serve só pra consulta
+ * (buscar o que existe no grupo, pra decidir se vale trazer pra loja
+ * de propósito) — nunca vira parte do catálogo "de verdade" desta
+ * máquina sozinho. Isso é deliberado: antes, um produto de outra
+ * máquina virava uma linha nova na tabela local automaticamente, o
+ * que causava duplicidade quando duas máquinas cadastravam "o mesmo"
+ * produto de forma independente antes de nunca terem sincronizado.
+ */
+let catalogoDoGrupoEmMemoria = new Map();
+
 /** Campos do produto que fazem sentido "serem os mesmos" entre PDVs —
  * NUNCA inclui estoque (isso é físico, por máquina) nem preço de
  * custo interno sensível a decisão local... na verdade custo também
@@ -11,7 +23,10 @@ const CAMPOS_SINCRONIZADOS = [
 ];
 
 /** Manda a versão atual de um produto pro grupo — best-effort,
- * silencioso se essa instalação não estiver em nenhum grupo ainda. */
+ * silencioso se essa instalação não estiver em nenhum grupo ainda.
+ * Isso continua funcionando normalmente: cada máquina PUBLICA o
+ * próprio catálogo pro grupo poder consultar — o que mudou é que
+ * ninguém mais IMPORTA automaticamente o que os outros publicam. */
 async function pushProduct(product) {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
@@ -68,12 +83,17 @@ async function pushTodosOsProdutos() {
 
 let pararEscutaProdutos = null;
 
-/** Escuta em tempo real o catálogo do grupo — aplica localmente
- * qualquer produto novo ou alterado em QUALQUER PDV do grupo (inclusive
- * o catálogo inteiro de uma vez, na primeira vez que a escuta liga). */
+/**
+ * Escuta em tempo real o catálogo do grupo — mas SÓ atualiza o cache
+ * em memória (pra consulta), nunca escreve na tabela local `products`.
+ * Decisão de propósito, pra impedir a sincronização de catálogo clonar
+ * produtos na base local sem ninguém pedir — cada máquina continua
+ * dona do próprio catálogo, só pode ENXERGAR o que as outras têm.
+ */
 function iniciarEscutaProdutos() {
   try {
     if (pararEscutaProdutos) { pararEscutaProdutos(); pararEscutaProdutos = null; }
+    catalogoDoGrupoEmMemoria = new Map();
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId) return;
 
@@ -85,33 +105,13 @@ function iniciarEscutaProdutos() {
     pararEscutaProdutos = onSnapshot(
       ref,
       (snap) => {
-        const productService = require('./productService');
+        const novoCatalogo = new Map();
         for (const docSnap of snap.docs) {
           const dados = docSnap.data();
-          // Lápide de exclusão -- outra máquina mesclou ou apagou esse
-          // produto de propósito. Desativa a cópia local (não apaga de
-          // verdade, pra não perder o histórico de vendas dela).
-          if (dados.excluido === true) {
-            try {
-              productService.deactivate(docSnap.id);
-            } catch (err) {
-              console.error('[productSyncService] falha ao desativar produto excluído pelo grupo:', err);
-            }
-            continue;
-          }
-          // Cada produto é aplicado isoladamente — se UM tiver problema
-          // (ex: código de barras que já pertence a outro produto
-          // cadastrado localmente antes da sincronização começar), os
-          // OUTROS produtos do grupo continuam sincronizando
-          // normalmente. Sem isso, um único conflito travava a escuta
-          // inteira pra sempre (o Firestore reenvia a lista toda a
-          // cada mudança, então o mesmo erro se repetia sem parar).
-          try {
-            productService.aplicarProdutoSincronizado(docSnap.id, dados);
-          } catch (err) {
-            aplicarComTratamentoDeConflito(docSnap.id, dados, err);
-          }
+          if (dados.excluido === true) continue; // produto removido em outra máquina -- não mostra na consulta
+          novoCatalogo.set(docSnap.id, { id: docSnap.id, ...dados });
         }
+        catalogoDoGrupoEmMemoria = novoCatalogo;
       },
       (err) => console.error('[productSyncService] escuta de produtos falhou:', err)
     );
@@ -121,65 +121,41 @@ function iniciarEscutaProdutos() {
 }
 
 /**
- * Quando aplicar um produto sincronizado falha por causa de um
- * código de barras que já pertence a OUTRO produto cadastrado
- * localmente antes da sincronização começar — não dá pra simplesmente
- * ignorar o produto inteiro (perderia nome/preço atualizados), nem dá
- * pra forçar o código de barras (roubaria ele do produto local que já
- * usava). Tenta de novo sem o código de barras — o resto do produto
- * (nome, preço, categoria) sincroniza normalmente, e reporta o
- * conflito pra investigar depois.
+ * Busca no catálogo do GRUPO (cache em memória, só leitura) por nome,
+ * SKU ou código de barras — pra consultar o que outras máquinas têm
+ * cadastrado, sem que isso crie nada na base local sozinho. Quem usa
+ * isso decide, de propósito, se quer trazer o produto pra própria
+ * loja (via cadastro manual normal) ou só estava conferindo.
  */
-function aplicarComTratamentoDeConflito(productId, dados, erroOriginal) {
-  const ehConflitoDeCodigoBarras = /UNIQUE constraint failed: products\.codigo_barras/.test(erroOriginal?.message || '');
-  if (!ehConflitoDeCodigoBarras) {
-    console.error('[productSyncService] falha ao aplicar produto sincronizado:', erroOriginal);
-    try {
-      require('./errorReportService').reportarErro({
-        mensagem: erroOriginal?.message, stack: erroOriginal?.stack, contexto: 'aplicarProdutoSincronizado',
-      });
-    } catch (err) { /* reportarErro já trata os próprios erros internamente */ }
-    return;
+function buscarNoCatalogoDoGrupo(query) {
+  const termo = (query || '').trim().toLowerCase();
+  if (!termo) return [];
+  return [...catalogoDoGrupoEmMemoria.values()].filter((p) =>
+    (p.nome || '').toLowerCase().includes(termo) ||
+    (p.codigoBarras || '') === query ||
+    (p.sku || '').toLowerCase() === termo
+  );
+}
+
+/** Mesma consulta, mas por código de barras exato — útil pro fluxo de
+ * "escaneou e não achou local, será que já existe em outra máquina do
+ * grupo?". Continua só leitura, não cria nada sozinho. */
+function buscarNoCatalogoDoGrupoPorCodigoBarras(codigoBarras) {
+  if (!codigoBarras) return null;
+  for (const p of catalogoDoGrupoEmMemoria.values()) {
+    if (p.codigoBarras === codigoBarras) return p;
   }
-
-  // O Firestore reenvia a coleção inteira toda vez que QUALQUER produto
-  // do grupo muda (não só o conflitante) — sem essa checagem, o mesmo
-  // conflito seria detectado e reportado de novo a cada disparo do
-  // listener, enchendo a tela de Erros com o mesmo aviso repetido. Só
-  // reporta na primeira vez que ESSE conflito específico (mesmo
-  // produto, mesmo código pendente) aparece — mas continua aplicando o
-  // resto do produto (nome, preço) silenciosamente a cada vez, pra não
-  // ficar desatualizado enquanto o conflito não é resolvido.
-  const { getDb } = require('../db/database');
-  const db = getDb();
-  const estadoAtual = db.prepare('SELECT conflito_codigo_barras_pendente FROM products WHERE id = ?').get(productId);
-  const jaReportadoParaEsseCodigo = estadoAtual && estadoAtual.conflito_codigo_barras_pendente === dados.codigoBarras;
-
-  try {
-    const productService = require('./productService');
-    productService.aplicarProdutoSincronizado(productId, { ...dados, codigoBarras: null, conflitoCodigoBarrasPendente: dados.codigoBarras });
-
-    if (jaReportadoParaEsseCodigo) return; // mesmo conflito de antes, já foi avisado -- só atualizou o resto em silêncio
-
-    console.error(
-      `[productSyncService] produto ${productId} tem código de barras "${dados.codigoBarras}" que já pertence a outro produto local — ` +
-      'sincronizou o resto (nome, preço) sem o código de barras. Precisa resolver manualmente qual dos dois deveria ter esse código.'
-    );
-    require('./errorReportService').reportarErro({
-      mensagem: `Conflito de código de barras ao sincronizar produto: "${dados.codigoBarras}" já pertence a outro produto local. Aplicado sem o código de barras — resolver manualmente.`,
-      contexto: 'aplicarProdutoSincronizado:conflito_codigo_barras',
-    });
-  } catch (err) {
-    console.error('[productSyncService] falha até tentando aplicar sem o código de barras:', err);
-  }
+  return null;
 }
 
 /**
  * Marca um produto como excluído no grupo (mesclado com outro, ou
- * apagado de propósito) — em vez de simplesmente apagar o documento
- * do Firestore (o que outras máquinas podem não perceber de forma
- * confiável), grava uma "lápide" explícita que o listener de cada
- * máquina reconhece e reage desativando a própria cópia local.
+ * apagado de propósito) — grava uma "lápide" no Firestore, pra sumir
+ * da consulta de quem olhar o catálogo do grupo depois. Continua sendo
+ * enviado (mesmo que o efeito local de "aplicar automaticamente"
+ * tenha sido desligado) porque outras instalações podem ainda estar
+ * numa versão anterior do app, que ainda aplica automaticamente — a
+ * lápide impede que ELAS tragam esse produto de volta sem querer.
  */
 async function marcarProdutoExcluidoNoGrupo(productId) {
   try {
@@ -196,4 +172,7 @@ async function marcarProdutoExcluidoNoGrupo(productId) {
   }
 }
 
-module.exports = { pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos, marcarProdutoExcluidoNoGrupo };
+module.exports = {
+  pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos, marcarProdutoExcluidoNoGrupo,
+  buscarNoCatalogoDoGrupo, buscarNoCatalogoDoGrupoPorCodigoBarras,
+};
