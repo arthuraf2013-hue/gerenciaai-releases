@@ -6,6 +6,8 @@ import { PaymentPanel } from './PaymentPanel';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { usePromptModal } from '../../hooks/usePromptModal';
+import { PromptModal } from '../common/PromptModal';
 import { playBeep } from '../../utils/sound';
 
 function playErrorBeep() {
@@ -36,6 +38,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   const LOCATION_ID = window.APP_LOCATION_ID;
   const DEVICE_ID = window.APP_DEVICE_ID;
   const { currentUser } = useSession();
+  const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [taxaServicoPercentual, setTaxaServicoPercentual] = useState(0);
@@ -168,12 +171,12 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }
 
   async function handleEditarPrecoItem(item) {
-    const novoPrecoStr = prompt(`Novo preço unitário para "${item.nome}" (preço atual: R$ ${item.precoUnitario.toFixed(2)}):`, item.precoUnitario.toFixed(2));
+    const novoPrecoStr = await promptAsync(`Novo preço unitário para "${item.nome}" (preço atual: R$ ${item.precoUnitario.toFixed(2)}):`, item.precoUnitario.toFixed(2));
     if (novoPrecoStr === null) return;
     const novoPreco = Number(novoPrecoStr.replace(',', '.'));
     if (!(novoPreco >= 0)) return setFeedback({ message: 'Preço inválido.', type: 'error' });
 
-    const motivo = prompt('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
+    const motivo = await promptAsync('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
 
     const result = await window.pdv.sale.setItemPrice({
       saleId, saleItemId: item.id, novoPreco, motivo: motivo || null, currentOperatorId: currentUser.id,
@@ -494,6 +497,9 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             </div>
           </div>
         </div>
+      )}
+      {promptState && (
+        <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}
     </div>
   );

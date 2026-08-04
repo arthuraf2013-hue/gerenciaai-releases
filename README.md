@@ -2979,6 +2979,98 @@ rodar normalmente na sua máquina.
   linguagem natural via IA (reaproveita a mesma configuração da extração
   de receitas).
 
+## Dois bugs reais dos erros reportados
+
+### 1. `window.prompt()` não funciona no Electron — bug sério, afetava 4 telas
+
+O erro "prompt() is and will not be supported" é uma limitação
+conhecida do Chromium embutido no Electron — diferente do navegador
+comum (onde eu testava), o Electron não suporta esse diálogo nativo
+síncrono. Isso significava que **todo recurso que usava
+`window.prompt()` estava quebrado na prática**, mesmo passando nos
+meus testes anteriores (que rodam em Chromium normal via Playwright,
+não no Electron de verdade) — motivo de continuar assim até você
+reportar o erro real do app empacotado.
+
+Afetava: motivo de excluir venda do histórico, motivo + valor ao
+editar preço de item (PDV e mesa/restaurante), e resetar PIN de
+usuário.
+
+**Corrigido**: criei um modal de verdade (`usePromptModal` +
+`PromptModal`) que se comporta como o `prompt()` original — mesma
+forma de uso (`await promptAsync('Pergunta:', 'valor padrão')`,
+devolve o texto ou `null` se cancelar) — só que é um componente React
+de verdade, funciona no Electron. Troquei nos 4 lugares.
+
+**Testado com um navegador de verdade**, usando o componente real:
+confirmei que abre com o valor inicial certo, confirma com o texto
+digitado, cancela com `null` pelo botão, e Esc também fecha com
+`null`.
+
+### 2. Produto sincronizado travava a sincronização inteira
+
+O erro `UNIQUE constraint failed: products.codigo_barras` acontecia
+quando um produto vindo de outra máquina do grupo tinha um código de
+barras que já pertencia a um produto DIFERENTE, cadastrado localmente
+antes da sincronização começar (cada máquina tinha criado o próprio
+produto, com o próprio ID, antes de nunca terem se falado). O bug
+sério: como o laço que aplica os produtos não tinha proteção nenhuma,
+esse UM conflito **travava a aplicação de TODOS os outros produtos** —
+e como o Firestore reenvia a lista inteira a cada mudança, o mesmo
+erro se repetia sem parar (por isso aparecia repetido no seu print).
+
+**Corrigido**: cada produto agora é aplicado isoladamente — um
+conflito não afeta mais os outros. Pro conflito específico de código
+de barras, em vez de simplesmente ignorar o produto (perderia
+nome/preço atualizado) ou forçar o código de barras (roubaria ele do
+produto local que já usava), aplica o resto do produto (nome, preço,
+categoria) SEM o código de barras, e registra o conflito nos erros do
+painel pra você resolver manualmente qual dos dois produtos deveria
+ficar com aquele código.
+
+**Testado com o cenário exato do seu print**: produto local com
+código de barras já cadastrado + um produto conflitante vindo de
+outra máquina + dois produtos sem problema no mesmo lote — confirmei
+que nada trava, os dois produtos OK aplicam normalmente, o
+conflitante aplica sem o código de barras, o produto local original
+mantém o código dele intacto, e o conflito fica registrado.
+
+## Vendas sumindo do histórico do grupo — corrigido
+
+Investiguei os dois prints e achei duas coisas reais:
+
+**1. O total mostrado ("Total finalizado") estava mesmo errado** — ele
+calculava só a partir do dado LOCAL dessa máquina, mesmo quando a tela
+estava mostrando o histórico do GRUPO inteiro. Numa máquina sem
+nenhuma venda local no dia (só vendo o histórico compartilhado de
+outras), isso dava R$ 0,00 mesmo com várias vendas na lista abaixo.
+Corrigido — agora soma o dado certo dependendo do que está sendo
+mostrado.
+
+**2. A causa mais provável do sumiço**: o histórico do grupo era
+buscado **uma vez só**, quando a tela abria — não atualizava sozinho
+depois disso. Se a tela ficou aberta por um tempo (o seu segundo print
+é de 22:13, quase 30 minutos depois das vendas de 21:41 e 21:45), uma
+venda feita em OUTRO PDV nesse meio tempo só apareceria se você
+saísse da tela e voltasse.
+
+**Corrigido com duas camadas**:
+- A tela agora se atualiza sozinha a cada 20 segundos enquanto estiver
+  aberta e a sincronização estiver ativa — sem precisar sair e voltar.
+- Botão "↻ Atualizar" pra forçar na hora, se não quiser esperar.
+- Por segurança, o app também reenvia o histórico local inteiro pro
+  grupo a cada 15 minutos, rodando o tempo todo — caso alguma venda
+  específica tenha falhado ao sincronizar por causa de uma rede
+  instável naquele instante exato (o envio normal nunca trava a venda
+  por causa disso, mas também não tentava de novo sozinho antes disso,
+  só no próximo reinício do app).
+
+Testei o fluxo completo com o componente real: simulei uma venda nova
+"chegando" no meio da sessão e confirmei que o botão de atualizar traz
+ela pra lista, e que o total passa a somar certo (testei
+especificamente que ia pra R$ 10,00 com duas vendas de R$ 6 e R$ 4,
+não ficava zerado).
+
 ## PDV estático, blocos, e mais personalização
 
 ### 1. Por que o PDV "não era estático"

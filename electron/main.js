@@ -146,6 +146,12 @@ app.whenReady().then(() => {
   require('./services/salesSyncService').pushTodoOHistorico();
   require('./services/messageService').iniciarEscutaMensagemGlobal();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
+  // Reenvio periódico de segurança — o push de cada venda ao finalizar
+  // é best-effort (não trava a venda se a rede cair naquele instante
+  // exato); sem isso, uma falha silenciosa isolada só seria corrigida
+  // no próximo reinício do app. Reescrever a mesma venda de novo é
+  // inofensivo (mesmo ID sobrescreve), então repetir isso não tem risco.
+  setInterval(() => require('./services/salesSyncService').pushTodoOHistorico(), 15 * 60 * 1000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
+import { usePromptModal } from '../../hooks/usePromptModal';
+import { PromptModal } from '../common/PromptModal';
 
 const STATUS_LABEL = {
   aberta: 'Em aberto',
@@ -22,6 +24,7 @@ function formatMetodos(str) {
 
 export function SalesHistory({ onDevolver }) {
   const { currentUser } = useSession();
+  const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
   const podeExcluir = currentUser.role === 'gerente' || currentUser.role === 'admin';
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('hoje'); // 'hoje' | 'semana' | 'mes' | 'personalizado'
@@ -84,19 +87,34 @@ export function SalesHistory({ onDevolver }) {
     recarregarVendas();
   }, [dataInicio, dataFim, mostrarExcluidas]);
 
-  useEffect(() => {
+  function carregarHistoricoDoGrupo(mostrarCarregando = true) {
     if (!sincronizacaoAtiva || !dataInicio || !dataFim) return;
-    setCarregandoGrupo(true);
+    if (mostrarCarregando) setCarregandoGrupo(true);
     setErroGrupo('');
     window.pdv.salesSync.getGroupHistory({ dataInicio, dataFim }).then((result) => {
       setCarregandoGrupo(false);
       if (!result.ok) return setErroGrupo(result.error);
       setVendasDoGrupo(result.vendas);
     });
+  }
+
+  useEffect(() => {
+    carregarHistoricoDoGrupo();
+  }, [sincronizacaoAtiva, dataInicio, dataFim]);
+
+  useEffect(() => {
+    if (!sincronizacaoAtiva) return;
+    // O histórico do grupo vem de uma consulta única, não de uma escuta
+    // em tempo real — sem atualizar sozinho, uma venda feita em OUTRO
+    // PDV só apareceria aqui se você saísse da tela e voltasse. Repete
+    // a cada 20s enquanto a tela estiver aberta (sem mostrar o
+    // "carregando", pra não piscar a lista à toa).
+    const id = setInterval(() => carregarHistoricoDoGrupo(false), 20000);
+    return () => clearInterval(id);
   }, [sincronizacaoAtiva, dataInicio, dataFim]);
 
   async function handleExcluirDoHistorico(saleId) {
-    const motivo = prompt('Motivo de excluir essa venda do histórico (opcional — some da lista, mas nada é apagado de verdade):', '');
+    const motivo = await promptAsync('Motivo de excluir essa venda do histórico (opcional — some da lista, mas nada é apagado de verdade):', '');
     if (motivo === null) return; // cancelou o prompt
     const result = await window.pdv.sale.excluirDoHistorico({ saleId, operadorId: currentUser.id, motivo: motivo || null });
     if (result.ok) recarregarVendas();
@@ -177,9 +195,9 @@ export function SalesHistory({ onDevolver }) {
   const pdvsDisponiveis = vendasDoGrupo ? [...new Set(vendasDoGrupo.map((v) => v.locationNome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : [];
   const vendasDoGrupoFiltradas = !vendasDoGrupo ? [] : filtroPdv === 'todos' ? vendasDoGrupo : vendasDoGrupo.filter((v) => v.locationNome === filtroPdv);
 
-  const totalDia = salesFiltradas
-    .filter((s) => s.status === 'finalizada')
-    .reduce((acc, s) => acc + s.total, 0);
+  const totalDia = sincronizacaoAtiva
+    ? vendasDoGrupoFiltradas.reduce((acc, v) => acc + (v.total || 0), 0)
+    : salesFiltradas.filter((s) => s.status === 'finalizada').reduce((acc, s) => acc + s.total, 0);
 
   return (
     <div className="screen">
@@ -221,6 +239,11 @@ export function SalesHistory({ onDevolver }) {
               {pdvsDisponiveis.map((nome) => <option key={nome} value={nome}>{nome}</option>)}
             </select>
           </label>
+        )}
+        {sincronizacaoAtiva && (
+          <button className="btn-secondary" onClick={() => carregarHistoricoDoGrupo(true)} disabled={carregandoGrupo} title="O histórico do grupo atualiza sozinho a cada 20s, mas você pode forçar agora">
+            {carregandoGrupo ? 'Atualizando...' : '↻ Atualizar'}
+          </button>
         )}
         <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: sincronizacaoAtiva ? 0 : (podeExcluir ? 0 : 'auto') }}>
           {exportando ? 'Exportando...' : 'Exportar relatório'}
@@ -394,6 +417,9 @@ export function SalesHistory({ onDevolver }) {
             ))}
           </tbody>
         </table>
+      )}
+      {promptState && (
+        <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}
     </div>
   );

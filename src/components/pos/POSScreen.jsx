@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
+import { usePromptModal } from '../../hooks/usePromptModal';
+import { PromptModal } from '../common/PromptModal';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { PaymentPanel } from './PaymentPanel';
 import { ProductSearchBox } from './ProductSearchBox';
@@ -40,6 +42,7 @@ export function POSScreen() {
   const LOCATION_ID = window.APP_LOCATION_ID;
   const DEVICE_ID = window.APP_DEVICE_ID;
   const { currentUser } = useSession();
+  const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
   const [cashSession, setCashSession] = useState(undefined); // undefined = carregando, null = sem caixa aberto
   const [showCloseCash, setShowCloseCash] = useState(false);
   const [saleId, setSaleId] = useState(null);
@@ -308,12 +311,12 @@ export function POSScreen() {
   }
 
   async function handleEditarPrecoItem(item) {
-    const novoPrecoStr = prompt(`Novo preço unitário para "${item.nome}" (preço atual: R$ ${item.precoUnitario.toFixed(2)}):`, item.precoUnitario.toFixed(2));
+    const novoPrecoStr = await promptAsync(`Novo preço unitário para "${item.nome}" (preço atual: R$ ${item.precoUnitario.toFixed(2)}):`, item.precoUnitario.toFixed(2));
     if (novoPrecoStr === null) return; // cancelou o prompt
     const novoPreco = Number(novoPrecoStr.replace(',', '.'));
     if (!(novoPreco >= 0)) return setFeedback({ message: 'Preço inválido.', type: 'error' });
 
-    const motivo = prompt('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
+    const motivo = await promptAsync('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
 
     const result = await window.pdv.sale.setItemPrice({
       saleId, saleItemId: item.id, novoPreco, motivo: motivo || null, currentOperatorId: currentUser.id,
@@ -601,6 +604,9 @@ export function POSScreen() {
 
       <PosTour forceOpen={showTour} onClose={() => setShowTour(false)} />
       {showTraining && <TrainingPresentationModal onClose={() => setShowTraining(false)} />}
+      {promptState && (
+        <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
+      )}
     </div>
   );
 }

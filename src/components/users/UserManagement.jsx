@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { usePromptModal } from '../../hooks/usePromptModal';
+import { PromptModal } from '../common/PromptModal';
 
 export function UserManagement() {
   const { currentUser } = useSession();
+  const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -41,7 +44,7 @@ export function UserManagement() {
   }
 
   async function resetPin(user) {
-    const novo = window.prompt(`Novo PIN para ${user.nome} (mín. 4 dígitos):`);
+    const novo = await promptAsync(`Novo PIN para ${user.nome} (mín. 4 dígitos):`);
     if (!novo) return;
     const result = await window.pdv.users.resetPin({ requestingUserId: currentUser.id, userId: user.id, novoPin: novo });
     if (!result.ok) setError(result.error);
@@ -109,6 +112,9 @@ export function UserManagement() {
             </div>
           </form>
         </div>
+      )}
+      {promptState && (
+        <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}
     </div>
   );
