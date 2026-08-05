@@ -1,6 +1,6 @@
 {
   "name": "gerenciaai",
-  "version": "0.5.27",
+  "version": "0.5.28",
   "description": "GerenciaAI — gerenciamento de estoque com PDV, perfil inicial para farmácias, automações e espaço reservado para funcionalidades de IA",
   "author": "Arthur",
   "main": "electron/main.js",
