@@ -309,4 +309,65 @@ async function extractPurchaseInvoice(filePath) {
   return { ok: true, data: result.data };
 }
 
-module.exports = { getAiSettingsPublic, updateAiSettings, extractAttachment, summarizeSales, askTutor, extractPurchaseInvoice };
+/**
+ * Sugere categorias pra uma lista de produtos, usando as categorias
+ * JÁ EXISTENTES como opção preferencial (só propõe categoria nova
+ * quando nenhuma existente serve). Nunca aplica sozinha — só sugere,
+ * quem decide se aceita é sempre a pessoa, revisando antes.
+ */
+async function sugerirCategorias(produtos, categoriasExistentes) {
+  const settings = getAiSettings();
+  if (!settings.ativado || !settings.api_key) {
+    return { ok: false, error: 'IA não configurada. Ative e informe a chave da API Gemini em Configurações → IA.' };
+  }
+  if (!produtos || produtos.length === 0) return { ok: true, sugestoes: [] };
+
+  const prompt = `Você está ajudando a organizar o catálogo de produtos de um comércio (na maioria das vezes farmácia, mas pode ser outro ramo). Vou te dar uma lista de produtos sem categoria, e as categorias que JÁ EXISTEM no catálogo.
+
+Pra cada produto, sugira a categoria mais adequada — USE UMA CATEGORIA EXISTENTE sempre que fizer sentido, pra não espalhar o catálogo em categorias demais. Só proponha uma categoria NOVA se nenhuma das existentes servir de verdade.
+
+Responda SOMENTE com um JSON válido, sem markdown e sem texto fora do JSON, no formato exato:
+{"sugestoes": [{"produtoId": "", "categoria": ""}]}
+
+Regras:
+- Categorias devem ser curtas e genéricas (ex: "Medicamentos", "Higiene", "Cosméticos", "Bebidas"), nunca o nome específico de um produto.
+- Se não tiver confiança nenhuma sobre a categoria de um produto específico, deixe "categoria": "" (vazio) pra esse item — melhor não sugerir do que sugerir errado.
+- Inclua TODOS os produtos da lista na resposta, um item por produto, na mesma ordem.
+
+Categorias já existentes: ${categoriasExistentes.length > 0 ? categoriasExistentes.join(', ') : '(nenhuma cadastrada ainda)'}
+
+Produtos sem categoria (formato "id: nome"):
+${produtos.map((p) => `${p.id}: ${p.nome}`).join('\n')}`;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.modelo}:generateContent?key=${settings.api_key}`;
+  const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: 'application/json' } };
+
+  let response;
+  try {
+    response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch {
+    return { ok: false, error: 'Falha de conexão ao chamar a API de IA.' };
+  }
+  if (!response.ok) {
+    if (response.status === 404) {
+      return { ok: false, error: `O modelo "${settings.modelo}" não está disponível para essa chave. Tente "gemini-3.1-flash-lite" em Configurações → IA.` };
+    }
+    return { ok: false, error: `Erro da API de IA (${response.status}). Confira o modelo/chave em Configurações.` };
+  }
+
+  const data = await response.json();
+  const texto = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!texto) return { ok: false, error: 'A IA não retornou sugestões.' };
+
+  let parsed;
+  try {
+    parsed = JSON.parse(texto);
+  } catch {
+    return { ok: false, error: 'A IA retornou um formato inesperado.' };
+  }
+  if (!Array.isArray(parsed.sugestoes)) return { ok: false, error: 'A IA retornou um formato inesperado.' };
+
+  return { ok: true, sugestoes: parsed.sugestoes.filter((s) => s.produtoId && s.categoria) };
+}
+
+module.exports = { getAiSettingsPublic, updateAiSettings, extractAttachment, summarizeSales, askTutor, extractPurchaseInvoice, sugerirCategorias };

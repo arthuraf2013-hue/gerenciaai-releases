@@ -29,6 +29,7 @@ const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
 const supplierService = require('../services/supplierService');
 const expenseService = require('../services/expenseService');
+const categoryService = require('../services/categoryService');
 const returnService = require('../services/returnService');
 const printService = require('../services/printService');
 const dashboardService = require('../services/dashboardService');
@@ -331,6 +332,12 @@ function registerIpcHandlers() {
   safeHandle('expense:list', (_e, payload) => expenseService.list(payload));
   safeHandle('expense:listPending', (_e, payload) => expenseService.listPending(payload));
   safeHandle('expense:remove', (_e, payload) => expenseService.remove(payload));
+  safeHandle('category:list', () => categoryService.list());
+  safeHandle('category:create', (_e, payload) => categoryService.create(payload));
+  safeHandle('category:rename', (_e, payload) => categoryService.rename(payload));
+  safeHandle('category:remove', (_e, payload) => categoryService.remove(payload));
+  safeHandle('category:sugerirComIA', (_e, payload) => categoryService.sugerirCategoriasComIA(payload));
+  safeHandle('category:aplicarSugestoes', (_e, payload) => categoryService.aplicarSugestoes(payload));
 
   // --- Devolução pós-venda ---
   safeHandle('return:findFinalizedSales', (_e, payload) => returnService.findFinalizedSales(payload));

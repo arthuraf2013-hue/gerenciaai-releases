@@ -3057,6 +3057,48 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Aba de Categorias — CRUD completo + categorização por IA
+
+**Nota sobre esta entrega**: no meio de construir isso, meu ambiente de
+trabalho reiniciou sem aviso — recuperei tudo a partir do último `.zip`
+que já tinha te entregue (`v0.5.26`) e refiz o que tinha se perdido.
+Retestei tudo de novo antes de reentregar, então não tem risco de ter
+sobrado algo quebrado da reconstrução.
+
+### Categorias — nova aba em Produtos
+CRUD completo: criar categoria (mesmo sem produto nenhum ainda),
+renomear (atualiza todos os produtos que usam automaticamente), e
+excluir (com opção de mover os produtos pra outra categoria, ou
+deixar sem categoria). Categorias continuam funcionando exatamente
+como antes no PDV (botões de navegação) — só ganharam uma tela
+dedicada de gerenciamento.
+
+### Categorização automática com IA
+Reaproveitei a mesma integração Gemini que já existe (a mesma chave
+configurada em Configurações → IA, usada hoje pra ler receitas e
+notas de compra) — não precisa configurar nada novo.
+
+Botão "✨ Categorizar produtos sem categoria com IA" na aba Categorias:
+- Busca todos os produtos ativos sem categoria (em lotes de 80, pra
+  não estourar um prompt gigante de uma vez).
+- Pede sugestão pra IA, **priorizando reaproveitar categorias que já
+  existem** no seu catálogo em vez de inventar uma nova toda hora —
+  só propõe categoria nova quando nenhuma existente serve.
+- Quando a IA não tem confiança sobre um produto específico, ele
+  simplesmente não aparece na lista de sugestões (em vez de arriscar
+  uma categoria errada).
+- **Nunca aplica sozinha** — abre uma tela de revisão (tela cheia,
+  com rolagem, igual a de duplicados) onde você vê cada sugestão,
+  pode desmarcar o que não fizer sentido ou editar a categoria antes
+  de confirmar. Só o que ficar marcado é salvo.
+
+Testei o fluxo inteiro: construção do prompt (inclui as categorias
+existentes certas), processamento em lotes, sugestões de baixa
+confiança sendo descartadas automaticamente, aplicação criando
+categoria nova quando precisa, e o fluxo de revisão completo com
+navegador (desmarcar exclui da aplicação, editar a categoria antes é
+respeitado).
+
 ## Dois problemas dos seus últimos prints
 
 ### PERMISSION_DENIED recorrente — não é bug, é a regra desatualizada no Firebase de verdade

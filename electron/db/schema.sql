@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS custom_profiles (
   criado_em               TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL UNIQUE,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
 CREATE TABLE IF NOT EXISTS products (
   id              TEXT PRIMARY KEY,
   sku             TEXT UNIQUE,

@@ -221,6 +221,14 @@ contextBridge.exposeInMainWorld('pdv', {
     listPending: invoke('expense:listPending'),
     remove: invoke('expense:remove'),
   },
+  categories: {
+    list: invoke('category:list'),
+    create: invoke('category:create'),
+    rename: invoke('category:rename'),
+    remove: invoke('category:remove'),
+    sugerirComIA: invoke('category:sugerirComIA'),
+    aplicarSugestoes: invoke('category:aplicarSugestoes'),
+  },
   returns: {
     findFinalizedSales: invoke('return:findFinalizedSales'),
     getSaleItems: invoke('return:getSaleItems'),
