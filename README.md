@@ -3057,6 +3057,45 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Tela de atualização travada em "Verificando..." — corrigido
+
+Achei o bug exato do seu print: o botão "Atualizar agora" usava um
+estado que **nunca voltava atrás** — assim que você clicava, ficava
+"Verificando..." pra sempre, não importa o que acontecesse por trás
+(achasse a atualização, desse erro, ou não achasse nada). Corrigido —
+agora o botão reflete o estado real da checagem, e some assim que ela
+termina, pra qualquer lado que for.
+
+Também adicionei uma pista de diagnóstico: se a checagem terminar sem
+achar a versão nova (o cenário mais comum quando o release no GitHub
+não está publicado direito — rascunho, pré-lançamento, ou faltando os
+arquivos que o instalador precisa), a tela agora avisa isso
+claramente, em vez de só voltar ao botão como se nada tivesse
+acontecido.
+
+Testei o cenário exato do seu print com um navegador de verdade —
+confirmei que o botão não fica mais preso, e que a mensagem de
+diagnóstico aparece quando a checagem não acha nada disponível.
+
+**Coincidência útil**: essa correção já sai na versão **0.5.28** —
+exatamente a versão mínima que você tinha publicado como obrigatória.
+Assim que os clientes atualizarem pra essa versão, resolve o problema
+que estava vendo.
+
+## Categorias — ver produtos vinculados, editar e excluir de dentro do detalhe
+
+Clicar numa categoria (a linha inteira, não só os links) agora abre
+uma tela cheia mostrando **todos os produtos vinculados** a ela —
+nome, SKU, preço, com a miniatura de cada um. De dentro dessa tela dá
+pra **renomear** ou **excluir** a categoria direto, sem precisar
+voltar pra lista (os links rápidos "Editar"/"Excluir" na linha
+continuam funcionando também, pra quem só quer a ação rápida sem abrir
+o detalhe).
+
+Testado com navegador: clicar na categoria mostra os produtos certos,
+e renomear/excluir de dentro do detalhe abre a ação certa
+corretamente (fechando o detalhe antes).
+
 ## Aba de Categorias — CRUD completo + categorização por IA
 
 **Nota sobre esta entrega**: no meio de construir isso, meu ambiente de

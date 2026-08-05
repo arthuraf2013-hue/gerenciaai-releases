@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 export function UpdateGate({ children }) {
   const [forcedStatus, setForcedStatus] = useState(null);
   const [updateStatus, setUpdateStatus] = useState(null);
-  const [iniciando, setIniciando] = useState(false);
+  const [verificando, setVerificando] = useState(false);
 
   async function verificar() {
     const result = await window.pdv.update.getForcedStatus();
@@ -28,10 +28,17 @@ export function UpdateGate({ children }) {
     // Assim que detecta que precisa atualizar, já dispara a checagem
     // real (que vai achar a versão disponível pra baixar) — poupa um
     // clique de quem está usando o app.
+    setVerificando(true);
     window.pdv.update.check();
     const id = setInterval(async () => {
       const s = await window.pdv.update.getStatus();
       setUpdateStatus(s);
+      // Assim que a checagem resolve pra QUALQUER lado (achou
+      // atualização, não achou, ou deu erro) — sai do estado
+      // "verificando". Sem isso, clicar em "Atualizar agora" deixava
+      // o botão preso em "Verificando..." pra sempre, mesmo depois da
+      // checagem de verdade já ter terminado (com sucesso ou erro).
+      if (!s.checking) setVerificando(false);
     }, 1000);
     return () => clearInterval(id);
   }, [forcedStatus?.bloqueado]);
@@ -41,17 +48,30 @@ export function UpdateGate({ children }) {
   }
 
   async function handleAtualizarAgora() {
-    setIniciando(true);
+    setVerificando(true);
     if (updateStatus?.disponivel && !updateStatus?.baixando && !updateStatus?.baixado) {
       await window.pdv.update.download();
-    } else if (!updateStatus?.disponivel) {
+      setVerificando(false); // download tem a própria barra de progresso — não fica "verificando"
+    } else {
       await window.pdv.update.check();
+      // não desliga "verificando" aqui direto — o polling acima faz
+      // isso assim que o resultado da checagem chegar (s.checking vira false)
     }
   }
 
   function handleInstalar() {
     window.pdv.update.install();
   }
+
+  // Depois de uma checagem que terminou sem achar nenhuma atualização
+  // disponível — isso é estranho quando a tela está bloqueada dizendo
+  // que uma versão nova é obrigatória: normalmente significa que o
+  // release dessa versão no GitHub não está publicado corretamente
+  // (rascunho, sem os arquivos que o auto-updater precisa, etc). Vale
+  // deixar isso claro em vez de só voltar pro botão como se nada
+  // tivesse acontecido.
+  const checouENaoAchouNada = updateStatus && !updateStatus.checking && !updateStatus.disponivel &&
+    !updateStatus.baixando && !updateStatus.baixado && !updateStatus.erro;
 
   return (
     <div className="license-block-screen">
@@ -67,6 +87,15 @@ export function UpdateGate({ children }) {
           <p className="modal-error">
             Não foi possível verificar a atualização: {updateStatus.erro}. Confira sua conexão com a
             internet e tente de novo.
+          </p>
+        )}
+
+        {checouENaoAchouNada && (
+          <p className="modal-error">
+            A checagem terminou, mas não achou nenhuma atualização disponível pra baixar — o mais
+            comum é a versão {forcedStatus.versaoMinimaExigida} não estar publicada corretamente no
+            GitHub Releases ainda (confira se o release está marcado como "Latest", não como rascunho
+            ou pré-lançamento). Fale com quem administra o sistema se isso continuar.
           </p>
         )}
 
@@ -87,8 +116,8 @@ export function UpdateGate({ children }) {
         )}
 
         {!updateStatus?.baixando && !updateStatus?.baixado && (
-          <button className="btn-primary" onClick={handleAtualizarAgora} disabled={iniciando}>
-            {iniciando ? 'Verificando...' : 'Atualizar agora'}
+          <button className="btn-primary" onClick={handleAtualizarAgora} disabled={verificando}>
+            {verificando ? 'Verificando...' : (checouENaoAchouNada || updateStatus?.erro) ? 'Tentar de novo' : 'Atualizar agora'}
           </button>
         )}
 

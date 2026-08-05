@@ -1,5 +1,53 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { ProductThumbnail } from '../pos/ProductThumbnail';
+
+function CategoryDetailModal({ nome, totalProdutos, onFechar, onEditar, onExcluir }) {
+  const [produtos, setProdutos] = useState(null);
+  useEscToClose(onFechar);
+
+  useEffect(() => {
+    window.pdv.products.list({ categoria: nome }).then(setProdutos);
+  }, [nome]);
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-card modal-card-fullscreen">
+        <div>
+          <div className="screen-header" style={{ marginBottom: 4 }}>
+            <h2>{nome} — {totalProdutos} produto(s)</h2>
+            <div className="screen-actions">
+              <button className="btn-secondary" onClick={onEditar}>Renomear categoria</button>
+              <button className="btn-link-danger" onClick={onExcluir}>Excluir categoria</button>
+            </div>
+          </div>
+        </div>
+        <div className="modal-card-fullscreen-scroll">
+          {produtos === null && <p className="empty-state">Carregando...</p>}
+          {produtos !== null && produtos.length === 0 && <p className="empty-state">Nenhum produto nessa categoria.</p>}
+          {produtos && produtos.length > 0 && (
+            <table className="data-table">
+              <thead><tr><th></th><th>Nome</th><th>SKU</th><th>Preço</th></tr></thead>
+              <tbody>
+                {produtos.map((p) => (
+                  <tr key={p.id}>
+                    <td><ProductThumbnail product={p} size={32} /></td>
+                    <td>{p.nome}</td>
+                    <td>{p.sku}</td>
+                    <td>R$ {p.preco.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onFechar}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function CategoryManager() {
   const [categorias, setCategorias] = useState(null);
@@ -13,7 +61,8 @@ export function CategoryManager() {
   const [carregandoIA, setCarregandoIA] = useState(false);
   const [aplicandoIA, setAplicandoIA] = useState(false);
   const [erroIA, setErroIA] = useState('');
-  useEscToClose(() => { setShowNovo(false); setEditando(null); setExcluindo(null); setSugestoesIA(null); });
+  const [verDetalhes, setVerDetalhes] = useState(null); // { nome, totalProdutos } | null
+  useEscToClose(() => { setShowNovo(false); setEditando(null); setExcluindo(null); setSugestoesIA(null); setVerDetalhes(null); });
 
   function carregar() {
     window.pdv.categories.list().then(setCategorias);
@@ -105,12 +154,12 @@ export function CategoryManager() {
           <thead><tr><th>Nome</th><th>Produtos</th><th></th></tr></thead>
           <tbody>
             {categorias.map((c) => (
-              <tr key={c.nome}>
+              <tr key={c.nome} style={{ cursor: 'pointer' }} onClick={() => setVerDetalhes({ nome: c.nome, totalProdutos: c.totalProdutos })}>
                 <td>{c.nome}</td>
                 <td>{c.totalProdutos}</td>
                 <td>
-                  <button className="btn-link" onClick={() => setEditando({ nome: c.nome, novoNome: c.nome })}>Editar</button>
-                  <button className="btn-link-danger" style={{ marginLeft: 12 }} onClick={() => setExcluindo({ nome: c.nome, totalProdutos: c.totalProdutos, moverPara: '' })}>Excluir</button>
+                  <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditando({ nome: c.nome, novoNome: c.nome }); }}>Editar</button>
+                  <button className="btn-link-danger" style={{ marginLeft: 12 }} onClick={(e) => { e.stopPropagation(); setExcluindo({ nome: c.nome, totalProdutos: c.totalProdutos, moverPara: '' }); }}>Excluir</button>
                 </td>
               </tr>
             ))}
@@ -227,6 +276,16 @@ export function CategoryManager() {
             </div>
           </div>
         </div>
+      )}
+
+      {verDetalhes && (
+        <CategoryDetailModal
+          nome={verDetalhes.nome}
+          totalProdutos={verDetalhes.totalProdutos}
+          onFechar={() => setVerDetalhes(null)}
+          onEditar={() => { setEditando({ nome: verDetalhes.nome, novoNome: verDetalhes.nome }); setVerDetalhes(null); }}
+          onExcluir={() => { setExcluindo({ nome: verDetalhes.nome, totalProdutos: verDetalhes.totalProdutos, moverPara: '' }); setVerDetalhes(null); }}
+        />
       )}
     </div>
   );
