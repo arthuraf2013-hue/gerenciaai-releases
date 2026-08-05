@@ -3057,6 +3057,41 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Atualização "ainda travada" — a causa raiz de verdade
+
+Sua tentativa de criar as tags confirmou algo importante: `v0.5.28` e
+`v0.5.29` **já existiam e já tinham sido enviadas** ("Everything
+up-to-date"). Isso significa que o workflow provavelmente **já
+rodou** — mas achei o motivo de mesmo assim nada aparecer pro
+auto-updater: **o `electron-builder` cria a release como rascunho por
+padrão**, mesmo com `releaseType: "release"` configurado (que já
+estava no seu `package.json` desde antes — existe um problema
+conhecido do próprio `electron-builder` onde isso às vezes não é
+respeitado). Uma release rascunho fica invisível — o app nunca acha
+ela, então trava pra sempre, não importa quantas tags você crie.
+
+**Corrigido pra builds futuros**: adicionei `"draft": false`
+explicitamente na configuração de publicação — essa é a forma mais
+confiável de garantir isso, documentada como o comportamento correto
+mesmo em versões do `electron-builder` que têm esse problema com
+`releaseType` sozinho.
+
+**Mas isso não resolve o que já foi construído** — as releases de
+`v0.5.28`/`v0.5.29`, se o workflow rodou, provavelmente estão lá como
+rascunho agora. Duas coisas pra fazer:
+
+1. **Destravar agora**: vai no seu repositório no GitHub → aba
+   "Releases" → se tiver algum rascunho de `v0.5.28` ou `v0.5.29`
+   listado lá, abre ele e clica em "Publish release". Isso é
+   imediato, sem precisar reconstruir nada.
+2. **Pra daqui pra frente**: com o `draft: false` que acabei de
+   adicionar, a próxima tag que você criar e enviar já publica
+   automaticamente, sem esse passo manual.
+
+Pulei a versão do zip pra **0.5.30** de propósito — `0.5.28` e
+`0.5.29` já estão com tag criada, então usar qualquer uma delas de
+novo daria conflito.
+
 ## Tela de atualização travada em "Verificando..." — corrigido
 
 Achei o bug exato do seu print: o botão "Atualizar agora" usava um
