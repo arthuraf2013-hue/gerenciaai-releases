@@ -3057,6 +3057,36 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Achado o bug de verdade — corrida de inicialização
+
+Sua pista foi decisiva: "funciona manual em Configurações, só trava na
+obrigatória" — isso descarta de vez qualquer problema de release/draft
+no GitHub (o mecanismo de checar E achar a atualização funciona,
+comprovado pelo fluxo manual) e aponta pra diferença exata entre os
+dois caminhos: a tela de bloqueio dispara a checagem **assim que a
+janela abre**, bem mais cedo que qualquer clique manual em
+Configurações.
+
+Achei a causa: no `main.js`, a janela era criada (`createWindow()`)
+**antes** de `updateService.setupAutoUpdater()` — a função que registra
+os listeners de evento do auto-updater (`checking-for-update`,
+`update-available`, etc.). Se a tela de bloqueio disparasse a
+checagem cedo o suficiente, o resultado dela (achou atualização, não
+achou, ou deu erro) **se perdia no vazio** — chegava um evento que
+ninguém ainda estava escutando. O fluxo manual em Configurações só
+roda bem depois, com tudo já registrado, por isso sempre funcionou.
+
+**Corrigido**: `setupAutoUpdater()` agora roda antes de `createWindow()`
+— não existe mais nenhuma janela de tempo em que a tela pudesse disparar
+uma checagem antes dos listeners existirem.
+
+**Reproduzi o bug de propósito** com um auto-updater simulado, na
+ordem antiga — confirmei que o resultado realmente se perdia (mesmo
+"achando" a atualização por trás, o status nunca refletia isso). Testei
+de novo com a ordem nova — confirmei que captura certo, com a versão
+disponível batendo. Essa dessa vez tenho certeza de verdade que é a
+causa raiz, não uma suposição.
+
 ## Corrigindo o erro que EU causei — `draft: false` quebrou o build
 
 Seu terminal mostrou exatamente o problema: o `"draft": false` que

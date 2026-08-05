@@ -113,6 +113,18 @@ app.whenReady().then(() => {
   getDb(); // garante schema criado e seed aplicado antes de abrir a janela
   timeService.startAutoSync(); // sincroniza com a internet assim que possível, e a cada 15 min
   registerIpcHandlers();
+
+  // Precisa rodar ANTES de createWindow() — a tela de atualização
+  // obrigatória (UpdateGate) pode disparar uma checagem de atualização
+  // assim que a janela abre (baseada só em dado local, sem esperar
+  // nada de rede), e se isso acontecer antes dos listeners do
+  // autoUpdater existirem, o resultado da checagem (achou, não achou,
+  // deu erro) se perde no vazio — ninguém está escutando ainda. Foi
+  // exatamente isso que deixava a tela de bloqueio presa, enquanto o
+  // fluxo manual em Configurações (que só roda bem depois, com tudo
+  // já pronto) funcionava normal.
+  updateService.setupAutoUpdater();
+
   createWindow();
 
   // Backup automático (uma vez por dia) — não trava a abertura do app.
@@ -121,10 +133,6 @@ app.whenReady().then(() => {
   backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err));
   setInterval(() => backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err)), 2 * 60 * 60 * 1000);
 
-  // Atualização automática — só AVISA sozinho (nunca baixa/instala sem
-  // pedir); verifica 1 min depois de abrir (não trava a abertura do
-  // app) e depois a cada 4h.
-  updateService.setupAutoUpdater();
   // Limpa o status de download/instalação no Firestore assim que o app
   // sobe — sem isso, depois que o cliente reinicia na versão nova, o
   // painel continuava mostrando "baixado, aguardando reiniciar" pra
