@@ -3057,6 +3057,36 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Corrigindo o erro que EU causei — `draft: false` quebrou o build
+
+Seu terminal mostrou exatamente o problema: o `"draft": false` que
+adicionei na resposta anterior **não é um campo reconhecido** pela
+versão do `electron-builder` que o projeto usa (24.13.3) — ele quebrou
+até o build local (`--publish never` também valida a configuração
+inteira, mesmo sem publicar nada). Peço desculpas por isso — vim de
+uma busca em documentação geral que não bateu com essa versão
+específica.
+
+**Corrigido**: removi o `draft`, voltando a usar só `releaseType:
+"release"` (que já estava lá desde antes, e É um campo válido —
+confirmei contra o schema exato que o próprio erro listou). Testei
+rodando o build completo aqui do meu lado com a mesma versão exata do
+`electron-builder` (24.13.3) — passou da etapa que quebrava antes e
+terminou de empacotar sem nenhum erro de configuração.
+
+**Sobre a causa raiz de verdade (por que a release aparece como
+rascunho)**: dado que `releaseType: "release"` já estava configurado
+certo desde antes de eu mexer nisso, minha teoria anterior pode não
+ser o motivo real. Preciso que você **confira direto no GitHub** —
+entra no seu repositório → aba "Releases" → olha se `v0.5.28` ou
+`v0.5.29` aparecem lá, e se estão marcadas como rascunho ("Draft") ou
+publicadas de verdade. Isso me diz com certeza o que está acontecendo,
+em vez de eu continuar arriscando mais mudanças de configuração no
+escuro.
+
+Pulei direto pra **0.5.32** — você já tinha rodado localmente até a
+0.5.31, evitando qualquer risco de colisão de tag.
+
 ## Atualização "ainda travada" — a causa raiz de verdade
 
 Sua tentativa de criar as tags confirmou algo importante: `v0.5.28` e
