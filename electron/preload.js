@@ -141,6 +141,8 @@ contextBridge.exposeInMainWorld('pdv', {
   io: {
     exportProducts: invoke('io:exportProducts'),
     importProducts: invoke('io:importProducts'),
+    prepararRevinculacaoCodigosBarras: invoke('io:prepararRevinculacaoCodigosBarras'),
+    aplicarRevinculacaoCodigosBarras: invoke('io:aplicarRevinculacaoCodigosBarras'),
   },
   attachments: {
     add: invoke('attachment:add'),

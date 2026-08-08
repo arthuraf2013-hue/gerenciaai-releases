@@ -3057,6 +3057,39 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Re-vincular códigos de barras de uma planilha antiga
+
+Botão novo em Produtos: "Re-vincular códigos de barras". Pensado
+exatamente pro seu caso — cliente ainda tem a planilha antiga com os
+códigos, e alguns produtos ficaram sem código depois da limpeza de
+duplicados.
+
+**Por que não reaproveitei a importação normal**: ela casa produtos
+existentes por SKU ou código de barras — inútil aqui, já que é
+justamente o código que sumiu. Essa ferramenta nova casa por **nome**
+em vez disso.
+
+- Aceita a planilha antiga como ela é — não precisa reformatar pro
+  nosso modelo. Detecta a coluna do nome e a do código de barras
+  mesmo com cabeçalhos diferentes ("Produto", "Descrição", "EAN",
+  "Código", etc).
+- **Nunca cria produto novo** — só preenche o código de barras de quem
+  já existe aqui, casando pelo nome.
+- Mostra uma tela de revisão antes de aplicar qualquer coisa: quem foi
+  encontrado (com checkbox pra incluir/excluir cada um), quem não foi
+  encontrado, e quem foi pulado por já ter esse código em outro
+  produto ativo (evita reintroduzir o mesmo tipo de conflito que já
+  resolvemos antes).
+- Se dois produtos locais tiverem o mesmo nome (duplicado que ainda
+  não foi limpo), fica marcado como ambíguo em vez de escolher um dos
+  dois sozinho — pra você resolver a duplicidade primeiro, se for o
+  caso.
+
+Testei o fluxo completo: planilha com cabeçalhos diferentes do nosso
+modelo (detecção funcionou), produtos casados corretamente por nome,
+produto não encontrado reportado à parte, e confirmei que nada é
+aplicado até você revisar e confirmar.
+
 ## Busca por nome — refinada pra 4 níveis de relevância
 
 A busca já priorizava "nome começa com o termo" — mas tudo que não se

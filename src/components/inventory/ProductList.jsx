@@ -3,6 +3,7 @@ import { ProductForm } from './ProductForm';
 import { ProductThumbnail } from '../pos/ProductThumbnail';
 import { StockAdjustModal } from './StockAdjustModal';
 import { DuplicateProductsModal } from './DuplicateProductsModal';
+import { BarcodeRelinkModal } from './BarcodeRelinkModal';
 import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
@@ -14,6 +15,7 @@ export function ProductList() {
   const [products, setProducts] = useState([]);
   const [soConflitos, setSoConflitos] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [showRelinkCodigos, setShowRelinkCodigos] = useState(false);
   const [duplicatasCount, setDuplicatasCount] = useState(0);
   const [estoquePorProduto, setEstoquePorProduto] = useState({});
   const [query, setQuery] = useState('');
@@ -183,6 +185,7 @@ export function ProductList() {
           <button className="btn-secondary" onClick={() => setShowDuplicates(true)}>
             Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
           </button>
+          <button className="btn-secondary" onClick={() => setShowRelinkCodigos(true)}>Re-vincular códigos de barras</button>
           <button className="btn-link-danger" onClick={handleClearAll}>Limpar todos os produtos</button>
           <button className="btn-primary" onClick={() => setEditing({})}>+ Novo produto</button>
         </div>
@@ -279,6 +282,13 @@ export function ProductList() {
         <DuplicateProductsModal
           onFechar={() => setShowDuplicates(false)}
           onExcluido={() => { carregarContagemDuplicados(); reloadRef.current(); }}
+        />
+      )}
+
+      {showRelinkCodigos && (
+        <BarcodeRelinkModal
+          onFechar={() => setShowRelinkCodigos(false)}
+          onAplicado={() => reloadRef.current()}
         />
       )}
     </div>

@@ -165,4 +165,108 @@ function exportToFile(filePath, { locationId }) {
   return { ok: true, total: rows.length };
 }
 
-module.exports = { importFromFile, exportToFile, COLUMNS };
+function normalizarTexto(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+/** Tenta achar, entre os cabeçalhos da planilha, qual coluna é o nome
+ * do produto e qual é o código de barras — aceita variações comuns,
+ * já que a planilha antiga do cliente não necessariamente segue o
+ * nosso modelo (pode vir de outro sistema, com nomes de coluna
+ * diferentes). */
+function detectarColunas(headerRow) {
+  const candidatosNome = ['nome', 'produto', 'descricao', 'descrição', 'item', 'mercadoria'];
+  const candidatosCodigo = ['codigo_barras', 'código_barras', 'codigo de barras', 'código de barras', 'codigobarras', 'codigo', 'código', 'barras', 'ean', 'gtin'];
+
+  const colunaNome = headerRow.find((h) => candidatosNome.includes(normalizarTexto(h)));
+  const colunaCodigo = headerRow.find((h) => candidatosCodigo.includes(normalizarTexto(h)));
+  return { colunaNome, colunaCodigo };
+}
+
+/**
+ * Lê uma planilha antiga (nome + código de barras) e tenta casar cada
+ * linha com um produto JÁ EXISTENTE localmente, por NOME — ao
+ * contrário da importação normal (que casa por sku/código de barras,
+ * inútil aqui já que é justamente o código que sumiu e precisa ser
+ * re-vinculado). NUNCA cria produto novo, NUNCA aplica nada sozinho —
+ * só monta o relatório pra revisão, quem decide o que aceitar é
+ * sempre a pessoa.
+ */
+function prepararRevinculacaoDeCodigosBarras(filePath) {
+  const workbook = XLSX.readFile(filePath);
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  if (rows.length === 0) return { ok: false, error: 'A planilha está vazia.' };
+
+  const headerRow = Object.keys(rows[0]);
+  const { colunaNome, colunaCodigo } = detectarColunas(headerRow);
+  if (!colunaNome || !colunaCodigo) {
+    return {
+      ok: false,
+      error: `Não consegui identificar as colunas de nome e código de barras na planilha (cabeçalhos encontrados: ${headerRow.join(', ')}). Renomeie a coluna do nome do produto pra "nome" e a do código de barras pra "codigo_barras", ou use nomes parecidos com esses.`,
+    };
+  }
+
+  const db = getDb();
+  const produtosAtivos = db.prepare('SELECT id, nome, codigo_barras FROM products WHERE ativo = 1').all();
+  const porNomeNormalizado = new Map();
+  for (const p of produtosAtivos) {
+    const chave = normalizarTexto(p.nome);
+    // Se duas linhas locais tiverem exatamente o mesmo nome (ainda podem
+    // existir duplicados não limpos), não arrisca escolher uma sozinho —
+    // fica marcado como ambíguo, pra revisão manual.
+    if (porNomeNormalizado.has(chave)) porNomeNormalizado.set(chave, 'AMBIGUO');
+    else porNomeNormalizado.set(chave, p);
+  }
+  const codigoJaEmUsoAtivo = new Map(produtosAtivos.filter((p) => p.codigo_barras).map((p) => [p.codigo_barras, p.nome]));
+
+  const casados = [];
+  const naoEncontrados = [];
+  const ambiguos = [];
+  const conflitos = [];
+
+  for (const row of rows) {
+    const nomePlanilha = String(row[colunaNome] || '').trim();
+    const codigoPlanilha = String(row[colunaCodigo] || '').trim();
+    if (!nomePlanilha || !codigoPlanilha) continue;
+
+    const match = porNomeNormalizado.get(normalizarTexto(nomePlanilha));
+    if (!match) { naoEncontrados.push({ nomePlanilha, codigoPlanilha }); continue; }
+    if (match === 'AMBIGUO') { ambiguos.push({ nomePlanilha, codigoPlanilha }); continue; }
+
+    const donoAtual = codigoJaEmUsoAtivo.get(codigoPlanilha);
+    if (donoAtual && donoAtual !== match.nome) {
+      conflitos.push({ nomePlanilha, codigoPlanilha, jaPertenceA: donoAtual });
+      continue;
+    }
+
+    if (match.codigo_barras === codigoPlanilha) continue; // já está certo, nada a fazer
+
+    casados.push({
+      productId: match.id, nomeAtual: match.nome,
+      codigoBarrasAntigo: match.codigo_barras || null, codigoBarrasNovo: codigoPlanilha,
+    });
+  }
+
+  return { ok: true, casados, naoEncontrados, ambiguos, conflitos, totalLinhas: rows.length };
+}
+
+/** Aplica só os casamentos que a pessoa revisou e aceitou — reconfere
+ * o conflito de código de barras na hora de aplicar (pode ter mudado
+ * desde a revisão, se outra máquina sincronizada mexeu em algo). */
+function aplicarRevinculacaoDeCodigosBarras(casadosAceitos) {
+  const db = getDb();
+  const resultado = { aplicados: 0, ignoradosPorConflito: [] };
+  for (const c of casadosAceitos) {
+    const conflito = db.prepare('SELECT nome FROM products WHERE codigo_barras = ? AND id != ? AND ativo = 1').get(c.codigoBarrasNovo, c.productId);
+    if (conflito) {
+      resultado.ignoradosPorConflito.push({ nomeAtual: c.nomeAtual, jaPertenceA: conflito.nome });
+      continue;
+    }
+    db.prepare('UPDATE products SET codigo_barras = ? WHERE id = ?').run(c.codigoBarrasNovo, c.productId);
+    resultado.aplicados++;
+  }
+  return { ok: true, ...resultado };
+}
+
+module.exports = { importFromFile, exportToFile, COLUMNS, prepararRevinculacaoDeCodigosBarras, aplicarRevinculacaoDeCodigosBarras };

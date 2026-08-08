@@ -202,6 +202,17 @@ function registerIpcHandlers() {
     if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
     return importExportService.importFromFile(filePaths[0], { locationId, operadorId, deviceId });
   });
+  safeHandle('io:prepararRevinculacaoCodigosBarras', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Selecionar a planilha antiga com os códigos de barras',
+      properties: ['openFile'],
+      filters: [{ name: 'Planilha Excel ou CSV', extensions: ['xlsx', 'xls', 'csv'] }],
+    });
+    if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
+    return importExportService.prepararRevinculacaoDeCodigosBarras(filePaths[0]);
+  });
+  safeHandle('io:aplicarRevinculacaoCodigosBarras', (_e, casadosAceitos) => importExportService.aplicarRevinculacaoDeCodigosBarras(casadosAceitos));
 
   // --- Anexos da venda (imagem/PDF de receita, comprovante, etc. — opcional) ---
   safeHandle('attachment:add', async (_e, { saleId, operadorId }) => {

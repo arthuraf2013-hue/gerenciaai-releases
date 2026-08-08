@@ -77,48 +77,58 @@ function list({ query, categoria, limit, offset } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
-    // Busca por nome/sku/código — insensível a acento, e ranqueada por
-    // relevância. Quatro níveis, do melhor pro pior:
-    //   0. nome COMEÇA com o termo (ex: buscar "dipirona" em "Dipirona 500mg")
-    //   1. termo é o INÍCIO DE UMA PALAVRA dentro do nome (ex: buscar
-    //      "500mg" ou "medley" em "Dipirona 500mg Medley") — é o caso
-    //      mais comum de busca de verdade, já que raramente alguém
-    //      busca pela primeira palavra inteira de um produto
-    //   2. termo aparece no meio de uma palavra, sem estar numa borda
-    //      (ex: buscar "iron" em "Dipirona")
-    //   3. só bateu em sku/código de barras, não no nome
-    // Antes, só o nível 0 tinha tratamento especial — tudo que não
-    // começava o nome inteiro caía junto no mesmo nível, misturando
-    // busca por segunda palavra (bem relevante) com coincidência de
-    // meio de palavra (pouco relevante), enterrando o que a pessoa
-    // procurava embaixo de resultado menos relevante.
+    // Busca por nome — o critério principal é o nome COMEÇAR com o
+    // termo digitado (ex: buscar "dipirona" acha "Dipirona 500mg",
+    // "Dipirona Gotas", etc) — e SE existe pelo menos um produto
+    // assim, a lista mostra só esses (ordenados por nome), sem
+    // misturar com correspondências soltas no meio de outros nomes.
+    // Antes, tudo entrava junto (início do nome, início de palavra no
+    // meio, e até meio de palavra), e um catálogo com muitos produtos
+    // do mesmo tipo (uma linha inteira de produtos com nomes
+    // parecidos) enterrava o que a pessoa procurava lá embaixo, longe
+    // dos 8 primeiros que a tela do PDV mostra.
+    //
+    // Só cai pra uma busca mais solta (início de palavra em qualquer
+    // lugar do nome, depois meio de palavra) quando NENHUM produto
+    // começa com o termo — pra continuar achando alguma coisa quando
+    // a pessoa não lembra exatamente como o nome começa, em vez de
+    // simplesmente não devolver nada.
     const queryNormalizada = normalizarTexto(query);
     const queryLower = query.toLowerCase();
     const todosAtivos = db.prepare('SELECT * FROM products WHERE ativo = 1').all();
 
-    const comRelevancia = [];
+    const comecamComOTermo = [];
+    const outrosMatches = [];
     for (const p of todosAtivos) {
       const nomeNormalizado = normalizarTexto(p.nome);
       const idxNome = nomeNormalizado.indexOf(queryNormalizada);
       const skuMatch = p.sku && String(p.sku).toLowerCase().includes(queryLower);
       const codigoMatch = p.codigo_barras && String(p.codigo_barras).includes(query);
 
+      if (idxNome === 0) {
+        comecamComOTermo.push(p);
+        continue;
+      }
       if (idxNome === -1 && !skuMatch && !codigoMatch) continue;
 
       let relevancia;
-      if (idxNome === 0) relevancia = 0;
-      else if (idxNome > 0 && nomeNormalizado[idxNome - 1] === ' ') relevancia = 1; // início de palavra
+      if (idxNome > 0 && nomeNormalizado[idxNome - 1] === ' ') relevancia = 1; // início de palavra no meio
       else if (idxNome > 0) relevancia = 2; // meio de palavra
       else relevancia = 3; // só sku/código
-
-      comRelevancia.push({ produto: p, relevancia, idxNome: idxNome === -1 ? 9999 : idxNome });
+      outrosMatches.push({ produto: p, relevancia, idxNome: idxNome === -1 ? 9999 : idxNome });
     }
 
-    comRelevancia.sort((a, b) =>
-      a.relevancia - b.relevancia || a.idxNome - b.idxNome || a.produto.nome.localeCompare(b.produto.nome, 'pt-BR')
-    );
+    let resultado;
+    if (comecamComOTermo.length > 0) {
+      comecamComOTermo.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      resultado = comecamComOTermo;
+    } else {
+      outrosMatches.sort((a, b) =>
+        a.relevancia - b.relevancia || a.idxNome - b.idxNome || a.produto.nome.localeCompare(b.produto.nome, 'pt-BR')
+      );
+      resultado = outrosMatches.map((r) => r.produto);
+    }
 
-    let resultado = comRelevancia.map((r) => r.produto);
     if (limit) resultado = resultado.slice(offset || 0, (offset || 0) + limit);
     return resultado;
   }
@@ -175,17 +185,21 @@ function countConflitosCodigoBarrasPendentes() {
 
 function count({ query, categoria } = {}) {
   const db = getDb();
+
+  if (query && !categoria) {
+    // Precisa ser exatamente a mesma lógica de list() (prioriza quem
+    // começa com o termo, só cai pro resto quando não tem nenhum
+    // assim) — senão a paginação da tela de Produtos "acha" que tem
+    // mais resultado do que list() realmente devolve, ou o contrário.
+    return list({ query }).length;
+  }
+
   const params = [];
   let sql = 'SELECT COUNT(*) as total FROM products WHERE ativo = 1';
-
   if (categoria) {
     sql += ' AND categoria = ?';
     params.push(categoria);
-  } else if (query) {
-    sql += ' AND (nome LIKE ? OR sku LIKE ? OR codigo_barras LIKE ?)';
-    params.push(`%${query}%`, `%${query}%`, `%${query}%`);
   }
-
   return db.prepare(sql).get(...params).total;
 }
 
