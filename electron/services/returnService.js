@@ -116,7 +116,7 @@ function listReturns({ locationId, dataInicio, dataFim }) {
      FROM returns r
      JOIN users u1 ON u1.id = r.operador_id
      JOIN users u2 ON u2.id = r.autorizado_por_id
-     WHERE r.location_id = ? AND date(r.criado_em) BETWEEN date(?) AND date(?)
+     WHERE r.location_id = ? AND date(r.criado_em, '-3 hours') BETWEEN date(?) AND date(?)
      ORDER BY r.criado_em DESC`
   ).all(locationId, dataInicio, dataFim);
 }

@@ -80,7 +80,7 @@ async function pushTodoOHistorico({ diasRecentes } = {}) {
       ? db.prepare(
           `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
            FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-           WHERE s.status = 'finalizada' AND date(s.finalizada_em) >= date('now', ?)`
+           WHERE s.status = 'finalizada' AND date(s.finalizada_em, '-3 hours') >= date('now', ?)`
         ).all(`-${diasRecentes} days`)
       : db.prepare(
           `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome

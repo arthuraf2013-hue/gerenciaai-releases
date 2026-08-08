@@ -67,7 +67,7 @@ function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
        JOIN sales s ON s.id = si.sale_id
        JOIN products p ON p.id = si.product_id
        WHERE s.location_id = ? AND si.cancelado = 0
-         AND date(COALESCE(s.finalizada_em, s.criado_em)) >= date('now', '-30 days')
+         AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') >= date('now', '-30 days')
        GROUP BY p.id
        ORDER BY total_vendido DESC, p.nome
        LIMIT ?`
@@ -103,7 +103,13 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
        -- Usa a data de FINALIZAÇÃO como referência, não a de abertura do
        -- carrinho — um carrinho pode ficar aberto de um dia pro outro
        -- (retomar venda) e só virar venda de verdade quando finalizado.
-       AND date(COALESCE(s.finalizada_em, s.criado_em)) BETWEEN date(?) AND date(?)
+       --
+       -- O '-3 hours' converte de UTC (como é guardado) pra Brasília
+       -- ANTES de extrair o dia — sem isso, uma venda das 21h+ (que já
+       -- virou o dia seguinte em UTC) contava como sendo do dia errado.
+       -- Brasil não usa horário de verão desde 2019, então -3h fixo
+       -- está correto o ano inteiro.
+       AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') BETWEEN date(?) AND date(?)
        -- Não mostra carrinho aberto que nunca teve nenhum item — é só o
        -- rascunho que o sistema cria sozinho ao entrar no PDV, nunca foi
        -- uma venda de verdade. Carrinho aberto COM item ainda aparece

@@ -21,6 +21,16 @@ export function BarcodeRelinkModal({ onFechar, onAplicado }) {
     setSelecionados(new Set(result.casados.map((c) => c.productId)));
   }
 
+  async function handleBuscarViaGrupo() {
+    setCarregando(true);
+    setErro('');
+    const result = await window.pdv.productSync.prepararRevinculacaoViaGrupo();
+    setCarregando(false);
+    if (!result.ok) return setErro(result.error);
+    setRelatorio(result);
+    setSelecionados(new Set(result.casados.map((c) => c.productId)));
+  }
+
   function toggleSelecionado(productId) {
     setSelecionados((prev) => {
       const novo = new Set(prev);
@@ -54,8 +64,13 @@ export function BarcodeRelinkModal({ onFechar, onAplicado }) {
         </div>
 
         {relatorio === null && (
-          <div className="modal-card-fullscreen-scroll" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <button className="btn-primary" onClick={handleEscolherPlanilha} disabled={carregando}>
+          <div className="modal-card-fullscreen-scroll" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+            <button className="btn-primary" onClick={handleBuscarViaGrupo} disabled={carregando}>
+              {carregando ? 'Consultando...' : 'Buscar automaticamente no grupo sincronizado'}
+            </button>
+            <p className="screen-hint">Se essa máquina já sincronizou com outra que ainda tem os códigos certos — mais rápido, sem precisar de arquivo nenhum.</p>
+            <div style={{ margin: '8px 0', color: 'var(--color-text-muted)' }}>ou</div>
+            <button className="btn-secondary" onClick={handleEscolherPlanilha} disabled={carregando}>
               {carregando ? 'Lendo planilha...' : 'Escolher planilha antiga'}
             </button>
           </div>

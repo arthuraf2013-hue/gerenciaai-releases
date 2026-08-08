@@ -155,7 +155,7 @@ function listAuditLog({ dataInicio, dataFim }) {
      FROM audit_log a
      LEFT JOIN users u1 ON u1.id = a.solicitante_id
      LEFT JOIN users u2 ON u2.id = a.autorizado_por_id
-     WHERE date(a.criado_em) BETWEEN date(?) AND date(?)
+     WHERE date(a.criado_em, '-3 hours') BETWEEN date(?) AND date(?)
        -- A Auditoria é pra mostrar o que precisou de aprovação — um
        -- cancelamento antes do pagamento (ajuste normal de carrinho) ou
        -- com a exigência de senha desligada nas configurações nunca tem

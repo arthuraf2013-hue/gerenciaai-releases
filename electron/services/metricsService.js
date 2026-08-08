@@ -15,7 +15,7 @@ function getMetricasAgregadas() {
   ).get().c;
 
   const vendasUltimos30Dias = db.prepare(
-    `SELECT COUNT(*) as c FROM sales WHERE status = 'finalizada' AND date(finalizada_em) >= date('now', '-30 days')`
+    `SELECT COUNT(*) as c FROM sales WHERE status = 'finalizada' AND date(finalizada_em, '-3 hours') >= date('now', '-30 days')`
   ).get().c;
 
   const perfilAtivo = db.prepare(`SELECT perfil_ativo FROM business_profile WHERE id = ?`).get('default');

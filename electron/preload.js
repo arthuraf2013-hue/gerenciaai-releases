@@ -215,6 +215,7 @@ contextBridge.exposeInMainWorld('pdv', {
     buscarNoGrupo: invoke('productSync:buscarNoGrupo'),
     buscarNoGrupoPorCodigoBarras: invoke('productSync:buscarNoGrupoPorCodigoBarras'),
     importarDoGrupo: invoke('productSync:importarDoGrupo'),
+    prepararRevinculacaoViaGrupo: invoke('productSync:prepararRevinculacaoViaGrupo'),
   },
   suppliers: {
     list: invoke('supplier:list'),

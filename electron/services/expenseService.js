@@ -40,7 +40,7 @@ function list({ locationId, dataInicio, dataFim, apenasPendentes }) {
   let sql = `
     SELECT e.*, s.nome as fornecedor_nome
     FROM expenses e LEFT JOIN suppliers s ON s.id = e.fornecedor_id
-    WHERE e.location_id = ? AND date(e.criado_em) >= date(?) AND date(e.criado_em) <= date(?)`;
+    WHERE e.location_id = ? AND date(e.criado_em, '-3 hours') >= date(?) AND date(e.criado_em, '-3 hours') <= date(?)`;
   const params = [locationId, dataInicio, dataFim];
   if (apenasPendentes) sql += ' AND e.data_pagamento IS NULL';
   sql += ' ORDER BY COALESCE(e.data_vencimento, e.criado_em)';

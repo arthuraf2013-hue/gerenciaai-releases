@@ -5,12 +5,12 @@ function getSummary({ locationId, dataInicio, dataFim }) {
 
   const totais = db.prepare(
     `SELECT COUNT(*) as totalVendas, COALESCE(SUM(total - desconto - desconto_gerente), 0) as totalFaturado
-     FROM sales WHERE location_id = ? AND status = 'finalizada' AND date(finalizada_em) BETWEEN date(?) AND date(?)`
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND date(finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)`
   ).get(locationId, dataInicio, dataFim);
 
   const vendasPorDia = db.prepare(
-    `SELECT date(finalizada_em) as dia, COALESCE(SUM(total - desconto - desconto_gerente), 0) as total
-     FROM sales WHERE location_id = ? AND status = 'finalizada' AND date(finalizada_em) BETWEEN date(?) AND date(?)
+    `SELECT date(finalizada_em, '-3 hours') as dia, COALESCE(SUM(total - desconto - desconto_gerente), 0) as total
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND date(finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
      GROUP BY dia ORDER BY dia`
   ).all(locationId, dataInicio, dataFim);
 
@@ -20,7 +20,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em) BETWEEN date(?) AND date(?)
+       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
      GROUP BY si.product_id
      ORDER BY quantidade DESC
      LIMIT 8`
@@ -28,7 +28,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
 
   const devolucoes = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(valor_devolvido), 0) as valor
-     FROM returns WHERE location_id = ? AND date(criado_em) BETWEEN date(?) AND date(?)`
+     FROM returns WHERE location_id = ? AND date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)`
   ).get(locationId, dataInicio, dataFim);
 
   // Lucro estimado — usa o CUSTO ATUAL do produto (products.custo), não
@@ -43,7 +43,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em) BETWEEN date(?) AND date(?)`
+       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)`
   ).get(locationId, dataInicio, dataFim);
 
   const margemPorProduto = db.prepare(
@@ -55,7 +55,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em) BETWEEN date(?) AND date(?)
+       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
      GROUP BY si.product_id
      HAVING valorVendido > 0
      ORDER BY (valorVendido - custoEstimado) DESC
@@ -106,7 +106,7 @@ function getSalesByOperator({ locationId, dataInicio, dataFim }) {
     `SELECT u.nome as operador, COUNT(*) as total_vendas, COALESCE(SUM(s.total), 0) as total_vendido
      FROM sales s JOIN users u ON u.id = s.operador_id
      WHERE s.location_id = ? AND s.status = 'finalizada'
-       AND date(COALESCE(s.finalizada_em, s.criado_em)) BETWEEN date(?) AND date(?)
+       AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') BETWEEN date(?) AND date(?)
      GROUP BY s.operador_id ORDER BY total_vendido DESC`
   ).all(locationId, dataInicio, dataFim);
 }
@@ -131,7 +131,7 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(COALESCE(s.finalizada_em, s.criado_em)) BETWEEN date(?) AND date(?)
+       AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') BETWEEN date(?) AND date(?)
      GROUP BY p.id
      ORDER BY lucro DESC`
   ).all(locationId, dataInicio, dataFim);
@@ -142,7 +142,7 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
   const timestampsBrutos = db.prepare(
     `SELECT COALESCE(finalizada_em, criado_em) as quando FROM sales
      WHERE location_id = ? AND status = 'finalizada'
-       AND date(COALESCE(finalizada_em, criado_em)) BETWEEN date(?) AND date(?)`
+       AND date(COALESCE(finalizada_em, criado_em), '-3 hours') BETWEEN date(?) AND date(?)`
   ).all(locationId, dataInicio, dataFim);
 
   const contagemPorHora = new Array(24).fill(0);
@@ -179,7 +179,7 @@ function getResultadoSimples({ locationId, dataInicio, dataFim }) {
   const receita = db.prepare(
     `SELECT COALESCE(SUM(total - desconto - desconto_gerente), 0) as total
      FROM sales WHERE location_id = ? AND status = 'finalizada'
-       AND date(finalizada_em) >= date(?) AND date(finalizada_em) <= date(?)`
+       AND date(finalizada_em, '-3 hours') >= date(?) AND date(finalizada_em, '-3 hours') <= date(?)`
   ).get(locationId, dataInicio, dataFim).total;
 
   const custoProdutos = db.prepare(
@@ -188,17 +188,17 @@ function getResultadoSimples({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em) >= date(?) AND date(s.finalizada_em) <= date(?)`
+       AND date(s.finalizada_em, '-3 hours') >= date(?) AND date(s.finalizada_em, '-3 hours') <= date(?)`
   ).get(locationId, dataInicio, dataFim).total;
 
   const despesas = db.prepare(
     `SELECT COALESCE(SUM(valor), 0) as total FROM expenses
-     WHERE location_id = ? AND date(criado_em) >= date(?) AND date(criado_em) <= date(?)`
+     WHERE location_id = ? AND date(criado_em, '-3 hours') >= date(?) AND date(criado_em, '-3 hours') <= date(?)`
   ).get(locationId, dataInicio, dataFim).total;
 
   const despesasPorCategoria = db.prepare(
     `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM expenses
-     WHERE location_id = ? AND date(criado_em) >= date(?) AND date(criado_em) <= date(?)
+     WHERE location_id = ? AND date(criado_em, '-3 hours') >= date(?) AND date(criado_em, '-3 hours') <= date(?)
      GROUP BY categoria ORDER BY total DESC`
   ).all(locationId, dataInicio, dataFim);
 

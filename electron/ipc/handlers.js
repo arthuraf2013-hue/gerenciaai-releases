@@ -213,6 +213,7 @@ function registerIpcHandlers() {
     return importExportService.prepararRevinculacaoDeCodigosBarras(filePaths[0]);
   });
   safeHandle('io:aplicarRevinculacaoCodigosBarras', (_e, casadosAceitos) => importExportService.aplicarRevinculacaoDeCodigosBarras(casadosAceitos));
+  safeHandle('productSync:prepararRevinculacaoViaGrupo', () => productSyncService.prepararRevinculacaoViaGrupo());
 
   // --- Anexos da venda (imagem/PDF de receita, comprovante, etc. — opcional) ---
   safeHandle('attachment:add', async (_e, { saleId, operadorId }) => {

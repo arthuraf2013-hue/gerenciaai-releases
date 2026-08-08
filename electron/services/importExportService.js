@@ -207,48 +207,10 @@ function prepararRevinculacaoDeCodigosBarras(filePath) {
     };
   }
 
-  const db = getDb();
-  const produtosAtivos = db.prepare('SELECT id, nome, codigo_barras FROM products WHERE ativo = 1').all();
-  const porNomeNormalizado = new Map();
-  for (const p of produtosAtivos) {
-    const chave = normalizarTexto(p.nome);
-    // Se duas linhas locais tiverem exatamente o mesmo nome (ainda podem
-    // existir duplicados não limpos), não arrisca escolher uma sozinho —
-    // fica marcado como ambíguo, pra revisão manual.
-    if (porNomeNormalizado.has(chave)) porNomeNormalizado.set(chave, 'AMBIGUO');
-    else porNomeNormalizado.set(chave, p);
-  }
-  const codigoJaEmUsoAtivo = new Map(produtosAtivos.filter((p) => p.codigo_barras).map((p) => [p.codigo_barras, p.nome]));
-
-  const casados = [];
-  const naoEncontrados = [];
-  const ambiguos = [];
-  const conflitos = [];
-
-  for (const row of rows) {
-    const nomePlanilha = String(row[colunaNome] || '').trim();
-    const codigoPlanilha = String(row[colunaCodigo] || '').trim();
-    if (!nomePlanilha || !codigoPlanilha) continue;
-
-    const match = porNomeNormalizado.get(normalizarTexto(nomePlanilha));
-    if (!match) { naoEncontrados.push({ nomePlanilha, codigoPlanilha }); continue; }
-    if (match === 'AMBIGUO') { ambiguos.push({ nomePlanilha, codigoPlanilha }); continue; }
-
-    const donoAtual = codigoJaEmUsoAtivo.get(codigoPlanilha);
-    if (donoAtual && donoAtual !== match.nome) {
-      conflitos.push({ nomePlanilha, codigoPlanilha, jaPertenceA: donoAtual });
-      continue;
-    }
-
-    if (match.codigo_barras === codigoPlanilha) continue; // já está certo, nada a fazer
-
-    casados.push({
-      productId: match.id, nomeAtual: match.nome,
-      codigoBarrasAntigo: match.codigo_barras || null, codigoBarrasNovo: codigoPlanilha,
-    });
-  }
-
-  return { ok: true, casados, naoEncontrados, ambiguos, conflitos, totalLinhas: rows.length };
+  const candidatos = rows.map((row) => ({ nome: row[colunaNome], codigoBarras: row[colunaCodigo] }));
+  const productService = require('./productService');
+  const resultado = productService.casarCandidatosPorNome(candidatos);
+  return { ok: true, ...resultado, totalLinhas: rows.length };
 }
 
 /** Aplica só os casamentos que a pessoa revisou e aceitou — reconfere

@@ -49,7 +49,7 @@ function listWaste({ locationId, dataInicio, dataFim }) {
      LEFT JOIN products p ON p.id = w.product_id
      LEFT JOIN ingredients i ON i.id = w.ingredient_id
      LEFT JOIN users u ON u.id = w.operador_id
-     WHERE w.location_id = ? AND date(w.criado_em) BETWEEN date(?) AND date(?)
+     WHERE w.location_id = ? AND date(w.criado_em, '-3 hours') BETWEEN date(?) AND date(?)
      ORDER BY w.criado_em DESC`
   ).all(locationId, dataInicio, dataFim);
 }
@@ -58,7 +58,7 @@ function getWasteSummary({ locationId, dataInicio, dataFim }) {
   const db = getDb();
   const row = db.prepare(
     `SELECT COALESCE(SUM(custo_estimado), 0) as total, COUNT(*) as eventos
-     FROM waste_log WHERE location_id = ? AND date(criado_em) BETWEEN date(?) AND date(?)`
+     FROM waste_log WHERE location_id = ? AND date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)`
   ).get(locationId, dataInicio, dataFim);
   return row;
 }
@@ -67,9 +67,9 @@ function getWasteSummary({ locationId, dataInicio, dataFim }) {
 function getWasteByDay({ locationId, dataInicio, dataFim }) {
   const db = getDb();
   return db.prepare(
-    `SELECT date(criado_em) as dia, COALESCE(SUM(custo_estimado), 0) as total
-     FROM waste_log WHERE location_id = ? AND date(criado_em) BETWEEN date(?) AND date(?)
-     GROUP BY date(criado_em) ORDER BY dia`
+    `SELECT date(criado_em, '-3 hours') as dia, COALESCE(SUM(custo_estimado), 0) as total
+     FROM waste_log WHERE location_id = ? AND date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)
+     GROUP BY date(criado_em, '-3 hours') ORDER BY dia`
   ).all(locationId, dataInicio, dataFim);
 }
 

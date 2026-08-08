@@ -130,7 +130,7 @@ function getCustomerPurchaseReport({ customerId, dataInicio, dataFim }) {
 
   const vendas = db.prepare(
     `SELECT * FROM sales WHERE customer_id = ? AND status = 'finalizada'
-     AND date(finalizada_em) BETWEEN date(?) AND date(?)`
+     AND date(finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)`
   ).all(customerId, dataInicio, dataFim);
 
   const totalPedidos = vendas.length;

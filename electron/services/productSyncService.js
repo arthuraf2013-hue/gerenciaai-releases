@@ -172,7 +172,33 @@ async function marcarProdutoExcluidoNoGrupo(productId) {
   }
 }
 
+/** O catálogo do grupo inteiro (cache em memória, só leitura) — usado
+ * pela re-vinculação em massa de códigos de barras, que precisa olhar
+ * TUDO que o grupo tem, não só um resultado de busca pontual. */
+function listarCatalogoCompletoDoGrupo() {
+  return [...catalogoDoGrupoEmMemoria.values()];
+}
+
+/**
+ * Mesma re-vinculação por nome da importação de planilha, mas a fonte
+ * é o catálogo do grupo (outra máquina sincronizada que já tem os
+ * códigos certos) em vez de um arquivo — útil quando duas instalações
+ * já sincronizaram antes e uma delas manteve os códigos de barras
+ * intactos. Só monta o relatório pra revisão, não aplica nada sozinho.
+ */
+function prepararRevinculacaoViaGrupo() {
+  const catalogoDoGrupo = listarCatalogoCompletoDoGrupo();
+  if (catalogoDoGrupo.length === 0) {
+    return { ok: false, error: 'Não há catálogo do grupo disponível ainda — confira se essa instalação está mesmo num grupo de sincronização e conectada à internet.' };
+  }
+  const candidatos = catalogoDoGrupo.map((p) => ({ nome: p.nome, codigoBarras: p.codigoBarras }));
+  const productService = require('./productService');
+  const resultado = productService.casarCandidatosPorNome(candidatos);
+  return { ok: true, ...resultado, totalLinhas: catalogoDoGrupo.length };
+}
+
 module.exports = {
   pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos, marcarProdutoExcluidoNoGrupo,
-  buscarNoCatalogoDoGrupo, buscarNoCatalogoDoGrupoPorCodigoBarras,
+  buscarNoCatalogoDoGrupo, buscarNoCatalogoDoGrupoPorCodigoBarras, listarCatalogoCompletoDoGrupo,
+  prepararRevinculacaoViaGrupo,
 };

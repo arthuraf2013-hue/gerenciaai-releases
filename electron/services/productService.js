@@ -70,7 +70,7 @@ function findBySku(sku) {
  * rápido no meio de uma venda não deveria depender de digitar o
  * acento certo. */
 function normalizarTexto(s) {
-  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
 function list({ query, categoria, limit, offset } = {}) {
@@ -486,6 +486,57 @@ function clearAllProducts() {
  * terem sincronizado, cada uma com seu próprio ID. Agrupa pra você
  * decidir qual manter.
  */
+/**
+ * Casa uma lista de candidatos (`{ nome, codigoBarras }` — pode vir de
+ * uma planilha antiga ou do catálogo do grupo sincronizado, tanto faz
+ * a origem) contra os produtos ATIVOS locais, por nome — usado pra
+ * re-vincular código de barras que sumiu, sem nunca criar produto
+ * novo. Compartilhado entre a importação de planilha e a consulta ao
+ * grupo, pra não duplicar essa lógica em dois lugares.
+ */
+function casarCandidatosPorNome(candidatos) {
+  const db = getDb();
+  const produtosAtivos = db.prepare('SELECT id, nome, codigo_barras FROM products WHERE ativo = 1').all();
+
+  const porNomeNormalizado = new Map();
+  for (const p of produtosAtivos) {
+    const chave = normalizarTexto(p.nome);
+    if (porNomeNormalizado.has(chave)) porNomeNormalizado.set(chave, 'AMBIGUO');
+    else porNomeNormalizado.set(chave, p);
+  }
+  const codigoJaEmUsoAtivo = new Map(produtosAtivos.filter((p) => p.codigo_barras).map((p) => [p.codigo_barras, p.nome]));
+
+  const casados = [];
+  const naoEncontrados = [];
+  const ambiguos = [];
+  const conflitos = [];
+
+  for (const c of candidatos) {
+    const nomeCandidato = String(c.nome || '').trim();
+    const codigoCandidato = String(c.codigoBarras || '').trim();
+    if (!nomeCandidato || !codigoCandidato) continue;
+
+    const match = porNomeNormalizado.get(normalizarTexto(nomeCandidato));
+    if (!match) { naoEncontrados.push({ nomePlanilha: nomeCandidato, codigoPlanilha: codigoCandidato }); continue; }
+    if (match === 'AMBIGUO') { ambiguos.push({ nomePlanilha: nomeCandidato, codigoPlanilha: codigoCandidato }); continue; }
+
+    const donoAtual = codigoJaEmUsoAtivo.get(codigoCandidato);
+    if (donoAtual && donoAtual !== match.nome) {
+      conflitos.push({ nomePlanilha: nomeCandidato, codigoPlanilha: codigoCandidato, jaPertenceA: donoAtual });
+      continue;
+    }
+
+    if (match.codigo_barras === codigoCandidato) continue; // já está certo
+
+    casados.push({
+      productId: match.id, nomeAtual: match.nome,
+      codigoBarrasAntigo: match.codigo_barras || null, codigoBarrasNovo: codigoCandidato,
+    });
+  }
+
+  return { casados, naoEncontrados, ambiguos, conflitos };
+}
+
 function findDuplicateProducts() {
   const db = getDb();
   const produtos = db.prepare(
@@ -554,4 +605,4 @@ function mergeProducts({ manterId, removerId, currentOperatorId }) {
   return { ok: true, estoqueFinal: db.prepare('SELECT COALESCE(SUM(quantidade),0) as t FROM stock_movements WHERE product_id = ?').get(manterId).t };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts };
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome };

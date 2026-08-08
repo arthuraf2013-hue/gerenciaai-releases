@@ -3057,6 +3057,48 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Vendas depois das 21h contando pro dia errado — bug bem mais espalhado do que parecia
+
+Eu tinha corrigido esse tipo de bug (UTC vs Brasília) só na
+sincronização entre PDVs, mas seu print mostrou que ele continuava
+acontecendo no Histórico da própria máquina. Investigando a fundo,
+achei que era **a mesma causa, espalhada por praticamente todo canto
+que filtra por data**: o SQLite extrai o dia direto do horário
+guardado (que é UTC), sem converter pro fuso de Brasília antes — uma
+venda das 21h+ já virou "amanhã" em UTC, então contava no dia errado.
+
+**Corrigido em 9 arquivos, 25 consultas ao todo**: Histórico de vendas
+(a tela do seu print), Painel (todos os gráficos e totais), Financeiro
+(despesas), tentativas de login, relatórios, devoluções, desperdício,
+e métricas do painel administrativo. Fiz uma varredura sistemática
+procurando esse padrão exato em todo o código — não corrigi só onde
+seu print mostrou, corrigi todo lugar que tinha o mesmo problema.
+
+Testei o cenário exato do seu print (venda às 21:42 de um dia,
+gravada em UTC como já sendo o dia seguinte) em duas telas diferentes
+— Histórico e Painel — confirmando que agora contam certo no dia real
+em Brasília, não mais empurradas pro dia seguinte.
+
+## Re-vincular via grupo sincronizado — sem precisar de planilha nenhuma
+
+Como sua máquina já sincronizou com a dele antes e manteve os
+códigos de barras intactos, adicionei uma segunda opção bem mais
+direta na mesma ferramenta: **"Buscar automaticamente no grupo
+sincronizado"** — usa o catálogo que sua própria máquina já publicou
+no grupo como fonte, em vez de precisar exportar/localizar uma
+planilha.
+
+Mesma lógica de casamento por nome, mesma revisão antes de aplicar,
+mesma proteção contra conflito — só troca de onde vêm os dados
+comparados. Reaproveitei a lógica de casamento entre as duas
+(planilha e grupo), então qualquer melhoria futura nisso vale pros
+dois caminhos.
+
+Testei o cenário exato: produtos locais sem código, catálogo do grupo
+com os códigos certos publicados — confirmei que casa certo, ignora o
+que só existe no grupo (sem produto correspondente aqui), e aplica
+corretamente.
+
 ## Re-vincular códigos de barras de uma planilha antiga
 
 Botão novo em Produtos: "Re-vincular códigos de barras". Pensado
