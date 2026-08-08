@@ -78,10 +78,20 @@ function list({ query, categoria, limit, offset } = {}) {
 
   if (query && !categoria) {
     // Busca por nome/sku/código — insensível a acento, e ranqueada por
-    // relevância (nome que COMEÇA com o termo vem primeiro, depois o
-    // que contém no meio, depois match só em sku/código de barras) —
-    // antes era só ordem alfabética, então um produto pouco relevante
-    // podia aparecer antes de um match muito melhor.
+    // relevância. Quatro níveis, do melhor pro pior:
+    //   0. nome COMEÇA com o termo (ex: buscar "dipirona" em "Dipirona 500mg")
+    //   1. termo é o INÍCIO DE UMA PALAVRA dentro do nome (ex: buscar
+    //      "500mg" ou "medley" em "Dipirona 500mg Medley") — é o caso
+    //      mais comum de busca de verdade, já que raramente alguém
+    //      busca pela primeira palavra inteira de um produto
+    //   2. termo aparece no meio de uma palavra, sem estar numa borda
+    //      (ex: buscar "iron" em "Dipirona")
+    //   3. só bateu em sku/código de barras, não no nome
+    // Antes, só o nível 0 tinha tratamento especial — tudo que não
+    // começava o nome inteiro caía junto no mesmo nível, misturando
+    // busca por segunda palavra (bem relevante) com coincidência de
+    // meio de palavra (pouco relevante), enterrando o que a pessoa
+    // procurava embaixo de resultado menos relevante.
     const queryNormalizada = normalizarTexto(query);
     const queryLower = query.toLowerCase();
     const todosAtivos = db.prepare('SELECT * FROM products WHERE ativo = 1').all();
@@ -96,9 +106,10 @@ function list({ query, categoria, limit, offset } = {}) {
       if (idxNome === -1 && !skuMatch && !codigoMatch) continue;
 
       let relevancia;
-      if (idxNome === 0) relevancia = 0; // nome começa com o termo — melhor caso
-      else if (idxNome > 0) relevancia = 1; // termo aparece no meio do nome
-      else relevancia = 2; // só bateu em sku/código, não no nome
+      if (idxNome === 0) relevancia = 0;
+      else if (idxNome > 0 && nomeNormalizado[idxNome - 1] === ' ') relevancia = 1; // início de palavra
+      else if (idxNome > 0) relevancia = 2; // meio de palavra
+      else relevancia = 3; // só sku/código
 
       comRelevancia.push({ produto: p, relevancia, idxNome: idxNome === -1 ? 9999 : idxNome });
     }

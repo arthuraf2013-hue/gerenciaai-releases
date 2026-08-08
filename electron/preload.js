@@ -209,6 +209,11 @@ contextBridge.exposeInMainWorld('pdv', {
     getConfig: invoke('loyalty:getConfig'),
     updateConfig: invoke('loyalty:updateConfig'),
   },
+  productSync: {
+    buscarNoGrupo: invoke('productSync:buscarNoGrupo'),
+    buscarNoGrupoPorCodigoBarras: invoke('productSync:buscarNoGrupoPorCodigoBarras'),
+    importarDoGrupo: invoke('productSync:importarDoGrupo'),
+  },
   suppliers: {
     list: invoke('supplier:list'),
     upsert: invoke('supplier:upsert'),

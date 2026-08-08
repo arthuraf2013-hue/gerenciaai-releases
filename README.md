@@ -3057,6 +3057,102 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Busca por nome — refinada pra 4 níveis de relevância
+
+A busca já priorizava "nome começa com o termo" — mas tudo que não se
+encaixava nisso caía no MESMO balaio de "contém em algum lugar",
+misturando busca pela segunda ou terceira palavra do produto (o jeito
+mais comum de buscar de verdade — quase ninguém busca pela primeira
+palavra inteira) com coincidência de meio de palavra, bem menos
+relevante. Isso enterrava o resultado certo.
+
+**Corrigido**: agora são 4 níveis, do melhor pro pior:
+1. Nome **começa** com o termo.
+2. Termo é o **início de uma palavra** dentro do nome (ex: buscar
+   "500mg" ou o nome do fabricante — o caso mais comum de busca real).
+3. Termo aparece no **meio de uma palavra**, sem estar numa borda.
+4. Só bateu em SKU/código de barras, não no nome.
+
+Testei com um catálogo fiel a uma farmácia: buscar "500mg" (segunda
+palavra na maioria dos produtos) e "generico" (terceira palavra) — os
+dois trazem o resultado certo no topo agora. Também confirmei que
+início do nome inteiro continua vencendo tudo, e que meio de palavra
+ainda aparece, só que por último.
+
+## Duas correções depois da limpeza de duplicatas
+
+### Produtos perdendo código de barras — a seleção automática escolhia errado
+
+Achei a causa: a sugestão de "Selecionar todos" só olhava a
+**quantidade de estoque** pra decidir qual duplicado manter — nunca
+conferia se o produto tinha código de barras. Com dois duplicados de
+estoque igual (bem comum — os dois zerados, por exemplo), a escolha
+entre eles era arbitrária, e podia muito bem manter justamente o que
+**não** tinha código de barras, excluindo o outro (que tinha) —
+resultado: "o produto perdeu o código de barras", quando na verdade o
+duplicado errado é que sobreviveu.
+
+**Corrigido**: a sugestão agora prioriza manter quem **tem** código de
+barras — só usa o estoque como critério de desempate quando os dois
+estão empatados nisso (ambos com código, ou ambos sem). Também
+adicionei a coluna de código de barras na tabela, visível durante a
+revisão manual — antes não dava nem pra ver qual tinha o quê antes de
+excluir.
+
+Testei o cenário exato: dois duplicados com estoque igual (zero),
+só um com código de barras — confirmei que a seleção automática agora
+marca corretamente o **sem** código pra excluir, mantendo o que tem.
+
+### Pistola fechando o formulário de produto ao cadastrar código de barras
+
+Isso não era sobre a configuração da pistola em si (essa realmente só
+atua no PDV) — era o comportamento padrão do HTML: qualquer campo
+dentro de um formulário submete ele inteiro ao apertar Enter, e a
+pistola manda um Enter depois dos dígitos escaneados. Escanear no
+campo "Código de barras" do cadastro de produto disparava o envio do
+formulário inteiro (salvando e fechando), antes da pessoa terminar de
+preencher o resto — obrigando reabrir o produto de novo.
+
+**Corrigido**: Enter em qualquer campo de texto do formulário de
+produto não fecha/salva mais sozinho — só preenche o campo. Salvar
+continua exigindo o clique no botão "Salvar produto", de propósito.
+
+Testei o fluxo completo: escanear no campo de código de barras
+preenche certo sem fechar nada, e o botão Salvar continua funcionando
+normalmente quando a pessoa decide de verdade.
+
+## "Não acha na pesquisa nem na pistola" — a consequência direta da trava de sincronização
+
+O print do WhatsApp do Sidney confirmou uma suspeita: esse é exatamente
+o efeito colateral esperado da mudança que fizemos, a seu pedido, pra
+parar a sincronização de catálogo de clonar produtos automaticamente.
+Um produto que existe **só numa máquina** (ex: só na sua, nunca
+cadastrado na do Sidney) simplesmente não aparecia mais na busca ou
+na pistola da outra máquina — porque a trava impede exatamente isso.
+
+Eu já tinha construído a peça que faltava pra resolver isso (consultar
+o catálogo do grupo sob demanda), mas nunca cheguei a **conectar** ela
+nas telas de venda de verdade. Corrigido agora:
+
+- **Busca manual de produto**: quando não acha nada local, consulta o
+  catálogo do grupo automaticamente — se achar, mostra numa seção
+  separada, clara: "Não cadastrado aqui, mas encontrado no grupo".
+  Escolher um desses **traz o produto pra base local dessa máquina
+  na hora** (só esse produto, só porque foi escolhido — nunca em
+  segundo plano) e já adiciona na venda.
+- **Leitor de código de barras (a "pistola")**: mesmo comportamento —
+  se não achar local, consulta o grupo por código de barras antes de
+  desistir com "código não encontrado". Both no PDV normal e no modo
+  mesa/restaurante.
+- Isso mantém a promessa que fizemos: **nada é clonado sozinho em
+  segundo plano** — só quando alguém realmente precisa vender aquele
+  produto específico e escolhe trazê-lo.
+
+Testei o cenário exato do Sidney com o componente real: produto que
+não existe local nenhum, só no grupo — confirmei que aparece na busca
+com o aviso certo, e que escolher ele importa e adiciona na venda
+corretamente.
+
 ## Achado o bug de verdade — corrida de inicialização
 
 Sua pista foi decisiva: "funciona manual em Configurações, só trava na

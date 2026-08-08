@@ -273,12 +273,29 @@ export function POSScreen() {
     }
 
     const product = await window.pdv.products.findByBarcode(codigoBarras);
-    if (!product) {
-      setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
-      playErrorBeep();
+    if (product) {
+      addProductToCart(product);
       return;
     }
-    addProductToCart(product);
+
+    // Não achou local — última tentativa antes de desistir: existe no
+    // catálogo do grupo (produto cadastrado só em outra máquina
+    // sincronizada)? Se achar, traz ele pra base local (só esse
+    // produto, só agora) e já adiciona na venda.
+    if (window.pdv.productSync) {
+      const doGrupo = await window.pdv.productSync.buscarNoGrupoPorCodigoBarras({ codigoBarras });
+      if (doGrupo) {
+        await window.pdv.productSync.importarDoGrupo(doGrupo);
+        addProductToCart({
+          id: doGrupo.id, nome: doGrupo.nome, preco: doGrupo.preco,
+          codigo_barras: doGrupo.codigoBarras, sku: doGrupo.sku, categoria: doGrupo.categoria,
+        });
+        return;
+      }
+    }
+
+    setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
+    playErrorBeep();
   }, [saleId, addProductToCart]);
 
   useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !showAttachments });

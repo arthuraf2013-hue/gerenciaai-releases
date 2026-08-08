@@ -1,6 +1,7 @@
 const { ipcMain, dialog, BrowserWindow } = require('electron');
 const authService = require('../services/authService');
 const productService = require('../services/productService');
+const productSyncService = require('../services/productSyncService');
 const digitalMenuService = require('../services/digitalMenuService');
 const weightBarcodeService = require('../services/weightBarcodeService');
 const scaleHardwareService = require('../services/scaleHardwareService');
@@ -70,6 +71,12 @@ function registerIpcHandlers() {
   safeHandle('product:count', (_e, opts) => productService.count(opts));
   safeHandle('product:countConflitosCodigoBarrasPendentes', () => productService.countConflitosCodigoBarrasPendentes());
   safeHandle('product:findDuplicates', () => productService.findDuplicateProducts());
+  safeHandle('productSync:buscarNoGrupo', (_e, { query }) => productSyncService.buscarNoCatalogoDoGrupo(query));
+  safeHandle('productSync:buscarNoGrupoPorCodigoBarras', (_e, { codigoBarras }) => productSyncService.buscarNoCatalogoDoGrupoPorCodigoBarras(codigoBarras));
+  safeHandle('productSync:importarDoGrupo', (_e, dados) => {
+    productService.aplicarProdutoSincronizado(dados.id, dados);
+    return { ok: true };
+  });
   safeHandle('product:merge', (_e, payload) => productService.mergeProducts(payload));
   safeHandle('product:listCategories', () => productService.listCategories());
   safeHandle('product:upsert', (_e, product) => productService.upsert(product));

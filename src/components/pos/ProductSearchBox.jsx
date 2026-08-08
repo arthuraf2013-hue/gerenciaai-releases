@@ -9,9 +9,11 @@ export function ProductSearchBox({ onSelect }) {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 180); // mais curto que outras telas — isso é usado durante a venda, precisa continuar ágil
   const [results, setResults] = useState([]);
+  const [resultadosDoGrupo, setResultadosDoGrupo] = useState([]);
   const [open, setOpen] = useState(false);
   const [indiceSelecionado, setIndiceSelecionado] = useState(-1);
   const [modoBusca, setModoBusca] = useState('lista');
+  const [importando, setImportando] = useState(null); // id do produto do grupo sendo importado
 
   useEffect(() => {
     window.pdv.posDisplay.getConfig().then((c) => setModoBusca(c.modo_busca));
@@ -21,14 +23,30 @@ export function ProductSearchBox({ onSelect }) {
     let ignore = false;
     if (debouncedQuery.trim().length < 2) {
       setResults([]);
+      setResultadosDoGrupo([]);
       setOpen(false);
       return;
     }
     window.pdv.products.list({ query: debouncedQuery }).then((list) => {
       if (ignore) return;
-      setResults(Array.isArray(list) ? list.slice(0, 8) : []);
+      const listaLocal = Array.isArray(list) ? list.slice(0, 8) : [];
+      setResults(listaLocal);
       setOpen(true);
       setIndiceSelecionado(-1); // sempre recomeça sem nada selecionado quando o resultado muda
+
+      // Só consulta o grupo quando a busca local não resolve sozinha —
+      // é o caso de um produto que existe só em outra máquina
+      // sincronizada (nunca foi cadastrado aqui). Isso NUNCA grava
+      // nada na base local sozinho — só mostra a opção de trazer o
+      // produto, se a pessoa escolher.
+      if (listaLocal.length === 0 && window.pdv.productSync) {
+        window.pdv.productSync.buscarNoGrupo({ query: debouncedQuery }).then((doGrupo) => {
+          if (ignore) return;
+          setResultadosDoGrupo(Array.isArray(doGrupo) ? doGrupo.slice(0, 8) : []);
+        });
+      } else {
+        setResultadosDoGrupo([]);
+      }
     });
     return () => { ignore = true; };
   }, [debouncedQuery]);
@@ -37,8 +55,22 @@ export function ProductSearchBox({ onSelect }) {
     onSelect(product);
     setQuery('');
     setResults([]);
+    setResultadosDoGrupo([]);
     setOpen(false);
     setIndiceSelecionado(-1);
+  }
+
+  /** Produto achado na consulta ao grupo, mas ainda sem existir
+   * localmente — traz ele pra base local (só esse produto, só agora,
+   * porque a pessoa escolheu) e já adiciona na venda. */
+  async function handleSelecionarDoGrupo(produtoDoGrupo) {
+    setImportando(produtoDoGrupo.id);
+    await window.pdv.productSync.importarDoGrupo(produtoDoGrupo);
+    setImportando(null);
+    handleSelect({
+      id: produtoDoGrupo.id, nome: produtoDoGrupo.nome, preco: produtoDoGrupo.preco,
+      codigo_barras: produtoDoGrupo.codigoBarras, sku: produtoDoGrupo.sku, categoria: produtoDoGrupo.categoria,
+    });
   }
 
   async function handleKeyDown(e) {
@@ -70,6 +102,16 @@ export function ProductSearchBox({ onSelect }) {
       const listaFresca = await window.pdv.products.list({ query: query.trim() });
       if (Array.isArray(listaFresca) && listaFresca.length > 0) {
         handleSelect(listaFresca[0]);
+        return;
+      }
+      // Não achou local — última tentativa, consulta se existe no
+      // catálogo do grupo (produto cadastrado só em outra máquina
+      // sincronizada) antes de desistir.
+      if (window.pdv.productSync) {
+        const doGrupo = await window.pdv.productSync.buscarNoGrupo({ query: query.trim() });
+        if (Array.isArray(doGrupo) && doGrupo.length > 0) {
+          await handleSelecionarDoGrupo(doGrupo[0]);
+        }
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
@@ -115,6 +157,19 @@ export function ProductSearchBox({ onSelect }) {
                 onMouseEnter={() => setIndiceSelecionado(i)}
               >
                 <span>{p.nome}</span>
+                <span className="product-search-price">R$ {p.preco.toFixed(2)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && results.length === 0 && resultadosDoGrupo.length > 0 && (
+        <ul className="product-search-results">
+          <li className="product-search-group-label">Não cadastrado aqui, mas encontrado no grupo:</li>
+          {resultadosDoGrupo.map((p) => (
+            <li key={p.id}>
+              <button type="button" onClick={() => handleSelecionarDoGrupo(p)} disabled={importando === p.id}>
+                <span>{p.nome} {importando === p.id ? '(trazendo...)' : ''}</span>
                 <span className="product-search-price">R$ {p.preco.toFixed(2)}</span>
               </button>
             </li>

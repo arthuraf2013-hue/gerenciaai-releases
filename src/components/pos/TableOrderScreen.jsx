@@ -103,12 +103,25 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   const handleScan = useCallback(async (codigoBarras) => {
     const product = await window.pdv.products.findByBarcode(codigoBarras);
-    if (!product) {
-      setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
-      playErrorBeep();
+    if (product) {
+      addProductToCart(product);
       return;
     }
-    addProductToCart(product);
+
+    if (window.pdv.productSync) {
+      const doGrupo = await window.pdv.productSync.buscarNoGrupoPorCodigoBarras({ codigoBarras });
+      if (doGrupo) {
+        await window.pdv.productSync.importarDoGrupo(doGrupo);
+        addProductToCart({
+          id: doGrupo.id, nome: doGrupo.nome, preco: doGrupo.preco,
+          codigo_barras: doGrupo.codigoBarras, sku: doGrupo.sku, categoria: doGrupo.categoria,
+        });
+        return;
+      }
+    }
+
+    setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
+    playErrorBeep();
   }, [addProductToCart]);
 
   useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas });

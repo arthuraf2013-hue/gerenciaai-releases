@@ -25,14 +25,23 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
   // pequenas empilhadas.
   const totalProdutos = useMemo(() => grupos ? grupos.reduce((acc, g) => acc + g.length, 0) : 0, [grupos]);
 
-  // Sugestão padrão de seleção: em cada grupo, marca todos MENOS o de
-  // maior estoque (o candidato mais razoável a manter).
+  // Sugestão padrão de seleção: em cada grupo, marca todos MENOS o
+  // candidato mais razoável a manter. Prioriza manter quem TEM
+  // código de barras (perder isso é pior que perder um pouco de
+  // estoque, já que o código não é somado em lugar nenhum ao
+  // excluir) — só usa estoque como desempate entre produtos que
+  // estão empatados nisso (ambos com código, ou ambos sem).
   const sugestaoDeSelecao = useMemo(() => {
     if (!grupos) return new Set();
     const novo = new Set();
     grupos.forEach((grupo) => {
-      const maiorEstoque = [...grupo].sort((a, b) => b.estoque_atual - a.estoque_atual)[0];
-      grupo.forEach((p) => { if (p.id !== maiorEstoque.id) novo.add(p.id); });
+      const melhorCandidato = [...grupo].sort((a, b) => {
+        const temCodigoA = a.codigo_barras ? 1 : 0;
+        const temCodigoB = b.codigo_barras ? 1 : 0;
+        if (temCodigoA !== temCodigoB) return temCodigoB - temCodigoA;
+        return b.estoque_atual - a.estoque_atual;
+      })[0];
+      grupo.forEach((p) => { if (p.id !== melhorCandidato.id) novo.add(p.id); });
     });
     return novo;
   }, [grupos]);
@@ -82,7 +91,7 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
           {grupos && grupos.length > 0 && (
             <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}>
               <button className="btn-primary" onClick={selecionarTodosOsDuplicados}>
-                Selecionar todos ({sugestaoDeSelecao.size}) — mantém o de maior estoque em cada grupo
+                Selecionar todos ({sugestaoDeSelecao.size}) — mantém quem tem código de barras (desempate por estoque)
               </button>
               <button className="btn-link" onClick={limparSelecao}>Limpar seleção</button>
               <span className="screen-hint">{selecionados.size} selecionado(s)</span>
@@ -96,7 +105,7 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
           {grupos && grupos.length > 0 && (
             <table className="data-table">
               <thead>
-                <tr><th></th><th>Nome</th><th>Preço</th><th>Estoque</th><th>Mín.</th></tr>
+                <tr><th></th><th>Nome</th><th>Código de barras</th><th>Preço</th><th>Estoque</th><th>Mín.</th></tr>
               </thead>
               <tbody>
                 {grupos.map((grupo, indiceGrupo) => (
@@ -110,6 +119,7 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
                         />
                       </td>
                       <td>{p.nome}</td>
+                      <td>{p.codigo_barras || <span className="screen-hint">(sem código)</span>}</td>
                       <td>R$ {p.preco.toFixed(2)}</td>
                       <td>{p.estoque_atual}</td>
                       <td>{p.estoque_minimo}</td>
