@@ -52,9 +52,30 @@ export function ProductList() {
     let temMais = true;
     let carregandoMais = false;
 
+    // Limpa a lista JÁ, antes de buscar o resultado novo — isso separa
+    // "esvaziar" e "preencher com o resultado novo" em duas
+    // atualizações de estado distintas, em vez de pedir pro React
+    // reconciliar de uma vez uma lista que cresceu bastante (pela
+    // rolagem infinita) direto pra um resultado bem menor. Sem isso,
+    // linhas antigas ficavam presas na tela mesmo depois da busca
+    // resolver certo — o problema piorava quanto mais a pessoa tinha
+    // rolado a lista antes de buscar, o que bate com o relato do
+    // cliente ("funciona só recém aberto, para de funcionar depois de
+    // um tempo de uso" — uso, aqui, inclui rolar a lista de produtos).
+    setProducts([]);
+
     async function carregarPrimeiroLote() {
+      // Trava a mesma flag que carregarMais respeita — sem isso, o
+      // observador de rolagem podia disparar carregarMais ANTES da
+      // primeira página sequer terminar de carregar (o marcador de
+      // "fim da lista" já está visível assim que a tela abre, ainda
+      // sem conteúdo nenhum pra empurrar ele pra fora da vista), e as
+      // duas chamadas buscavam a página 1 ao mesmo tempo — resultado:
+      // os primeiros produtos apareciam duplicados na tela.
+      carregandoMais = true;
       setHasMore(true);
       const list = await window.pdv.products.list({ query: debouncedQuery || undefined, limit: PAGE_SIZE, offset: 0 });
+      carregandoMais = false;
       if (ignore) return; // uma busca mais nova já começou — descarta esta resposta atrasada
 
       if (!Array.isArray(list)) {
@@ -86,7 +107,14 @@ export function ProductList() {
       if (ignore || carregandoMais || !temMais) return;
       carregandoMais = true;
       setLoadingMore(true);
-      const list = await window.pdv.products.list({ query: debouncedQuery || undefined, limit: PAGE_SIZE, offset: produtosCarregados.length });
+      // Cursor (nome+id do último item já carregado) em vez de offset
+      // numérico — imune a produtos novos entrando no meio da rolagem
+      // (ver o comentário de ORDER BY no backend pra mais detalhes).
+      const ultimoCarregado = produtosCarregados[produtosCarregados.length - 1];
+      const list = await window.pdv.products.list({
+        query: debouncedQuery || undefined, limit: PAGE_SIZE,
+        cursorNome: ultimoCarregado?.nome, cursorId: ultimoCarregado?.id,
+      });
       carregandoMais = false;
       setLoadingMore(false);
       if (ignore) return;

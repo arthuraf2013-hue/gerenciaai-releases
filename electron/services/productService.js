@@ -73,7 +73,7 @@ function normalizarTexto(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
-function list({ query, categoria, limit, offset } = {}) {
+function list({ query, categoria, limit, offset, cursorNome, cursorId } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
@@ -129,7 +129,23 @@ function list({ query, categoria, limit, offset } = {}) {
       resultado = outrosMatches.map((r) => r.produto);
     }
 
-    if (limit) resultado = resultado.slice(offset || 0, (offset || 0) + limit);
+    if (limit) {
+      // Cursor por ID em vez de offset numérico — a lista é
+      // recalculada do zero a cada chamada (é uma busca por
+      // relevância, não uma coluna simples do banco pra usar direto
+      // num WHERE), então um offset numérico sofreria do mesmo
+      // problema do catálogo geral: um produto novo cadastrado entre
+      // uma página e outra da rolagem desloca as posições, repetindo
+      // o último item da página anterior. Achar pelo ID do último
+      // item já visto é imune a isso — sempre pega "o que vem depois
+      // dele", nunca "a partir da posição N".
+      if (cursorId) {
+        const indiceCursor = resultado.findIndex((p) => p.id === cursorId);
+        resultado = indiceCursor === -1 ? [] : resultado.slice(indiceCursor + 1, indiceCursor + 1 + limit);
+      } else {
+        resultado = resultado.slice(offset || 0, (offset || 0) + limit);
+      }
+    }
     return resultado;
   }
 
@@ -141,7 +157,27 @@ function list({ query, categoria, limit, offset } = {}) {
     params.push(categoria);
   }
 
-  sql += ' ORDER BY nome';
+  // Paginação por CURSOR (baseada no último item visto), não por
+  // OFFSET (posição numérica) — offset sozinho, mesmo com desempate
+  // por id na ordenação, ainda quebra quando um produto é
+  // cadastrado/editado ENQUANTO a pessoa está rolando a lista: um
+  // registro novo entrando ANTES da posição do offset empurra tudo
+  // uma casa, fazendo a última linha da página anterior aparecer de
+  // novo na página seguinte — duas linhas com a mesma "key" no React,
+  // que quebra a lista de um jeito bem estranho de diagnosticar
+  // (linhas antigas ficam presas na tela mesmo depois de uma busca
+  // nova substituir os dados). É exatamente o "funciona quando abre,
+  // para de funcionar depois de um tempo de uso" — quanto mais tempo
+  // rolando, maior a chance de pegar uma modificação no meio do
+  // caminho (edição de produto, sincronização de outra máquina, etc).
+  // Cursor não sofre disso: sempre pede "o que vem depois do último
+  // que eu vi", nunca "a partir da posição N".
+  if (cursorNome !== undefined && cursorId !== undefined) {
+    sql += ' AND (nome > ? OR (nome = ? AND id > ?))';
+    params.push(cursorNome, cursorNome, cursorId);
+  }
+
+  sql += ' ORDER BY nome, id';
 
   // limit/offset são opcionais — sem eles, o comportamento é exatamente
   // o de antes (usado pela busca do PDV e pela grade de categorias, que

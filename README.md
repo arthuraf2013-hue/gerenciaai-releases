@@ -3057,6 +3057,54 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Achada a causa raiz de verdade do bug de busca — "funciona quando abre, para depois de um tempo de uso"
+
+Essa frase do cliente foi a pista decisiva. Investigando com esse
+contexto, achei **duas causas raiz reais**, ambas relacionadas à
+rolagem infinita da tela de Produtos:
+
+### 1. Paginação por posição numérica não é confiável quando o catálogo muda
+
+A rolagem infinita pedia "os próximos 60 a partir da posição N"
+(offset). Isso é ok pra uma lista PARADA — mas se um produto é
+cadastrado, editado, ou chega de sincronização de outra máquina
+**enquanto a pessoa está rolando**, todo mundo desloca uma posição, e
+o último produto de uma página aparece de novo bem no topo da
+próxima — dois React tentando desenhar a mesma linha ao mesmo tempo,
+o que quebra a lista de um jeito bem difícil de diagnosticar (linhas
+antigas ficavam presas na tela). Comprovei isso com testes diretos:
+sem desempate, ~15% das tentativas com uma inserção no meio davam
+duplicata; mesmo adicionando um desempate na ordenação, ainda dava.
+
+**Corrigido**: troquei offset por paginação por **cursor** — em vez
+de "a partir da posição N", agora pede "o que vem depois do último
+produto que eu já vi" (pelo nome + id dele). Isso é imune a qualquer
+inserção/edição no meio do caminho, comprovado com 50 tentativas
+seguidas sem nenhuma duplicata, tanto na navegação normal quanto na
+busca.
+
+### 2. Uma corrida entre o carregamento inicial e a rolagem automática
+
+Achada à parte, mas relacionada: o marcador que dispara "carregar
+mais" automaticamente já fica visível na tela **antes mesmo da
+primeira leva de produtos terminar de carregar** (não tem conteúdo
+ainda pra empurrar ele pra fora da vista) — e as duas buscas (a
+inicial e a de "carregar mais") podiam disparar ao mesmo tempo, pedindo
+a mesma primeira página duas vezes. Resultado: os primeiros produtos
+apareciam duplicados na tela, mais um jeito de cair na mesma classe
+de bug.
+
+**Corrigido**: as duas agora compartilham uma única trava — enquanto
+uma está buscando, a outra espera.
+
+Testei os dois cenários de ponta a ponta com navegador de verdade,
+reproduzindo fielmente o que o cliente descreveu: catálogo mudando
+enquanto a pessoa rola (0 duplicatas em 50 tentativas), e o cenário
+exato do print anterior (rolar bastante e depois buscar — agora
+mostra só o resultado certo). Também confirmei que rolagem legítima
+até o fim do catálogo continua carregando tudo certinho, sem faltar
+nem duplicar nada.
+
 ## Vendas depois das 21h contando pro dia errado — bug bem mais espalhado do que parecia
 
 Eu tinha corrigido esse tipo de bug (UTC vs Brasília) só na
