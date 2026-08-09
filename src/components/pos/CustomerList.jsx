@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useProfile } from '../../context/ProfileContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { LapsedCustomersModal } from './LapsedCustomersModal';
+import { PetsModal } from './PetsModal';
+import { PetReminderModal } from './PetReminderModal';
 
 export function CustomerList() {
   const { currentUser } = useSession();
+  const { profile } = useProfile();
   const [customers, setCustomers] = useState([]);
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
@@ -16,6 +21,9 @@ export function CustomerList() {
   const [pagamentoValor, setPagamentoValor] = useState('');
   const [saveError, setSaveError] = useState('');
   const [soQuemDeve, setSoQuemDeve] = useState(false);
+  const [showLapsed, setShowLapsed] = useState(false);
+  const [showPetReminders, setShowPetReminders] = useState(false);
+  const [petsDoCliente, setPetsDoCliente] = useState(null); // customer com modal de pets aberto
 
   useEffect(() => {
     let ignore = false;
@@ -76,7 +84,13 @@ export function CustomerList() {
     <div className="screen">
       <div className="screen-header">
         <h1>Clientes</h1>
-        <button className="btn-primary" onClick={startNew}>Novo cliente</button>
+        <div className="screen-actions">
+          <button className="btn-secondary" onClick={() => setShowLapsed(true)}>Clientes que sumiram</button>
+          {profile?.id === 'petshop' && (
+            <button className="btn-secondary" onClick={() => setShowPetReminders(true)}>Lembretes de vacina/vermífugo</button>
+          )}
+          <button className="btn-primary" onClick={startNew}>Novo cliente</button>
+        </div>
       </div>
 
       <input
@@ -125,6 +139,9 @@ export function CustomerList() {
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <button className="btn-link" onClick={() => startEdit(c)}>Editar</button>
                   <button className="btn-link" onClick={() => openHistory(c)}>Fiado</button>
+                  {profile?.id === 'petshop' && (
+                    <button className="btn-link" onClick={() => setPetsDoCliente(c)}>Pets</button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -158,6 +175,10 @@ export function CustomerList() {
           </div>
         </div>
       )}
+
+      {showLapsed && <LapsedCustomersModal onFechar={() => setShowLapsed(false)} />}
+      {showPetReminders && <PetReminderModal onFechar={() => setShowPetReminders(false)} />}
+      {petsDoCliente && <PetsModal customer={petsDoCliente} onFechar={() => setPetsDoCliente(null)} />}
     </div>
   );
 }

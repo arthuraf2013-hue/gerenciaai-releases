@@ -543,6 +543,11 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .connection-dot-ok { color: #2E9C59; }
 .connection-dot-off { color: var(--color-danger); }
 .pos-attach-btn { white-space: nowrap; }
+.combo-suggestion {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--color-warning-bg); color: var(--color-warning-text);
+  padding: 10px 16px; margin: 0 0 10px; border-radius: var(--radius); font-size: 13px;
+}
 .product-search { position: relative; }
 .product-search-results {
   position: absolute; top: 100%; left: 0; right: 0; z-index: 10; margin-top: 4px;

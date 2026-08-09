@@ -106,7 +106,71 @@ function debitarPontos(customerId, pontos) {
   db.prepare('UPDATE customers SET pontos = MAX(0, pontos - ?) WHERE id = ?').run(pontos, customerId);
 }
 
+/**
+ * Clientes que sumiram — em vez de um limiar fixo de dias pra todo
+ * mundo (um cliente que compra a cada 90 dias não "sumiu" só porque
+ * já fazem 40 dias), compara o tempo desde a última compra com o
+ * RITMO PRÓPRIO de cada cliente (média de dias entre as compras
+ * dele). Só considera quem já tem pelo menos 2 compras — sem isso
+ * não dá pra saber qual é o ritmo normal da pessoa.
+ */
+function listClientesQueSumiram({ multiplicador = 2, minimoDias = 15 } = {}) {
+  const db = getDb();
+  const candidatos = db.prepare(
+    `SELECT c.id, c.nome, c.telefone,
+       MIN(s.finalizada_em) as primeira_compra, MAX(s.finalizada_em) as ultima_compra,
+       COUNT(s.id) as total_compras
+     FROM customers c
+     JOIN sales s ON s.customer_id = c.id AND s.status = 'finalizada'
+     WHERE c.ativo = 1
+     GROUP BY c.id
+     HAVING total_compras >= 2`
+  ).all();
+
+  const agora = Date.now();
+  const resultado = [];
+  for (const c of candidatos) {
+    const primeiraMs = new Date(c.primeira_compra + 'Z').getTime();
+    const ultimaMs = new Date(c.ultima_compra + 'Z').getTime();
+    const diasComoCliente = (ultimaMs - primeiraMs) / 86400000;
+    const ritmoMedioDias = diasComoCliente / (c.total_compras - 1);
+    const diasDesdeUltimaCompra = Math.floor((agora - ultimaMs) / 86400000);
+
+    // O limiar de "sumiu" é o próprio ritmo da pessoa vezes o
+    // multiplicador — nunca menos que minimoDias, pra não avisar de
+    // um cliente que só demorou 1 dia a mais que o normal.
+    const limiar = Math.max(minimoDias, ritmoMedioDias * multiplicador);
+    if (diasDesdeUltimaCompra >= limiar) {
+      resultado.push({
+        id: c.id, nome: c.nome, telefone: c.telefone,
+        diasDesdeUltimaCompra, ritmoMedioDias: Math.round(ritmoMedioDias), totalCompras: c.total_compras,
+      });
+    }
+  }
+
+  return resultado.sort((a, b) => b.diasDesdeUltimaCompra - a.diasDesdeUltimaCompra);
+}
+
+/** Monta um link de WhatsApp com uma mensagem de reconquista pronta —
+ * mesmo padrão do link de recibo (link.wa.me com o texto já
+ * preenchido), só que pra convidar o cliente a voltar. */
+function montarLinkReconquista(customerId) {
+  const db = getDb();
+  const cliente = db.prepare('SELECT nome, telefone FROM customers WHERE id = ?').get(customerId);
+  if (!cliente) return { ok: false, error: 'Cliente não encontrado.' };
+  if (!cliente.telefone) return { ok: false, error: 'Esse cliente não tem telefone cadastrado.' };
+
+  const primeiroNome = cliente.nome.trim().split(' ')[0];
+  const mensagem = `Oi, ${primeiroNome}! Faz um tempinho que a gente não te vê por aqui — sentimos sua falta! Passa lá quando puder, temos novidades pra você. 😊`;
+
+  const digitos = cliente.telefone.replace(/\D/g, '');
+  const numeroLimpo = digitos.startsWith('55') ? digitos : '55' + digitos;
+  const url = `https://wa.me/${numeroLimpo}?text=${encodeURIComponent(mensagem)}`;
+  return { ok: true, url, mensagem };
+}
+
 module.exports = {
   list, upsert, getSaldoFiado, listWithSaldo, getCreditHistory, registrarDivida, registrarPagamento,
   getLoyaltyConfig, updateLoyaltyConfig, acumularPontos, calcularValorResgate, debitarPontos,
+  listClientesQueSumiram, montarLinkReconquista,
 };

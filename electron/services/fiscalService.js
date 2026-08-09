@@ -231,4 +231,36 @@ function listNfceForSale(saleId) {
   return db.prepare('SELECT * FROM nfce_emitidas WHERE sale_id = ? ORDER BY criado_em DESC').all(saleId);
 }
 
-module.exports = { getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe, listNfceForSale };
+/**
+ * Livro de controlados eletrônico — farmácia precisa prestar contas
+ * de venda de medicamentos controlados (psicotrópicos etc) pra
+ * vigilância sanitária/SNGPC periodicamente. Isso já era um trabalho
+ * manual chato (procurar venda por venda quais tinham produto
+ * controlado) — aqui já sai pronto, filtrado por período, com o
+ * cliente vinculado quando teve.
+ */
+function livroDeControlados({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT s.finalizada_em, si.quantidade, p.nome as produtoNome, p.custom_fields,
+       c.nome as clienteNome, c.cpf as clienteCpf, u.nome as operadorNome
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     JOIN products p ON p.id = si.product_id
+     LEFT JOIN customers c ON c.id = s.customer_id
+     LEFT JOIN users u ON u.id = s.operador_id
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
+       AND json_extract(p.custom_fields, '$.controlado') = 1
+       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
+     ORDER BY s.finalizada_em`
+  ).all(locationId, dataInicio, dataFim).map((r) => {
+    const custom = JSON.parse(r.custom_fields || '{}');
+    return {
+      dataHora: r.finalizada_em, quantidade: r.quantidade, produtoNome: r.produtoNome,
+      principioAtivo: custom.principio_ativo || null,
+      clienteNome: r.clienteNome, clienteCpf: r.clienteCpf, operadorNome: r.operadorNome,
+    };
+  });
+}
+
+module.exports = { getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe, listNfceForSale, livroDeControlados };

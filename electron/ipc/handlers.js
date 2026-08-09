@@ -28,6 +28,7 @@ const posDisplayService = require('../services/posDisplayService');
 const backupService = require('../services/backupService');
 const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
+const petService = require('../services/petService');
 const supplierService = require('../services/supplierService');
 const expenseService = require('../services/expenseService');
 const categoryService = require('../services/categoryService');
@@ -71,6 +72,8 @@ function registerIpcHandlers() {
   safeHandle('product:count', (_e, opts) => productService.count(opts));
   safeHandle('product:countConflitosCodigoBarrasPendentes', () => productService.countConflitosCodigoBarrasPendentes());
   safeHandle('product:findDuplicates', () => productService.findDuplicateProducts());
+  safeHandle('product:alertasDeMargem', () => productService.alertasDeMargem());
+  safeHandle('product:findAlsoBoughtWith', (_e, { productId }) => productService.findAlsoBoughtWith(productId));
   safeHandle('productSync:buscarNoGrupo', (_e, { query }) => productSyncService.buscarNoCatalogoDoGrupo(query));
   safeHandle('productSync:buscarNoGrupoPorCodigoBarras', (_e, { codigoBarras }) => productSyncService.buscarNoCatalogoDoGrupoPorCodigoBarras(codigoBarras));
   safeHandle('productSync:importarDoGrupo', (_e, dados) => {
@@ -102,6 +105,7 @@ function registerIpcHandlers() {
   safeHandle('stock:getForLocation', (_e, { locationId }) => stockService.getStockForLocation(locationId));
   safeHandle('stock:listLowStock', (_e, { locationId }) => stockService.listLowStock(locationId));
   safeHandle('stock:listAlerts', (_e, { locationId }) => stockService.listAlerts(locationId, profileService.getActiveProfile()));
+  safeHandle('stock:previsaoDeRuptura', (_e, { locationId }) => stockService.previsaoDeRuptura(locationId));
   safeHandle('stock:adjust', (_e, payload) => stockService.adjustStock(payload));
 
   // --- PDV / Vendas ---
@@ -249,6 +253,7 @@ function registerIpcHandlers() {
   safeHandle('fiscal:updateConfig', (_e, payload) => fiscalService.updateFiscalConfig(payload));
   safeHandle('fiscal:emitirNFCe', (_e, { saleId }) => fiscalService.emitirNFCe(saleId));
   safeHandle('fiscal:listNfceForSale', (_e, { saleId }) => fiscalService.listNfceForSale(saleId));
+  safeHandle('fiscal:livroDeControlados', (_e, payload) => fiscalService.livroDeControlados(payload));
   safeHandle('fiscal:selectCertificado', async () => {
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
@@ -339,6 +344,13 @@ function registerIpcHandlers() {
   safeHandle('customer:upsert', (_e, customer) => customerService.upsert(customer));
   safeHandle('customer:getCreditHistory', (_e, { customerId }) => customerService.getCreditHistory(customerId));
   safeHandle('customer:registrarPagamento', (_e, payload) => customerService.registrarPagamento(payload));
+  safeHandle('customer:listQueSumiram', () => customerService.listClientesQueSumiram());
+  safeHandle('customer:montarLinkReconquista', (_e, { customerId }) => customerService.montarLinkReconquista(customerId));
+  safeHandle('pet:listByCustomer', (_e, { customerId }) => petService.listByCustomer(customerId));
+  safeHandle('pet:upsert', (_e, pet) => petService.upsert(pet));
+  safeHandle('pet:deactivate', (_e, { petId }) => petService.deactivate(petId));
+  safeHandle('pet:listLembretesPendentes', () => petService.listLembretesPendentes());
+  safeHandle('pet:montarLinkLembrete', (_e, { petId }) => petService.montarLinkLembrete(petId));
   safeHandle('loyalty:getConfig', () => customerService.getLoyaltyConfig());
   safeHandle('loyalty:updateConfig', (_e, payload) => customerService.updateLoyaltyConfig(payload));
 

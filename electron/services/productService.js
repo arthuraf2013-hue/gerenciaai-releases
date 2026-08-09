@@ -641,4 +641,82 @@ function mergeProducts({ manterId, removerId, currentOperatorId }) {
   return { ok: true, estoqueFinal: db.prepare('SELECT COALESCE(SUM(quantidade),0) as t FROM stock_movements WHERE product_id = ?').get(manterId).t };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome };
+/**
+ * Alerta de margem fora do padrão — compara a margem de cada produto
+ * com a média da PRÓPRIA categoria dele (não um número fixo pra todo
+ * catálogo, já que categorias diferentes têm margens normais bem
+ * diferentes). Pega erro de precificação — ex: custo subiu num
+ * abastecimento e o preço de venda nunca foi reajustado — antes que
+ * vire prejuízo acumulado sem ninguém perceber. Margem negativa
+ * (vendendo abaixo do custo) sempre entra, mesmo sem categoria pra
+ * comparar.
+ */
+function alertasDeMargem({ desvioMinimoPontos = 15 } = {}) {
+  const db = getDb();
+  const produtos = db.prepare(
+    `SELECT id, nome, categoria, preco, custo FROM products WHERE ativo = 1 AND preco > 0 AND custo > 0`
+  ).all();
+
+  const comMargem = produtos.map((p) => ({ ...p, margem: ((p.preco - p.custo) / p.preco) * 100 }));
+
+  const porCategoria = new Map();
+  for (const p of comMargem) {
+    const chave = p.categoria || '(sem categoria)';
+    if (!porCategoria.has(chave)) porCategoria.set(chave, []);
+    porCategoria.get(chave).push(p.margem);
+  }
+  const mediaPorCategoria = new Map();
+  for (const [chave, margens] of porCategoria) {
+    mediaPorCategoria.set(chave, margens.reduce((a, b) => a + b, 0) / margens.length);
+  }
+
+  const alertas = [];
+  for (const p of comMargem) {
+    const chave = p.categoria || '(sem categoria)';
+    const margemNegativa = p.margem < 0;
+
+    if (!margemNegativa) {
+      // Sem pelo menos outro produto na mesma categoria pra comparar,
+      // não dá pra saber se essa margem é normal ou fora do padrão.
+      if (porCategoria.get(chave).length < 2) continue;
+      const media = mediaPorCategoria.get(chave);
+      const desvio = media - p.margem;
+      if (desvio < desvioMinimoPontos) continue;
+      alertas.push({
+        id: p.id, nome: p.nome, categoria: p.categoria,
+        margem: Number(p.margem.toFixed(1)), mediaCategoria: Number(media.toFixed(1)), margemNegativa: false,
+      });
+    } else {
+      alertas.push({ id: p.id, nome: p.nome, categoria: p.categoria, margem: Number(p.margem.toFixed(1)), mediaCategoria: null, margemNegativa: true });
+    }
+  }
+
+  return alertas.sort((a, b) => a.margem - b.margem);
+}
+
+/**
+ * "Quem compra isso, compra aquilo" — olha o histórico de vendas
+ * de verdade pra achar quais produtos costumam ser comprados JUNTO
+ * com o produto dado, na mesma venda. Não é uma regra que alguém
+ * configurou, é o comportamento real dos seus clientes. Exige pelo
+ * menos 2 ocorrências juntos, pra não sugerir uma combinação que só
+ * aconteceu por acaso uma vez.
+ */
+function findAlsoBoughtWith(productId, { limit = 3, minimoOcorrencias = 2 } = {}) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT p.id, p.nome, p.preco, COUNT(DISTINCT si1.sale_id) as vezesJuntos
+     FROM sale_items si1
+     JOIN sale_items si2 ON si2.sale_id = si1.sale_id AND si2.product_id != si1.product_id
+     JOIN sales s ON s.id = si1.sale_id
+     JOIN products p ON p.id = si2.product_id
+     WHERE si1.product_id = ? AND si1.cancelado = 0 AND si2.cancelado = 0
+       AND s.status = 'finalizada' AND p.ativo = 1
+     GROUP BY si2.product_id
+     HAVING vezesJuntos >= ?
+     ORDER BY vezesJuntos DESC
+     LIMIT ?`
+  ).all(productId, minimoOcorrencias, limit);
+}
+
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith };

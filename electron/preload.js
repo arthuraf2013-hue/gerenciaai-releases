@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('pdv', {
     count: invoke('product:count'),
     countConflitosCodigoBarrasPendentes: invoke('product:countConflitosCodigoBarrasPendentes'),
     findDuplicates: invoke('product:findDuplicates'),
+    alertasDeMargem: invoke('product:alertasDeMargem'),
+    findAlsoBoughtWith: invoke('product:findAlsoBoughtWith'),
     merge: invoke('product:merge'),
     listCategories: invoke('product:listCategories'),
     upsert: invoke('product:upsert'),
@@ -55,6 +57,7 @@ contextBridge.exposeInMainWorld('pdv', {
     getForLocation: invoke('stock:getForLocation'),
     listLowStock: invoke('stock:listLowStock'),
     listAlerts: invoke('stock:listAlerts'),
+    previsaoDeRuptura: invoke('stock:previsaoDeRuptura'),
     adjust: invoke('stock:adjust'),
   },
   sale: {
@@ -169,6 +172,7 @@ contextBridge.exposeInMainWorld('pdv', {
     updateConfig: invoke('fiscal:updateConfig'),
     emitirNFCe: invoke('fiscal:emitirNFCe'),
     listNfceForSale: invoke('fiscal:listNfceForSale'),
+    livroDeControlados: invoke('fiscal:livroDeControlados'),
     selectCertificado: invoke('fiscal:selectCertificado'),
   },
   payment: {
@@ -206,6 +210,15 @@ contextBridge.exposeInMainWorld('pdv', {
     upsert: invoke('customer:upsert'),
     getCreditHistory: invoke('customer:getCreditHistory'),
     registrarPagamento: invoke('customer:registrarPagamento'),
+    listQueSumiram: invoke('customer:listQueSumiram'),
+    montarLinkReconquista: invoke('customer:montarLinkReconquista'),
+  },
+  pets: {
+    listByCustomer: invoke('pet:listByCustomer'),
+    upsert: invoke('pet:upsert'),
+    deactivate: invoke('pet:deactivate'),
+    listLembretesPendentes: invoke('pet:listLembretesPendentes'),
+    montarLinkLembrete: invoke('pet:montarLinkLembrete'),
   },
   loyalty: {
     getConfig: invoke('loyalty:getConfig'),

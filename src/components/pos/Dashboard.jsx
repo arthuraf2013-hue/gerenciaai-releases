@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useProfile } from '../../context/ProfileContext';
 import { AuditLog } from '../users/AuditLog';
 import { ProductProfitReport } from './ProductProfitReport';
+import { ControlledDrugsReport } from './ControlledDrugsReport';
 import { toISODate } from '../../utils/date';
 
 
@@ -39,6 +41,7 @@ function VendasPorDiaChart({ dados }) {
 
 export function Dashboard() {
   const { currentUser } = useSession();
+  const { profile } = useProfile();
   const [aba, setAba] = useState('visaoGeral');
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('semana');
@@ -147,6 +150,9 @@ export function Dashboard() {
       <div className="settings-tabs">
         <button className={aba === 'visaoGeral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('visaoGeral')}>Visão geral</button>
         <button className={aba === 'produtos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('produtos')}>Produtos e lucro</button>
+        {profile?.id === 'farmacia' && (
+          <button className={aba === 'controlados' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('controlados')}>Livro de controlados</button>
+        )}
         {currentUser.role === 'admin' && (
           <button className={aba === 'auditoria' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('auditoria')}>Auditoria</button>
         )}
@@ -154,6 +160,8 @@ export function Dashboard() {
 
       {aba === 'auditoria' && currentUser.role === 'admin' ? (
         <AuditLog />
+      ) : aba === 'controlados' && profile?.id === 'farmacia' ? (
+        <ControlledDrugsReport />
       ) : aba === 'produtos' ? (
         <ProductProfitReport />
       ) : (

@@ -3057,6 +3057,103 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Funcionalidades por perfil de negócio — parte 1 de 6
+
+Você tem 11 perfis de negócio cadastrados (Farmácia, Petshop, Salão de
+Beleza, Material de Construção, Ótica, Armazém/Padaria, Restaurante, e
+mais), cada um até agora só com campos extras diferentes no cadastro
+de produto — nenhum tinha uma funcionalidade própria além disso. Comecei
+a mudar isso, uma de cada vez.
+
+### Livro de controlados eletrônico (Farmácia)
+Nova aba "Livro de controlados" no Painel — só aparece pro perfil
+Farmácia. Todo produto marcado como "medicamento controlado" no
+cadastro, filtrado por período, com cliente (quando teve) e princípio
+ativo — pronto pra prestar contas à vigilância sanitária sem precisar
+procurar venda por venda. Tem botão de imprimir.
+
+### Ficha de pet com lembrete de vacina/vermífugo (Petshop)
+Botão "Pets" na linha de cada cliente (só perfil Petshop) — cadastra
+o pet vinculado ao dono, com data da última e próxima vacina/vermífugo.
+Botão "Lembretes de vacina/vermífugo" no topo mostra quem está com
+data vencida ou vencendo nos próximos 7 dias, com um botão que já abre
+o WhatsApp com uma mensagem pronta — reaproveitando a mesma
+infraestrutura do lembrete de cliente que sumiu.
+
+Testei os dois cenários de ponta a ponta (backend + comportamento),
+incluindo casos de borda: item cancelado não conta no livro de
+controlados, pet sem telefone cadastrado não permite envio, vacina
+vencida vs. vencendo em breve geram mensagens diferentes e
+gramaticalmente corretas. Suíte agora com **73 testes**, todos
+passando.
+
+**Continuando aos poucos**: ainda faltam agenda de horário (Salão),
+desconto automático por validade (Armazém/Padaria), orçamento antes
+da venda (Material de Construção), e ficha de receita (Ótica).
+
+## Três novidades: cliente que sumiu, margem fora do padrão, e "quem compra isso, compra aquilo"
+
+Construí as três ideias que você pediu, cada uma com testes
+automatizados cobrindo os cenários que importam.
+
+### Cliente que sumiu
+Botão novo "Clientes que sumiram" na tela de Clientes. Em vez de um
+número fixo de dias pra todo mundo, compara o tempo desde a última
+compra com o **ritmo próprio de cada cliente** — quem compra toda
+semana e some por um mês entra na lista; quem compra a cada 3 meses
+só entra se também passar bem do próprio ritmo. Cada linha tem um
+botão que já abre o WhatsApp com uma mensagem de reconquista pronta,
+personalizada com o primeiro nome da pessoa.
+
+### Margem fora do padrão
+Nova seção na tela de Alertas. Compara a margem de cada produto com a
+média da **própria categoria** dele (não um número fixo pra todo o
+catálogo) — pega erro de precificação, tipo custo que subiu num
+abastecimento e o preço de venda nunca foi reajustado, antes que vire
+prejuízo acumulado sem ninguém perceber. Produto vendendo com
+prejuízo sempre aparece, mesmo sozinho na categoria.
+
+### "Quem compra isso, compra aquilo"
+No PDV, depois de adicionar um produto ao carrinho, se existir um
+padrão real de compra conjunta (baseado no histórico de vendas de
+verdade, não uma regra configurada — e exigindo pelo menos 2
+ocorrências, pra não sugerir uma coincidência de uma venda só),
+aparece uma sugestão com botão de adicionar direto. Testei a lógica
+de análise a fundo (padrão real vs. coincidência, venda cancelada não
+conta, produto desativado não aparece) — a parte de dentro do PDV
+segue exatamente o mesmo padrão já comprovado de outras chamadas
+`window.pdv` na mesma função, mas não consegui montar um teste
+automatizado de ponta a ponta da tela inteira (esbarrei numa
+complexidade de empacotamento do ambiente de teste isolado, sem
+relação com a lógica em si) — vale um teste manual seu antes de
+confiar 100% nessa parte específica.
+
+Suíte de testes agora com **61 testes**, todos passando.
+
+## Novidade: previsão de ruptura de estoque
+
+Sua pergunta ("o que mais conseguimos fazer, seja inovador mas útil")
+me fez olhar pro que já existia de alerta de estoque — e achei que
+era todo **reativo**: só avisa depois que já bateu o número mínimo
+que alguém configurou uma vez (e pode estar desatualizado). Um
+produto de venda rápida podia estar a poucos dias de acabar sem
+nenhum aviso, só porque o mínimo cadastrado nunca foi ajustado pra
+refletir a demanda real.
+
+**Construído**: nova seção "Vai faltar em breve" na tela de Alertas —
+olha o ritmo de venda real dos últimos 30 dias de cada produto (a
+mesma lógica que já existia pra sugestão de reabastecimento, só que
+aplicada de forma proativa) e avisa quando o estoque atual, no ritmo
+atual, vai acabar dentro de 7 dias — **mesmo que o produto ainda não
+tenha batido o mínimo cadastrado**. Não duplica quem já aparece no
+alerta reativo tradicional.
+
+Testei com produto de venda rápida (deveria aparecer), venda lenta
+(não deveria), produto já abaixo do mínimo (não deveria duplicar), e
+produto sem estoque nenhum (não deveria quebrar o cálculo). Escrevi
+testes automatizados cobrindo os quatro casos — suíte agora com **48
+testes**, todos passando.
+
 ## Treinamentos atualizados
 
 Reconstruí a apresentação inteira (`public/treinamento-pdv.pdf`, agora

@@ -47,6 +47,7 @@ export function POSScreen() {
   const [showCloseCash, setShowCloseCash] = useState(false);
   const [saleId, setSaleId] = useState(null);
   const [items, setItems] = useState([]);
+  const [sugestaoCombo, setSugestaoCombo] = useState(null); // { produto, deQual } | null
   const [total, setTotal] = useState(0);
   const [feedback, setFeedback] = useState({ message: 'Aponte o leitor para o código de barras do produto...', type: 'info' });
   const [authAction, setAuthAction] = useState(null); // { type: 'item'|'sale', itemId? }
@@ -144,7 +145,18 @@ export function POSScreen() {
     } else {
       setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
     }
-  }, [saleId, currentUser, pendingQty]);
+
+    // "Quem compra isso, compra aquilo" — sugestão baseada no
+    // histórico real de vendas, não uma regra configurada. Só mostra
+    // se o produto sugerido ainda não estiver no carrinho (senão não
+    // faz sentido sugerir o que já foi adicionado).
+    window.pdv.products.findAlsoBoughtWith({ productId: product.id }).then((sugestoes) => {
+      if (!Array.isArray(sugestoes) || sugestoes.length === 0) { setSugestaoCombo(null); return; }
+      const jaNoCarrinho = new Set(items.map((it) => it.id));
+      const primeira = sugestoes.find((s) => !jaNoCarrinho.has(s.id));
+      setSugestaoCombo(primeira ? { produto: primeira, deQual: product.nome } : null);
+    });
+  }, [saleId, currentUser, pendingQty, items]);
 
   /**
    * Chamada depois que a IA extrai os medicamentos de uma receita anexada.
@@ -378,6 +390,7 @@ export function POSScreen() {
     if (result.ok) {
       setItems([]);
       setTotal(0);
+      setSugestaoCombo(null);
       setSaleId(null); // uma nova venda será aberta automaticamente
     }
     return result;
@@ -471,6 +484,19 @@ export function POSScreen() {
       <div className="pos-main-scroll">
         <CategoryProductBrowser onSelectProduct={handleSelectProduct} />
 
+        {sugestaoCombo && (
+          <div className="combo-suggestion">
+            <span>
+              Quem leva <strong>{sugestaoCombo.deQual}</strong> também costuma levar{' '}
+              <strong>{sugestaoCombo.produto.nome}</strong> (R$ {sugestaoCombo.produto.preco.toFixed(2)})
+            </span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" onClick={() => addProductToCart(sugestaoCombo.produto)}>+ Adicionar</button>
+              <button className="btn-link" onClick={() => setSugestaoCombo(null)}>Dispensar</button>
+            </div>
+          </div>
+        )}
+
         <ul className="cart-list">
           {itensAtivos.map((item) => (
             <li
@@ -541,6 +567,7 @@ export function POSScreen() {
               setShowPayment(false);
               setItems([]);
               setTotal(0);
+              setSugestaoCombo(null);
               setSaleId(null);
               carregarVendasHoje();
             }} />

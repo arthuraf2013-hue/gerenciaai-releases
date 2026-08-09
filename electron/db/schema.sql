@@ -629,6 +629,26 @@ CREATE TABLE IF NOT EXISTS customer_credit_movements (
 );
 CREATE INDEX IF NOT EXISTS idx_credit_customer ON customer_credit_movements(customer_id);
 
+-- Perfil Petshop: ficha do animal, vinculada ao dono (customer). Datas
+-- de vacina/vermífugo guardadas explicitamente (não calculadas) porque
+-- o intervalo varia por tipo de vacina/porte do animal — quem cadastra
+-- decide a próxima data, o sistema só lembra quando ela se aproxima.
+CREATE TABLE IF NOT EXISTS pets (
+  id                  TEXT PRIMARY KEY,
+  customer_id         TEXT NOT NULL REFERENCES customers(id),
+  nome                TEXT NOT NULL,
+  especie             TEXT, -- cão, gato, ave...
+  raca                TEXT,
+  ativo               INTEGER NOT NULL DEFAULT 1,
+  ultima_vacina_em    TEXT,
+  proxima_vacina_em   TEXT,
+  ultimo_vermifugo_em TEXT,
+  proximo_vermifugo_em TEXT,
+  observacoes         TEXT,
+  criado_em           TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_pets_customer ON pets(customer_id);
+
 CREATE TABLE IF NOT EXISTS loyalty_config (
   id                  TEXT PRIMARY KEY DEFAULT 'default',
   ativado             INTEGER NOT NULL DEFAULT 0,

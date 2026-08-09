@@ -126,4 +126,53 @@ function listAlerts(locationId, profile) {
     .sort((a, b) => (a.alerta.nivel === 'critico' ? 0 : 1) - (b.alerta.nivel === 'critico' ? 0 : 1));
 }
 
-module.exports = { getCurrentStock, getStockForLocation, listLowStock, adjustStock, computeProductAlert, listAlerts };
+/**
+ * Previsão de ruptura — em vez de só avisar quando o estoque JÁ bateu
+ * no mínimo (reativo, e o mínimo é um número que alguém digitou uma
+ * vez e pode estar desatualizado), calcula quantos dias faltam pra
+ * acabar de verdade, baseado no ritmo de venda dos últimos 30 dias.
+ * Isso pega produto de venda rápida que ainda não bateu o mínimo, mas
+ * vai bater em breve — dando mais tempo de reação do que o alerta
+ * estático. Só mostra quem NÃO está no alerta reativo (senão duplica
+ * o mesmo aviso de dois jeitos diferentes).
+ */
+function previsaoDeRuptura(locationId, { diasLimiar = 7 } = {}) {
+  const db = getDb();
+  const produtos = db.prepare(
+    `SELECT p.id, p.nome, p.estoque_minimo, COALESCE(SUM(sm.quantidade), 0) as estoque_atual
+     FROM products p
+     LEFT JOIN stock_movements sm ON sm.product_id = p.id AND sm.location_id = ?
+     WHERE p.ativo = 1
+     GROUP BY p.id
+     HAVING estoque_atual > 0`
+  ).all(locationId);
+
+  const resultado = [];
+  for (const p of produtos) {
+    // Já está no alerta reativo (bateu ou passou do mínimo)? Não
+    // duplica o aviso aqui — a pessoa já vê ele na lista de cima.
+    if (p.estoque_atual <= p.estoque_minimo) continue;
+
+    const vendidoUltimos30Dias = db.prepare(
+      `SELECT COALESCE(SUM(-quantidade), 0) as total FROM stock_movements
+       WHERE product_id = ? AND location_id = ? AND tipo = 'venda' AND criado_em >= datetime(NOW_SYNCED(), '-30 days')`
+    ).get(p.id, locationId).total;
+
+    if (vendidoUltimos30Dias <= 0) continue; // sem venda recente, não dá pra prever nada
+
+    const velocidadeDiaria = vendidoUltimos30Dias / 30;
+    const diasRestantes = p.estoque_atual / velocidadeDiaria;
+
+    if (diasRestantes <= diasLimiar) {
+      resultado.push({
+        id: p.id, nome: p.nome, estoqueAtual: p.estoque_atual,
+        velocidadeDiaria: Number(velocidadeDiaria.toFixed(2)),
+        diasRestantes: Math.floor(diasRestantes),
+      });
+    }
+  }
+
+  return resultado.sort((a, b) => a.diasRestantes - b.diasRestantes);
+}
+
+module.exports = { getCurrentStock, getStockForLocation, listLowStock, adjustStock, computeProductAlert, listAlerts, previsaoDeRuptura };
