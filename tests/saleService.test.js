@@ -40,6 +40,10 @@ test('addItem baixa o estoque imediatamente ao vender', () => {
 
 test('cancelSaleItem rejeita quando o autorizador é o próprio operador do caixa', () => {
   const ctx = abrirVendaComItem(freshTestDb());
+  // Autorização só é exigida depois que já tem pagamento registrado —
+  // sem isso, o cancelamento é livre por design, e o teste não estaria
+  // testando a rejeição de autoaprovação de verdade.
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 10 });
   const result = saleService.cancelSaleItem({
     saleId: ctx.saleId, saleItemId: ctx.addResult.itemId, locationId: ctx.locationId,
     currentOperatorId: ctx.operadorId, candidateManagerId: ctx.operadorId, pin: '5678',

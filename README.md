@@ -3057,6 +3057,64 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Treinamentos atualizados
+
+Reconstruí a apresentação inteira (`public/treinamento-pdv.pdf`, agora
+25 slides) — não tinha a fonte original (só o PDF exportado), então
+recriei fielmente o estilo visual (mesma paleta, tipografia, layout de
+cards) e mantive todo o conteúdo já existente. Adicionei dois slides
+novos ("Categorias e organização" e "Duplicados e código de barras")
+e atualizei "Ferramentas de gestão" pra incluir Financeiro (de 3 pra 4
+cards). Validado contra o schema oficial de apresentações, conferido
+visualmente slide por slide (achei e corrigi uma sobreposição de
+texto no slide de comanda), sem texto de placeholder sobrando.
+
+## "O que podemos melhorar" — o que já fiz, não só sugeri
+
+Investigando o projeto pra responder isso direito, achei um problema
+concreto: **você já tinha uma suíte de testes automatizados**
+(`tests/`, cobrindo login, caixa, devolução, vendas) — mas ela nunca
+protegia nada de verdade, por dois motivos que se somavam:
+
+1. **O workflow de publicação nunca rodava os testes** — só buildava
+   e publicava direto. Corrigido: adicionei o passo `npm test` antes
+   do build, travando a publicação se algo quebrar.
+2. **O próprio comando `npm test` estava quebrado** desde antes desta
+   sessão — `node --test tests/` (passando o diretório explicitamente)
+   falha nessa versão do Node com "Cannot find module tests". Corrigido
+   pra `node --test` (sem argumento — a descoberta automática de
+   arquivos `*.test.js` funciona certo assim). Se você já tentou
+   rodar `npm test` na sua máquina antes, é bem provável que tenha
+   dado esse mesmo erro.
+
+Com os testes rodando de verdade pela primeira vez, **um teste já
+existente falhou** — não por bug real no app, mas porque o próprio
+teste estava incompleto (tentava validar que autoaprovação de
+cancelamento é rejeitada, mas sem registrar pagamento antes, cenário
+em que a aprovação nem é exigida por regra de negócio). Corrigido o
+teste pra registrar o pagamento primeiro — confirmei que a trava de
+segurança de verdade funciona certo.
+
+Também escrevi testes novos pro bug de paginação mais difícil desta
+sessão inteira (produto duplicado na rolagem infinita) e pro
+ranqueamento de busca — pra nunca mais regredir sem ninguém perceber
+antes de chegar no cliente. Suíte completa: **44 testes, todos
+passando**.
+
+**Sugestões pra próximos passos** (não fiz agora, mas vale considerar):
+- **Ampliar a cobertura de testes** pras áreas que mais deram bug
+  nesta sessão e ainda não têm teste nenhum: sincronização entre
+  PDVs, `dashboardService`, `categoryService`, checagem de
+  atualização.
+- **Aviso de "produto parecido já existe"** ao cadastrar um produto
+  novo — pegaria duplicata na origem (erro de digitação humana), em
+  vez de só limpar depois com a ferramenta que já construímos.
+- **NFC-e**: a emissão está com assinatura e transmissão implementadas
+  e testadas na mecânica, mas nunca foi validada contra a SEFAZ de
+  verdade — precisa de um certificado ICP-Brasil real e acesso de
+  homologação pra confirmar ponta a ponta antes de confiar em
+  produção.
+
 ## Achada a causa raiz de verdade do bug de busca — "funciona quando abre, para depois de um tempo de uso"
 
 Essa frase do cliente foi a pista decisiva. Investigando com esse

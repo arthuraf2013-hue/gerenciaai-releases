@@ -9,7 +9,7 @@
     "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
     "build:electron": "npm run build && electron-builder --publish never",
-    "test": "node --test tests/",
+    "test": "node --test",
     "postinstall": "electron-builder install-app-deps",
     "postversion": "git push && git push --tags"
   },

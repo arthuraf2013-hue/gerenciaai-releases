@@ -31,6 +31,13 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      - name: Rodar os testes
+        # Sem esse passo, a suíte de testes existe mas nunca protege
+        # nada de verdade — regressão nas áreas cobertas só apareceria
+        # depois, com cliente reportando. Roda ANTES do build, pra
+        # travar a publicação se algo quebrar.
+        run: npm test
+
       - name: Build do frontend (Vite)
         # Sem esse passo, o dist/ (onde fica o index.html de verdade)
         # nunca é gerado nesse ambiente — o dist/ está no .gitignore de
