@@ -253,6 +253,16 @@ contextBridge.exposeInMainWorld('pdv', {
     upsert: invoke('eyewear:upsert'),
     deactivate: invoke('eyewear:deactivate'),
   },
+  appointments: {
+    listProfessionals: invoke('appointment:listProfessionals'),
+    upsertProfessional: invoke('appointment:upsertProfessional'),
+    deactivateProfessional: invoke('appointment:deactivateProfessional'),
+    create: invoke('appointment:create'),
+    reschedule: invoke('appointment:reschedule'),
+    updateStatus: invoke('appointment:updateStatus'),
+    list: invoke('appointment:list'),
+    montarLinkConfirmacao: invoke('appointment:montarLinkConfirmacao'),
+  },
   loyalty: {
     getConfig: invoke('loyalty:getConfig'),
     updateConfig: invoke('loyalty:updateConfig'),

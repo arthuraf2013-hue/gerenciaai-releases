@@ -3057,6 +3057,70 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Corrigido: CI quebrado desde que os testes passaram a rodar de verdade (v0.5.50)
+
+Você mandou o print — o job "Rodar os testes" falhou com um erro de
+`NODE_MODULE_VERSION`: o binário nativo do `better-sqlite3` estava
+compilado pra uma versão de Node diferente da que roda os testes.
+
+**Causa raiz**: o `postinstall` do projeto (`electron-builder
+install-app-deps`) recompila o `better-sqlite3` pro Node **interno do
+Electron**, não pro Node do sistema — e é o Node do sistema que
+`node --test` usa. Isso sempre existiu, mas só virou problema quando
+os testes passaram a rodar de verdade no CI (v0.5.42) — antes disso,
+nada tentava usar o `better-sqlite3` fora do próprio Electron
+empacotado. Eu mesmo vinha corrigindo isso manualmente toda vez que
+testava localmente nesta conversa inteira (`npm rebuild
+better-sqlite3` antes de cada suíte) — só esqueci de levar esse mesmo
+passo pro workflow.
+
+**Corrigido**: novo passo "Recompilar módulos nativos pro Node do
+sistema" entre instalar dependências e rodar os testes. Confirmei que
+é seguro — o `electron-builder` recompila o módulo de novo pro
+Electron sozinho, automaticamente, antes de empacotar (não desliguei
+essa opção), então reverter pro Node do sistema só pros testes não
+afeta o app final.
+
+**Reproduzi o erro exato antes de aplicar a correção** (instalação
+limpa, sem o rebuild — os testes falharam com a mesma mensagem do seu
+print) e confirmei que o rebuild resolve (113/113 depois de aplicar).
+
+## Agenda de horário (Salão de Beleza) — parte 5 de 6 (a última, fechando o pacote das seis ideias)
+
+Nova aba "Agenda" no menu principal, só visível pro perfil Salão de
+Beleza (diferente de Delivery e Orçamentos, que deixei disponíveis
+pra qualquer perfil). Duas sub-abas: **Agenda** (visão do dia, filtro
+por profissional, criar/reagendar/mudar status) e **Profissionais**
+(cadastro simples).
+
+O núcleo tecnicamente mais delicado aqui era a **detecção de conflito
+de horário** — dois agendamentos do mesmo profissional não podem se
+sobrepor. Testei especificamente os casos de borda que costumam
+esconder bug nesse tipo de lógica: sobreposição parcial, encaixe
+exato sem sobrepor (um termina exatamente quando o outro começa),
+sobreposição com dois agendamentos vizinhos ao mesmo tempo, o mesmo
+horário em profissionais diferentes (não deveria conflitar),
+cancelamento liberando o horário de volta, e reagendar não
+"conflitar consigo mesmo".
+
+**Um bug de fuso horário que só apareceu testando, já corrigido**: a
+hora do agendamento é digitada como hora local (Brasília — "10h"
+significa 10h da manhã aqui), mas a primeira versão da mensagem de
+confirmação por WhatsApp tratava esse valor como se fosse UTC e
+convertia de novo, deslocando a hora mostrada em 3 horas. Corrigido e
+coberto por teste específico, pra nunca mais regredir.
+
+Testei o fluxo completo com navegador de verdade (cadastrar
+profissional, criar agendamento, mudar status, tentar criar em cima
+de um horário ocupado e ver a mensagem de conflito aparecer) e o
+backend a fundo — 11 testes automatizados. Suíte do projeto inteira
+agora em **113 testes**, todos passando.
+
+Com essa, as **seis ideias que você pediu estão todas entregues**:
+livro de controlados, ficha de pet, aba Delivery, desconto por
+validade, aba Orçamentos, ficha de receita óptica, e agenda de
+horário.
+
 ## Ficha de receita óptica (Ótica) — parte 4 de 6
 
 Botão "Receita" na linha do cliente, só pro perfil Ótica. Cada receita

@@ -32,6 +32,7 @@ const petService = require('../services/petService');
 const deliveryService = require('../services/deliveryService');
 const quoteService = require('../services/quoteService');
 const eyewearService = require('../services/eyewearService');
+const appointmentService = require('../services/appointmentService');
 const supplierService = require('../services/supplierService');
 const expenseService = require('../services/expenseService');
 const categoryService = require('../services/categoryService');
@@ -384,6 +385,15 @@ function registerIpcHandlers() {
   safeHandle('eyewear:listByCustomer', (_e, { customerId }) => eyewearService.listByCustomer(customerId));
   safeHandle('eyewear:upsert', (_e, receita) => eyewearService.upsert(receita));
   safeHandle('eyewear:deactivate', (_e, { id }) => eyewearService.deactivate(id));
+
+  safeHandle('appointment:listProfessionals', () => appointmentService.listProfessionals());
+  safeHandle('appointment:upsertProfessional', (_e, prof) => appointmentService.upsertProfessional(prof));
+  safeHandle('appointment:deactivateProfessional', (_e, { id }) => appointmentService.deactivateProfessional(id));
+  safeHandle('appointment:create', (_e, payload) => appointmentService.createAppointment(payload));
+  safeHandle('appointment:reschedule', (_e, payload) => appointmentService.rescheduleAppointment(payload));
+  safeHandle('appointment:updateStatus', (_e, payload) => appointmentService.updateAppointmentStatus(payload));
+  safeHandle('appointment:list', (_e, payload) => appointmentService.listAppointments(payload));
+  safeHandle('appointment:montarLinkConfirmacao', (_e, { appointmentId }) => appointmentService.montarLinkConfirmacao(appointmentId));
   safeHandle('loyalty:getConfig', () => customerService.getLoyaltyConfig());
   safeHandle('loyalty:updateConfig', (_e, payload) => customerService.updateLoyaltyConfig(payload));
 

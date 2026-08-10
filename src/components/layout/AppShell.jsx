@@ -15,6 +15,7 @@ import { Dashboard } from '../pos/Dashboard';
 import { CustomerList } from '../pos/CustomerList';
 import { DeliveryScreen } from '../pos/DeliveryScreen';
 import { QuotesScreen } from '../pos/QuotesScreen';
+import { AgendaScreen } from '../pos/AgendaScreen';
 import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
 
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
   { id: 'delivery', label: 'Delivery', roles: ['operador', 'gerente', 'admin'] },
   { id: 'quotes', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'agenda', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza' },
   { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'] },
   { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
   { id: 'settings', label: 'Configurações', roles: ['admin'] },
@@ -164,6 +166,7 @@ export function AppShell() {
         {screen === 'customers' && <CustomerList />}
         {screen === 'delivery' && <DeliveryScreen />}
         {screen === 'quotes' && <QuotesScreen />}
+        {screen === 'agenda' && <AgendaScreen />}
         {screen === 'returns' && (
           <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
         )}

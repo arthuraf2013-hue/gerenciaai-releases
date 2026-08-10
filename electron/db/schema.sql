@@ -760,6 +760,38 @@ CREATE TABLE IF NOT EXISTS eyewear_prescriptions (
 );
 CREATE INDEX IF NOT EXISTS idx_eyewear_customer ON eyewear_prescriptions(customer_id);
 
+-- Perfil Salão de Beleza: agenda de horário. Cliente pode ser vinculado
+-- (cliente cadastrado) OU avulso (nome/telefone digitado na hora, pra
+-- não obrigar cadastro completo só pra marcar um horário). Duração em
+-- minutos (não um campo "fim") pra facilitar recalcular o fim quando
+-- o serviço ou o horário de início mudam.
+CREATE TABLE IF NOT EXISTS appointment_professionals (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  especialidade TEXT,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
+CREATE TABLE IF NOT EXISTS appointments (
+  id                    TEXT PRIMARY KEY,
+  location_id           TEXT NOT NULL REFERENCES locations(id),
+  professional_id       TEXT NOT NULL REFERENCES appointment_professionals(id),
+  customer_id           TEXT REFERENCES customers(id),
+  cliente_nome_avulso    TEXT, -- usado quando não tem customer_id vinculado
+  cliente_telefone_avulso TEXT,
+  servico               TEXT NOT NULL,
+  data_hora_inicio      TEXT NOT NULL,
+  duracao_minutos       INTEGER NOT NULL DEFAULT 60,
+  status                TEXT NOT NULL DEFAULT 'agendado' CHECK (status IN ('agendado','confirmado','concluido','cancelado','faltou')),
+  observacoes           TEXT,
+  operador_id           TEXT REFERENCES users(id),
+  criado_em             TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_appointments_professional ON appointments(professional_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_location ON appointments(location_id);
+CREATE INDEX IF NOT EXISTS idx_appointments_data ON appointments(data_hora_inicio);
+
 CREATE TABLE IF NOT EXISTS loyalty_config (
   id                  TEXT PRIMARY KEY DEFAULT 'default',
   ativado             INTEGER NOT NULL DEFAULT 0,
