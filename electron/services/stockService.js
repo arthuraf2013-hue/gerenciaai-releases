@@ -175,4 +175,42 @@ function previsaoDeRuptura(locationId, { diasLimiar = 7 } = {}) {
   return resultado.sort((a, b) => a.diasRestantes - b.diasRestantes);
 }
 
-module.exports = { getCurrentStock, getStockForLocation, listLowStock, adjustStock, computeProductAlert, listAlerts, previsaoDeRuptura };
+/**
+ * Sugestão de desconto por validade próxima — em vez de só avisar
+ * que vai vencer (o alerta de validade já faz isso) e deixar virar
+ * perda registrada em desperdício depois, sugere um desconto agora,
+ * enquanto ainda dá tempo de vender. Não aplica sozinho — só sugere;
+ * quem aplica de fato é productService.aplicarDescontoValidade().
+ * Não sugere de novo produto que já está com promoção ativa.
+ */
+function sugestoesDescontoValidade({ locationId, diasLimiar = 3, percentualSugerido = 30 } = {}) {
+  const db = getDb();
+  const hoje = new Date().toISOString().slice(0, 10);
+  const limite = new Date(Date.now() + diasLimiar * 86400000).toISOString().slice(0, 10);
+
+  const produtos = db.prepare(
+    `SELECT p.id, p.nome, p.preco, p.custom_fields, p.preco_promocional, p.promocao_valida_ate,
+       MIN(b.validade) as validade_lote
+     FROM products p
+     LEFT JOIN product_batches b ON b.product_id = p.id AND b.location_id = ? AND b.validade IS NOT NULL
+     WHERE p.ativo = 1
+     GROUP BY p.id`
+  ).all(locationId);
+
+  const resultado = [];
+  for (const p of produtos) {
+    const custom = JSON.parse(p.custom_fields || '{}');
+    const validade = p.validade_lote || custom.validade || null;
+    if (!validade || validade > limite) continue;
+
+    // Já tem promoção ativa? Não sugere de novo.
+    if (p.preco_promocional != null && p.promocao_valida_ate >= hoje) continue;
+
+    const precoSugerido = Number((p.preco * (1 - percentualSugerido / 100)).toFixed(2));
+    resultado.push({ id: p.id, nome: p.nome, preco: p.preco, validade, precoSugerido, percentualSugerido });
+  }
+
+  return resultado.sort((a, b) => a.validade.localeCompare(b.validade));
+}
+
+module.exports = { getCurrentStock, getStockForLocation, listLowStock, adjustStock, computeProductAlert, listAlerts, previsaoDeRuptura, sugestoesDescontoValidade };

@@ -719,4 +719,35 @@ function findAlsoBoughtWith(productId, { limit = 3, minimoOcorrencias = 2 } = {}
   ).all(productId, minimoOcorrencias, limit);
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith };
+/**
+ * Preço efetivo de um produto — usa o promocional (desconto por
+ * validade) enquanto a data de validade dele não passar; depois disso
+ * volta pro preço normal sozinho, sem precisar de ninguém remover a
+ * promoção manualmente.
+ */
+function precoEfetivo(product) {
+  if (product.preco_promocional != null && product.promocao_valida_ate) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (product.promocao_valida_ate >= hoje) return product.preco_promocional;
+  }
+  return product.preco;
+}
+
+/** Aplica o desconto sugerido (ou um valor customizado) — o produto
+ * passa a vender pelo preço promocional até a data informada, e volta
+ * sozinho pro preço normal depois disso. */
+function aplicarDescontoValidade({ productId, precoPromocional, validoAte }) {
+  if (!(precoPromocional > 0)) return { ok: false, error: 'Preço promocional precisa ser maior que zero.' };
+  if (!validoAte) return { ok: false, error: 'Informe até quando a promoção vale.' };
+  const db = getDb();
+  db.prepare('UPDATE products SET preco_promocional = ?, promocao_valida_ate = ? WHERE id = ?').run(precoPromocional, validoAte, productId);
+  return { ok: true };
+}
+
+function removerDescontoValidade(productId) {
+  const db = getDb();
+  db.prepare('UPDATE products SET preco_promocional = NULL, promocao_valida_ate = NULL WHERE id = ?').run(productId);
+  return { ok: true };
+}
+
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };

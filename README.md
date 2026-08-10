@@ -3057,6 +3057,111 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Ficha de receita óptica (Ótica) — parte 4 de 6
+
+Botão "Receita" na linha do cliente, só pro perfil Ótica. Cada receita
+fica guardada como um registro histórico — nunca sobrescreve a
+anterior, então dá pra ver a evolução do grau da pessoa ao longo dos
+anos, não só o valor mais recente. Formulário completo: esférico,
+cilíndrico, eixo e adição pros dois olhos, distância pupilar, tipo de
+lente, data e observações.
+
+Testei o backend a fundo: cadastro, histórico ordenado do mais
+recente pro mais antigo, edição atualizando o registro certo (sem
+duplicar), remoção de uma receita não mexendo nas outras do mesmo
+cliente, e campo numérico vazio não quebrando o salvamento. 6 testes
+automatizados, todos passando. Suíte do projeto inteira agora em
+**102 testes**.
+
+## Nova aba: Orçamentos (Material de Construção) — parte 3 de 6
+
+Cotação prévia antes da venda de fato — o cliente pede um preço,
+você monta o orçamento (busca produto do mesmo jeito que no PDV,
+adiciona quantidade), e **nada disso mexe em estoque nem em caixa**
+até você clicar em "Converter em venda". Só aí o estoque é
+efetivamente descontado, com as mesmas regras de uma venda normal
+(incluindo checagem de estoque disponível).
+
+Um detalhe de design que só apareceu testando: se um item do
+orçamento não tiver mais estoque suficiente na hora de converter (por
+exemplo, vendeu pra outro cliente enquanto o orçamento ficava parado),
+a conversão para e desfaz tudo que já tinha sido criado até ali — sem
+deixar venda pela metade, e sem pedir autorização de gerente pra isso
+(é uma limpeza técnica automática, não uma decisão de cancelamento
+que alguém tomou). Testei esse cenário especificamente: nenhum
+rastro órfão fica no banco, e o orçamento continua aberto pra tentar
+de novo.
+
+Testei o fluxo inteiro com navegador de verdade (criar orçamento,
+buscar produto, adicionar item, ver o total, converter) e o backend a
+fundo — 9 testes automatizados, cobrindo desde o caso feliz até
+orçamento vazio, item duplicado, e o rollback de conversão. Suíte
+agora com **96 testes**.
+
+## Desconto automático por validade próxima (Armazém/Padaria) — parte 2 de 6
+
+Nova seção "Descontar por validade" na tela de Alertas. Produto
+vencendo em breve (usa o mesmo lote/validade que já alimenta o alerta
+existente) ganha uma sugestão de preço com desconto — em vez de só
+avisar que vai vencer e deixar virar perda registrada em desperdício
+depois, dá a chance de vender antes. Um clique aplica; o preço volta
+sozinho pro normal depois da data de validade, sem precisar remover a
+promoção manualmente. Não é restrito a um perfil só — qualquer
+produto com validade cadastrada se beneficia, então farmácia também
+aproveita, não só armazém/padaria.
+
+**Dois bugs reais que só apareceram testando de ponta a ponta, já
+corrigidos**: o PDV não estava de fato cobrando o preço promocional
+na venda (continuava usando o preço cheio por baixo) — e mesmo depois
+de corrigir isso, o valor mostrado na tela pro operador (`precoUnitario`
+retornado pela função de adicionar item) continuava exibindo o preço
+cheio, apesar do total da venda já estar certo. Os dois confirmados
+com teste de venda de verdade, incluindo o caso da promoção vencer e
+o preço voltar ao normal sozinho.
+
+Suíte agora com **87 testes**, todos passando.
+
+## Nova aba: Delivery
+
+Você pediu direto — nova aba "Delivery" no menu principal (visível pra
+operador, gerente e admin, já que tanto quem atende quanto quem
+gerencia mexe nisso), com 4 sub-abas:
+
+- **Entregas**: a fila principal. Cria entrega vinculada a um cliente
+  (endereço, taxa, observações), atribui rota/entregador/veículo por
+  linha (direto na tabela, sem abrir modal), muda o status
+  (Pendente → Em rota → Entregue, ou Cancelada) — e quando o status
+  muda pra "Em rota" ou "Entregue", tem um botão "Avisar cliente" que
+  já abre o WhatsApp com a mensagem certa pra cada situação (mesma
+  infraestrutura de link já usada em recibo, cliente que sumiu, e
+  lembrete de pet).
+- **Rotas**: cadastro simples (nome + área/bairros que cobre) — pra
+  agrupar entregas por região.
+- **Veículos**: placa, modelo, tipo (moto, carro, bike...).
+- **Entregadores**: nome e telefone.
+
+Mudar o status já marca automaticamente quando saiu e quando chegou
+(pra dar noção de quanto tempo cada etapa está levando), sem precisar
+preencher essas datas na mão.
+
+**Uma ressalva honesta**: testando a tela, encontrei um problema
+visual — a cor de destaque da linha (que muda conforme o status) às
+vezes não atualiza imediatamente depois de trocar o status, mesmo o
+status/dropdown e os dados em si estando corretos (confirmei isso
+com log). É puramente estético, não afeta o funcionamento — mas é a
+mesma classe de comportamento estranho que também não consegui
+explicar totalmente numa investigação bem mais longa, páginas atrás
+neste mesmo histórico (o bug de paginação da lista de produtos). Se
+você notar linhas com a cor "atrasada" em relação ao status real,
+saiba que é isso — o valor do status está certo, só a pintura da
+linha que pode demorar a acompanhar.
+
+Testei o fluxo principal de ponta a ponta com navegador de verdade
+(cadastrar veículo, criar entrega, ela aparecer na fila) e o backend
+a fundo (8 testes automatizados, cobrindo desde o CRUD básico até a
+marcação automática de horário de saída/chegada e a geração de
+mensagem certa pra cada status). Suíte agora com **81 testes**.
+
 ## Funcionalidades por perfil de negócio — parte 1 de 6
 
 Você tem 11 perfis de negócio cadastrados (Farmácia, Petshop, Salão de

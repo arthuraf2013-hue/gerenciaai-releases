@@ -4,7 +4,14 @@ export function StockAlerts() {
   const [alertas, setAlertas] = useState([]);
   const [previsao, setPrevisao] = useState(null);
   const [margem, setMargem] = useState(null);
+  const [descontos, setDescontos] = useState(null);
   const [loadError, setLoadError] = useState('');
+
+  function carregarDescontos() {
+    window.pdv.stock.sugestoesDescontoValidade({ locationId: window.APP_LOCATION_ID }).then((list) => {
+      setDescontos(Array.isArray(list) ? list : []);
+    });
+  }
 
   useEffect(() => {
     window.pdv.stock.listAlerts({ locationId: window.APP_LOCATION_ID }).then((list) => {
@@ -22,7 +29,13 @@ export function StockAlerts() {
     window.pdv.products.alertasDeMargem().then((list) => {
       setMargem(Array.isArray(list) ? list : []);
     });
+    carregarDescontos();
   }, []);
+
+  async function handleAplicarDesconto(p) {
+    await window.pdv.products.aplicarDescontoValidade({ productId: p.id, precoPromocional: p.precoSugerido, validoAte: p.validade });
+    carregarDescontos();
+  }
 
   const criticos = alertas.filter((p) => p.alerta.nivel === 'critico');
   const avisos = alertas.filter((p) => p.alerta.nivel === 'aviso');
@@ -109,6 +122,33 @@ export function StockAlerts() {
                   <td>{p.categoria || '(sem categoria)'}</td>
                   <td>{p.margem}%{p.margemNegativa && ' — prejuízo'}</td>
                   <td>{p.mediaCategoria !== null ? `${p.mediaCategoria}%` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="alert-section">
+        <h2>Descontar por validade</h2>
+        <p className="screen-hint" style={{ margin: '0 0 10px' }}>
+          Produto vencendo em breve — em vez de só esperar virar perda registrada em desperdício,
+          sugere um desconto agora, enquanto ainda dá tempo de vender. O preço volta sozinho pro
+          normal depois da data de validade, sem precisar mexer de novo.
+        </p>
+        {descontos === null && <p className="empty-state">Calculando...</p>}
+        {descontos !== null && descontos.length === 0 && <p className="empty-state">Nenhum produto vencendo nos próximos dias.</p>}
+        {descontos !== null && descontos.length > 0 && (
+          <table className="data-table">
+            <thead><tr><th>Produto</th><th>Vence em</th><th>Preço normal</th><th>Preço sugerido ({descontos[0].percentualSugerido}% off)</th><th></th></tr></thead>
+            <tbody>
+              {descontos.map((p) => (
+                <tr key={p.id} className="row-warning">
+                  <td>{p.nome}</td>
+                  <td>{new Date(p.validade + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                  <td>R$ {p.preco.toFixed(2)}</td>
+                  <td>R$ {p.precoSugerido.toFixed(2)}</td>
+                  <td><button className="btn-link" onClick={() => handleAplicarDesconto(p)}>Aplicar desconto</button></td>
                 </tr>
               ))}
             </tbody>

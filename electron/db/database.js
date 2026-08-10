@@ -75,6 +75,8 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_por_id', 'TEXT');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_motivo', 'TEXT');
   adicionarColunaSeFaltando(database, 'products', 'conflito_codigo_barras_pendente', 'TEXT');
+  adicionarColunaSeFaltando(database, 'products', 'preco_promocional', 'REAL');
+  adicionarColunaSeFaltando(database, 'products', 'promocao_valida_ate', 'TEXT');
 
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"

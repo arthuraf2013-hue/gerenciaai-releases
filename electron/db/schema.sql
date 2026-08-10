@@ -77,6 +77,13 @@ CREATE TABLE IF NOT EXISTS products (
   custo           REAL DEFAULT 0,
   unidade         TEXT DEFAULT 'un',
   estoque_minimo  REAL DEFAULT 0,
+  -- Desconto por validade próxima — preenchido pela ferramenta de
+  -- "descontar por validade" (ou manualmente); o PDV usa esse preço
+  -- em vez do normal enquanto a data não passar. Guardar os dois (o
+  -- normal continua em `preco`) em vez de sobrescrever direto evita
+  -- perder o preço de referência quando a promoção expira.
+  preco_promocional   REAL,
+  promocao_valida_ate TEXT,
   -- Dados fiscais (opcionais até a emissão de NFC-e estar configurada).
   -- Horizontais — não são específicos de perfil, são exigência do fisco
   -- independente do tipo de negócio.
@@ -648,6 +655,110 @@ CREATE TABLE IF NOT EXISTS pets (
   criado_em           TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE INDEX IF NOT EXISTS idx_pets_customer ON pets(customer_id);
+
+-- Delivery: rota (área/trajeto que agrupa entregas), veículo, entregador,
+-- e a entrega em si — vinculada a uma venda quando existir (a maioria
+-- dos casos), mas não obrigatória (pedido por telefone antes de existir
+-- uma venda registrada, por exemplo).
+CREATE TABLE IF NOT EXISTS delivery_routes (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  descricao   TEXT, -- bairros/área que a rota cobre
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
+CREATE TABLE IF NOT EXISTS delivery_vehicles (
+  id          TEXT PRIMARY KEY,
+  placa       TEXT,
+  modelo      TEXT,
+  tipo        TEXT, -- moto, carro, bike, a pé...
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
+CREATE TABLE IF NOT EXISTS delivery_persons (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  telefone    TEXT,
+  ativo       INTEGER NOT NULL DEFAULT 1,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
+CREATE TABLE IF NOT EXISTS deliveries (
+  id                  TEXT PRIMARY KEY,
+  location_id         TEXT NOT NULL REFERENCES locations(id),
+  sale_id             TEXT REFERENCES sales(id), -- opcional: pedido por telefone pode não ter venda registrada ainda
+  customer_id         TEXT REFERENCES customers(id),
+  endereco            TEXT,
+  route_id            TEXT REFERENCES delivery_routes(id),
+  delivery_person_id  TEXT REFERENCES delivery_persons(id),
+  vehicle_id          TEXT REFERENCES delivery_vehicles(id),
+  status              TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','em_rota','entregue','cancelada')),
+  taxa_entrega        REAL NOT NULL DEFAULT 0,
+  observacoes         TEXT,
+  operador_id         TEXT REFERENCES users(id),
+  criado_em           TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  saiu_em             TEXT,
+  entregue_em         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status);
+CREATE INDEX IF NOT EXISTS idx_deliveries_sale ON deliveries(sale_id);
+CREATE INDEX IF NOT EXISTS idx_deliveries_location ON deliveries(location_id);
+
+-- Orçamento (Material de Construção, mas útil em qualquer perfil): uma
+-- cotação prévia que o cliente pede antes de fechar — NÃO mexe em
+-- estoque nem em caixa até virar venda de verdade (por isso é uma
+-- tabela separada de sales/sale_items, não reaproveita elas). Guarda
+-- o preço no momento da cotação (preco_unitario) porque o preço do
+-- produto pode mudar entre o orçamento e a conversão em venda.
+CREATE TABLE IF NOT EXISTS quotes (
+  id            TEXT PRIMARY KEY,
+  location_id   TEXT NOT NULL REFERENCES locations(id),
+  customer_id   TEXT REFERENCES customers(id),
+  status        TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','convertido','cancelado')),
+  observacoes   TEXT,
+  operador_id   TEXT REFERENCES users(id),
+  sale_id       TEXT REFERENCES sales(id), -- preenchido quando convertido em venda
+  validade_ate  TEXT, -- até quando o preço cotado vale
+  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  convertido_em TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_quotes_location ON quotes(location_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status);
+
+CREATE TABLE IF NOT EXISTS quote_items (
+  id              TEXT PRIMARY KEY,
+  quote_id        TEXT NOT NULL REFERENCES quotes(id),
+  product_id      TEXT NOT NULL REFERENCES products(id),
+  quantidade      REAL NOT NULL,
+  preco_unitario  REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quote_items_quote ON quote_items(quote_id);
+
+-- Perfil Ótica: histórico de receita do cliente, pra quando ele volta
+-- em 1-2 anos pra trocar de óculos sem precisar perguntar tudo de
+-- novo. Guarda cada receita como um registro histórico (não sobrescreve
+-- a anterior) — dá pra ver a evolução do grau ao longo do tempo.
+CREATE TABLE IF NOT EXISTS eyewear_prescriptions (
+  id                  TEXT PRIMARY KEY,
+  customer_id         TEXT NOT NULL REFERENCES customers(id),
+  data_receita        TEXT,
+  od_esferico         REAL, -- olho direito
+  od_cilindrico       REAL,
+  od_eixo             INTEGER,
+  od_adicao           REAL, -- multifocal
+  oe_esferico         REAL, -- olho esquerdo
+  oe_cilindrico       REAL,
+  oe_eixo             INTEGER,
+  oe_adicao           REAL,
+  distancia_pupilar   REAL,
+  tipo_lente          TEXT,
+  observacoes         TEXT,
+  ativo               INTEGER NOT NULL DEFAULT 1,
+  criado_em           TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_eyewear_customer ON eyewear_prescriptions(customer_id);
 
 CREATE TABLE IF NOT EXISTS loyalty_config (
   id                  TEXT PRIMARY KEY DEFAULT 'default',

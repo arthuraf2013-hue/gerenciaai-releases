@@ -3,6 +3,7 @@ const { getDb } = require('../db/database');
 const { getCurrentStock, computeProductAlert } = require('./stockService');
 const { authorizeManagerOverride, getSecurityConfig } = require('./authService');
 const customerService = require('./customerService');
+const { precoEfetivo } = require('./productService');
 const profileService = require('./profileService');
 const salesSyncService = require('./salesSyncService');
 
@@ -290,6 +291,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
 
   const custom = JSON.parse(product.custom_fields || '{}');
   const avisoReceita = !!(custom.controlado && custom.exige_receita);
+  const precoDeVenda = precoEfetivo(product); // usa o promocional (desconto por validade) se ainda estiver válido
 
   // Se o mesmo produto já está no carrinho (ainda não cancelado), soma
   // na linha existente em vez de criar uma linha nova — bipar o mesmo
@@ -312,7 +314,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       quantidadeTotal = quantidade;
       db.prepare(
         `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)`
-      ).run(itemId, saleId, productId, quantidade, product.preco);
+      ).run(itemId, saleId, productId, quantidade, precoDeVenda);
     }
 
     db.prepare(
@@ -322,7 +324,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
 
     db.prepare(
       `UPDATE sales SET total = total + ? WHERE id = ?`
-    ).run(product.preco * quantidade, saleId);
+    ).run(precoDeVenda * quantidade, saleId);
   });
   tx();
 
@@ -333,7 +335,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
 
   // avisoReceita é só um sinalizador para a UI sugerir anexar a receita —
   // nunca impede a venda, já que o estoque pode ter itens não farmacêuticos.
-  return { ok: true, itemId, precoUnitario: product.preco, avisoReceita, alerta, quantidadeTotal };
+  return { ok: true, itemId, precoUnitario: precoDeVenda, avisoReceita, alerta, quantidadeTotal };
 }
 
 /** Registra um ou mais pagamentos (suporta pagamento misto/split). */

@@ -5,6 +5,7 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { LapsedCustomersModal } from './LapsedCustomersModal';
 import { PetsModal } from './PetsModal';
+import { EyewearModal } from './EyewearModal';
 import { PetReminderModal } from './PetReminderModal';
 
 export function CustomerList() {
@@ -24,6 +25,7 @@ export function CustomerList() {
   const [showLapsed, setShowLapsed] = useState(false);
   const [showPetReminders, setShowPetReminders] = useState(false);
   const [petsDoCliente, setPetsDoCliente] = useState(null); // customer com modal de pets aberto
+  const [eyewearDoCliente, setEyewearDoCliente] = useState(null); // customer com modal de receita óptica aberto
 
   useEffect(() => {
     let ignore = false;
@@ -142,6 +144,9 @@ export function CustomerList() {
                   {profile?.id === 'petshop' && (
                     <button className="btn-link" onClick={() => setPetsDoCliente(c)}>Pets</button>
                   )}
+                  {profile?.id === 'otica' && (
+                    <button className="btn-link" onClick={() => setEyewearDoCliente(c)}>Receita</button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -179,6 +184,7 @@ export function CustomerList() {
       {showLapsed && <LapsedCustomersModal onFechar={() => setShowLapsed(false)} />}
       {showPetReminders && <PetReminderModal onFechar={() => setShowPetReminders(false)} />}
       {petsDoCliente && <PetsModal customer={petsDoCliente} onFechar={() => setPetsDoCliente(null)} />}
+      {eyewearDoCliente && <EyewearModal customer={eyewearDoCliente} onFechar={() => setEyewearDoCliente(null)} />}
     </div>
   );
 }

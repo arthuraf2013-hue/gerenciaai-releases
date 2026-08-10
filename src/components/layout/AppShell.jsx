@@ -13,6 +13,8 @@ import { SettingsScreen } from '../settings/SettingsScreen';
 import { UserManagement } from '../users/UserManagement';
 import { Dashboard } from '../pos/Dashboard';
 import { CustomerList } from '../pos/CustomerList';
+import { DeliveryScreen } from '../pos/DeliveryScreen';
+import { QuotesScreen } from '../pos/QuotesScreen';
 import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
 
@@ -31,6 +33,8 @@ const NAV_ITEMS = [
   { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'] },
   { id: 'financeiro', label: 'Financeiro', roles: ['gerente', 'admin'] },
   { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'delivery', label: 'Delivery', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'quotes', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'] },
   { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'] },
   { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
   { id: 'settings', label: 'Configurações', roles: ['admin'] },
@@ -158,6 +162,8 @@ export function AppShell() {
         {screen === 'supply' && <SupplyAndSuppliersScreen />}
         {screen === 'financeiro' && <FinanceiroScreen />}
         {screen === 'customers' && <CustomerList />}
+        {screen === 'delivery' && <DeliveryScreen />}
+        {screen === 'quotes' && <QuotesScreen />}
         {screen === 'returns' && (
           <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
         )}

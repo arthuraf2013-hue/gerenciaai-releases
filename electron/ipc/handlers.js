@@ -29,6 +29,9 @@ const backupService = require('../services/backupService');
 const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
 const petService = require('../services/petService');
+const deliveryService = require('../services/deliveryService');
+const quoteService = require('../services/quoteService');
+const eyewearService = require('../services/eyewearService');
 const supplierService = require('../services/supplierService');
 const expenseService = require('../services/expenseService');
 const categoryService = require('../services/categoryService');
@@ -73,6 +76,8 @@ function registerIpcHandlers() {
   safeHandle('product:countConflitosCodigoBarrasPendentes', () => productService.countConflitosCodigoBarrasPendentes());
   safeHandle('product:findDuplicates', () => productService.findDuplicateProducts());
   safeHandle('product:alertasDeMargem', () => productService.alertasDeMargem());
+  safeHandle('product:aplicarDescontoValidade', (_e, payload) => productService.aplicarDescontoValidade(payload));
+  safeHandle('product:removerDescontoValidade', (_e, { productId }) => productService.removerDescontoValidade(productId));
   safeHandle('product:findAlsoBoughtWith', (_e, { productId }) => productService.findAlsoBoughtWith(productId));
   safeHandle('productSync:buscarNoGrupo', (_e, { query }) => productSyncService.buscarNoCatalogoDoGrupo(query));
   safeHandle('productSync:buscarNoGrupoPorCodigoBarras', (_e, { codigoBarras }) => productSyncService.buscarNoCatalogoDoGrupoPorCodigoBarras(codigoBarras));
@@ -106,6 +111,7 @@ function registerIpcHandlers() {
   safeHandle('stock:listLowStock', (_e, { locationId }) => stockService.listLowStock(locationId));
   safeHandle('stock:listAlerts', (_e, { locationId }) => stockService.listAlerts(locationId, profileService.getActiveProfile()));
   safeHandle('stock:previsaoDeRuptura', (_e, { locationId }) => stockService.previsaoDeRuptura(locationId));
+  safeHandle('stock:sugestoesDescontoValidade', (_e, { locationId }) => stockService.sugestoesDescontoValidade({ locationId }));
   safeHandle('stock:adjust', (_e, payload) => stockService.adjustStock(payload));
 
   // --- PDV / Vendas ---
@@ -351,6 +357,33 @@ function registerIpcHandlers() {
   safeHandle('pet:deactivate', (_e, { petId }) => petService.deactivate(petId));
   safeHandle('pet:listLembretesPendentes', () => petService.listLembretesPendentes());
   safeHandle('pet:montarLinkLembrete', (_e, { petId }) => petService.montarLinkLembrete(petId));
+
+  safeHandle('delivery:listRoutes', () => deliveryService.listRoutes());
+  safeHandle('delivery:upsertRoute', (_e, route) => deliveryService.upsertRoute(route));
+  safeHandle('delivery:deactivateRoute', (_e, { id }) => deliveryService.deactivateRoute(id));
+  safeHandle('delivery:listVehicles', () => deliveryService.listVehicles());
+  safeHandle('delivery:upsertVehicle', (_e, vehicle) => deliveryService.upsertVehicle(vehicle));
+  safeHandle('delivery:deactivateVehicle', (_e, { id }) => deliveryService.deactivateVehicle(id));
+  safeHandle('delivery:listPersons', () => deliveryService.listPersons());
+  safeHandle('delivery:upsertPerson', (_e, person) => deliveryService.upsertPerson(person));
+  safeHandle('delivery:deactivatePerson', (_e, { id }) => deliveryService.deactivatePerson(id));
+  safeHandle('delivery:create', (_e, payload) => deliveryService.createDelivery(payload));
+  safeHandle('delivery:assign', (_e, payload) => deliveryService.assignDelivery(payload));
+  safeHandle('delivery:updateStatus', (_e, payload) => deliveryService.updateDeliveryStatus(payload));
+  safeHandle('delivery:list', (_e, payload) => deliveryService.listDeliveries(payload));
+  safeHandle('delivery:montarLinkStatus', (_e, { deliveryId }) => deliveryService.montarLinkStatusEntrega(deliveryId));
+
+  safeHandle('quote:create', (_e, payload) => quoteService.createQuote(payload));
+  safeHandle('quote:addItem', (_e, payload) => quoteService.addQuoteItem(payload));
+  safeHandle('quote:removeItem', (_e, { itemId }) => quoteService.removeQuoteItem(itemId));
+  safeHandle('quote:get', (_e, { quoteId }) => quoteService.getQuote(quoteId));
+  safeHandle('quote:list', (_e, payload) => quoteService.listQuotes(payload));
+  safeHandle('quote:cancel', (_e, { quoteId }) => quoteService.cancelQuote(quoteId));
+  safeHandle('quote:convertToSale', (_e, payload) => quoteService.convertToSale(payload));
+
+  safeHandle('eyewear:listByCustomer', (_e, { customerId }) => eyewearService.listByCustomer(customerId));
+  safeHandle('eyewear:upsert', (_e, receita) => eyewearService.upsert(receita));
+  safeHandle('eyewear:deactivate', (_e, { id }) => eyewearService.deactivate(id));
   safeHandle('loyalty:getConfig', () => customerService.getLoyaltyConfig());
   safeHandle('loyalty:updateConfig', (_e, payload) => customerService.updateLoyaltyConfig(payload));
 
