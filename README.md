@@ -3057,6 +3057,49 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Treinamento específico por perfil de negócio
+
+Antes, existia UM treinamento genérico pra todo mundo — quem tinha
+perfil Ótica via slide de mesa de restaurante, e ninguém via nada
+sobre as novidades recentes (cliente que sumiu, margem fora do
+padrão, etc.), porque o material nunca tinha sido atualizado desde
+que essas coisas foram construídas.
+
+Agora são **9 apresentações distintas**, uma pra cada tipo de negócio
+que tem algo específico, mais uma "Padrão" pra quem não tem (Genérico,
+Papelaria, Loja de Roupas):
+
+- **Padrão** — base comum, mais as novidades gerais
+- **Farmácia** — + anexar receita/IA, + livro de controlados
+- **Petshop** — + ficha de pet e lembrete de vacina/vermífugo
+- **Armazém/Mercearia** — + venda por peso, + desconto por validade
+- **Padaria/Confeitaria** — + venda por peso, + mesas/comanda/cardápio/insumos, + desconto por validade
+- **Restaurante** — + mesas/comanda/cardápio/insumos, + desconto por validade
+- **Salão de Beleza** — + agenda de horário
+- **Ótica** — + ficha de receita óptica
+- **Material de Construção** — + orçamento antes da venda (detalhado)
+
+Todo mundo recebe as novidades gerais (cliente que sumiu, margem fora
+do padrão, sugestão de combo, previsão de ruptura, Delivery e
+Orçamentos) — só o que é bem específico de um ramo (livro de
+controlados, ficha de pet, agenda, etc.) fica reservado pro perfil
+certo.
+
+O app já escolhe o arquivo certo sozinho, baseado no perfil de
+negócio configurado — quem abre o treinamento (botão 🎓 ou ícone de
+ajuda) recebe automaticamente a versão certa pro próprio negócio, sem
+precisar escolher nada. Perfil sem apresentação específica (ou
+qualquer id não reconhecido) cai no "Padrão" com segurança.
+
+Construí isso com um sistema de blocos de slide reutilizáveis (núcleo
+comum + módulos por funcionalidade), evitando recriar cada
+apresentação do zero. Validei as 9 contra o schema oficial, conferi
+visualmente uma amostra de cada (título, agenda com a lista batendo o
+conteúdo de verdade, slides com card/callout que já tiveram problema
+de sobreposição antes), e testei com navegador de verdade que o app
+carrega o arquivo certo pra cada perfil — incluindo um perfil
+inexistente, pra confirmar que cai no padrão sem quebrar.
+
 ## Corrigido: CI quebrado desde que os testes passaram a rodar de verdade (v0.5.50)
 
 Você mandou o print — o job "Rodar os testes" falhou com um erro de
