@@ -2,12 +2,13 @@ const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 const saleService = require('./saleService');
 const { precoEfetivo } = require('./productService');
+const timeService = require('./timeService');
 
 function createQuote({ locationId, customerId, operadorId, validadeDias }) {
   if (!locationId) return { ok: false, error: 'Local é obrigatório.' };
   const db = getDb();
   const id = randomUUID();
-  const validadeAte = validadeDias ? new Date(Date.now() + validadeDias * 86400000).toISOString().slice(0, 10) : null;
+  const validadeAte = validadeDias ? timeService.diasAPartirDeHojeLocalISO(validadeDias) : null;
   db.prepare(
     `INSERT INTO quotes (id, location_id, customer_id, operador_id, validade_ate) VALUES (?, ?, ?, ?, ?)`
   ).run(id, locationId, customerId || null, operadorId || null, validadeAte);

@@ -3057,6 +3057,39 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Corrigido: bug de fuso horário real (não era o CI, era o código)
+
+O CI falhou de novo — mas desta vez não era ambiente, era um bug de
+verdade que só aparece numa janela específica: **21h à meia-noite em
+Brasília** (que já é madrugada do dia seguinte em UTC). Achei porque
+rodei os testes localmente bem nessa hora e um deles quebrou.
+
+**Quatro funções de produção** calculavam "hoje" usando UTC puro em
+vez do calendário de Brasília — inclusive `precoEfetivo()`, que decide
+o preço cobrado numa venda de verdade:
+
+- `productService.precoEfetivo()` — uma promoção podia cortar um dia
+  cedo demais, cobrando o preço errado do cliente
+- `stockService.sugestoesDescontoValidade()` — podia sugerir desconto
+  num produto que só vence amanhã
+- `petService.listLembretesPendentes()` e `montarLinkLembrete()` —
+  podia avisar de vacina um dia adiantado
+- `quoteService.createQuote()` — validade do orçamento calculada errada
+
+Já existia o helper certo (`timeService.hojeLocalISO()`), construído
+numa parte anterior desta conversa pra resolver esse EXATO problema em
+outro lugar — só esqueci de usar ele nessas quatro funções mais
+recentes. Corrigi as quatro, criei um helper irmão
+(`diasAPartirDeHojeLocalISO`) pros casos de "daqui N dias", e também
+corrigi três testes que tinham o mesmo problema (calculavam "hoje"
+errado, então às vezes davam falso-negativo nessa mesma janela).
+
+Escrevi 5 testes de regressão que **congelam o relógio** exatamente
+nessa janela perigosa — não dependem de rodar por acaso nesse horário
+pra pegar o bug, então não vão passar despercebidos de novo. Rodei a
+suíte inteira de verdade, sem simular nada, bem na hora real do
+problema (01h da manhã UTC) — **118 testes, todos passando**.
+
 ## Treinamento específico por perfil de negócio
 
 Antes, existia UM treinamento genérico pra todo mundo — quem tinha

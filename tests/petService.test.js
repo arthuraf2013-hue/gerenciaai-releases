@@ -3,9 +3,12 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
 const { freshTestDb } = require('./helpers/testDb');
 const petService = require('../electron/services/petService');
+const timeService = require('../electron/services/timeService');
 
 function diasAPartirDeHoje(dias) {
-  return new Date(Date.now() + dias * 86400000).toISOString().slice(0, 10);
+  // Precisa bater com o mesmo calendário (Brasília) que
+  // petService.listLembretesPendentes() usa de verdade.
+  return timeService.diasAPartirDeHojeLocalISO(dias);
 }
 
 function criarClienteComTelefone(db, { nome = 'Dono Teste', telefone = '81988887777' } = {}) {

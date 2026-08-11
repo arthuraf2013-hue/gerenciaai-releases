@@ -6,8 +6,14 @@ const stockService = require('../electron/services/stockService');
 const productService = require('../electron/services/productService');
 const saleService = require('../electron/services/saleService');
 
+const timeService = require('../electron/services/timeService');
+
 function diasAPartirDeHoje(dias) {
-  return new Date(Date.now() + dias * 86400000).toISOString().slice(0, 10);
+  // Precisa bater com o mesmo calendário (Brasília) que
+  // precoEfetivo()/sugestoesDescontoValidade() usam de verdade —
+  // calcular em UTC puro dá "ontem"/"amanhã" errado na janela das
+  // 21h à meia-noite em Brasília (already amanhã em UTC).
+  return timeService.diasAPartirDeHojeLocalISO(dias);
 }
 
 function inserirProdutoComLote(db, { locationId, nome, preco, diasParaVencer }) {

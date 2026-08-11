@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 
 /** Pets de um cliente específico. */
 function listByCustomer(customerId) {
@@ -43,7 +44,7 @@ function deactivate(petId) {
  */
 function listLembretesPendentes({ diasAntecedencia = 7 } = {}) {
   const db = getDb();
-  const limite = new Date(Date.now() + diasAntecedencia * 86400000).toISOString().slice(0, 10);
+  const limite = timeService.diasAPartirDeHojeLocalISO(diasAntecedencia);
 
   const pets = db.prepare(
     `SELECT p.id, p.nome, p.especie, p.proxima_vacina_em, p.proximo_vermifugo_em,
@@ -55,7 +56,7 @@ function listLembretesPendentes({ diasAntecedencia = 7 } = {}) {
          OR (p.proximo_vermifugo_em IS NOT NULL AND p.proximo_vermifugo_em <= ?))`
   ).all(limite, limite);
 
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = timeService.hojeLocalISO();
   return pets.map((p) => ({
     id: p.id, nome: p.nome, especie: p.especie,
     customerId: p.customerId, clienteNome: p.clienteNome, clienteTelefone: p.clienteTelefone,
@@ -76,7 +77,7 @@ function montarLinkLembrete(petId) {
   if (!pet) return { ok: false, error: 'Pet não encontrado.' };
   if (!pet.clienteTelefone) return { ok: false, error: 'O dono desse pet não tem telefone cadastrado.' };
 
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = timeService.hojeLocalISO();
   const partes = [];
   if (pet.proxima_vacina_em && pet.proxima_vacina_em <= hoje) partes.push('a vacina');
   if (pet.proximo_vermifugo_em && pet.proximo_vermifugo_em <= hoje) partes.push('o vermífugo');

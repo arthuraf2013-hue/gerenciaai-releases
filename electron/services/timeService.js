@@ -70,6 +70,13 @@ function hojeLocalISO() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(nowMs()));
 }
 
+/** Mesma ideia de hojeLocalISO(), mas pra uma data N dias no futuro (ou
+ * passado, com dias negativo) — pra prazos tipo "vence em até X dias",
+ * sempre no calendário de Brasília, nunca UTC puro. */
+function diasAPartirDeHojeLocalISO(dias) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(nowMs() + dias * 86400000));
+}
+
 function getStatus() {
   return {
     sincronizado: lastSyncOk,
@@ -84,4 +91,4 @@ function startAutoSync() {
   setInterval(syncNow, 15 * 60 * 1000); // resincroniza a cada 15 minutos
 }
 
-module.exports = { syncNow, nowMs, nowSyncedUTCString, getBrasiliaNowParts, hojeLocalISO, getStatus, startAutoSync };
+module.exports = { syncNow, nowMs, nowSyncedUTCString, getBrasiliaNowParts, hojeLocalISO, diasAPartirDeHojeLocalISO, getStatus, startAutoSync };

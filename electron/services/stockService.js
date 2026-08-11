@@ -185,8 +185,8 @@ function previsaoDeRuptura(locationId, { diasLimiar = 7 } = {}) {
  */
 function sugestoesDescontoValidade({ locationId, diasLimiar = 3, percentualSugerido = 30 } = {}) {
   const db = getDb();
-  const hoje = new Date().toISOString().slice(0, 10);
-  const limite = new Date(Date.now() + diasLimiar * 86400000).toISOString().slice(0, 10);
+  const hoje = timeService.hojeLocalISO();
+  const limite = timeService.diasAPartirDeHojeLocalISO(diasLimiar);
 
   const produtos = db.prepare(
     `SELECT p.id, p.nome, p.preco, p.custom_fields, p.preco_promocional, p.promocao_valida_ate,

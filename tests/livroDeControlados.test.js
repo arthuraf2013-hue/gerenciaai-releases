@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
 const { freshTestDb } = require('./helpers/testDb');
 const fiscalService = require('../electron/services/fiscalService');
+const timeService = require('../electron/services/timeService');
 
 function inserirProdutoComCampos(db, { nome, preco, customFields }) {
   const id = randomUUID();
@@ -22,7 +23,9 @@ function venderProduto(db, { locationId, operadorId, customerId, productId, quan
 }
 
 function hoje() {
-  return new Date().toISOString().slice(0, 10);
+  // Precisa bater com o mesmo calendário (Brasília) que
+  // livroDeControlados() usa de verdade (date(finalizada_em, '-3 hours')).
+  return timeService.hojeLocalISO();
 }
 
 test('pega venda de produto marcado como controlado, com cliente e princípio ativo', () => {

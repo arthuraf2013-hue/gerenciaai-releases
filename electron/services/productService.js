@@ -3,6 +3,7 @@ const path = require('path');
 const { app } = require('electron');
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 
 function fotosDir() {
   const dir = path.join(app.getPath('userData'), 'fotos-produtos');
@@ -727,7 +728,7 @@ function findAlsoBoughtWith(productId, { limit = 3, minimoOcorrencias = 2 } = {}
  */
 function precoEfetivo(product) {
   if (product.preco_promocional != null && product.promocao_valida_ate) {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = timeService.hojeLocalISO();
     if (product.promocao_valida_ate >= hoje) return product.preco_promocional;
   }
   return product.preco;
