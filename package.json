@@ -1,6 +1,6 @@
 {
   "name": "gerenciaai",
-  "version": "0.5.55",
+  "version": "0.5.56",
   "description": "GerenciaAI — gerenciamento de estoque com PDV, perfil inicial para farmácias, automações e espaço reservado para funcionalidades de IA",
   "author": "Arthur",
   "main": "electron/main.js",
@@ -9,7 +9,7 @@
     "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "build": "vite build",
     "build:electron": "npm run build && electron-builder --publish never",
-    "test": "node --test",
+    "test": "npm rebuild better-sqlite3 && node --test",
     "postinstall": "electron-builder install-app-deps",
     "postversion": "git push && git push --tags"
   },

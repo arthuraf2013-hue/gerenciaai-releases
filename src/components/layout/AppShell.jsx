@@ -5,6 +5,7 @@ import { POSScreen } from '../pos/POSScreen';
 import { RestaurantScreen } from '../pos/RestaurantScreen';
 import { HistoryScreen } from '../pos/HistoryScreen';
 import { CommandPalette } from './CommandPalette';
+import { KeyboardHelpModal, useKeyboardHelpShortcut } from './KeyboardHelpModal';
 import { ProductsScreen } from '../inventory/ProductsScreen';
 import { SupplyAndSuppliersScreen } from '../inventory/SupplyAndSuppliersScreen';
 import { FinanceiroScreen } from '../inventory/FinanceiroScreen';
@@ -26,21 +27,26 @@ import { Clock } from './Clock';
 const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
 
 const NAV_ITEMS = [
+  // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
   { id: 'pos', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
   { id: 'restaurant', label: 'Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
-  { id: 'dashboard', label: 'Painel', roles: ['gerente', 'admin'] },
-  { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'] },
-  { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'] },
-  { id: 'financeiro', label: 'Financeiro', roles: ['gerente', 'admin'] },
-  { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'delivery', label: 'Delivery', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'quotes', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'agenda', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza' },
-  { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'settings', label: 'Configurações', roles: ['admin'] },
-  { id: 'users', label: 'Usuários', roles: ['gerente', 'admin'] },
+
+  { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'delivery', label: 'Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'quotes', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'agenda', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
+
+  { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
+  { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
+
+  { id: 'dashboard', label: 'Painel', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'financeiro', label: 'Financeiro', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
+  { id: 'users', label: 'Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
+
+  { id: 'settings', label: 'Configurações', roles: ['admin'], section: 'Sistema' },
 ];
 
 export function AppShell() {
@@ -51,6 +57,7 @@ export function AppShell() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
   const [returnPreselectId, setReturnPreselectId] = useState(null);
   const [conflitosProdutos, setConflitosProdutos] = useState(0);
+  const keyboardHelp = useKeyboardHelpShortcut();
 
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
@@ -80,6 +87,16 @@ export function AppShell() {
     return perfisPermitidos.includes(profile?.id);
   });
 
+  // Agrupa mantendo a ordem de NAV_ITEMS — item sem `section` fica
+  // solto no topo (grupo ''), o resto vira uma seção com cabeçalho.
+  const grupos = [];
+  for (const item of visibleItems) {
+    const chave = item.section || '';
+    let grupo = grupos.find((g) => g.titulo === chave);
+    if (!grupo) { grupo = { titulo: chave, itens: [] }; grupos.push(grupo); }
+    grupo.itens.push(item);
+  }
+
   return (
     <div className="app-shell">
       <nav className="sidebar">
@@ -88,21 +105,42 @@ export function AppShell() {
           <span>GerenciaAI</span>
         </div>
         <div className="sidebar-clock-wrap"><Clock /></div>
-        <p className="sidebar-shortcut-hint">Ctrl+K: busca rápida</p>
-        <ul>
-          {visibleItems.map((item) => (
-            <li key={item.id}>
-              <button
-                className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
-                onClick={() => setScreen(item.id)}
-              >
-                {item.label}
-                {item.id === 'products' && conflitosProdutos > 0 && (
-                  <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
-                    ⚠ {conflitosProdutos}
-                  </span>
-                )}
-              </button>
+        <p className="sidebar-shortcut-hint">Ctrl+K: busca rápida · ?: atalhos de teclado</p>
+        <ul
+          onKeyDown={(e) => {
+            // Setas pra navegar entre os itens do menu sem precisar de
+            // mouse — comportamento padrão de menu, mesma ideia do
+            // Ctrl+K (que já usa seta+Enter internamente).
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            e.preventDefault();
+            const botoes = Array.from(e.currentTarget.querySelectorAll('button.nav-item'));
+            const indiceAtual = botoes.indexOf(document.activeElement);
+            const proximo = e.key === 'ArrowDown'
+              ? botoes[Math.min(indiceAtual + 1, botoes.length - 1)]
+              : botoes[Math.max(indiceAtual - 1, 0)];
+            (proximo || botoes[0])?.focus();
+          }}
+        >
+          {grupos.map((grupo) => (
+            <li key={grupo.titulo || '_topo'} className="nav-group">
+              {grupo.titulo && <span className="nav-section-title">{grupo.titulo}</span>}
+              <ul className="nav-group-list">
+                {grupo.itens.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
+                      onClick={() => setScreen(item.id)}
+                    >
+                      {item.label}
+                      {item.id === 'products' && conflitosProdutos > 0 && (
+                        <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
+                          ⚠ {conflitosProdutos}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>
@@ -175,6 +213,7 @@ export function AppShell() {
         {screen === 'users' && <UserManagement />}
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
+      {keyboardHelp.open && <KeyboardHelpModal onClose={keyboardHelp.close} />}
     </div>
   );
 }

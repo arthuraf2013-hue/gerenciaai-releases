@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const STATUS_LABEL = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', cancelado: 'Cancelado', faltou: 'Faltou' };
 const STATUS_CLASSE = { agendado: 'row-warning', confirmado: '', concluido: '', cancelado: 'row-critical', faltou: 'row-critical' };
@@ -13,6 +14,7 @@ function NovoAgendamento({ profissionais, dataInicial, onCriado, onCancelar }) {
     servico: '', data: dataInicial, hora: '09:00', duracaoMinutos: '60', observacoes: '',
   });
   const [erro, setErro] = useState('');
+  useEscToClose(onCancelar);
 
   useEffect(() => {
     window.pdv.customers.list({}).then((list) => setClientes(Array.isArray(list) ? list : []));
@@ -164,6 +166,7 @@ function AgendaDoDia() {
 function Profissionais() {
   const [lista, setLista] = useState(null);
   const [editando, setEditando] = useState(null);
+  useEscToClose(() => setEditando(null), !!editando);
 
   function carregar() {
     window.pdv.appointments.listProfessionals().then((list) => setLista(Array.isArray(list) ? list : []));

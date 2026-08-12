@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductSearchBox } from './ProductSearchBox';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const STATUS_LABEL = { aberto: 'Aberto', convertido: 'Convertido', cancelado: 'Cancelado' };
 
@@ -12,6 +13,7 @@ function NovoOrcamento({ onCriado, onCancelar }) {
   const [quoteId, setQuoteId] = useState(null); // criado assim que a pessoa começa a adicionar itens
   const [itens, setItens] = useState([]);
   const [erro, setErro] = useState('');
+  useEscToClose(onCancelar);
 
   useEffect(() => {
     window.pdv.customers.list({}).then((list) => setClientes(Array.isArray(list) ? list : []));
@@ -101,6 +103,7 @@ export function QuotesScreen() {
   const [filtroStatus, setFiltroStatus] = useState('');
   const [showNovo, setShowNovo] = useState(false);
   const [detalhe, setDetalhe] = useState(null);
+  useEscToClose(() => setDetalhe(null), !!detalhe);
 
   function carregar() {
     window.pdv.quotes.list({ locationId: window.APP_LOCATION_ID, status: filtroStatus || undefined }).then((list) => {

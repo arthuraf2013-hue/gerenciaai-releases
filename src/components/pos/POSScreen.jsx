@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { usePromptModal } from '../../hooks/usePromptModal';
@@ -52,12 +53,14 @@ export function POSScreen() {
   const [feedback, setFeedback] = useState({ message: 'Aponte o leitor para o código de barras do produto...', type: 'info' });
   const [authAction, setAuthAction] = useState(null); // { type: 'item'|'sale', itemId? }
   const [showPayment, setShowPayment] = useState(false);
+  useEscToClose(() => setShowPayment(false), showPayment);
   const [showAttachments, setShowAttachments] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [recentRefreshKey, setRecentRefreshKey] = useState(0);
   const [vendasHoje, setVendasHoje] = useState(null);
   const [pendingQty, setPendingQty] = useState('1');
   const [pesandoProduto, setPesandoProduto] = useState(null); // produto vendido por peso aguardando o peso ser informado
+  useEscToClose(() => setPesandoProduto(null), !!pesandoProduto);
   const [pesoDigitado, setPesoDigitado] = useState('');
   const [leituraBalanca, setLeituraBalanca] = useState(null);
   const [openAlertId, setOpenAlertId] = useState(null);

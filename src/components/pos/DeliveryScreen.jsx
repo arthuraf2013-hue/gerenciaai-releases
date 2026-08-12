@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const STATUS_LABEL = { pendente: 'Pendente', em_rota: 'Em rota', entregue: 'Entregue', cancelada: 'Cancelada' };
 const STATUS_CLASSE = { pendente: 'row-warning', em_rota: '', entregue: '', cancelada: 'row-critical' };
@@ -13,6 +14,7 @@ function DeliveryQueue() {
   const [entregadores, setEntregadores] = useState([]);
   const [filtroStatus, setFiltroStatus] = useState('');
   const [showNova, setShowNova] = useState(false);
+  useEscToClose(() => setShowNova(false), showNova);
   const [novaForm, setNovaForm] = useState({ enderecoManual: '', taxaEntrega: '', observacoes: '' });
 
   function carregar() {
@@ -142,6 +144,7 @@ function DeliveryQueue() {
 function CadastroSimples({ titulo, campos, listFn, upsertFn, deactivateFn }) {
   const [itens, setItens] = useState(null);
   const [editando, setEditando] = useState(null);
+  useEscToClose(() => setEditando(null), !!editando);
 
   function carregar() {
     listFn().then((list) => setItens(Array.isArray(list) ? list : []));

@@ -7,6 +7,7 @@ import { BarcodeRelinkModal } from './BarcodeRelinkModal';
 import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { DropdownMenu, DropdownMenuItem } from '../common/DropdownMenu';
 
 const PAGE_SIZE = 60;
 
@@ -208,13 +209,16 @@ export function ProductList() {
       <div className="screen-header">
         <h1>Produtos {totalProdutos !== null && <span className="screen-hint" style={{ fontWeight: 400, fontSize: 15 }}>({totalProdutos} no total)</span>}</h1>
         <div className="screen-actions">
-          <button className="btn-secondary" onClick={handleImport} disabled={ioBusy}>Importar planilha</button>
-          <button className="btn-secondary" onClick={handleExport} disabled={ioBusy}>Exportar planilha</button>
-          <button className="btn-secondary" onClick={() => setShowDuplicates(true)}>
-            Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
-          </button>
-          <button className="btn-secondary" onClick={() => setShowRelinkCodigos(true)}>Re-vincular códigos de barras</button>
-          <button className="btn-link-danger" onClick={handleClearAll}>Limpar todos os produtos</button>
+          <DropdownMenu label="Ferramentas">
+            <DropdownMenuItem onClick={handleImport} disabled={ioBusy}>Importar planilha</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExport} disabled={ioBusy}>Exportar planilha</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowDuplicates(true)}>
+              Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowRelinkCodigos(true)}>Re-vincular códigos de barras</DropdownMenuItem>
+            <div className="dropdown-menu-separator" />
+            <DropdownMenuItem danger onClick={handleClearAll}>Limpar todos os produtos</DropdownMenuItem>
+          </DropdownMenu>
           <button className="btn-primary" onClick={() => setEditing({})}>+ Novo produto</button>
         </div>
       </div>

@@ -3057,6 +3057,112 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Corrigido de vez: `npm test` quebrando na sua máquina local
+
+Você mandou o log — todos os 118 testes falhando com o mesmo erro de
+`NODE_MODULE_VERSION`. É o mesmo problema que já resolvi antes, só
+que eu tinha corrigido só o lado do CI (GitHub Actions) e esqueci que
+o mesmo problema acontece toda vez que **qualquer pessoa** roda `npm
+install` na própria máquina: o `postinstall` do projeto recompila o
+`better-sqlite3` pro Node **interno do Electron**, não pro Node do
+seu sistema — e é o Node do sistema que `npm test` usa. Então todo
+`npm install` seguido de `npm test`, na sua máquina ou na de
+qualquer outra pessoa, ia bater nesse erro.
+
+**Corrigido na raiz**: o próprio comando `npm test` agora se
+recompila sozinho antes de rodar (`npm rebuild better-sqlite3 && node
+--test`) — não depende mais de ninguém lembrar de rodar um passo
+manual antes. Como consequência, o passo separado que eu tinha
+adicionado no workflow do CI ficou redundante — removi ele, já que o
+próprio `npm test` cuida disso agora, em qualquer lugar que rodar.
+
+Testei o cenário exato que você teve: apaguei `node_modules`,
+reinstalei do zero (com `npm ci`, igual o CI faz), e rodei `npm
+test` sem nenhum passo manual no meio — **118/118**, sozinho.
+
+## Reorganização e otimização geral
+
+Auditei o app inteiro procurando acúmulo de botões e menu bagunçado
+antes de mexer em qualquer coisa — pra reorganizar só onde realmente
+tinha o que reorganizar, sem forçar mudança onde já estava bem.
+
+**Menu lateral organizado em seções**: era uma lista plana de 15
+itens, sem nenhum agrupamento. Agora tem 4 seções com sentido —
+**Vendas** (Histórico, Devolução, Delivery, Orçamentos, Agenda),
+**Cadastros** (Produtos, Clientes), **Gestão** (Painel, Abastecimento,
+Financeiro, Alertas, Usuários), **Sistema** (Configurações) — com PDV
+e Restaurante soltos no topo, por serem as telas do dia a dia. A
+navegação por setas que construí na entrega anterior continua
+funcionando perfeitamente atravessando as seções (testei
+especificamente esse cenário).
+
+**Tela de Produtos — 6 botões viraram 2**: "Importar planilha",
+"Exportar planilha", "Ver duplicados", "Re-vincular códigos de
+barras" e "Limpar todos os produtos" estavam todos soltos, lado a
+lado, no cabeçalho. Criei um componente de menu suspenso reutilizável
+(`DropdownMenu`) e agrupei essas cinco ferramentas secundárias ali
+dentro, mantendo só "+ Novo produto" em destaque como ação principal.
+O menu suspenso já nasce com Esc pra fechar e clique fora pra fechar,
+consistente com o resto do app.
+
+**O que NÃO mexi, de propósito**: conferi todas as outras telas com
+bastante botão (Configurações, Pagamento, formulários de mesa,
+categoria, cliente...) e a maioria já tinha os botões bem distribuídos
+entre formulários separados, não amontoados — forçar uma "otimização"
+ali só pioraria. "Devolução" continua como item próprio do menu além
+de já ser acessível de dentro do Histórico (com a venda
+pré-selecionada) — é um bom padrão de duas entradas pro mesmo lugar,
+não redundância.
+
+Testei o `DropdownMenu` isoladamente com navegador de verdade (abre,
+fecha ao clicar num item, fecha com Esc, fecha com clique fora, item
+de risco com a cor certa) e a navegação por setas do menu com a
+estrutura de seções nova, incluindo atravessar de uma seção pra
+outra. Suíte de testes continua em **118/118** (mudança só de
+frontend).
+
+## Navegação por teclado, com tutorial
+
+Você pediu especificamente: Esc pra fechar, setas pra navegar, Tab, e
+conferir se Enter salva no cadastro de produto. Fiz uma auditoria do
+app inteiro em vez de confiar na memória de onde eu tinha colocado
+cada coisa.
+
+**Esc fechando modal — achei 8 lugares que ficaram de fora**: ao
+comparar toda tela com modal contra quem já usava o hook de Esc
+existente, sobraram `FinanceiroScreen`, `AgendaScreen` (2 modais),
+`DeliveryScreen` (2 modais), `QuotesScreen` (2 modais), e `POSScreen`
+(pagamento e pesagem por peso). Todos corrigidos.
+
+**Enter no cadastro de produto — achei um bug de verdade**: o
+formulário estava bloqueando Enter em **todos** os campos (Nome,
+Categoria, SKU), não só no de código de barras. Isso quer dizer que,
+desde que essa proteção foi criada (pro leitor de código de barras não
+salvar o formulário cedo demais), **ninguém conseguia usar Enter pra
+salvar em nenhum campo do cadastro** — tinha que clicar em "Salvar"
+toda vez. Corrigido: agora só o campo de código de barras bloqueia
+Enter (onde é necessário, por causa do leitor); os outros campos usam
+o Enter normal do navegador. Testado com navegador de verdade nos
+dois casos.
+
+**Setas navegando o menu lateral** — Down/Up movem o foco entre os
+itens do menu principal, igual um menu de verdade. O Ctrl+K (busca
+rápida) já tinha isso desde antes.
+
+**Tutorial — novo atalho `?`**: abre um painel de ajuda com todos os
+atalhos, de qualquer tela do sistema — sem precisar abrir a
+apresentação em PDF pra lembrar. Tratei com cuidado pra não abrir
+sem querer: só funciona quando o foco NÃO está num campo de texto
+(testei digitando uma interrogação de verdade num campo — não abre).
+
+Também **atualizei os 9 treinamentos por perfil** com um slide novo
+de "Navegação por teclado" (Tab, Shift+Tab, setas, Enter, Esc, `?`),
+inserido logo depois do slide de atalhos que já existia — sem precisar
+recriar cada apresentação do zero, usei o `qpdf` pra inserir o slide
+novo na posição certa de cada um dos 9 arquivos. Conferi visualmente
+que a inserção não bagunçou nada ao redor, incluindo a primeira e a
+última página do deck mais longo.
+
 ## Corrigido: bug de fuso horário real (não era o CI, era o código)
 
 O CI falhou de novo — mas desta vez não era ambiente, era um bug de

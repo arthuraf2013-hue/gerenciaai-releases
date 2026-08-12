@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
+import { useEscToClose } from '../../hooks/useEscToClose';
 
 const CATEGORIAS = [
   { value: 'aluguel', label: 'Aluguel' },
@@ -22,6 +23,7 @@ export function FinanceiroScreen() {
   const [pendentes, setPendentes] = useState([]);
   const [fornecedores, setFornecedores] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  useEscToClose(() => setShowForm(false), showForm);
   const [form, setForm] = useState({ categoria: 'outro', descricao: '', valor: '', fornecedorId: '', dataVencimento: '' });
   const [erro, setErro] = useState('');
 

@@ -31,21 +31,14 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
-      - name: Recompilar módulos nativos pro Node do sistema (não o do Electron)
-        # O postinstall (`electron-builder install-app-deps`, que já
-        # rodou no passo acima) recompila o better-sqlite3 pro Node
-        # INTERNO do Electron, não pro Node do sistema que roda os
-        # testes (`node --test`) — incompatibilidade de
-        # NODE_MODULE_VERSION, os testes nem chegam a rodar. O
-        # electron-builder recompila pro Electron de novo sozinho mais
-        # adiante (antes de empacotar), então reverter aqui é seguro.
-        run: npm rebuild better-sqlite3
-
       - name: Rodar os testes
-        # Sem esse passo, a suíte de testes existe mas nunca protege
-        # nada de verdade — regressão nas áreas cobertas só apareceria
-        # depois, com cliente reportando. Roda ANTES do build, pra
-        # travar a publicação se algo quebrar.
+        # O próprio "npm test" já recompila o better-sqlite3 pro Node
+        # do sistema antes de rodar (ver package.json) — o postinstall
+        # do passo acima deixa ele compilado pro Node INTERNO do
+        # Electron, incompatível com `node --test`. Sem esse passo
+        # rodando de verdade, a suíte existe mas nunca protege nada. O
+        # electron-builder recompila pro Electron de novo sozinho mais
+        # adiante, antes de empacotar, então não tem conflito.
         run: npm test
 
       - name: Build do frontend (Vite)

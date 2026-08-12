@@ -211,18 +211,6 @@ export function ProductForm({ product, onSaved, onCancel }) {
     <form
       className="product-form"
       onSubmit={handleSubmit}
-      onKeyDown={(e) => {
-        // Enter num campo de texto normal (não numa textarea, nem no
-        // próprio botão de salvar) NÃO deveria submeter o formulário
-        // sozinho — isso é o padrão do HTML, mas quebra o fluxo de
-        // quem escaneia um código de barras pra dentro de um campo (a
-        // pistola manda um Enter depois dos dígitos): o formulário
-        // fechava e salvava ali mesmo, antes da pessoa terminar de
-        // preencher o resto, obrigando reabrir o produto de novo.
-        if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
-          e.preventDefault();
-        }
-      }}
     >
       <h2>{form.id ? 'Editar produto' : 'Novo produto'}</h2>
 
@@ -262,6 +250,11 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <input
             value={form.codigoBarras}
             onChange={(e) => setField('codigoBarras', e.target.value)}
+            // Só ESTE campo bloqueia Enter — o leitor de código de
+            // barras manda um Enter depois dos dígitos, e sem isso o
+            // formulário salvava e fechava sozinho antes da pessoa
+            // terminar de preencher o resto do cadastro. Os outros
+            // campos usam o Enter normal do navegador pra salvar.
             onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
           />
         </label>
