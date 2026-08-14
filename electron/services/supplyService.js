@@ -1,5 +1,5 @@
 const path = require('path');
-const XLSX = require('xlsx');
+const { readSheetAsRows } = require('./xlsxHelpers');
 const aiService = require('./aiService');
 const batchService = require('./batchService');
 const { getDb } = require('../db/database');
@@ -41,17 +41,16 @@ function encontrarCampo(cabecalhosNormalizados, aliases) {
 
 /** Lê um CSV/Excel estruturado — sem IA, direto, tolerante a nomes de
  * coluna diferentes entre distribuidoras (compara sem acento/maiúscula). */
-function parseCsvOuExcel(filePath) {
-  // codepage 65001 = UTF-8 — sem isso, CSVs com acento (muito comuns:
-  // "Código", "Descrição", "Preço") vêm corrompidos na leitura.
-  const workbook = XLSX.readFile(filePath, { codepage: 65001 });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  // raw: false devolve o texto tal como está na célula, sem o SheetJS
-  // tentar "adivinhar" e converter pra número sozinho — é exatamente essa
-  // conversão automática que lia "15,35" (formato brasileiro) como 1535.
+async function parseCsvOuExcel(filePath) {
+  if (filePath.toLowerCase().endsWith('.xls')) {
+    return { ok: false, error: 'Formato .xls (Excel antigo, anterior a 2007) não é suportado — salve a nota como .xlsx ou .csv e tente de novo.' };
+  }
+  // raw: valor tal como está na célula, sem tentar "adivinhar" e
+  // converter pra número sozinho — é exatamente essa conversão
+  // automática que lia "15,35" (formato brasileiro) como 1535.
   // O parseNumeroBR abaixo faz a conversão certa, entendendo vírgula
   // decimal.
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+  const { rows } = await readSheetAsRows(filePath);
   if (rows.length === 0) return { ok: false, error: 'Planilha vazia ou em formato não reconhecido.' };
 
   const cabecalhos = Object.keys(rows[0]).map((original) => ({ original, normalizado: normalizarCabecalho(original) }));
@@ -87,7 +86,7 @@ async function extractFromFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (['.csv', '.xlsx', '.xls'].includes(ext)) {
     try {
-      return parseCsvOuExcel(filePath);
+      return await parseCsvOuExcel(filePath);
     } catch (err) {
       return { ok: false, error: `Falha ao ler a planilha: ${err.message}` };
     }

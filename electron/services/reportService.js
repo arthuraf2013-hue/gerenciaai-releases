@@ -1,4 +1,4 @@
-const XLSX = require('xlsx');
+const { writeRowsAsSheet } = require('./xlsxHelpers');
 const { listSalesByRange } = require('./saleService');
 const authService = require('./authService');
 const supplierService = require('./supplierService');
@@ -13,7 +13,7 @@ const TIPO_EVENTO_LABEL = {
   ajuste_estoque: 'Ajuste de estoque',
 };
 
-function exportSalesReport(filePath, { locationId, dataInicio, dataFim }) {
+async function exportSalesReport(filePath, { locationId, dataInicio, dataFim }) {
   const sales = listSalesByRange({ locationId, dataInicio, dataFim });
 
   const rows = sales.map((s) => ({
@@ -32,19 +32,14 @@ function exportSalesReport(filePath, { locationId, dataInicio, dataFim }) {
   rows.push({}); // linha em branco antes do resumo
   rows.push({ data: 'TOTAL FINALIZADO NO PERÍODO', total: totalFinalizado });
 
-  const sheet = XLSX.utils.json_to_sheet(rows, {
-    header: ['data', 'operador', 'itens', 'total', 'status', 'metodos_pagamento'],
-  });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Relatório de vendas');
-  XLSX.writeFile(workbook, filePath);
+  await writeRowsAsSheet(filePath, rows, ['data', 'operador', 'itens', 'total', 'status', 'metodos_pagamento'], 'Relatório de vendas');
 
   return { ok: true, total: sales.length, totalFinalizado };
 }
 
 /** Exporta a trilha de auditoria (cancelamentos, devoluções, descontos —
  * aprovados ou negados) num período, no mesmo formato do relatório de vendas. */
-function exportAuditReport(filePath, { dataInicio, dataFim }) {
+async function exportAuditReport(filePath, { dataInicio, dataFim }) {
   const eventos = authService.listAuditLog({ dataInicio, dataFim });
 
   const rows = eventos.map((e) => ({
@@ -56,19 +51,14 @@ function exportAuditReport(filePath, { dataInicio, dataFim }) {
     resultado: e.sucesso ? 'Aprovado' : 'Negado',
   }));
 
-  const sheet = XLSX.utils.json_to_sheet(rows, {
-    header: ['data', 'tipo', 'solicitante', 'autorizado_por', 'motivo', 'resultado'],
-  });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Auditoria');
-  XLSX.writeFile(workbook, filePath);
+  await writeRowsAsSheet(filePath, rows, ['data', 'tipo', 'solicitante', 'autorizado_por', 'motivo', 'resultado'], 'Auditoria');
 
   return { ok: true, total: eventos.length };
 }
 
 /** Exporta a lista de compra sugerida — mesmos dados de suggestPurchases,
  * já ordenada por fornecedor, pronta pra levar/mandar pro fornecedor. */
-function exportPurchaseSuggestions(filePath, { locationId }) {
+async function exportPurchaseSuggestions(filePath, { locationId }) {
   const sugestoes = supplierService.suggestPurchases({ locationId });
 
   const rows = [...sugestoes]
@@ -83,17 +73,12 @@ function exportPurchaseSuggestions(filePath, { locationId }) {
       quantidade_sugerida: s.quantidadeSugerida,
     }));
 
-  const sheet = XLSX.utils.json_to_sheet(rows, {
-    header: ['fornecedor', 'produto', 'sku', 'estoque_atual', 'estoque_minimo', 'venda_por_dia', 'quantidade_sugerida'],
-  });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Lista de compra');
-  XLSX.writeFile(workbook, filePath);
+  await writeRowsAsSheet(filePath, rows, ['fornecedor', 'produto', 'sku', 'estoque_atual', 'estoque_minimo', 'venda_por_dia', 'quantidade_sugerida'], 'Lista de compra');
 
   return { ok: true, total: rows.length };
 }
 
-function exportWasteReport(filePath, { locationId, dataInicio, dataFim }) {
+async function exportWasteReport(filePath, { locationId, dataInicio, dataFim }) {
   const registros = wasteService.listWaste({ locationId, dataInicio, dataFim });
 
   const rows = registros.map((r) => ({
@@ -106,12 +91,7 @@ function exportWasteReport(filePath, { locationId, dataInicio, dataFim }) {
     operador: r.operador_nome || '',
   }));
 
-  const sheet = XLSX.utils.json_to_sheet(rows, {
-    header: ['data', 'tipo', 'item', 'quantidade', 'valor_perdido', 'motivo', 'operador'],
-  });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Desperdício');
-  XLSX.writeFile(workbook, filePath);
+  await writeRowsAsSheet(filePath, rows, ['data', 'tipo', 'item', 'quantidade', 'valor_perdido', 'motivo', 'operador'], 'Desperdício');
 
   return { ok: true, total: rows.length };
 }
@@ -173,7 +153,7 @@ function getCustomerPurchaseReport({ customerId, dataInicio, dataFim }) {
   };
 }
 
-function exportCustomerPurchaseReport(filePath, { customerId, dataInicio, dataFim }) {
+async function exportCustomerPurchaseReport(filePath, { customerId, dataInicio, dataFim }) {
   const relatorio = getCustomerPurchaseReport({ customerId, dataInicio, dataFim });
   if (!relatorio.ok) return relatorio;
 
@@ -195,12 +175,7 @@ function exportCustomerPurchaseReport(filePath, { customerId, dataInicio, dataFi
     quantidade: '', valor: relatorio.totalGasto,
   });
 
-  const sheet = XLSX.utils.json_to_sheet(linhas, {
-    header: ['cliente', 'cpf_cnpj', 'categoria', 'produto', 'quantidade', 'valor'],
-  });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Compras por cliente');
-  XLSX.writeFile(workbook, filePath);
+  await writeRowsAsSheet(filePath, linhas, ['cliente', 'cpf_cnpj', 'categoria', 'produto', 'quantidade', 'valor'], 'Compras por cliente');
 
   return { ok: true, totalPedidos: relatorio.totalPedidos, totalGasto: relatorio.totalGasto };
 }

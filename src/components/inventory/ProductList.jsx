@@ -242,6 +242,13 @@ export function ProductList() {
         Mostrar só produtos com conflito de código de barras pendente
       </label>
 
+      {(() => {
+        const produtosExibidos = soConflitos ? products.filter((p) => p.conflito_codigo_barras_pendente) : products;
+        if (produtosExibidos.length === 0) {
+          if (soConflitos && products.length > 0) return <p className="empty-state">Nenhum produto com conflito de código de barras pendente.</p>;
+          return null;
+        }
+        return (
       <table className="data-table">
         <thead>
           <tr>
@@ -249,7 +256,7 @@ export function ProductList() {
           </tr>
         </thead>
         <tbody>
-          {(soConflitos ? products.filter((p) => p.conflito_codigo_barras_pendente) : products).map((p) => {
+          {produtosExibidos.map((p) => {
             const estoqueAtual = estoquePorProduto[p.id] ?? '—';
             const abaixoDoMinimo = typeof estoqueAtual === 'number' && estoqueAtual <= p.estoque_minimo;
             return (
@@ -284,6 +291,8 @@ export function ProductList() {
           })}
         </tbody>
       </table>
+        );
+      })()}
 
       <div ref={sentinelRef} style={{ height: 1 }} />
       {loadingMore && <p className="empty-state">Carregando mais produtos...</p>}

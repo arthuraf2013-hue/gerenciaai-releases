@@ -3057,6 +3057,167 @@ código sem erro — e simulei também o caso de quem já tinha ficado
 preso antes dessa correção, confirmando que a limpeza automática
 libera certinho.
 
+## Otimização de armazenamento — app empacotado ~27% menor
+
+Você pediu pra otimizar e reduzir o volume de armazenamento, sem
+quebrar nada. Investiguei os dois lados: o app empacotado que todo
+cliente baixa e instala, e o banco de dados que cresce com o uso.
+
+**Banco de dados**: já estava bem — as fotos de produto ficam como
+arquivo separado (caminho salvo no banco), não como blob dentro do
+SQLite, que é a escolha certa. Não achei nada ali que valesse o
+risco de mexer sem uma necessidade concreta.
+
+**App empacotado — essa é a parte que rendeu**: medi o `app.asar`
+antes e depois de cada mudança, empacotando de verdade (não só
+teoria) pra confirmar cada ganho:
+
+- **`@firebase/auth` (a maior fatia sozinha, ~4MB)**: nenhum dos sete
+  serviços que usam Firebase (`stockSyncService`, `salesSyncService`,
+  `productSyncService`, `updateService`, `licenseService`,
+  `errorReportService`, `messageService`) importa autenticação —
+  todos usam só `firebase/app` e `firebase/firestore` (o app tem seu
+  próprio sistema de PIN, não usa login do Firebase). Confirmei
+  chamando de verdade cada função do Firestore usada
+  (`initializeApp`, `getFirestore`, `doc`, `writeBatch`, `collection`,
+  `query`/`where`) a partir do pacote com auth removido — tudo
+  funcionando.
+- **`exceljs/dist/` (21MB)**: são os pacotes prontos pra navegador
+  (`<script>` tag), nunca tocados pelo `require('exceljs')` que o
+  processo principal usa de verdade (que carrega só `lib/`).
+  Confirmei rastreando o próprio ponto de entrada da biblioteca
+  (`excel.js` → `lib/exceljs.nodejs.js`, nunca `dist/`) e testei
+  criando uma planilha de verdade a partir do pacote sem esse
+  diretório.
+- **`better-sqlite3/deps` e `/src` (~9,8MB)**: código-fonte C usado
+  só na hora de compilar o módulo nativo — nunca em tempo de
+  execução. Essa foi a mais delicada de mexer, por ser justamente o
+  banco de dados; confirmei com um teste real (criar tabela, inserir,
+  ler de volta) a partir do pacote sem essas pastas antes de aplicar.
+
+**Resultado medido**: `app.asar` caiu de **37MB pra 27MB** — uma
+redução de **27%** — sem tirar nenhuma funcionalidade, cada corte
+testado individualmente com chamada de função real, não só checagem
+de que "carrega sem erro".
+
+Rodei a suíte inteira depois de cada mudança (continua em
+**124/124**) e o build do frontend continua funcionando normal.
+
+## Auditoria de segurança — de 16 vulnerabilidades pra 2
+
+Você pediu pra corrigir as vulnerabilidades do código. Fiz uma
+auditoria completa: dependências (`npm audit`) e uma revisão do
+código em si. Resultado: **de 16 vulnerabilidades (1 moderada, 14
+altas, 1 crítica) pra 2 restantes**, ambas de baixo risco real —
+detalhes abaixo.
+
+### A mais séria: biblioteca de planilha (xlsx/SheetJS) trocada
+
+O `xlsx`, usado pra ler planilha que o usuário importa (nota de
+fornecedor, planilha de estoque), tinha uma vulnerabilidade de
+*Prototype Pollution* — explorável justamente ao **ler** um arquivo
+malicioso, o cenário mais realista de ataque nesse app. Sem correção
+disponível no npm: o pacote está oficialmente abandonado lá, e a
+versão corrigida só existe no CDN próprio da SheetJS (fora do meu
+acesso de rede neste ambiente).
+
+Em vez de deixar sem solução, troquei a biblioteca inteira pelo
+**exceljs** (mantida ativamente):
+- Migrei os três serviços que usavam `xlsx` (`importExportService`,
+  `reportService`, `supplyService`) pra um helper novo
+  (`xlsxHelpers.js`), que também ganhou suporte nativo a CSV.
+- **Achei e corrigi uma regressão real durante o teste**: código de
+  produto tipo "001" estava virando o número `1` na leitura,
+  perdendo os zeros à esquerda. Corrigido, com teste automatizado
+  travando esse caso especificamente.
+- O `exceljs` trouxe consigo uma vulnerabilidade indireta (`uuid`,
+  moderada) — forcei a versão corrigida via `overrides` no
+  `package.json` e confirmei que continua funcionando.
+- Testado de ponta a ponta: exportar → reimportar produto, CSV com
+  vírgula decimal brasileira ("15,35" continua "15,35", não vira
+  1535), arquivo `.xls` antigo (formato anterior a 2007, que a
+  biblioteca nova não lê) recusando com mensagem clara em vez de
+  quebrar. **6 testes automatizados novos.**
+
+### Electron e electron-builder atualizados (estavam sem suporte)
+
+O Electron 31 e o electron-builder 24 (que o projeto usava) já
+tinham saído da janela de correção de segurança — não recebem mais
+patch nenhum, nem pra vulnerabilidade nova que apareça daqui pra
+frente. Atualizei os dois:
+
+- **Electron**: `31.3.0` → `43.4.0`
+- **electron-builder**: `24.13.3` → `26.15.3` (parei na v26, não na
+  v27 — a v27 exige Node ≥22.12 e tem uma lista própria de mudanças
+  incompatíveis; a v26 é o que o próprio `npm audit` já recomendava,
+  e mantém a versão de Node que o CI já usa)
+
+Antes de atualizar, investiguei as três CVEs específicas do Electron
+que o audit apontava — nenhuma das três se aplica de fato a este
+app (uma é exclusiva de macOS, chamando uma função que o código
+nunca usa; outra exige um recurso de segurança avançado que não está
+configurado; a terceira exige service worker registrado, que o app
+não usa). Ainda assim, ficar numa versão sem suporte é arriscado pra
+qualquer vulnerabilidade *futura* — por isso atualizei mesmo com o
+risco atual sendo baixo.
+
+**O que consegui testar neste ambiente**: a superfície de API do
+Electron que o `main.js`/`preload.js` usa é modesta e estável (nada
+descontinuado); a suíte de testes do backend inteira (124 testes);
+o build do frontend (Vite); e — o mais importante — **empacotei o
+app de verdade** com o electron-builder na v26 (modo diagnóstico,
+sem o passo de recompilar módulo nativo pro Electron, que precisa de
+um domínio fora do meu acesso de rede aqui) e confirmei que o
+`app.asar` gerado contém `main.js`, `dist/index.html`, e o
+`better-sqlite3` — a configuração de build é compatível com a v26.
+
+**O que não consegui testar neste ambiente, e por quê**: a
+recompilação do módulo nativo (`better-sqlite3`, `@serialport/bindings-cpp`)
+especificamente pro runtime do Electron precisa baixar os headers de
+`electronjs.org`, um domínio fora da minha rede permitida aqui — isso
+deve funcionar normalmente no seu CI (GitHub Actions tem acesso de
+rede completo) e na sua máquina, mas **é o primeiro lugar pra olhar
+se a próxima tag falhar** — o sintoma seria parecido com os erros de
+`NODE_MODULE_VERSION` que já apareceram antes nesta conversa, só que
+dessa vez durante o próprio `electron-builder` (não durante os
+testes, que já confirmei passando).
+
+### As 2 vulnerabilidades restantes — Vite/esbuild, risco baixo
+
+Só afetam o **servidor de desenvolvimento** (`npm run dev`), nunca o
+app empacotado que chega no cliente. Corrigir exigiria pular o Vite
+pra uma versão principal bem mais nova (6, 7 ou 8), um salto que
+traria risco real pro pipeline de build sem reduzir risco nenhum
+pra quem usa o programa — decidi não forçar essa troca agora.
+
+## Corrigido: vazamento de cor e barra de rolagem gigante em tela vazia
+
+Seu print mostrou exatamente o problema — na tela de Clientes sem
+nenhum cliente cadastrado, um bloco de cor errada (verde-escuro,
+destoando do resto da tela) tomava toda a área restante, com uma
+barra de rolagem enorme do lado.
+
+**Causa raiz**: `CustomerList.jsx` era a única tela de lista do app
+que não tratava o caso de "lista vazia" — a tabela HTML renderizava
+sozinha mesmo sem nenhuma linha dentro, e o navegador não colapsa
+esse tipo de tabela do jeito que se espera; ela puxa a cor de fundo
+(pensada só pra tabela com conteúdo) pra uma área bem maior do que
+deveria, e isso empurra a barra de rolagem da tela junto.
+
+**Corrigido e auditado no app inteiro**: além da tela de Clientes,
+procurei sistematicamente por esse mesmo padrão em toda tabela do
+app e achei mais cinco lugares com a mesma falha — Produtos,
+Usuários, Insumos, Fornecedores, e Relatório de fechamento de caixa.
+Todos agora mostram uma mensagem ("Nenhum cliente cadastrado ainda",
+"Nenhum insumo cadastrado ainda", etc.) no lugar da tabela vazia, no
+mesmo padrão já usado em Delivery, Orçamentos, Agenda e outras telas
+que eu já tinha feito direito desde o início.
+
+Testei especificamente o cenário do seu print — lista de clientes
+vazia — com navegador de verdade, confirmando que a tabela não
+renderiza mais nesse caso e a mensagem certa aparece no lugar, sem
+sobra de cor nem barra de rolagem estranha.
+
 ## Corrigido de vez: `npm test` quebrando na sua máquina local
 
 Você mandou o log — todos os 118 testes falhando com o mesmo erro de

@@ -81,6 +81,9 @@ export function IngredientManager() {
         style={{ marginBottom: 16 }}
       />
 
+      {ingredients.length === 0 ? (
+        <p className="empty-state">Nenhum insumo cadastrado ainda.</p>
+      ) : (
       <table className="data-table">
         <thead><tr><th>Nome</th><th>Unidade</th><th>Custo unitário</th><th>Estoque</th><th></th></tr></thead>
         <tbody>
@@ -100,11 +103,9 @@ export function IngredientManager() {
               </td>
             </tr>
           ))}
-          {ingredients.length === 0 && (
-            <tr><td colSpan={5}><p className="empty-state">Nenhum insumo cadastrado ainda.</p></td></tr>
-          )}
         </tbody>
       </table>
+      )}
 
       {editing && (
         <div className="modal-overlay">

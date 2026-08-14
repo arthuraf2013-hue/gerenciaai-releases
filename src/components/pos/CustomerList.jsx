@@ -128,11 +128,16 @@ export function CustomerList() {
         </form>
       )}
 
-      <table className="data-table">
-        <thead><tr><th>Nome</th><th>Telefone</th><th>Pontos</th><th>Saldo fiado</th><th></th></tr></thead>
-        <tbody>
-          {customersExibidos.map((c) => (
-            <tr key={c.id}>
+      {customersExibidos.length === 0 ? (
+        <p className="empty-state">
+          {soQuemDeve ? 'Nenhum cliente com saldo pendente.' : 'Nenhum cliente cadastrado ainda.'}
+        </p>
+      ) : (
+        <table className="data-table">
+          <thead><tr><th>Nome</th><th>Telefone</th><th>Pontos</th><th>Saldo fiado</th><th></th></tr></thead>
+          <tbody>
+            {customersExibidos.map((c) => (
+              <tr key={c.id}>
               <td>{c.nome}</td>
               <td>{c.telefone}</td>
               <td>{c.pontos}</td>
@@ -151,8 +156,9 @@ export function CustomerList() {
               </td>
             </tr>
           ))}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      )}
 
       {selected && (
         <div className="modal-overlay">

@@ -65,6 +65,9 @@ export function CashReport() {
 
       {loadError && <p className="modal-error">{loadError}</p>}
 
+      {sessoes.length === 0 ? (
+        <p className="empty-state">Nenhum fechamento nesse período.</p>
+      ) : (
       <table className="data-table">
         <thead>
           <tr><th>Fechado em</th><th>Abriu</th><th>Fechou</th><th>Esperado</th><th>Informado</th><th>Diferença</th></tr>
@@ -82,11 +85,9 @@ export function CashReport() {
               </td>
             </tr>
           ))}
-          {sessoes.length === 0 && (
-            <tr><td colSpan={6}><p className="empty-state">Nenhum fechamento nesse período.</p></td></tr>
-          )}
         </tbody>
       </table>
+      )}
     </div>
   );
 }

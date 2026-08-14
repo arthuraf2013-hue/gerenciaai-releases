@@ -84,6 +84,9 @@ export function SupplierList() {
         </form>
       )}
 
+      {suppliers.length === 0 ? (
+        <p className="empty-state">Nenhum fornecedor cadastrado ainda.</p>
+      ) : (
       <table className="data-table">
         <thead><tr><th>Nome</th><th>CNPJ/CPF</th><th>Telefone</th><th></th></tr></thead>
         <tbody>
@@ -95,6 +98,7 @@ export function SupplierList() {
           ))}
         </tbody>
       </table>
+      )}
 
       <section className="settings-section" style={{ marginTop: 28 }}>
         <h2>Lista de compra sugerida</h2>

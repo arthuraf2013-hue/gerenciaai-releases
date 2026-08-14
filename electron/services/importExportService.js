@@ -1,4 +1,4 @@
-const XLSX = require('xlsx');
+const { readSheetAsRows, writeRowsAsSheet } = require('./xlsxHelpers');
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 
@@ -32,11 +32,8 @@ function findOrCreateSupplier(db, nomeFornecedor) {
  * do modelo. Cada linha é upsert por sku (ou codigo_barras se sku vazio).
  * Retorna um relatório linha a linha para o usuário conferir o que entrou.
  */
-function importFromFile(filePath, { locationId, operadorId, deviceId }) {
-  const workbook = XLSX.readFile(filePath);
-  const sheetName = workbook.SheetNames.includes('Modelo') ? 'Modelo' : workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+async function importFromFile(filePath, { locationId, operadorId, deviceId }) {
+  const { rows } = await readSheetAsRows(filePath, 'Modelo');
 
   const db = getDb();
   const report = { total: rows.length, importados: 0, atualizados: 0, erros: [] };
@@ -121,7 +118,7 @@ function importFromFile(filePath, { locationId, operadorId, deviceId }) {
 }
 
 /** Exporta produtos + estoque atual por local no mesmo formato do modelo. */
-function exportToFile(filePath, { locationId }) {
+async function exportToFile(filePath, { locationId }) {
   const db = getDb();
   const products = db.prepare('SELECT * FROM products WHERE ativo = 1 ORDER BY nome').all();
 
@@ -157,10 +154,7 @@ function exportToFile(filePath, { locationId }) {
     };
   });
 
-  const sheet = XLSX.utils.json_to_sheet(rows, { header: COLUMNS });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'Modelo');
-  XLSX.writeFile(workbook, filePath);
+  await writeRowsAsSheet(filePath, rows, COLUMNS, 'Modelo');
 
   return { ok: true, total: rows.length };
 }
@@ -192,10 +186,8 @@ function detectarColunas(headerRow) {
  * só monta o relatório pra revisão, quem decide o que aceitar é
  * sempre a pessoa.
  */
-function prepararRevinculacaoDeCodigosBarras(filePath) {
-  const workbook = XLSX.readFile(filePath);
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+async function prepararRevinculacaoDeCodigosBarras(filePath) {
+  const { rows } = await readSheetAsRows(filePath);
   if (rows.length === 0) return { ok: false, error: 'A planilha está vazia.' };
 
   const headerRow = Object.keys(rows[0]);

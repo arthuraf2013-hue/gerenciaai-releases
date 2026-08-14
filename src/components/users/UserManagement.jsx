@@ -63,6 +63,9 @@ export function UserManagement() {
 
       {error && <p className="modal-error">{error}</p>}
 
+      {users.length === 0 ? (
+        <p className="empty-state">Carregando...</p>
+      ) : (
       <table className="data-table">
         <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th></th><th></th></tr></thead>
         <tbody>
@@ -88,6 +91,7 @@ export function UserManagement() {
           })}
         </tbody>
       </table>
+      )}
 
       {showNew && (
         <div className="modal-overlay">
