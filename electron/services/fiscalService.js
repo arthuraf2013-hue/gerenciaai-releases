@@ -1,7 +1,6 @@
 const { randomUUID } = require('crypto');
 const path = require('path');
 const fs = require('fs');
-const { app } = require('electron');
 const { getDb } = require('../db/database');
 const secrets = require('./secretsService');
 const { gerarXmlNFCe } = require('./nfceXmlService');
@@ -170,6 +169,8 @@ async function emitirNFCe(saleId) {
 
   // Só a partir daqui grava de verdade — o XML já está assinado, e o
   // número só é incrementado depois de garantir que chegou até aqui.
+  // 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
+  const { app } = require('electron');
   const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
   fs.mkdirSync(pastaDestino, { recursive: true });
   const xmlPath = path.join(pastaDestino, `${chaveAcesso}.xml`);

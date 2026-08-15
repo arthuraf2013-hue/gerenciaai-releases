@@ -1,5 +1,3 @@
-const { Notification } = require('electron');
-
 // Em memória, por processo — reinicia a cada abertura do app. Evita
 // notificar o mesmo produto repetidamente a cada venda enquanto ele
 // continuar abaixo do mínimo; só avisa de novo se ele voltar a subir
@@ -7,6 +5,8 @@ const { Notification } = require('electron');
 const jaNotificados = new Set();
 
 function notifyLowStock(product, estoqueAtual) {
+  // 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
+  const { Notification } = require('electron');
   if (!Notification || !Notification.isSupported()) return;
 
   if (estoqueAtual > product.estoque_minimo) {

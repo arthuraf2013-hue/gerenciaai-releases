@@ -1,5 +1,3 @@
-const { safeStorage } = require('electron');
-
 /**
  * safeStorage usa o cofre de credenciais do próprio sistema operacional
  * (DPAPI no Windows, Keychain no mac, libsecret no Linux) — a chave de
@@ -7,9 +5,15 @@ const { safeStorage } = require('electron');
  * Isso significa que o valor criptografado só abre na MESMA máquina/
  * usuário que gravou — o que é o comportamento certo aqui (a chave da
  * API de IA e a senha do certificado não precisam "viajar" entre PCs).
+ *
+ * 'electron' é carregado sob demanda -- ver comentário em attachmentService.js.
  */
+function getSafeStorage() {
+  return require('electron').safeStorage;
+}
 
 function isAvailable() {
+  const safeStorage = getSafeStorage();
   return !!safeStorage && safeStorage.isEncryptionAvailable();
 }
 
@@ -20,14 +24,14 @@ function isAvailable() {
 function encrypt(plainText) {
   if (!plainText) return null;
   if (!isAvailable()) return plainText;
-  return safeStorage.encryptString(plainText).toString('base64');
+  return getSafeStorage().encryptString(plainText).toString('base64');
 }
 
 function decrypt(storedValue) {
   if (!storedValue) return null;
   if (!isAvailable()) return storedValue;
   try {
-    return safeStorage.decryptString(Buffer.from(storedValue, 'base64'));
+    return getSafeStorage().decryptString(Buffer.from(storedValue, 'base64'));
   } catch {
     // Valor foi gravado antes de existir criptografia (texto puro) —
     // devolve como está em vez de quebrar.

@@ -1,8 +1,12 @@
-const { BrowserWindow } = require('electron');
 const QRCode = require('qrcode');
 const { getDb } = require('../db/database');
 const fiscalService = require('./fiscalService');
 const { formatarChaveAcesso } = require('./nfceQrCodeService');
+
+// 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
+function getBrowserWindow() {
+  return require('electron').BrowserWindow;
+}
 
 function getReceiptConfig() {
   const db = getDb();
@@ -29,7 +33,7 @@ function updateReceiptConfig({ larguraMm, rodapeTexto, imprimirAutomatico, impre
  * padrão nas Configurações. Precisa de uma janela (mesmo invisível)
  * pra perguntar ao sistema operacional. */
 async function listPrinters() {
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
   try {
     const impressoras = await win.webContents.getPrintersAsync();
     return impressoras.map((p) => ({ nome: p.name, padraoDoSistema: !!p.isDefault }));
@@ -64,7 +68,7 @@ function printTestPage() {
     <p>${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
   </body></html>`;
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao(), () => win.close());
   });
@@ -254,7 +258,7 @@ async function printReceipt(saleId) {
   }
 
   const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl);
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
 
   const isTermica = larguraMm === 58 || larguraMm === 80;
   const printOptions = opcoesDeImpressao();
@@ -296,7 +300,7 @@ function printLabel({ nome, preco, codigoBarras, barcodeDataUrl }) {
     <p class="codigo">${codigoBarras}</p>
   </body></html>`;
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao({ pageSize: { width: 50000, height: 30000 } }), () => win.close());
   });
@@ -346,7 +350,7 @@ function printKitchenTicket(saleId, mesaLabel) {
     ${linhasHtml}
   </body></html>`;
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao({ pageSize: { width: 80000, height: 1000000 } }), () => win.close());
   });
@@ -400,7 +404,7 @@ function printDailyMenu(itens) {
     ${gruposHtml}
   </body></html>`;
 
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao(), () => win.close());
   });

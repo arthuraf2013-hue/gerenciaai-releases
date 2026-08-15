@@ -1,10 +1,18 @@
 const fs = require('fs');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { app } = require('electron');
 const { getDb } = require('../db/database');
 
 function attachmentsDir() {
+  // 'electron' é carregado sob demanda (só aqui, quando a pasta de
+  // anexos é realmente usada) — carregá-lo no topo do arquivo obriga
+  // QUALQUER coisa que só precise de outra função deste módulo (ex:
+  // testes automatizados rodando fora do Electron de verdade) a também
+  // depender do binário do Electron estar instalado e íntegro. Isso já
+  // causou falha aleatória em testes no CI (corrida entre vários
+  // arquivos de teste tentando extrair o binário do Electron ao mesmo
+  // tempo — "File exists" no resources.pak).
+  const { app } = require('electron');
   const dir = path.join(app.getPath('userData'), 'anexos');
   fs.mkdirSync(dir, { recursive: true });
   return dir;

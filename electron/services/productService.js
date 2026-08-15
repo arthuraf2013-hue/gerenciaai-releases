@@ -1,11 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 const timeService = require('./timeService');
 
 function fotosDir() {
+  // 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
+  const { app } = require('electron');
   const dir = path.join(app.getPath('userData'), 'fotos-produtos');
   fs.mkdirSync(dir, { recursive: true });
   return dir;

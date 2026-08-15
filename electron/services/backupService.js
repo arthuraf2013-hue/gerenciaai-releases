@@ -1,11 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
 const { getDb, getDbPath } = require('../db/database');
 
 const RETENCAO_DIAS = 30; // backups mais velhos que isso são apagados na rotação
 
 function backupsDir() {
+  // Carregado sob demanda -- ver comentário equivalente em attachmentService.js.
+  const { app } = require('electron');
   const base = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
   const dir = path.join(base, 'backups');
   fs.mkdirSync(dir, { recursive: true });

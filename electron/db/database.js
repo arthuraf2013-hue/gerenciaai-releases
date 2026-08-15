@@ -2,16 +2,36 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
-const { app } = require('electron');
 const { randomUUID } = require('crypto');
 const timeService = require('../services/timeService');
 
 let db;
 
+/** Caminho da pasta de dados do usuário. 'electron' é carregado sob demanda
+ * aqui dentro (não no topo do arquivo) porque database.js é usado por
+ * praticamente todo o app, incluindo os testes automatizados (`node
+ * --test`), que rodam fora de um processo Electron de verdade. Carregar
+ * 'electron' no topo do arquivo forçava TODO teste a depender do binário
+ * do Electron estar instalado e íntegro — o que já causou falha
+ * aleatória no CI (vários arquivos de teste rodando em paralelo, cada um
+ * tentando validar/reextrair o binário do Electron ao mesmo tempo,
+ * colidindo com "File exists" no resources.pak). Em testes, `app` nunca
+ * é necessário (o banco é sempre injetado via setDbForTesting), então
+ * isso nunca chega a rodar nesse caso. */
+function getUserDataPath() {
+  let app;
+  try {
+    ({ app } = require('electron'));
+  } catch {
+    app = null;
+  }
+  return app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+}
+
 function getDb() {
   if (db) return db;
 
-  const userDataPath = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+  const userDataPath = getUserDataPath();
   fs.mkdirSync(userDataPath, { recursive: true });
   const dbPath = path.join(userDataPath, 'gerenciaai.sqlite3');
 
@@ -264,7 +284,7 @@ function seedIfEmpty(database) {
 module.exports = { getDb, setDbForTesting, getDbPath, closeConnection };
 
 function getDbPath() {
-  const userDataPath = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+  const userDataPath = getUserDataPath();
   return path.join(userDataPath, 'gerenciaai.sqlite3');
 }
 
