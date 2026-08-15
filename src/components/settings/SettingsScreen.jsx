@@ -554,13 +554,18 @@ export function SettingsScreen() {
           <button className="btn-secondary" onClick={handleCheckUpdate} disabled={updateBusy || updateStatus?.checking}>
             {updateStatus?.checking ? 'Verificando...' : 'Verificar atualização agora'}
           </button>
-          {updateStatus?.baixando && (
-            <span className="screen-hint" style={{ margin: 0 }}>Baixando automaticamente... {updateStatus.progresso}%</span>
-          )}
           {updateStatus?.baixado && (
             <button className="btn-primary" onClick={handleInstallUpdate}>Instalar agora (sem esperar)</button>
           )}
         </div>
+        {updateStatus?.baixando && (
+          <div className="update-progress-wrap">
+            <div className="update-progress-bar">
+              <div className="update-progress-fill" style={{ width: `${updateStatus.progresso}%` }} />
+            </div>
+            <p className="screen-hint" style={{ margin: '6px 0 0' }}>Baixando automaticamente... {updateStatus.progresso}%</p>
+          </div>
+        )}
         {updateStatus?.baixado && (
           <p className="io-message">
             Versão {updateStatus.versaoDisponivel} já baixada — vai instalar sozinha no próximo fechamento do
