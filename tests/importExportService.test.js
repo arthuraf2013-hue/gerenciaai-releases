@@ -1,13 +1,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { randomUUID } = require('crypto');
 const { freshTestDb } = require('./helpers/testDb');
 const { writeRowsAsSheet } = require('../electron/services/xlsxHelpers');
 const importExportService = require('../electron/services/importExportService');
 
 function caminhoTemp() {
-  return `/tmp/teste-import-${randomUUID()}.xlsx`;
+  // Mesmo problema do `/tmp/...` fixo já corrigido em xlsxHelpers.test.js:
+  // no Windows isso vira uma pasta que não existe (`D:\tmp\...`), dando
+  // ENOENT. os.tmpdir() resolve a pasta temporária certa em qualquer SO.
+  return path.join(os.tmpdir(), `teste-import-${randomUUID()}.xlsx`);
 }
 
 function estoqueTotal(db, productId, locationId) {
