@@ -19,6 +19,18 @@ name: Auto-versionar e publicar (quando marcado)
 # existente `release.yml` (build no Windows, testes, empacotamento,
 # publicação no GitHub Releases). Este workflow aqui só decide "deve
 # nascer uma versão nova?" — não duplica nada do build.
+#
+# ATENÇÃO — por que o checkout usa secrets.RELEASE_PAT em vez do token
+# automático: o GitHub bloqueia DE PROPÓSITO que um push feito com o
+# GITHUB_TOKEN padrão dispare outro workflow (proteção contra loop
+# infinito). Isso significa que, com o token automático, a tag criada
+# aqui embaixo (via `npm version`) seria criada e enviada certinho,
+# mas o `release.yml` (que só liga no push de uma tag) NUNCA acordaria
+# — a versão nunca seria de fato construída/publicada, mesmo esse job
+# aqui terminando com sucesso. Usando um token pessoal (PAT, criado em
+# github.com/settings/tokens, com permissão "repo", salvo como secret
+# RELEASE_PAT neste repositório), o push passa a contar como se fosse
+# feito por você — e aí sim dispara o `release.yml` normalmente.
 on:
   push:
     branches: [main]
@@ -35,6 +47,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Preparar Node.js
         uses: actions/setup-node@v4
