@@ -390,9 +390,18 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .sidebar > ul { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
 .nav-group-list { list-style: none; margin: 0; padding: 0; }
 .nav-section-title {
-  display: block; padding: 18px 20px 6px; font-size: 11px; font-weight: 600;
+  /* Vira botão clicável (esquema de gaveta: clica no título da seção
+   * pra mostrar/esconder os itens abaixo) — reset dos estilos padrão
+   * de <button> pra continuar parecendo um rótulo, só que agora com
+   * a seta indicando aberto/fechado. */
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 18px 20px 6px; font-size: 11px; font-weight: 600;
   letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35);
 }
+.nav-section-title:hover { color: rgba(255,255,255,0.6); }
+.nav-section-arrow { flex-shrink: 0; transition: transform 0.15s ease; }
+.nav-section-arrow-fechado { transform: rotate(-90deg); }
 .nav-item {
   width: 100%; text-align: left; background: none; color: rgba(255,255,255,0.75);
   padding: 12px 20px; border-radius: 0; font-size: 14px;
@@ -409,6 +418,16 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   font-size: 12px; display: flex; flex-direction: column; gap: 12px; color: rgba(255,255,255,0.7);
 }
 .sidebar-user { display: flex; align-items: center; gap: 10px; }
+.sidebar-user-switch {
+  /* Agora é um <button> (clicar abre o modal de troca de operador) —
+   * reset dos estilos padrão de botão pra continuar com a mesma cara
+   * de antes, só que com affordance de clique. */
+  width: 100%; background: none; border: none; cursor: pointer; padding: 6px; margin: -6px;
+  border-radius: 8px; text-align: left; font: inherit;
+}
+.sidebar-user-switch:hover { background: rgba(255,255,255,0.08); }
+.sidebar-user-switch:hover .sidebar-user-switch-icon { opacity: 1; }
+.sidebar-user-switch-icon { color: rgba(255,255,255,0.45); opacity: 0; flex-shrink: 0; margin-left: auto; transition: opacity 0.15s ease; }
 .sidebar-user-avatar {
   width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.12);
   color: white; display: flex; align-items: center; justify-content: center;

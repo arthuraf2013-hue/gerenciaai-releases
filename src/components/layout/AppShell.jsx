@@ -19,6 +19,13 @@ import { QuotesScreen } from '../pos/QuotesScreen';
 import { AgendaScreen } from '../pos/AgendaScreen';
 import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
+import { SwitchUserModal } from '../auth/SwitchUserModal';
+
+// Seções que já vêm fechadas (em "gaveta") na primeira vez que o app
+// abre — depois disso, a escolha do usuário (aberta/fechada) fica
+// salva em localStorage e prevalece. PDV (e Restaurante) nunca entram
+// aqui: ficam soltos no topo, fora de qualquer seção, sempre visíveis.
+const CHAVE_SECOES_FECHADAS = 'gerenciaai:secoes-fechadas';
 
 // Perfis que trabalham com prato/receita/cardápio — usado pra decidir
 // quais telas específicas de restaurante aparecem no menu. Hoje inclui
@@ -57,7 +64,25 @@ export function AppShell() {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
   const [returnPreselectId, setReturnPreselectId] = useState(null);
   const [conflitosProdutos, setConflitosProdutos] = useState(0);
+  const [secoesFechadas, setSecoesFechadas] = useState(() => {
+    try {
+      const salvo = localStorage.getItem(CHAVE_SECOES_FECHADAS);
+      return salvo ? new Set(JSON.parse(salvo)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [trocarUsuarioAberto, setTrocarUsuarioAberto] = useState(false);
   const keyboardHelp = useKeyboardHelpShortcut();
+
+  function alternarSecao(titulo) {
+    setSecoesFechadas((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(titulo)) novo.delete(titulo); else novo.add(titulo);
+      try { localStorage.setItem(CHAVE_SECOES_FECHADAS, JSON.stringify([...novo])); } catch { /* ok ignorar */ }
+      return novo;
+    });
+  }
 
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
@@ -121,39 +146,76 @@ export function AppShell() {
             (proximo || botoes[0])?.focus();
           }}
         >
-          {grupos.map((grupo) => (
-            <li key={grupo.titulo || '_topo'} className="nav-group">
-              {grupo.titulo && <span className="nav-section-title">{grupo.titulo}</span>}
-              <ul className="nav-group-list">
-                {grupo.itens.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
-                      onClick={() => setScreen(item.id)}
+          {grupos.map((grupo) => {
+            // PDV e Restaurante caem no grupo sem título ('') — ficam
+            // sempre soltos no topo, sem seta e sem poder ser
+            // escondidos. Só as seções com título (Vendas, Cadastros,
+            // Gestão, Sistema) viram gaveta.
+            const temSecao = !!grupo.titulo;
+            const fechado = temSecao && secoesFechadas.has(grupo.titulo);
+            return (
+              <li key={grupo.titulo || '_topo'} className="nav-group">
+                {temSecao && (
+                  <button
+                    type="button"
+                    className="nav-section-title"
+                    onClick={() => alternarSecao(grupo.titulo)}
+                    aria-expanded={!fechado}
+                  >
+                    <span>{grupo.titulo}</span>
+                    <svg
+                      className={fechado ? 'nav-section-arrow nav-section-arrow-fechado' : 'nav-section-arrow'}
+                      width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                     >
-                      {item.label}
-                      {item.id === 'products' && conflitosProdutos > 0 && (
-                        <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
-                          ⚠ {conflitosProdutos}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </button>
+                )}
+                {(!temSecao || !fechado) && (
+                  <ul className="nav-group-list">
+                    {grupo.itens.map((item) => (
+                      <li key={item.id}>
+                        <button
+                          className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
+                          onClick={() => setScreen(item.id)}
+                        >
+                          {item.label}
+                          {item.id === 'products' && conflitosProdutos > 0 && (
+                            <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
+                              ⚠ {conflitosProdutos}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
         </ul>
         <div className="sidebar-footer">
           {sincronizacaoAtiva && <span className="sidebar-pdv-number" title="Sincronizado com outros PDVs">🔗 Sincronizado</span>}
 
-          <div className="sidebar-user">
+          <button
+            type="button"
+            className="sidebar-user sidebar-user-switch"
+            onClick={() => setTrocarUsuarioAberto(true)}
+            title="Trocar de operador"
+          >
             <div className="sidebar-user-avatar">{currentUser.nome.charAt(0).toUpperCase()}</div>
             <div className="sidebar-user-info">
               <span className="sidebar-user-name">{currentUser.nome}</span>
               <span className="sidebar-user-role">{currentUser.role}</span>
             </div>
-          </div>
+            <svg className="sidebar-user-switch-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 2l4 4-4 4" />
+              <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+              <path d="M7 22l-4-4 4-4" />
+              <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+            </svg>
+          </button>
 
           <div className="sidebar-footer-actions">
             <button className="theme-toggle-btn" onClick={() => setDarkMode((v) => !v)}>
@@ -189,10 +251,17 @@ export function AppShell() {
             outras telas continuam recriando ao revisitar de propósito
             (faz sentido querer dado fresco no Histórico, por exemplo). */}
         <div style={{ display: screen === 'pos' ? 'block' : 'none', height: '100%' }}>
-          <POSScreen />
+          {/* key={currentUser.id}: força remontar ao trocar de operador
+              (menu "Trocar de operador") — sem isso, o carrinho/venda em
+              aberto do operador anterior continuava aparecendo pro novo
+              operador (o efeito que retoma venda em aberto só roda
+              quando `saleId` ainda está vazio). Com o remount, o
+              componente nasce de novo do zero e já busca a venda em
+              aberto certa, a do operador que acabou de entrar. */}
+          <POSScreen key={currentUser.id} />
         </div>
         <div style={{ display: screen === 'restaurant' ? 'block' : 'none', height: '100%' }}>
-          <RestaurantScreen />
+          <RestaurantScreen key={currentUser.id} />
         </div>
         {screen === 'dashboard' && <Dashboard />}
         {screen === 'history' && (
@@ -214,6 +283,12 @@ export function AppShell() {
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
       {keyboardHelp.open && <KeyboardHelpModal onClose={keyboardHelp.close} />}
+      {trocarUsuarioAberto && (
+        <SwitchUserModal
+          onClose={() => setTrocarUsuarioAberto(false)}
+          onSwitched={() => setScreen('pos')}
+        />
+      )}
     </div>
   );
 }
