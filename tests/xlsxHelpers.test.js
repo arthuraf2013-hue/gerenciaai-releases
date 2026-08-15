@@ -1,11 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { randomUUID } = require('crypto');
 const { readSheetAsRows, writeRowsAsSheet } = require('../electron/services/xlsxHelpers');
 
 function caminhoTemp(ext) {
-  return `/tmp/teste-xlsx-${randomUUID()}.${ext}`;
+  // Era um caminho fixo `/tmp/...` — funciona por acaso no Linux/Mac
+  // (onde /tmp sempre existe), mas no Windows o Node interpreta
+  // `/tmp/...` como uma pasta "tmp" direto na raiz do drive atual
+  // (ex: D:\tmp\...), que não existe nos runners do GitHub Actions —
+  // dava ENOENT ao tentar escrever o arquivo, derrubando o `npm test`
+  // sempre que o release.yml rodava no Windows (metade dos releases
+  // publicados falhavam por causa disso, sem relação com o código
+  // sendo testado). os.tmpdir() resolve a pasta temporária certa em
+  // qualquer sistema operacional.
+  return path.join(os.tmpdir(), `teste-xlsx-${randomUUID()}.${ext}`);
 }
 
 test('escreve e lê uma planilha .xlsx de volta, preservando os dados', async () => {
