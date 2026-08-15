@@ -483,7 +483,13 @@ function listFullMenu() {
  * balança (pra poder reimportar os mesmos códigos depois), preservando
  * o histórico intacto.
  */
-function clearAllProducts() {
+function clearAllProducts(requestingUserId) {
+  // Apaga o catálogo inteiro — mesmo nível de acesso da tela de Produtos
+  // (gerente ou admin) que expõe esta ação, agora também checado aqui,
+  // não só escondendo o botão na tela.
+  const guard = require('./authService').requireRole(requestingUserId, ['gerente', 'admin']);
+  if (!guard.ok) return guard;
+
   const db = getDb();
   const produtos = db.prepare('SELECT id FROM products WHERE ativo = 1').all();
   let apagados = 0;

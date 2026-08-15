@@ -13,14 +13,18 @@ let status = {
 };
 
 function setupAutoUpdater() {
-  // Nunca baixa sozinho sem o usuário pedir — só avisa que tem uma nova
-  // versão. Baixar consome banda e o operador pode estar no meio do
-  // expediente; melhor deixar a decisão explícita (ver checkForUpdates/
-  // downloadUpdate abaixo, chamados separadamente) — EXCETO no fluxo de
-  // atualização obrigatória, que chama downloadUpdate() diretamente
-  // quando o usuário confirma na tela de bloqueio.
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+  // Baixa sozinho assim que acha uma versão nova (checkForUpdates já
+  // roda periodicamente em background, ver main.js) — sem precisar de
+  // clique nenhum. A instalação em si fica pra `autoInstallOnAppQuit`
+  // logo abaixo: só aplica a atualização já baixada quando o app
+  // fechar sozinho (troca de turno, fim do expediente, reinício do
+  // Windows) — nunca interrompe uma venda em andamento forçando o app
+  // a fechar no meio do uso. Configurações → Atualizações ainda mostra
+  // o progresso e tem um botão "instalar agora" pra quem não quiser
+  // esperar o próximo fechamento natural, mas isso é opcional, não
+  // obrigatório.
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
   status.versaoAtual = require('electron').app.getVersion();
 
   autoUpdater.on('checking-for-update', () => {

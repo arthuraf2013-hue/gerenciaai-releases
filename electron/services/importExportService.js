@@ -100,8 +100,17 @@ async function importFromFile(filePath, { locationId, operadorId, deviceId }) {
         origemMercadoria: row.origem_mercadoria ? String(row.origem_mercadoria) : '0',
       });
 
+      // "quantidade_estoque_inicial" só vira entrada de estoque na PRIMEIRA
+      // vez que o produto é importado (produto novo). Reimportar a mesma
+      // planilha depois — pra corrigir uma célula, por exemplo — é um
+      // fluxo comum, e cada linha de um produto que já existe é um UPDATE
+      // (upsert por sku/código de barras), não uma criação; sem essa
+      // checagem, reimportar somava o "estoque inicial" de novo em cima do
+      // que já tinha, inflando o saldo a cada reimportação. Reabastecimento
+      // de verdade depois da importação inicial passa pela tela de
+      // Abastecimento, que registra a entrada de forma explícita.
       const quantidadeInicial = Number(row.quantidade_estoque_inicial || 0);
-      if (quantidadeInicial > 0) {
+      if (!existing && quantidadeInicial > 0) {
         db.prepare(
           `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, operador_id, device_id)
            VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?)`

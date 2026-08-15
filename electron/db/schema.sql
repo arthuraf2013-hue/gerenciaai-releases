@@ -586,8 +586,9 @@ CREATE TABLE IF NOT EXISTS fiscal_config (
   ambiente            TEXT NOT NULL DEFAULT 'homologacao' CHECK (ambiente IN ('homologacao','producao')),
   serie_nfce          TEXT DEFAULT '1',
   proximo_numero_nfce INTEGER DEFAULT 1,
-  csc_id              TEXT, -- Código de Segurança do Contribuinte (necessário para o QR Code da NFC-e)
-  csc_token           TEXT
+  csc_id              TEXT, -- Código de Segurança do Contribuinte — não é mais usado pelo QR Code (layout 3.00, NT 2025.001, ver nfceQrCodeService.js); mantido só por compatibilidade/histórico, não bloqueia mais a emissão
+  csc_token           TEXT,
+  qr_code_url         TEXT -- URL de consulta da NFC-e da SEFAZ do seu estado (varia por UF, ex: https://www.nfce.fazenda.sp.gov.br/qrcode) — usada pra montar o QR Code do recibo; sem ela, o recibo mostra a chave de acesso em texto, mas sem QR escaneável
 );
 
 -- Registro de cada NFC-e emitida (ou tentativa). Nunca é a fonte da
@@ -604,6 +605,7 @@ CREATE TABLE IF NOT EXISTS nfce_emitidas (
   motivo_rejeicao       TEXT,
   ambiente              TEXT,
   xml_path              TEXT,
+  qr_code_conteudo      TEXT, -- "chave|3|tpAmb" (ver nfceQrCodeService.js) — só preenchido quando autorizada
   criado_em             TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE INDEX IF NOT EXISTS idx_nfce_sale ON nfce_emitidas(sale_id);

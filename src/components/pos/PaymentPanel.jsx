@@ -204,14 +204,37 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
     }
   }
 
+  function resumoNfce(result) {
+    if (!result.ok) return { mensagem: result.error, sucesso: false, pendente: false };
+    if (result.aviso) return { mensagem: result.aviso, sucesso: true, pendente: true, nfceId: result.id };
+    if (result.autorizada) {
+      return {
+        mensagem: `NFC-e nº ${result.numero} autorizada (protocolo ${result.protocoloAutorizacao}).`,
+        sucesso: true, pendente: false,
+      };
+    }
+    return {
+      mensagem: `NFC-e rejeitada pela SEFAZ: ${result.motivo || 'motivo não informado'}.`,
+      sucesso: false, pendente: false,
+    };
+  }
+
   async function handleEmitirNFCe() {
     setNfceStatus({ emitindo: true, mensagem: null });
     const result = await window.pdv.fiscal.emitirNFCe({ saleId });
-    setNfceStatus({
-      emitindo: false,
-      mensagem: result.ok ? result.aviso : result.error,
-      sucesso: result.ok,
-    });
+    setNfceStatus({ emitindo: false, ...resumoNfce(result) });
+  }
+
+  async function handleReenviarNFCe() {
+    const nfceId = nfceStatus.nfceId;
+    setNfceStatus((prev) => ({ ...prev, emitindo: true }));
+    const result = await window.pdv.fiscal.reenviarNFCe({ nfceId });
+    if (!result.ok) {
+      // Continua pendente — deixa o botão de reenviar disponível de novo.
+      setNfceStatus({ emitindo: false, mensagem: result.error, sucesso: false, pendente: true, nfceId });
+      return;
+    }
+    setNfceStatus({ emitindo: false, ...resumoNfce(result) });
   }
 
   async function handleImprimir() {
@@ -238,13 +261,19 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
 
         <div className="nfce-box">
           <p className="screen-hint" style={{ margin: 0 }}>
-            Nota fiscal (NFC-e) — gera o arquivo XML de verdade, mas <strong>ainda não assina nem
-            transmite</strong> pra SEFAZ (isso não é uma nota fiscal válida ainda). A venda já está
-            registrada independente disso.
+            Nota fiscal (NFC-e) — gera o XML, assina com o certificado configurado e transmite pra
+            SEFAZ. A venda já está registrada independente disso (emitir a NFC-e é opcional).
           </p>
-          <button className="btn-secondary" onClick={handleEmitirNFCe} disabled={nfceStatus?.emitindo}>
-            {nfceStatus?.emitindo ? 'Gerando...' : 'Gerar XML da NFC-e'}
-          </button>
+          {!nfceStatus?.pendente && (
+            <button className="btn-secondary" onClick={handleEmitirNFCe} disabled={nfceStatus?.emitindo}>
+              {nfceStatus?.emitindo ? 'Emitindo...' : 'Emitir NFC-e'}
+            </button>
+          )}
+          {nfceStatus?.pendente && (
+            <button className="btn-secondary" onClick={handleReenviarNFCe} disabled={nfceStatus?.emitindo}>
+              {nfceStatus?.emitindo ? 'Reenviando...' : 'Tentar transmitir de novo'}
+            </button>
+          )}
           {nfceStatus?.mensagem && (
             <p className={nfceStatus.sucesso ? 'io-message' : 'modal-error'} style={{ marginTop: 8 }}>
               {nfceStatus.mensagem}

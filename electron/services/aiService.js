@@ -84,7 +84,13 @@ function getAiSettingsPublic() {
   };
 }
 
-function updateAiSettings({ apiKey, modelo, ativado }) {
+function updateAiSettings(requestingUserId, { apiKey, modelo, ativado }) {
+  // Mesmo nível de acesso da aba IA em Configurações (só admin) — troca de
+  // chave de API paga não pode ficar acessível a quem não deveria chegar
+  // nessa tela, mesmo por fora da UI.
+  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  if (!guard.ok) return guard;
+
   const db = getDb();
   const current = getAiSettings();
   db.prepare(`UPDATE ai_settings SET api_key = ?, modelo = ?, ativado = ? WHERE id = 'default'`).run(

@@ -26,8 +26,9 @@ export function UpdateGate({ children }) {
   useEffect(() => {
     if (!forcedStatus?.bloqueado) return;
     // Assim que detecta que precisa atualizar, já dispara a checagem
-    // real (que vai achar a versão disponível pra baixar) — poupa um
-    // clique de quem está usando o app.
+    // real (que vai achar a versão disponível) — o download em si
+    // começa sozinho assim que ela aparece (autoDownload, ver
+    // updateService.js), sem precisar de clique nenhum.
     setVerificando(true);
     window.pdv.update.check();
     const id = setInterval(async () => {
@@ -43,20 +44,28 @@ export function UpdateGate({ children }) {
     return () => clearInterval(id);
   }, [forcedStatus?.bloqueado]);
 
+  // Aqui, diferente do resto do app, instalar sozinho assim que a
+  // atualização termina de baixar é seguro — a tela já está bloqueando
+  // 100% do uso, então não tem venda nem trabalho em andamento pra
+  // interromper (a pessoa já não consegue fazer mais nada até
+  // atualizar de qualquer jeito). O botão manual abaixo continua como
+  // reforço, caso esse efeito não dispare por algum motivo.
+  useEffect(() => {
+    if (forcedStatus?.bloqueado && updateStatus?.baixado) {
+      window.pdv.update.install();
+    }
+  }, [forcedStatus?.bloqueado, updateStatus?.baixado]);
+
   if (!forcedStatus?.bloqueado) {
     return children;
   }
 
   async function handleAtualizarAgora() {
     setVerificando(true);
-    if (updateStatus?.disponivel && !updateStatus?.baixando && !updateStatus?.baixado) {
-      await window.pdv.update.download();
-      setVerificando(false); // download tem a própria barra de progresso — não fica "verificando"
-    } else {
-      await window.pdv.update.check();
-      // não desliga "verificando" aqui direto — o polling acima faz
-      // isso assim que o resultado da checagem chegar (s.checking vira false)
-    }
+    await window.pdv.update.check();
+    // não desliga "verificando" aqui direto — o polling acima faz isso
+    // assim que o resultado da checagem chegar (s.checking vira false);
+    // o download em si começa sozinho (autoDownload), sem passo extra.
   }
 
   function handleInstalar() {
@@ -110,8 +119,8 @@ export function UpdateGate({ children }) {
 
         {updateStatus?.baixado && (
           <>
-            <p>Atualização baixada — clique abaixo pra instalar. O sistema fecha e abre de novo sozinho.</p>
-            <button className="btn-primary" onClick={handleInstalar}>Instalar e reiniciar agora</button>
+            <p>Atualização baixada — instalando automaticamente, o sistema fecha e abre de novo sozinho...</p>
+            <button className="btn-primary" onClick={handleInstalar}>Instalar agora</button>
           </>
         )}
 

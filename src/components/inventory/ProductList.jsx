@@ -168,7 +168,11 @@ export function ProductList() {
       `Essa ação não afeta vendas já finalizadas. Confirma?`
     );
     if (!confirmacao) return;
-    const result = await window.pdv.products.clearAll();
+    const result = await window.pdv.products.clearAll({ requestingUserId: currentUser.id });
+    if (!result.ok) {
+      setIoMessage(result.error);
+      return;
+    }
     setIoMessage(`Concluído: ${result.apagados} produto(s) apagado(s), ${result.desativados} desativado(s) (já tinham venda/devolução no histórico).`);
     reloadRef.current();
   }

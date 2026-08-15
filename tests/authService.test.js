@@ -88,3 +88,49 @@ test('changeOwnPin também bloqueia após tentativas erradas (não é uma porta 
   assert.equal(result.ok, false);
   assert.match(result.error, /bloqueado/i);
 });
+
+// ---------------------------------------------------------------------
+// requireRole / updateSecurityConfig — a checagem de permissão precisa
+// estar no backend, não só escondida na tela (ver handlers.js): mesmo que
+// a UI esconda o botão de quem não é admin, o canal IPC em si tem que
+// recusar a chamada.
+// ---------------------------------------------------------------------
+
+test('requireRole recusa usuário com papel fora da lista permitida', () => {
+  const { gerenteId } = freshTestDb();
+  const result = authService.requireRole(gerenteId, ['admin']);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /permissão/i);
+});
+
+test('requireRole recusa usuário inexistente ou inativo', () => {
+  const result = authService.requireRole('id-que-nao-existe', ['admin']);
+  assert.equal(result.ok, false);
+});
+
+test('requireRole aceita usuário com papel permitido', () => {
+  const { adminId } = freshTestDb();
+  const result = authService.requireRole(adminId, ['admin']);
+  assert.equal(result.ok, true);
+  assert.equal(result.role, 'admin');
+});
+
+test('updateSecurityConfig recusa gerente (é a trava de segurança central do sistema — só admin desliga)', () => {
+  const { gerenteId } = freshTestDb();
+  const result = authService.updateSecurityConfig(gerenteId, { exigirAutorizacaoCancelamento: false });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /permissão/i);
+});
+
+test('updateSecurityConfig recusa operador', () => {
+  const { operadorId } = freshTestDb();
+  const result = authService.updateSecurityConfig(operadorId, { exigirAutorizacaoCancelamento: false });
+  assert.equal(result.ok, false);
+});
+
+test('updateSecurityConfig funciona pra admin e o valor realmente muda no banco', () => {
+  const { adminId } = freshTestDb();
+  const result = authService.updateSecurityConfig(adminId, { exigirAutorizacaoCancelamento: false });
+  assert.equal(result.ok, true);
+  assert.equal(authService.getSecurityConfig().exigir_autorizacao_cancelamento, 0);
+});

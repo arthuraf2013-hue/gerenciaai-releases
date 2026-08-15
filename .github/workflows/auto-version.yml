@@ -1,0 +1,66 @@
+name: Auto-versionar e publicar (quando marcado)
+
+# Roda em todo push na main, mas SÓ publica uma versão nova quando a
+# mensagem do commit começa com "release:" — evita que um commit de
+# trabalho em andamento (ainda não pronto) publique sozinho uma versão
+# nova pra todas as lojas clientes. Pra lançar, basta começar a
+# mensagem do commit com "release:" (ex: "release: corrige cálculo de
+# troco") — nenhum comando manual (`npm version patch`) é mais
+# necessário.
+#
+# O commit de bump de versão que este job cria (via `npm version`, que
+# já commita e cria a tag sozinho) tem a marca "[skip release]" na
+# mensagem — isso, mais o fato de "chore(release): ..." não começar
+# com "release:", garante que o push desse commit de volta pra main
+# não dispara este workflow de novo (senão vira loop infinito).
+#
+# O push da TAG criada aqui (vX.Y.Z) é o que efetivamente dispara o
+# build e a publicação de verdade — isso já é feito pelo workflow
+# existente `release.yml` (build no Windows, testes, empacotamento,
+# publicação no GitHub Releases). Este workflow aqui só decide "deve
+# nascer uma versão nova?" — não duplica nada do build.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  auto-versionar:
+    if: startsWith(github.event.head_commit.message, 'release:') && !contains(github.event.head_commit.message, '[skip release]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          # better-sqlite3 v13 (N-API) exige Node >= 22 (engines no
+          # package.json) — com Node 20 o "npm test" abaixo falharia.
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Rodar os testes ANTES de publicar
+        # Gate de segurança extra, antes até de criar a tag — evita
+        # publicar (e criar) uma versão nova a partir de código quebrado.
+        # O release.yml roda os testes de novo depois (mais uma camada),
+        # mas travar aqui evita até a tag "queimada" de uma versão que
+        # nunca deveria ter saído.
+        run: npm test
+
+      - name: Configurar identidade do commit automático
+        run: |
+          git config user.name "gerenciaai-bot"
+          git config user.email "actions@github.com"
+
+      - name: Bump de versão (patch), commit e tag
+        # npm version já commita o bump de package.json/package-lock.json
+        # e cria a tag localmente; o postversion do package.json (git
+        # push && git push --tags) publica os dois de volta pro GitHub.
+        run: 'npm version patch -m "chore(release): v%s [skip release]"'

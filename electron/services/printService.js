@@ -1,5 +1,8 @@
 const { BrowserWindow } = require('electron');
+const QRCode = require('qrcode');
 const { getDb } = require('../db/database');
+const fiscalService = require('./fiscalService');
+const { formatarChaveAcesso } = require('./nfceQrCodeService');
 
 function getReceiptConfig() {
   const db = getDb();
@@ -68,8 +71,43 @@ function printTestPage() {
   return { ok: true };
 }
 
+/** Monta o bloco fiscal do recibo — só aparece se a venda tiver alguma
+ * tentativa de NFC-e registrada (`fiscal_config` é opcional; lojas que
+ * nunca configuraram fiscal continuam com o recibo "normal", sem essa
+ * seção). O que mostra depende do status:
+ *   - autorizada: chave de acesso + protocolo + QR Code (se a URL de
+ *     consulta da SEFAZ do estado estiver configurada) — esse é o
+ *     único caso em que o documento tem valor fiscal de verdade;
+ *   - pendente/rejeitada: avisa que NÃO é uma nota fiscal válida ainda
+ *     (pendente = SEFAZ não respondeu, pode tentar reenviar depois;
+ *     rejeitada = a SEFAZ recusou, precisa corrigir e emitir de novo)
+ *     — importante deixar isso claro impresso, pra ninguém tratar um
+ *     recibo sem validade fiscal como se fosse um.
+ */
+function buildFiscalHtmlBlock(nfce, qrDataUrl) {
+  if (!nfce) return '';
+
+  if (nfce.status === 'autorizada') {
+    return `
+    <hr>
+    <div class="center">
+      ${qrDataUrl ? `<img src="${qrDataUrl}" alt="QR Code NFC-e" style="width:120px;height:120px;" />` : ''}
+      <p style="font-size:9px;word-break:break-all;margin:4px 0;">NFC-e nº ${nfce.numero} série ${nfce.serie}<br>Chave de acesso: ${formatarChaveAcesso(nfce.chave_acesso)}</p>
+      ${nfce.protocolo_autorizacao ? `<p style="font-size:9px;margin:0;">Protocolo de autorização: ${nfce.protocolo_autorizacao}</p>` : ''}
+      ${!qrDataUrl ? '<p style="font-size:9px;margin:4px 0 0;">Consulte pela chave de acesso no site da SEFAZ do seu estado.</p>' : ''}
+    </div>`;
+  }
+
+  const aviso = nfce.status === 'rejeitada'
+    ? `NFC-e rejeitada pela SEFAZ${nfce.motivo_rejeicao ? ` (${nfce.motivo_rejeicao})` : ''} — este documento NÃO tem valor fiscal.`
+    : 'NFC-e pendente de autorização — este documento NÃO tem valor fiscal ainda.';
+  return `
+    <hr>
+    <p class="center" style="font-size:9px;">${aviso}</p>`;
+}
+
 /** Fonte um pouco menor pro rolo de 58mm — cabe menos caractere por linha. */
-function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto) {
+function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl) {
   const isTermica = larguraMm === 58 || larguraMm === 80;
   const fontSize = larguraMm === 58 ? 10 : isTermica ? 11 : 12;
   const larguraCss = isTermica ? `${larguraMm}mm` : '190mm';
@@ -109,6 +147,7 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     <div class="total">Total: R$ ${(sale.total - sale.desconto - sale.desconto_gerente).toFixed(2)}</div>
     <hr>
     ${linhasPagamento}
+    ${buildFiscalHtmlBlock(nfce, qrDataUrl)}
     <hr>
     <p class="center">${rodapeTexto || 'Obrigado pela preferência!'}</p>
   </body></html>`;
@@ -148,6 +187,8 @@ function buildReceiptWhatsappLink(saleId) {
 
   const totalFinal = sale.total - sale.desconto - sale.desconto_gerente;
   const dataHora = new Date(sale.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  const nfce = fiscalService.getNfceMaisRecente(saleId);
+  const urlQrCode = nfce ? fiscalService.getQrCodeUrlParaNfce(nfce) : null;
 
   // *negrito* é a formatação de texto do próprio WhatsApp — nada de
   // HTML aqui, é tudo texto puro mesmo.
@@ -168,6 +209,8 @@ function buildReceiptWhatsappLink(saleId) {
     '',
     linhasPagamento,
     '',
+    nfce?.status === 'autorizada' ? `NFC-e nº ${nfce.numero} — chave: ${nfce.chave_acesso}` : null,
+    nfce?.status === 'autorizada' && urlQrCode ? `Consulte: ${urlQrCode}` : null,
     rodapeTexto || 'Obrigado pela preferência!',
   ].filter((linha) => linha !== null).join('\n');
 
@@ -183,7 +226,7 @@ function buildReceiptWhatsappLink(saleId) {
   return { ok: true, url, temTelefoneCliente: !!cliente?.telefone };
 }
 
-function printReceipt(saleId) {
+async function printReceipt(saleId) {
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
@@ -195,7 +238,22 @@ function printReceipt(saleId) {
   const location = db.prepare('SELECT * FROM locations WHERE id = ?').get(sale.location_id);
   const { largura_mm: larguraMm, rodape_texto: rodapeTexto } = getReceiptConfig();
 
-  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto);
+  // NFC-e é opcional (loja pode nunca ter configurado Fiscal) — busca
+  // só pra decorar o recibo quando existir, nunca bloqueia a impressão.
+  const nfce = fiscalService.getNfceMaisRecente(saleId);
+  let qrDataUrl = null;
+  if (nfce) {
+    const urlQrCode = fiscalService.getQrCodeUrlParaNfce(nfce);
+    if (urlQrCode) {
+      try {
+        qrDataUrl = await QRCode.toDataURL(urlQrCode, { width: 240, margin: 1 });
+      } catch (err) {
+        console.error('[printService] falhou ao gerar imagem do QR Code da NFC-e:', err);
+      }
+    }
+  }
+
+  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl);
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
 
   const isTermica = larguraMm === 58 || larguraMm === 80;

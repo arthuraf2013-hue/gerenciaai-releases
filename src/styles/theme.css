@@ -181,7 +181,12 @@ button { font-family: inherit; font-size: 14px; border-radius: var(--radius); bo
 .btn-secondary { background: var(--color-border); color: var(--color-text); }
 .btn-danger { background: var(--color-danger); color: white; }
 .btn-danger:hover:not(:disabled) { background: var(--color-danger-hover); }
-.btn-link-danger { background: none; color: var(--color-danger); padding: 4px 8px; text-decoration: underline; }
+.btn-link-danger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger); padding: 6px 12px; border-radius: 7px;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.btn-link-danger:hover { background: color-mix(in srgb, var(--color-danger) 22%, transparent); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .modal-overlay {
@@ -340,6 +345,17 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 /* --- Layout geral com sidebar --- */
 .app-shell { display: flex; height: 100vh; }
 .sidebar {
+  /* A sidebar tem paleta própria, fixa, que NÃO muda com o tema
+   * claro/escuro do app (só o conteúdo principal reage às variáveis
+   * --color-*). --sidebar-accent é o "verde da própria sidebar",
+   * usado pra destacar o item ativo — antes disso usava
+   * var(--color-primary), que MUDA de tom com o tema (fica bem mais
+   * claro/vibrante no modo escuro) e criava uma faixa de cor
+   * visivelmente destoante, como um remendo de cor diferente dentro
+   * da área verde escura. Com um tom fixo da própria família da
+   * sidebar, o destaque parece parte contínua dela em vez de uma cor
+   * emprestada de outro lugar do app. */
+  --sidebar-accent: #1d5850;
   width: 220px; background: #0d2b28; color: white;
   display: flex; flex-direction: column; padding: 20px 0;
 }
@@ -364,9 +380,14 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   padding: 12px 20px; border-radius: 0; font-size: 14px;
 }
 .nav-item:hover { background: rgba(255,255,255,0.06); }
-.nav-item-active { background: var(--color-primary); color: white; }
+.nav-item-active { background: var(--sidebar-accent); color: white; }
 .sidebar-footer {
-  padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1);
+  /* Antes tinha um border-top rgba(255,255,255,0.1) aqui — na área já
+   * bem escura da sidebar, essa linha aparecia como uma quebra de cor
+   * nítida separando o menu do rodapé. Trocado por mais respiro
+   * (padding-top maior) em vez de uma linha, pra manter a sidebar
+   * inteira como uma superfície contínua. */
+  padding: 22px 20px 16px;
   font-size: 12px; display: flex; flex-direction: column; gap: 12px; color: rgba(255,255,255,0.7);
 }
 .sidebar-user { display: flex; align-items: center; gap: 10px; }
@@ -426,7 +447,29 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 }
 .row-critical { background: var(--color-critical-bg); color: var(--color-critical-text); }
 
-.btn-link { background: none; color: var(--color-primary); padding: 4px 8px; text-decoration: underline; }
+.btn-link {
+  /* Antes era só texto sublinhado (background:none + text-decoration)
+   * — em telas de lista (Produtos, Vendas, Usuários etc.) isso lia
+   * mal como botão de ação (Editar, Ajustar estoque, Excluir...).
+   * Agora tem fundo leve + cantos arredondados, como um botão
+   * compacto de verdade, mantendo o tamanho pequeno pra caber em
+   * linha de tabela. */
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary); padding: 6px 12px; border-radius: 7px;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.btn-link:hover { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+/* Exceção: dentro da lista de sugestão de cliente (busca por nome no
+ * pagamento), o <button class="btn-link"> representa uma LINHA de
+ * lista clicável, não uma ação secundária — o estilo de botão/pill
+ * ficaria estranho ali (uma lista inteira de pills coloridos em vez
+ * de nomes). Mantém como item de lista normal, só com destaque no
+ * hover, igual ao padrão usado no menu de ações (dropdown-menu-item). */
+.customer-suggestions li button {
+  width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px;
+  background: none; color: var(--color-text); font-weight: 400;
+}
+.customer-suggestions li button:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
 
 .product-form { display: flex; flex-direction: column; gap: 14px; }
 .product-photo-section { display: flex; align-items: center; gap: 16px; }
@@ -455,9 +498,19 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .table-card-reservada { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); border-color: var(--color-primary); }
 .table-card-numero { font-size: 17px; font-weight: 700; }
 .table-card-status { font-size: 13px; color: var(--color-text-muted); }
-.table-card-excluir { font-size: 12px; color: var(--color-danger); text-decoration: underline; background: none; border: none; padding: 0; }
+.table-card-excluir {
+  font-size: 12px; font-weight: 600; color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: none; border-radius: 6px; padding: 3px 8px;
+}
+.table-card-excluir:hover { background: color-mix(in srgb, var(--color-danger) 22%, transparent); }
 .table-card-actions { display: flex; gap: 10px; }
-.table-card-action { font-size: 12px; color: var(--color-primary); text-decoration: underline; background: none; border: none; padding: 0; }
+.table-card-action {
+  font-size: 12px; font-weight: 600; color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border: none; border-radius: 6px; padding: 3px 8px;
+}
+.table-card-action:hover { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
 .table-card-tempo-longo { color: var(--color-warning-text); font-weight: 600; }
 
 .profile-cards { display: flex; gap: 12px; flex-wrap: wrap; }

@@ -66,7 +66,7 @@ function registerIpcHandlers() {
   safeHandle('auth:listActiveUsers', (_e, { excludeUserId } = {}) => authService.listActiveUsers({ excludeUserId }));
   safeHandle('auth:listAuditLog', (_e, payload) => authService.listAuditLog(payload));
   safeHandle('auth:getSecurityConfig', () => authService.getSecurityConfig());
-  safeHandle('auth:updateSecurityConfig', (_e, payload) => authService.updateSecurityConfig(payload));
+  safeHandle('auth:updateSecurityConfig', (_e, { requestingUserId, ...payload }) => authService.updateSecurityConfig(requestingUserId, payload));
   safeHandle('auth:changeOwnPin', (_e, { userId, pinAtual, novoPin }) => authService.changeOwnPin(userId, pinAtual, novoPin));
 
   // --- Produtos ---
@@ -90,7 +90,7 @@ function registerIpcHandlers() {
   safeHandle('product:listCategories', () => productService.listCategories());
   safeHandle('product:upsert', (_e, product) => productService.upsert(product));
   safeHandle('product:deactivate', (_e, { productId }) => productService.deactivate(productId));
-  safeHandle('product:clearAll', () => productService.clearAllProducts());
+  safeHandle('product:clearAll', (_e, { requestingUserId } = {}) => productService.clearAllProducts(requestingUserId));
   safeHandle('product:generateInternalBarcode', (_e, { productId }) => productService.generateInternalBarcode(productId));
   safeHandle('product:listPriceHistory', (_e, { productId }) => productService.listPriceHistory(productId));
   safeHandle('product:getFotoDataUrl', (_e, { productId }) => productService.getFotoDataUrl(productId));
@@ -244,7 +244,7 @@ function registerIpcHandlers() {
 
   // --- IA (extração de dados de anexos, sob demanda, opcional) ---
   safeHandle('ai:getSettings', () => aiService.getAiSettingsPublic());
-  safeHandle('ai:updateSettings', (_e, payload) => aiService.updateAiSettings(payload));
+  safeHandle('ai:updateSettings', (_e, { requestingUserId, ...payload }) => aiService.updateAiSettings(requestingUserId, payload));
   safeHandle('ai:extractAttachment', (_e, { attachmentId }) => aiService.extractAttachment(attachmentId));
 
   // --- Abertura/fechamento de caixa ---
@@ -257,8 +257,9 @@ function registerIpcHandlers() {
 
   // --- Fiscal (configuração + ponto de emissão, ver fiscalService.js) ---
   safeHandle('fiscal:getConfig', () => fiscalService.getFiscalConfigPublic());
-  safeHandle('fiscal:updateConfig', (_e, payload) => fiscalService.updateFiscalConfig(payload));
+  safeHandle('fiscal:updateConfig', (_e, { requestingUserId, ...payload }) => fiscalService.updateFiscalConfig(requestingUserId, payload));
   safeHandle('fiscal:emitirNFCe', (_e, { saleId }) => fiscalService.emitirNFCe(saleId));
+  safeHandle('fiscal:reenviarNFCe', (_e, { nfceId }) => fiscalService.reenviarNFCe(nfceId));
   safeHandle('fiscal:listNfceForSale', (_e, { saleId }) => fiscalService.listNfceForSale(saleId));
   safeHandle('fiscal:livroDeControlados', (_e, payload) => fiscalService.livroDeControlados(payload));
   safeHandle('fiscal:selectCertificado', async () => {
@@ -500,8 +501,8 @@ function registerIpcHandlers() {
   safeHandle('backup:getStatus', () => backupService.getStatus());
   safeHandle('backup:runNow', () => backupService.runBackup());
   safeHandle('backup:list', () => backupService.listBackups());
-  safeHandle('backup:restore', (_e, { nomeArquivo }) => {
-    const result = backupService.restoreBackup(nomeArquivo);
+  safeHandle('backup:restore', (_e, { requestingUserId, nomeArquivo }) => {
+    const result = backupService.restoreBackup(requestingUserId, nomeArquivo);
     if (result.ok) {
       // Reinicia o app pra reabrir o banco já restaurado — nunca reusa a
       // conexão antiga no mesmo processo depois de trocar o arquivo.

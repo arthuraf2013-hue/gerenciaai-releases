@@ -124,7 +124,13 @@ function listBackups() {
  * O app precisa reiniciar depois — quem chama isso é responsável por
  * disparar o reinício (ver handlers.js).
  */
-function restoreBackup(nomeArquivo) {
+function restoreBackup(requestingUserId, nomeArquivo) {
+  // Restaurar apaga os dados atuais sem volta — mesmo nível de acesso da
+  // tela de Configurações que expõe este botão (só admin). Ver
+  // authService.requireRole.
+  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  if (!guard.ok) return guard;
+
   const backupPath = path.join(backupsDir(), nomeArquivo);
   if (!fs.existsSync(backupPath)) return { ok: false, error: 'Arquivo de backup não encontrado.' };
 

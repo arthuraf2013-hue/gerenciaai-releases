@@ -174,6 +174,7 @@ contextBridge.exposeInMainWorld('pdv', {
     getConfig: invoke('fiscal:getConfig'),
     updateConfig: invoke('fiscal:updateConfig'),
     emitirNFCe: invoke('fiscal:emitirNFCe'),
+    reenviarNFCe: invoke('fiscal:reenviarNFCe'),
     listNfceForSale: invoke('fiscal:listNfceForSale'),
     livroDeControlados: invoke('fiscal:livroDeControlados'),
     selectCertificado: invoke('fiscal:selectCertificado'),

@@ -16,6 +16,14 @@ const METODO_LABEL = {
   pix: 'Pix', fiado: 'Fiado', outro: 'Outro',
 };
 
+const NFCE_STATUS_LABEL = {
+  pendente: 'pendente de transmissão',
+  autorizada: 'autorizada',
+  rejeitada: 'rejeitada',
+  cancelada: 'cancelada',
+  contingencia: 'em contingência',
+};
+
 
 
 function formatMetodos(str) {
@@ -44,6 +52,8 @@ export function SalesHistory({ onDevolver }) {
   const [exportandoRelatorio, setExportandoRelatorio] = useState(false);
   const [vendaExpandidaId, setVendaExpandidaId] = useState(null);
   const [itensPorVenda, setItensPorVenda] = useState({}); // cache: { [saleId]: itens[] }
+  const [nfcePorVenda, setNfcePorVenda] = useState({}); // cache: { [saleId]: nfce[] }
+  const [reenviandoNfceId, setReenviandoNfceId] = useState(null);
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
   const [vendasDoGrupo, setVendasDoGrupo] = useState(null);
   const [carregandoGrupo, setCarregandoGrupo] = useState(false);
@@ -197,6 +207,18 @@ export function SalesHistory({ onDevolver }) {
       const itens = await window.pdv.sale.getItemsDetail({ saleId });
       setItensPorVenda((prev) => ({ ...prev, [saleId]: Array.isArray(itens) ? itens : [] }));
     }
+    if (!nfcePorVenda[saleId]) {
+      const nfces = await window.pdv.fiscal.listNfceForSale({ saleId });
+      setNfcePorVenda((prev) => ({ ...prev, [saleId]: Array.isArray(nfces) ? nfces : [] }));
+    }
+  }
+
+  async function handleReenviarNfce(saleId, nfceId) {
+    setReenviandoNfceId(nfceId);
+    await window.pdv.fiscal.reenviarNFCe({ nfceId });
+    const nfces = await window.pdv.fiscal.listNfceForSale({ saleId });
+    setNfcePorVenda((prev) => ({ ...prev, [saleId]: Array.isArray(nfces) ? nfces : [] }));
+    setReenviandoNfceId(null);
   }
 
   async function handleExport() {
@@ -431,6 +453,22 @@ export function SalesHistory({ onDevolver }) {
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {nfcePorVenda[s.id]?.[0] && (
+                        <p className="screen-hint" style={{ margin: '4px 0 0' }}>
+                          NFC-e: {NFCE_STATUS_LABEL[nfcePorVenda[s.id][0].status] || nfcePorVenda[s.id][0].status}
+                          {nfcePorVenda[s.id][0].status === 'rejeitada' && nfcePorVenda[s.id][0].motivo_rejeicao && ` — ${nfcePorVenda[s.id][0].motivo_rejeicao}`}
+                          {nfcePorVenda[s.id][0].status === 'pendente' && (
+                            <button
+                              className="btn-link"
+                              onClick={(e) => { e.stopPropagation(); handleReenviarNfce(s.id, nfcePorVenda[s.id][0].id); }}
+                              disabled={reenviandoNfceId === nfcePorVenda[s.id][0].id}
+                              style={{ marginLeft: 6 }}
+                            >
+                              {reenviandoNfceId === nfcePorVenda[s.id][0].id ? 'Reenviando...' : 'Tentar transmitir de novo'}
+                            </button>
+                          )}
+                        </p>
                       )}
                     </td>
                   </tr>

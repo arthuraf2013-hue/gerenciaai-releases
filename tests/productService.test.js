@@ -89,3 +89,30 @@ test('deactivate libera o código de barras na hora, pra outro produto poder usa
   const resultado = productService.upsert({ nome: 'Produto Novo', preco: 5, codigoBarras: '7891234567890' });
   assert.equal(resultado.ok, true, 'deveria conseguir usar o código depois do produto antigo ser excluído');
 });
+
+// ---------------------------------------------------------------------
+// clearAllProducts — apaga o catálogo inteiro, por isso precisa checar
+// permissão no backend (mesmo nível de acesso da tela de Produtos:
+// gerente ou admin), não só confiar que a UI escondeu o botão.
+// ---------------------------------------------------------------------
+
+test('clearAllProducts recusa operador (não tem acesso à tela de Produtos)', () => {
+  const { db, operadorId } = freshTestDb();
+  inserirProduto(db, 'Produto Qualquer');
+
+  const resultado = productService.clearAllProducts(operadorId);
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.error, /permissão/i);
+
+  const aindaExiste = db.prepare('SELECT COUNT(*) as c FROM products WHERE ativo = 1').get().c;
+  assert.equal(aindaExiste, 1, 'nada deveria ter sido apagado quando a permissão é recusada');
+});
+
+test('clearAllProducts funciona pra gerente, mesmo nível de acesso da tela de Produtos', () => {
+  const { db, gerenteId } = freshTestDb();
+  inserirProduto(db, 'Produto Qualquer');
+
+  const resultado = productService.clearAllProducts(gerenteId);
+  assert.equal(resultado.ok, true);
+  assert.equal(resultado.apagados, 1);
+});

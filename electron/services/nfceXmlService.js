@@ -1,11 +1,13 @@
 const { montarChaveAcesso, gerarCodigoNumericoAleatorio, CODIGO_UF } = require('./nfceChaveService');
 
 /**
- * ⚠️ ESCOPO DESTA ENTREGA: gera o XML da NFC-e (modelo 65, layout
- * 4.00) — a estrutura completa, formatada e com os valores calculados
- * certinhos. NÃO assina digitalmente e NÃO transmite pra SEFAZ ainda —
- * isso fica pra próxima fase (assinatura precisa do certificado real
- * pra testar, e transmissão só faz sentido depois de assinar).
+ * Gera o XML da NFC-e (modelo 65, layout 4.00) — a estrutura completa,
+ * formatada e com os valores calculados. Este arquivo só MONTA o XML;
+ * quem assina é nfceSignatureService.js e quem transmite é
+ * nfceTransmissionService.js (ambos já implementados e usados por
+ * fiscalService.js — ver o comentário de emitirNFCe lá pra saber
+ * exatamente o que do ciclo de NFC-e já funciona e o que ainda falta:
+ * cancelamento, inutilização de numeração e contingência).
  *
  * Testei a fundo a parte que dá pra testar sem ambiente de homologação
  * real: chave de acesso (módulo 11, ver nfceChaveService.js), formato

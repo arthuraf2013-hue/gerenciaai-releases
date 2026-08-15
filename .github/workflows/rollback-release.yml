@@ -1,0 +1,61 @@
+name: Reverter uma release publicada
+
+# Disparo manual (aba "Actions" no GitHub → esse workflow → "Run
+# workflow") — pra tirar de circulação rápido uma versão que saiu com
+# problema. Marca a release escolhida como "pré-lançamento": isso faz
+# o GitHub (e o auto-updater do app, que só olha a release marcada
+# como "Latest") passarem a apontar de novo pra release BOA anterior
+# automaticamente. Não mexe em nenhum código nem apaga nada — só tira
+# aquela versão específica da lista de "o que instalar a partir de
+# agora". Pra reverter de vez (não só esconder), rode de novo apontando
+# pra própria versão ruim mais tarde não é necessário — ela já para de
+# ser oferecida assim que isso roda.
+#
+# IMPORTANTE — o que isso NÃO cobre: uma estação que já tinha baixado
+# a versão ruim ANTES desse rollback rodar ainda vai instalar ela no
+# próximo fechamento do app (o app não reconfere o feed no momento de
+# instalar, só no momento de baixar). Rodar isso rápido, antes da
+# maioria das lojas reiniciar o app, é o que faz a proteção valer na
+# prática — não é uma garantia absoluta de que ninguém vai pegar a
+# versão ruim, mas evita que NOVAS estações a peguem a partir daqui.
+#
+# ATENÇÃO — repositório diferente: o app publica em
+# arthuraf2013-hue/gerenciaai-releases (ver package.json → build.publish),
+# um repositório SEPARADO deste onde o código-fonte fica. O token
+# automático do GitHub Actions (secrets.GITHUB_TOKEN) só tem permissão
+# DENTRO do repositório onde o workflow roda — pra mexer num repositório
+# diferente (como este workflow precisa fazer), normalmente é
+# necessário um token pessoal (PAT) com permissão de "repo", salvo como
+# secret neste repositório (ex: nome RELEASES_REPO_TOKEN). Se o
+# `release.yml` já publica com sucesso hoje usando só o token
+# automático, pode ser que os dois repositórios estejam configurados de
+# um jeito que permite isso — mas se este workflow falhar com erro de
+# permissão/404, é isso: troque `secrets.GITHUB_TOKEN` abaixo por
+# `secrets.RELEASES_REPO_TOKEN` (depois de criar esse secret com um PAT
+# seu) nos dois lugares.
+on:
+  workflow_dispatch:
+    inputs:
+      versao:
+        description: 'Tag da versão a reverter (ex: v0.5.61) — confira em github.com/arthuraf2013-hue/gerenciaai-releases/releases'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  REPO_DAS_RELEASES: arthuraf2013-hue/gerenciaai-releases
+
+jobs:
+  reverter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Marcar a release como pré-lançamento (tira de "Latest")
+        run: gh release edit "${{ inputs.versao }}" --prerelease --repo "$REPO_DAS_RELEASES"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Confirmar qual release ficou como "Latest" agora
+        run: gh release list --repo "$REPO_DAS_RELEASES" --limit 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

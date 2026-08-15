@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { useSession } from '../../context/SessionContext';
 import { ProfileManager } from './ProfileManager';
 import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
 export function SettingsScreen() {
+  const { currentUser } = useSession();
   const [aba, setAba] = useState('geral');
   const [locationId, setLocationId] = useState(null);
   const [locationName, setLocationName] = useState('');
@@ -22,7 +24,7 @@ export function SettingsScreen() {
   const [fiscalForm, setFiscalForm] = useState({
     cnpj: '', inscricaoEstadual: '', razaoSocial: '', nomeFantasia: '',
     regimeTributario: '', uf: '', ambiente: 'homologacao', certificadoPath: '', certificadoSenha: '',
-    cscId: '', cscToken: '', municipioCodigoIbge: '',
+    cscId: '', cscToken: '', qrCodeUrl: '', municipioCodigoIbge: '',
     endereco: { logradouro: '', numero: '', complemento: '', bairro: '', cep: '', municipio: '' },
   });
   const [fiscalSaving, setFiscalSaving] = useState(false);
@@ -91,7 +93,7 @@ export function SettingsScreen() {
         razaoSocial: f.razao_social || '', nomeFantasia: f.nome_fantasia || '',
         regimeTributario: f.regime_tributario || '', uf: f.uf || '',
         ambiente: f.ambiente || 'homologacao', certificadoPath: '', certificadoSenha: '',
-        cscId: f.csc_id || '', cscToken: '', municipioCodigoIbge: f.municipio_codigo_ibge || '',
+        cscId: f.csc_id || '', cscToken: '', qrCodeUrl: f.qr_code_url || '', municipioCodigoIbge: f.municipio_codigo_ibge || '',
         endereco: {
           logradouro: f.endereco?.logradouro || '', numero: f.endereco?.numero || '',
           complemento: f.endereco?.complemento || '', bairro: f.endereco?.bairro || '',
@@ -146,6 +148,7 @@ export function SettingsScreen() {
     e.preventDefault();
     setAiSaving(true);
     await window.pdv.ai.updateSettings({
+      requestingUserId: currentUser.id,
       apiKey: aiApiKey || undefined, // string vazia não sobrescreve a chave já salva
       modelo: aiModelo,
       ativado: aiAtivado,
@@ -169,6 +172,7 @@ export function SettingsScreen() {
     e.preventDefault();
     setFiscalSaving(true);
     await window.pdv.fiscal.updateConfig({
+      requestingUserId: currentUser.id,
       ...fiscalForm,
       certificadoPath: fiscalForm.certificadoPath || undefined,
       certificadoSenha: fiscalForm.certificadoSenha || undefined,
@@ -262,14 +266,14 @@ export function SettingsScreen() {
 
   async function handleToggleAutorizacaoCancelamento(checked) {
     setExigirAutorizacaoCancelamento(checked);
-    await window.pdv.auth.updateSecurityConfig({ exigirAutorizacaoCancelamento: checked });
+    await window.pdv.auth.updateSecurityConfig({ requestingUserId: currentUser.id, exigirAutorizacaoCancelamento: checked });
     setSegurancaSaved(true);
     setTimeout(() => setSegurancaSaved(false), 2000);
   }
 
   async function handleToggleAutorizacaoDesconto(checked) {
     setExigirAutorizacaoDesconto(checked);
-    await window.pdv.auth.updateSecurityConfig({ exigirAutorizacaoDesconto: checked });
+    await window.pdv.auth.updateSecurityConfig({ requestingUserId: currentUser.id, exigirAutorizacaoDesconto: checked });
     setSegurancaSaved(true);
     setTimeout(() => setSegurancaSaved(false), 2000);
   }
@@ -339,14 +343,6 @@ export function SettingsScreen() {
     }, 1500);
   }
 
-  async function handleDownloadUpdate() {
-    setUpdateBusy(true);
-    const result = await window.pdv.update.download();
-    setUpdateBusy(false);
-    if (!result.ok) return setUpdateStatus((s) => ({ ...s, erro: result.error }));
-    setUpdateStatus(await window.pdv.update.getStatus());
-  }
-
   async function handleInstallUpdate() {
     if (!confirm('O app vai fechar e reabrir já atualizado. Continuar?')) return;
     await window.pdv.update.install();
@@ -371,7 +367,7 @@ export function SettingsScreen() {
     );
     if (!confirmado) return;
     setRestoring(true);
-    const result = await window.pdv.backup.restore({ nomeArquivo });
+    const result = await window.pdv.backup.restore({ requestingUserId: currentUser.id, nomeArquivo });
     if (!result.ok) {
       setRestoring(false);
       setBackupMsg(result.error);
@@ -550,21 +546,28 @@ export function SettingsScreen() {
         <h2>Atualização do app</h2>
         <p className="screen-hint">
           Versão instalada: <strong>{updateStatus?.versaoAtual || '—'}</strong>
+          {' — '}atualiza sozinho: baixa em segundo plano assim que sai uma versão nova (checagem automática a
+          cada poucas horas) e instala na próxima vez que o app fechar e abrir de novo sozinho (troca de turno,
+          fim do expediente, reinício do Windows) — não precisa fazer nada.
         </p>
         <div className="update-actions">
           <button className="btn-secondary" onClick={handleCheckUpdate} disabled={updateBusy || updateStatus?.checking}>
-            {updateStatus?.checking ? 'Verificando...' : 'Verificar atualização'}
+            {updateStatus?.checking ? 'Verificando...' : 'Verificar atualização agora'}
           </button>
-          {updateStatus?.disponivel && !updateStatus?.baixado && (
-            <button className="btn-primary" onClick={handleDownloadUpdate} disabled={updateStatus?.baixando}>
-              {updateStatus?.baixando ? `Baixando... ${updateStatus.progresso}%` : `Baixar versão ${updateStatus.versaoDisponivel}`}
-            </button>
+          {updateStatus?.baixando && (
+            <span className="screen-hint" style={{ margin: 0 }}>Baixando automaticamente... {updateStatus.progresso}%</span>
           )}
           {updateStatus?.baixado && (
-            <button className="btn-primary" onClick={handleInstallUpdate}>Reiniciar e instalar agora</button>
+            <button className="btn-primary" onClick={handleInstallUpdate}>Instalar agora (sem esperar)</button>
           )}
         </div>
-        {updateStatus && !updateStatus.checking && !updateStatus.disponivel && !updateStatus.erro && (
+        {updateStatus?.baixado && (
+          <p className="io-message">
+            Versão {updateStatus.versaoDisponivel} já baixada — vai instalar sozinha no próximo fechamento do
+            app, ou clique acima pra instalar imediatamente.
+          </p>
+        )}
+        {updateStatus && !updateStatus.checking && !updateStatus.disponivel && !updateStatus.baixando && !updateStatus.baixado && !updateStatus.erro && (
           <p className="io-message">Você já está na versão mais recente.</p>
         )}
         {updateStatus?.erro && (
@@ -594,13 +597,15 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>Fiscal (NFC-e) — em preparação</h2>
+        <h2>Fiscal (NFC-e)</h2>
         <p className="screen-hint">
-          <strong>A emissão de NFC-e ainda não está implementada.</strong> Isso exige CNPJ com
-          Inscrição Estadual ativa e certificado digital (A1/A3) reais para desenvolver e testar
-          contra o ambiente de homologação da SEFAZ do seu estado. O que você preencher aqui fica
-          guardado e pronto para quando a emissão for implementada — nada é enviado a lugar
-          nenhum ainda.
+          Preenchendo os dados abaixo (CNPJ, endereço, certificado digital A1) e escolhendo
+          "Homologação" no ambiente, você já consegue testar a emissão de NFC-e de verdade contra o
+          ambiente de testes da SEFAZ do seu estado — o botão "Emitir NFC-e" aparece na tela de
+          pagamento depois de finalizar uma venda. <strong>Importante: isso nunca foi testado contra
+          um certificado e CNPJ reais</strong> — teste bastante em Homologação antes de trocar para
+          Produção. Cancelamento de NFC-e, inutilização de numeração e contingência (emissão offline)
+          ainda não estão implementados.
         </p>
         <form className="product-form" onSubmit={handleFiscalSave}>
           <div className="form-grid">
@@ -704,10 +709,17 @@ export function SettingsScreen() {
                 placeholder={fiscal?.temCertificadoConfigurado ? '•••••• (já configurada)' : ''}
               />
             </label>
-            <label>CSC ID
+            <label>URL de consulta do QR Code (SEFAZ do seu estado)
+              <input
+                value={fiscalForm.qrCodeUrl}
+                onChange={(e) => setFiscalForm({ ...fiscalForm, qrCodeUrl: e.target.value })}
+                placeholder="Ex: https://www.nfce.fazenda.sp.gov.br/qrcode"
+              />
+            </label>
+            <label>CSC ID <span className="screen-hint">(opcional — não é mais exigido pra emitir)</span>
               <input value={fiscalForm.cscId} onChange={(e) => setFiscalForm({ ...fiscalForm, cscId: e.target.value })} />
             </label>
-            <label>CSC Token
+            <label>CSC Token <span className="screen-hint">(opcional — não é mais exigido pra emitir)</span>
               <input
                 type="password"
                 value={fiscalForm.cscToken}
@@ -716,6 +728,13 @@ export function SettingsScreen() {
               />
             </label>
           </div>
+          <p className="screen-hint" style={{ marginTop: -4 }}>
+            A URL de consulta é o endereço público que a SEFAZ do seu estado usa pra alguém conferir
+            a NFC-e pela chave de acesso — é o que vira o QR Code impresso no recibo. Varia por
+            estado; procure "URL de consulta NFC-e QR Code" + o nome do seu estado, ou pergunte ao
+            seu contador. Sem essa URL preenchida, a NFC-e continua sendo emitida normalmente — só o
+            recibo impresso não mostra um QR Code escaneável, apenas a chave em texto.
+          </p>
           <div>
             <button className="btn-primary" type="submit" disabled={fiscalSaving}>
               {fiscalSaving ? 'Salvando...' : 'Salvar configuração fiscal'}

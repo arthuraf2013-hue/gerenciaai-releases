@@ -8,6 +8,7 @@ const { gerarXmlNFCe } = require('./nfceXmlService');
 const { carregarCertificado } = require('./nfceCertificateService');
 const { assinarXmlNFCe } = require('./nfceSignatureService');
 const { enviarNFCe } = require('./nfceTransmissionService');
+const { montarConteudoQrCode, montarUrlQrCode } = require('./nfceQrCodeService');
 
 function getFiscalConfig() {
   const db = getDb();
@@ -31,7 +32,12 @@ function getFiscalConfigPublic() {
   };
 }
 
-function updateFiscalConfig(payload) {
+function updateFiscalConfig(requestingUserId, payload) {
+  // Mesmo nível de acesso da aba Fiscal em Configurações (só admin) —
+  // guarda também no backend, não só escondendo o botão na tela.
+  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  if (!guard.ok) return guard;
+
   const db = getDb();
   const current = getFiscalConfig();
 
@@ -40,7 +46,7 @@ function updateFiscalConfig(payload) {
        cnpj = ?, inscricao_estadual = ?, razao_social = ?, nome_fantasia = ?,
        regime_tributario = ?, uf = ?, municipio_codigo_ibge = ?, endereco_json = ?,
        certificado_path = ?, certificado_senha = ?, ambiente = ?, serie_nfce = ?,
-       csc_id = ?, csc_token = ?
+       csc_id = ?, csc_token = ?, qr_code_url = ?
      WHERE id = 'default'`
   ).run(
     payload.cnpj ?? current.cnpj,
@@ -56,7 +62,8 @@ function updateFiscalConfig(payload) {
     payload.ambiente ?? current.ambiente,
     payload.serieNfce ?? current.serie_nfce,
     payload.cscId !== undefined ? payload.cscId : current.csc_id,
-    payload.cscToken !== undefined ? secrets.encrypt(payload.cscToken) : secrets.encrypt(current.csc_token)
+    payload.cscToken !== undefined ? secrets.encrypt(payload.cscToken) : secrets.encrypt(current.csc_token),
+    payload.qrCodeUrl !== undefined ? (payload.qrCodeUrl || null) : current.qr_code_url
   );
 
   return { ok: true };
@@ -73,24 +80,42 @@ function configuracaoCompleta(config) {
     faltando.push('Endereço completo (logradouro, número, bairro, CEP)');
   }
   if (!config.certificado_path) faltando.push('Certificado digital');
-  if (!config.csc_token) faltando.push('CSC (Código de Segurança do Contribuinte)');
+  // CSC NÃO é mais exigido aqui — desde o layout 3.00 do QR Code (NT
+  // 2025.001, obrigatório em produção desde 01/09/2025), o CSC deixou
+  // de ser usado até pro QR Code (que era o único lugar que usava,
+  // neste app) — ver electron/services/nfceQrCodeService.js. Manter
+  // isso como exigência bloquearia emissão de NFC-e válida por causa
+  // de um campo que a própria SEFAZ não pede mais.
   return faltando;
 }
 
 /**
- * Ponto de emissão de NFC-e. Gera o XML completo (estrutura, valores,
- * chave de acesso) e salva em disco — mas AINDA NÃO assina
- * digitalmente nem transmite pra SEFAZ. Ver README, seção "Fiscal",
- * pra entender exatamente o que falta e por quê:
- *   1) assinar o XML com o certificado digital (A1/A3) da empresa —
- *      próxima fase, precisa de teste com o certificado real;
- *   2) transmitir ao webservice correto (varia por estado/grupo);
- *   3) tratar autorização, rejeição, contingência e cancelamento;
- *   4) gerar o QR Code (depende do CSC e da URL específica do estado).
- * Fingir que isso já emite de verdade sem testar contra o ambiente de
- * homologação real geraria documentos fiscais inválidos — por isso
- * este método gera e guarda o XML como "pendente", em vez de simular
- * autorização.
+ * Ponto de emissão de NFC-e. Faz o ciclo completo: gera o XML
+ * (estrutura, valores, chave de acesso), assina digitalmente com o
+ * certificado A1 configurado, grava em disco como "pendente", transmite
+ * pra SEFAZ (síncrono — indSinc=1, padrão pra NFC-e) e atualiza o
+ * status conforme a resposta (autorizada/rejeitada). Se a transmissão
+ * falhar por comunicação (rede fora, SEFAZ indisponível), a NFC-e fica
+ * registrada como "pendente" — já assinada e com o XML salvo — pronta
+ * pra reenviar depois via `reenviarNFCe`, sem "queimar" o número.
+ *
+ * O que este ciclo NÃO cobre ainda (ver conversa com o Arthur em
+ * 14/08/2026 — a documentação antiga deste arquivo dizia que nada
+ * disso tinha sido feito, o que não é mais verdade; só o que segue
+ * abaixo continua faltando de fato):
+ *   1) cancelamento de NFC-e já autorizada;
+ *   2) inutilização de numeração pulada;
+ *   3) contingência (emissão offline quando a SEFAZ está fora do ar).
+ * Cada uma dessas é uma peça de SOAP/XML própria (evento, não
+ * autorização) e ainda não foi implementada — tratada como próxima
+ * fase, não como algo que "já deveria funcionar".
+ *
+ * IMPORTANTE mesmo com o que já existe: nunca foi testado contra um
+ * ambiente de homologação real da SEFAZ (certificado, CNPJ e CSC de
+ * teste de verdade) — só foi possível validar aqui, isoladamente, a
+ * estrutura do XML, a assinatura (formato exigido pelo MOC) e o
+ * cálculo da chave de acesso. Teste em homologação antes de confiar em
+ * produção.
  */
 async function emitirNFCe(saleId) {
   const db = getDb();
@@ -172,15 +197,17 @@ async function emitirNFCe(saleId) {
     }
 
     const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
+    const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso, ambiente: config.ambiente }) : null;
     db.prepare(
-      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ? WHERE id = ?`
-    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, id);
+      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
+    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, qrCodeConteudo, id);
 
     return {
       ok: true, xmlGerado: true, assinado: true, transmitido: true,
       autorizada: resultadoTransmissao.autorizada, numero, chaveAcesso, xmlPath, id,
       protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao,
       motivo: resultadoTransmissao.motivo,
+      qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
     };
   } catch (err) {
     // erro de comunicação de verdade (rede fora, timeout) -- a NFC-e
@@ -216,11 +243,16 @@ async function reenviarNFCe(nfceId) {
     if (!resultadoTransmissao.ok) return { ok: false, error: resultadoTransmissao.error };
 
     const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
+    const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: config.ambiente }) : null;
     db.prepare(
-      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ? WHERE id = ?`
-    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, nfceId);
+      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
+    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, qrCodeConteudo, nfceId);
 
-    return { ok: true, autorizada: resultadoTransmissao.autorizada, protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao, motivo: resultadoTransmissao.motivo };
+    return {
+      ok: true, autorizada: resultadoTransmissao.autorizada,
+      protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao, motivo: resultadoTransmissao.motivo,
+      qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
+    };
   } catch (err) {
     return { ok: false, error: `Transmissão falhou de novo: ${err.message}` };
   }
@@ -229,6 +261,23 @@ async function reenviarNFCe(nfceId) {
 function listNfceForSale(saleId) {
   const db = getDb();
   return db.prepare('SELECT * FROM nfce_emitidas WHERE sale_id = ? ORDER BY criado_em DESC').all(saleId);
+}
+
+/** A NFC-e mais recente de uma venda (pode ter mais de uma linha se
+ * teve rejeição e reemissão) — usada pelo recibo impresso, que só
+ * precisa mostrar o estado atual, não o histórico completo. */
+function getNfceMaisRecente(saleId) {
+  const db = getDb();
+  return db.prepare('SELECT * FROM nfce_emitidas WHERE sale_id = ? ORDER BY criado_em DESC LIMIT 1').get(saleId) || null;
+}
+
+/** URL do QR Code pra uma NFC-e já autorizada — usa a config atual
+ * (ambiente, URL de consulta), não a config no momento da emissão, já
+ * que a URL de consulta pode ter sido preenchida DEPOIS de emitir. */
+function getQrCodeUrlParaNfce(nfce) {
+  if (!nfce || nfce.status !== 'autorizada' || !nfce.chave_acesso) return null;
+  const config = getFiscalConfig();
+  return montarUrlQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: nfce.ambiente || config.ambiente, urlConsulta: config.qr_code_url });
 }
 
 /**
@@ -263,4 +312,7 @@ function livroDeControlados({ locationId, dataInicio, dataFim }) {
   });
 }
 
-module.exports = { getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe, listNfceForSale, livroDeControlados };
+module.exports = {
+  getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe,
+  listNfceForSale, getNfceMaisRecente, getQrCodeUrlParaNfce, livroDeControlados,
+};

@@ -26,19 +26,19 @@ jobs:
       - name: Preparar Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # better-sqlite3 v13 (N-API) exige Node >= 22 (engines no
+          # package.json) — com Node 20 o "npm test" abaixo falharia.
+          node-version: 22
 
       - name: Instalar dependências
         run: npm ci
 
       - name: Rodar os testes
-        # O próprio "npm test" já recompila o better-sqlite3 pro Node
-        # do sistema antes de rodar (ver package.json) — o postinstall
-        # do passo acima deixa ele compilado pro Node INTERNO do
-        # Electron, incompatível com `node --test`. Sem esse passo
-        # rodando de verdade, a suíte existe mas nunca protege nada. O
-        # electron-builder recompila pro Electron de novo sozinho mais
-        # adiante, antes de empacotar, então não tem conflito.
+        # better-sqlite3 v13 (N-API) já usa binário pré-compilado, com
+        # ABI estável entre o Node do runner e o Node interno do
+        # Electron — não precisa mais de nenhum passo de rebuild antes
+        # (isso só era necessário até a v11, que compilava direto
+        # contra a API interna do V8).
         run: npm test
 
       - name: Build do frontend (Vite)

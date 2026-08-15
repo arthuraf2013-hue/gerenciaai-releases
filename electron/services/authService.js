@@ -178,7 +178,35 @@ function getSecurityConfig() {
   return db.prepare('SELECT * FROM security_config WHERE id = ?').get('default');
 }
 
-function updateSecurityConfig({ exigirAutorizacaoCancelamento, exigirAutorizacaoDesconto }) {
+/**
+ * Guarda de permissão reutilizável — pra qualquer operação sensível que só
+ * um papel específico pode fazer. Existe porque o `contextBridge` (ver
+ * preload.js) expõe todo canal IPC pro renderer inteiro: a tela pode até
+ * esconder o botão de quem não tem o papel certo, mas sem checar aqui
+ * também, o canal em si aceitava a chamada de qualquer usuário — inclusive
+ * um script rodando fora da UI normal. `userService.requireManagerOrAdmin`
+ * é o mesmo tipo de checagem, específica pra gestão de usuários; esta aqui
+ * é a versão genérica, usada pelas demais configurações sensíveis
+ * (segurança, backup, fiscal, IA — ver handlers.js).
+ */
+function requireRole(requestingUserId, allowedRoles) {
+  const db = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
+  if (!user || !allowedRoles.includes(user.role)) {
+    return { ok: false, error: 'Você não tem permissão para fazer isso.' };
+  }
+  return { ok: true, role: user.role };
+}
+
+/**
+ * Liga/desliga a exigência de autorização de gerente pra cancelamento e
+ * desconto — é a própria trava de segurança central do sistema (ver
+ * authorizeManagerOverride acima), então só admin pode desligá-la.
+ */
+function updateSecurityConfig(requestingUserId, { exigirAutorizacaoCancelamento, exigirAutorizacaoDesconto }) {
+  const guard = requireRole(requestingUserId, ['admin']);
+  if (!guard.ok) return guard;
+
   const db = getDb();
   const atual = getSecurityConfig();
   db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = ?, exigir_autorizacao_desconto = ? WHERE id = ?')
@@ -190,4 +218,7 @@ function updateSecurityConfig({ exigirAutorizacaoCancelamento, exigirAutorizacao
   return { ok: true };
 }
 
-module.exports = { login, listActiveUsers, authorizeManagerOverride, changeOwnPin, listAuditLog, getSecurityConfig, updateSecurityConfig };
+module.exports = {
+  login, listActiveUsers, authorizeManagerOverride, changeOwnPin, listAuditLog,
+  getSecurityConfig, updateSecurityConfig, requireRole,
+};
