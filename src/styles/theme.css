@@ -51,6 +51,15 @@
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-corner { background: transparent; }
+/* html/body nunca rolam — só áreas internas específicas rolam
+ * (.main-content, e agora a lista de menu da sidebar). Sem isso, se o
+ * conteúdo de QUALQUER área (ex: sidebar com muitos itens de menu,
+ * numa janela mais baixa) crescer além da altura da tela, a PÁGINA
+ * INTEIRA passa a rolar — e como só .main-content tem fundo claro
+ * "de verdade" da tela (o body por trás é var(--color-bg), que muda
+ * com o tema), rolar a página expõe uma faixa clara por trás da
+ * sidebar escura, lendo como uma quebra de cor bem na borda dela. */
+html, body { height: 100%; overflow: hidden; }
 body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
 
 .pos-screen { display: flex; flex-direction: column; height: 100vh; }
@@ -343,7 +352,7 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 }
 
 /* --- Layout geral com sidebar --- */
-.app-shell { display: flex; height: 100vh; }
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
 .sidebar {
   /* A sidebar tem paleta própria, fixa, que NÃO muda com o tema
    * claro/escuro do app (só o conteúdo principal reage às variáveis
@@ -358,6 +367,15 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   --sidebar-accent: #1d5850;
   width: 220px; background: #0d2b28; color: white;
   display: flex; flex-direction: column; padding: 20px 0;
+  /* Trava a sidebar na altura da tela — sem isso, se a lista de menu
+   * (muitos itens) não coubesse na altura da janela, a sidebar (e o
+   * app-shell inteiro) crescia além da viewport e a PÁGINA passava a
+   * rolar, expondo o fundo claro do body por trás bem no fim dela —
+   * lido como uma quebra de cor na borda da barra lateral. Agora,
+   * quem rola internamente (se precisar) é só a lista de menu logo
+   * abaixo, e o resto da sidebar (logo, relógio, rodapé) fica sempre
+   * fixo, com o verde escuro cobrindo 100% da altura sempre. */
+  height: 100vh; overflow: hidden;
 }
 .sidebar-brand { font-size: 18px; font-weight: 600; padding: 0 20px 20px; display: flex; align-items: center; gap: 10px; }
 .sidebar-clock-wrap { padding: 0 20px 16px; }
@@ -369,7 +387,7 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .clock-time { font-variant-numeric: tabular-nums; font-weight: 600; }
 .clock-date { opacity: 0.8; }
 .clock-compact { color: rgba(255,255,255,0.9); font-size: 13px; }
-.sidebar ul { list-style: none; margin: 0; padding: 0; flex: 1; }
+.sidebar > ul { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
 .nav-group-list { list-style: none; margin: 0; padding: 0; }
 .nav-section-title {
   display: block; padding: 18px 20px 6px; font-size: 11px; font-weight: 600;
