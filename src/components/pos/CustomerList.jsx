@@ -87,11 +87,11 @@ export function CustomerList() {
       <div className="screen-header">
         <h1>Clientes</h1>
         <div className="screen-actions">
-          <button className="btn-secondary" onClick={() => setShowLapsed(true)}>Clientes que sumiram</button>
+          <button className="btn-secondary" onClick={() => setShowLapsed(true)}>⚠️ Clientes que sumiram</button>
           {profile?.id === 'petshop' && (
-            <button className="btn-secondary" onClick={() => setShowPetReminders(true)}>Lembretes de vacina/vermífugo</button>
+            <button className="btn-secondary" onClick={() => setShowPetReminders(true)}>🐾 Lembretes de vacina/vermífugo</button>
           )}
-          <button className="btn-primary" onClick={startNew}>Novo cliente</button>
+          <button className="btn-primary" onClick={startNew}>➕ Novo cliente</button>
         </div>
       </div>
 
@@ -122,8 +122,8 @@ export function CustomerList() {
           </div>
           {saveError && <p className="modal-error">{saveError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn-primary" type="submit">Salvar</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+            <button className="btn-primary" type="submit">💾 Salvar</button>
+            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>✖️ Cancelar</button>
           </div>
         </form>
       )}
@@ -144,13 +144,13 @@ export function CustomerList() {
               <td className={c.saldoFiado > 0 ? 'text-danger' : ''}>R$ {c.saldoFiado.toFixed(2)}</td>
               <td>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button className="btn-link" onClick={() => startEdit(c)}>Editar</button>
-                  <button className="btn-link" onClick={() => openHistory(c)}>Fiado</button>
+                  <button className="btn-link" onClick={() => startEdit(c)}>✏️ Editar</button>
+                  <button className="btn-link" onClick={() => openHistory(c)}>🧾 Fiado</button>
                   {profile?.id === 'petshop' && (
-                    <button className="btn-link" onClick={() => setPetsDoCliente(c)}>Pets</button>
+                    <button className="btn-link" onClick={() => setPetsDoCliente(c)}>🐾 Pets</button>
                   )}
                   {profile?.id === 'otica' && (
-                    <button className="btn-link" onClick={() => setEyewearDoCliente(c)}>Receita</button>
+                    <button className="btn-link" onClick={() => setEyewearDoCliente(c)}>👓 Receita</button>
                   )}
                 </div>
               </td>
@@ -163,14 +163,14 @@ export function CustomerList() {
       {selected && (
         <div className="modal-overlay">
           <div className="modal-card" style={{ width: 480 }}>
-            <h2>Fiado — {selected.nome}</h2>
+            <h2>🧾 Fiado — {selected.nome}</h2>
             <p>Saldo devedor: <strong>R$ {customers.find((c) => c.id === selected.id)?.saldoFiado.toFixed(2)}</strong></p>
 
             <div className="inline-form">
               <label>Registrar pagamento
                 <input type="number" step="0.01" value={pagamentoValor} onChange={(e) => setPagamentoValor(e.target.value)} />
               </label>
-              <button className="btn-primary" onClick={handlePagamento}>Registrar</button>
+              <button className="btn-primary" onClick={handlePagamento}>💰 Registrar</button>
             </div>
 
             <ul className="payment-list" style={{ marginTop: 16, maxHeight: 220, overflowY: 'auto' }}>
@@ -182,7 +182,7 @@ export function CustomerList() {
               {history.length === 0 && <li>Nenhum movimento ainda.</li>}
             </ul>
 
-            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => setSelected(null)}>Fechar</button>
+            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => setSelected(null)}>✖️ Fechar</button>
           </div>
         </div>
       )}

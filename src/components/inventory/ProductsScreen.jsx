@@ -15,12 +15,12 @@ export function ProductsScreen() {
   return (
     <div className="screen">
       <div className="settings-tabs" style={{ marginTop: 0 }}>
-        <button className={aba === 'produtos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('produtos')}>Produtos</button>
-        <button className={aba === 'categorias' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('categorias')}>Categorias</button>
+        <button className={aba === 'produtos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('produtos')}>🏷️ Produtos</button>
+        <button className={aba === 'categorias' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('categorias')}>🗂️ Categorias</button>
         {mostraAbasRestaurante && (
           <>
-            <button className={aba === 'insumos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('insumos')}>Insumos</button>
-            <button className={aba === 'desperdicio' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('desperdicio')}>Desperdício</button>
+            <button className={aba === 'insumos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('insumos')}>🥫 Insumos</button>
+            <button className={aba === 'desperdicio' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('desperdicio')}>🗑️ Desperdício</button>
           </>
         )}
       </div>

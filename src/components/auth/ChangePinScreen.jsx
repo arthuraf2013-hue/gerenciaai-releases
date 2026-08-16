@@ -31,7 +31,7 @@ export function ChangePinScreen({ onChanged }) {
     <div className="login-screen">
       <form className="modal-card" onSubmit={handleSubmit}>
         <img src="/logo-mark.svg" alt="GerenciaAI" width="48" height="48" className="auth-logo" />
-        <h1>Troque seu PIN</h1>
+        <h1>🔑 Troque seu PIN</h1>
         <p className="modal-subtitle">
           Este usuário ainda está com o PIN padrão. Defina um novo PIN antes de continuar.
         </p>
@@ -46,7 +46,7 @@ export function ChangePinScreen({ onChanged }) {
         </label>
         {error && <p className="modal-error">{error}</p>}
         <button className="btn-primary" type="submit" disabled={saving}>
-          {saving ? 'Salvando...' : 'Trocar PIN e continuar'}
+          {saving ? 'Salvando...' : '🔑 Trocar PIN e continuar'}
         </button>
       </form>
     </div>

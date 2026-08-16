@@ -580,10 +580,14 @@ function registerIpcHandlers() {
     if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
     return backupService.updateConfig({ pastaSecundaria: filePaths[0] });
   });
-  // Só um registro de texto livre (não é integração de verdade com a API
-  // do Google Drive) — reportado pra Central assim que salvo (ver
-  // reportarConfigBackupParaCentral em backupService.js).
-  safeHandle('backup:updateContaNuvem', (_e, { contaNuvemPessoal }) => backupService.updateConfig({ contaNuvemPessoal }));
+  // Abre o cadastro oficial do Google no navegador padrão -- a criação da
+  // conta em si continua manual (captcha, telefone se o Google pedir),
+  // só evita o usuário ter que procurar o link.
+  safeHandle('backup:abrirCriacaoContaGoogle', () => {
+    require('electron').shell.openExternal('https://accounts.google.com/signup');
+    return { ok: true };
+  });
+  safeHandle('backup:salvarContaGoogle', (_e, { email, senha }) => backupService.salvarContaGoogle({ email, senha }));
 
   // --- Abastecimento de estoque (leitura de nota de compra + lotes) ---
   safeHandle('supply:pickAndExtract', async () => {

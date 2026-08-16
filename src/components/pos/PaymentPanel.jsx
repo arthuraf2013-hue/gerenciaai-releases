@@ -255,8 +255,8 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
       <div className="payment-panel">
         <p className="io-message">Venda finalizada com sucesso.</p>
 
-        <button className="btn-secondary" onClick={handleImprimir}>Imprimir recibo</button>
-        <button className="btn-secondary" onClick={handleEnviarWhatsapp} style={{ marginLeft: 8 }}>Enviar por WhatsApp</button>
+        <button className="btn-secondary" onClick={handleImprimir}>🖨️ Imprimir recibo</button>
+        <button className="btn-secondary" onClick={handleEnviarWhatsapp} style={{ marginLeft: 8 }}>💬 Enviar por WhatsApp</button>
         {printMsg && <p className="modal-error" style={{ marginTop: 4 }}>{printMsg}</p>}
 
         <div className="nfce-box">
@@ -266,12 +266,12 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
           </p>
           {!nfceStatus?.pendente && (
             <button className="btn-secondary" onClick={handleEmitirNFCe} disabled={nfceStatus?.emitindo}>
-              {nfceStatus?.emitindo ? 'Emitindo...' : 'Emitir NFC-e'}
+              {nfceStatus?.emitindo ? 'Emitindo...' : '🧾 Emitir NFC-e'}
             </button>
           )}
           {nfceStatus?.pendente && (
             <button className="btn-secondary" onClick={handleReenviarNFCe} disabled={nfceStatus?.emitindo}>
-              {nfceStatus?.emitindo ? 'Reenviando...' : 'Tentar transmitir de novo'}
+              {nfceStatus?.emitindo ? 'Reenviando...' : '🔄 Tentar transmitir de novo'}
             </button>
           )}
           {nfceStatus?.mensagem && (
@@ -280,7 +280,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
             </p>
           )}
         </div>
-        <button className="btn-primary" onClick={onFinalized}>Concluir</button>
+        <button className="btn-primary" onClick={onFinalized}>✅ Concluir</button>
       </div>
     );
   }
@@ -291,7 +291,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
         {customer ? (
           <div className="customer-chip">
             <span>{customer.nome} — {customer.pontos} ponto(s)</span>
-            <button className="btn-link" onClick={() => setCustomer(null)}>Remover</button>
+            <button className="btn-link" onClick={() => setCustomer(null)}>🗑️ Remover</button>
           </div>
         ) : (
           <div>
@@ -435,8 +435,8 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
             Peça para o cliente escanear ou colar o código. Confira o recebimento no seu banco antes de confirmar.
           </p>
           <div className="modal-actions">
-            <button className="btn-secondary" onClick={() => { setPix(null); setError(''); }}>Cancelar</button>
-            <button className="btn-primary" onClick={confirmarRecebimentoPix}>Confirmar recebimento</button>
+            <button className="btn-secondary" onClick={() => { setPix(null); setError(''); }}>✖️ Cancelar</button>
+            <button className="btn-primary" onClick={confirmarRecebimentoPix}>✅ Confirmar recebimento</button>
           </div>
         </div>
       )}
@@ -455,12 +455,12 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
       {error && <p className="modal-error">{error}</p>}
 
       <button className="btn-primary" disabled={restante > 0 || finalizando} onClick={finalizar}>
-        {finalizando ? 'Finalizando...' : 'Finalizar venda'}
+        {finalizando ? 'Finalizando...' : '✅ Finalizar venda'}
       </button>
 
       {showDescontoAuth && (
         <ManagerAuthModal
-          title="Autorizar desconto"
+          title="🔑 Autorizar desconto"
           onConfirm={confirmarDescontoGerente}
           onClose={() => setShowDescontoAuth(false)}
         />

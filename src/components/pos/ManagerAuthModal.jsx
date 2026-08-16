@@ -93,9 +93,9 @@ export function ManagerAuthModal({ title, onConfirm, onClose }) {
         {loadError && <p className="modal-error">{loadError}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
           <button type="submit" className="btn-danger" disabled={loading || managers.length === 0}>
-            {loading ? 'Verificando...' : 'Confirmar autorização'}
+            {loading ? 'Verificando...' : '🔑 Confirmar autorização'}
           </button>
         </div>
       </form>

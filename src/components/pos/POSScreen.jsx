@@ -439,7 +439,7 @@ export function POSScreen() {
   return (
     <div className="pos-screen">
       <header className="pos-header">
-        <h1>PDV</h1>
+        <h1>🛒 PDV</h1>
         <div className="pos-header-right">
           <Clock compact />
           <span className="pos-operator">Operador: {currentUser?.nome}</span>
@@ -478,7 +478,7 @@ export function POSScreen() {
         </div>
         <ProductSearchBox onSelect={handleSelectProduct} />
         <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
-          Anexar receita / arquivo
+          📎 Anexar receita / arquivo
         </button>
       </div>
 

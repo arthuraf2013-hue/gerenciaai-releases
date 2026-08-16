@@ -90,7 +90,7 @@ function NovoPedidoModal({ onClose, onCriado }) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <form className="modal-card" style={{ width: 460 }} onSubmit={handleSubmit}>
-        <h2>Novo pedido</h2>
+        <h2>➕ Novo pedido</h2>
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           Pra digitar um pedido recebido por telefone/WhatsApp manualmente — enquanto o chatbot
           ainda não estiver ativo, é assim que um pedido chega até aqui.
@@ -119,7 +119,7 @@ function NovoPedidoModal({ onClose, onCriado }) {
           <BuscaProdutoParaPedido onEscolher={adicionarProduto} />
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             <input placeholder="Ou descreva o item se não achar o produto..." value={descricaoLivre} onChange={(e) => setDescricaoLivre(e.target.value)} />
-            <button type="button" className="btn-secondary" onClick={adicionarLivre}>Adicionar</button>
+            <button type="button" className="btn-secondary" onClick={adicionarLivre}>➕ Adicionar</button>
           </div>
           {itens.length > 0 && (
             <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -128,7 +128,7 @@ function NovoPedidoModal({ onClose, onCriado }) {
                   <span>{item.nome}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <input type="number" min="1" step="1" value={item.quantidade} onChange={(e) => mudarQuantidade(item.key, e.target.value)} style={{ width: 56 }} />
-                    <button type="button" className="btn-link-danger" onClick={() => removerItem(item.key)}>Remover</button>
+                    <button type="button" className="btn-link-danger" onClick={() => removerItem(item.key)}>🗑️ Remover</button>
                   </span>
                 </li>
               ))}
@@ -141,8 +141,8 @@ function NovoPedidoModal({ onClose, onCriado }) {
         {error && <p className="modal-error">{error}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={salvando}>{salvando ? 'Criando...' : 'Criar pedido'}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
+          <button type="submit" className="btn-primary" disabled={salvando}>{salvando ? 'Criando...' : '📦 Criar pedido'}</button>
         </div>
       </form>
     </div>
@@ -251,12 +251,12 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
         </ul>
 
         <div className="modal-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
-          <button className="btn-secondary" onClick={onClose}>Fechar</button>
+          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
           {(pedido.status === 'novo' || pedido.status === 'em_separacao') && (
-            <button className="btn-link-danger" onClick={() => { if (confirm('Cancelar este pedido?')) handleStatusPedido('cancelado'); }}>Cancelar pedido</button>
+            <button className="btn-link-danger" onClick={() => { if (confirm('Cancelar este pedido?')) handleStatusPedido('cancelado'); }}>✖️ Cancelar pedido</button>
           )}
           {pedido.status === 'novo' && (
-            <button className="btn-primary" onClick={() => handleStatusPedido('em_separacao')}>Começar separação</button>
+            <button className="btn-primary" onClick={() => handleStatusPedido('em_separacao')}>📦 Começar separação</button>
           )}
           {pedido.status === 'em_separacao' && (
             <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -264,7 +264,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
                 className="btn-primary" onClick={() => handleStatusPedido('pronto')} disabled={!todosResolvidos}
                 title={!todosResolvidos ? 'Marque o status de todos os itens antes de avançar' : ''}
               >
-                Marcar como pronto
+                ✅ Marcar como pronto
               </button>
               {!todosResolvidos && (
                 <span className="screen-hint">
@@ -275,7 +275,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
           )}
           {pedido.status === 'pronto' && (
             <button className="btn-primary" onClick={() => handleStatusPedido('concluido')}>
-              Concluir ({pedido.tipo_entrega === 'entrega' ? 'saiu pra entrega' : 'retirado pelo cliente'})
+              ✅ Concluir ({pedido.tipo_entrega === 'entrega' ? 'saiu pra entrega' : 'retirado pelo cliente'})
             </button>
           )}
         </div>
@@ -326,7 +326,7 @@ export function BotOrdersScreen() {
                 <td>{formatarPreco(p.valorTotal)}</td>
                 <td>{p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual'}</td>
                 <td>{STATUS_LABEL[p.status]}</td>
-                <td><button className="btn-link" onClick={() => setSeparandoId(p.id)}>Ver / Separar</button></td>
+                <td><button className="btn-link" onClick={() => setSeparandoId(p.id)}>📦 Ver / Separar</button></td>
               </tr>
             ))}
           </tbody>

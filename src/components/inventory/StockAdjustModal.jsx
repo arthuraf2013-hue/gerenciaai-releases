@@ -52,7 +52,7 @@ export function StockAdjustModal({ product, onClose, onAdjusted }) {
   return (
     <div className="modal-overlay">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h2>Ajustar estoque — {product.nome}</h2>
+        <h2>📦 Ajustar estoque — {product.nome}</h2>
 
         <label>Tipo
           <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
@@ -72,8 +72,8 @@ export function StockAdjustModal({ product, onClose, onAdjusted }) {
         {error && <p className="modal-error">{error}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : 'Confirmar'}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
+          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : '✅ Confirmar'}</button>
         </div>
       </form>
     </div>

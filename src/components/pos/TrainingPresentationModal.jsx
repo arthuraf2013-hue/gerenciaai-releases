@@ -29,8 +29,8 @@ export function TrainingPresentationModal({ onClose }) {
     <div className="modal-overlay">
       <div className="training-modal">
         <div className="training-modal-header">
-          <h2>Treinamento — como operar o PDV</h2>
-          <button className="btn-secondary" onClick={onClose}>Fechar</button>
+          <h2>🎓 Treinamento — como operar o PDV</h2>
+          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
         </div>
         <iframe
           src={`/${arquivo}`}

@@ -110,9 +110,12 @@ function migrateColumnsIfNeeded(database) {
   // Evita rodar o MESMO pedido de "backup agora" (feito pela Central)
   // duas vezes, igual ultima_restauracao_processada acima.
   adicionarColunaSeFaltando(database, 'backup_config', 'ultimo_pedido_backup_processado', 'TEXT');
-  // Registro/lembrete de qual conta de nuvem pessoal (Google Drive etc.)
-  // esse backup usa -- ver comentário completo em schema.sql.
+  // Coluna antiga, sem uso -- mantida só por não dar pra apagar coluna
+  // com segurança em runtime. Ver comentário completo em schema.sql.
   adicionarColunaSeFaltando(database, 'backup_config', 'conta_nuvem_pessoal', 'TEXT');
+  // E-mail (só o e-mail -- a senha nunca fica no banco local) da conta
+  // Google criada pelo fluxo "Criar conta Google" -- ver schema.sql.
+  adicionarColunaSeFaltando(database, 'backup_config', 'conta_google_email', 'TEXT');
   adicionarColunaSeFaltando(database, 'forced_update_state', 'versao_minima_override', 'TEXT');
   adicionarColunaSeFaltando(database, 'forced_update_state', 'override_ativo', 'INTEGER NOT NULL DEFAULT 0');
 

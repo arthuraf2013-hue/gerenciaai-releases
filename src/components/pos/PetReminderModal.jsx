@@ -26,7 +26,7 @@ export function PetReminderModal({ onFechar }) {
     <div className="modal-overlay">
       <div className="modal-card modal-card-fullscreen">
         <div>
-          <h2>Lembretes de vacina/vermífugo{lembretes && lembretes.length > 0 ? ` — ${lembretes.length}` : ''}</h2>
+          <h2>🐾 Lembretes de vacina/vermífugo{lembretes && lembretes.length > 0 ? ` — ${lembretes.length}` : ''}</h2>
           <p className="screen-hint" style={{ margin: '4px 0 12px' }}>
             Pets com vacina ou vermífugo vencido, ou vencendo nos próximos 7 dias.
           </p>
@@ -59,7 +59,7 @@ export function PetReminderModal({ onFechar }) {
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onFechar}>Fechar</button>
+          <button type="button" className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
         </div>
       </div>
     </div>

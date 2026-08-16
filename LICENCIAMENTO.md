@@ -85,11 +85,10 @@ service cloud.firestore {
             'restauracaoStatus', 'restauracaoErro', 'restauracaoConcluidaEm',
             // Reporte (só informativo, pra "análise visual" na Central)
             // de que a instalação tem uma pasta secundária de backup
-            // configurada e/ou qual conta de nuvem pessoal (Google Drive
-            // etc.) o cliente anotou na tela de Configurações — dispara
-            // sozinho assim que o cliente salva, sem esperar o próximo
+            // configurada — dispara sozinho assim que o cliente escolhe/
+            // troca ela na tela de Configurações, sem esperar o próximo
             // sinal de vida periódico.
-            'backupPastaSecundariaConfigurada', 'backupContaNuvemPessoal', 'backupContaNuvemPessoalAtualizadaEm'
+            'backupPastaSecundariaConfigurada'
           ])
       ) || request.auth != null;
       // Os campos que só a Central escreve (autenticada) -- congelar,
@@ -138,6 +137,31 @@ service cloud.firestore {
     // senha em si, mas mesmo assim fica restrito a admin autenticado.
     match /cofre_config/{docId} {
       allow read, write: if request.auth != null;
+    }
+
+    // Contas Google criadas pelo APP (tela Configurações -> Backup),
+    // não pelo painel -- por isso o padrão de permissão é diferente do
+    // resto do Cofre acima: a instalação escreve sozinha, sem login
+    // (mesmo modelo de confiança do documento pai em "installations"),
+    // mas só a Central autenticada consegue LER de volta. O campo
+    // `senhaCifradaRsa` já chega cifrado com a chave pública de contas
+    // Google (ver "config_publica" abaixo) -- só quem destrava o Cofre
+    // com a master key consegue decifrar de volta.
+    match /contas_google/{instalacaoId} {
+      allow read, delete: if request.auth != null;
+      allow write: if request.resource.data.keys().hasOnly(['email', 'senhaCifradaRsa', 'atualizadoEm'])
+                    && request.resource.data.email is string
+                    && request.resource.data.senhaCifradaRsa is string;
+    }
+
+    // Chave PÚBLICA usada pelos apps pra cifrar a senha da conta Google
+    // antes de mandar (ver acima) -- não é segredo (é só a metade
+    // pública do par), por isso pode ser lida por qualquer instalação
+    // sem login. Só a Central (autenticada) gera/publica essa chave,
+    // uma vez só, na aba Cofre de senhas.
+    match /config_publica/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
     }
 
     // "config/atualizacao" e "config/mensagem" são documentos únicos
@@ -250,15 +274,27 @@ existir**: republique de novo — o bloco atual inclui as coleções novas
 abrir a tela do cofre, dá erro de permissão na hora de checar se já
 existe uma senha-mestra).
 
-**Se você já tinha publicado as regras antes do campo "conta de nuvem
-pessoal" existir** (tela de Configurações → Backup, no app do
-cliente): republique de novo — o bloco atual inclui
-`backupPastaSecundariaConfigurada`, `backupContaNuvemPessoal` e
-`backupContaNuvemPessoalAtualizadaEm` na lista de campos que a própria
-instalação pode escrever sem login. Sem isso, salvar esse campo no app
-do cliente falha silenciosamente (é melhor-esforço — não trava o
-salvamento local, só o reporte pra Central que fica sem aparecer na
-aba Backups).
+**Nota histórica**: existiu por um tempo um campo de texto livre "conta
+de nuvem pessoal" na tela de Configurações → Backup, com os campos
+`backupContaNuvemPessoal`/`backupContaNuvemPessoalAtualizadaEm`
+correspondentes na regra. Foi removido por ser redundante com o
+recurso "Criar conta Google" logo abaixo (que faz a mesma coisa, só
+que estruturado e com a senha protegida) — se você publicou uma versão
+antiga das regras que ainda tinha esses dois campos, não tem problema
+nenhum, eles só ficam sem uso. O bloco atual já não os inclui mais.
+
+**Se você já tinha publicado as regras antes do recurso "Criar conta
+Google" existir** (botão na tela Configurações → Backup do app +
+seção "Contas Google vinculadas" na aba Cofre da Central): republique
+de novo — o bloco atual inclui as coleções novas `contas_google`
+(onde o app grava o e-mail e a senha já cifrada) e `config_publica`
+(onde a Central publica a chave pública que os apps usam pra cifrar).
+Sem isso, o botão "Salvar conta" no app falha (não consegue nem ler a
+chave pública, nem gravar o resultado), com um erro explicando o
+motivo na própria tela. Lembre também de gerar a chave de proteção
+uma vez, na aba Cofre → "Contas Google vinculadas" → "Gerar chave de
+proteção" — sem isso feito, o mesmo botão falha do mesmo jeito, mesmo
+com as regras já publicadas.
 
 **Antes de confiar nisso em produção**: eu não tenho como testar essas
 regras ao vivo aqui (não tenho acesso a um projeto Firebase de
@@ -401,6 +437,11 @@ Microsoft/OneDrive, se preferir.
    ou pasta comum, dependendo da versão).
 4. Dentro do GerenciaAI, vá em **Configurações → Backups** e cole esse
    caminho no campo "Pasta secundária".
+5. Ainda na mesma tela, na seção "Conta Google deste cliente", cole o
+   e-mail e a senha dessa mesma conta que você acabou de criar (não
+   precisa clicar em "Abrir cadastro do Google" de novo, já que a
+   conta já existe) — assim ela fica registrada e protegida na Central
+   também, não só na sua memória.
 
 Pronto — a partir daí, todo backup que o app já faz sozinho (diário,
 ou quando você pede pela Central) grava também nessa pasta, e o

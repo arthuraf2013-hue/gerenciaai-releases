@@ -41,7 +41,7 @@ export function PetsModal({ customer, onFechar }) {
   return (
     <div className="modal-overlay">
       <div className="modal-card" style={{ width: 560 }}>
-        <h2>Pets — {customer.nome}</h2>
+        <h2>🐾 Pets — {customer.nome}</h2>
 
         {!editando && (
           <>
@@ -53,16 +53,16 @@ export function PetsModal({ customer, onFechar }) {
                   <li key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
                     <span>{p.nome} {p.especie && `— ${p.especie}`} {p.raca && `(${p.raca})`}</span>
                     <div style={{ display: 'flex', gap: 10 }}>
-                      <button className="btn-link" onClick={() => startEdit(p)}>Editar</button>
-                      <button className="btn-link-danger" onClick={() => handleExcluir(p.id)}>Remover</button>
+                      <button className="btn-link" onClick={() => startEdit(p)}>✏️ Editar</button>
+                      <button className="btn-link-danger" onClick={() => handleExcluir(p.id)}>🗑️ Remover</button>
                     </div>
                   </li>
                 ))}
               </ul>
             )}
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={onFechar}>Fechar</button>
-              <button className="btn-primary" onClick={startNew}>+ Novo pet</button>
+              <button className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
+              <button className="btn-primary" onClick={startNew}>➕ Novo pet</button>
             </div>
           </>
         )}
@@ -80,8 +80,8 @@ export function PetsModal({ customer, onFechar }) {
             </div>
             <label>Observações<input value={editando.observacoes} onChange={(e) => setEditando({ ...editando, observacoes: e.target.value })} /></label>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setEditando(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary">Salvar</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditando(null)}>✖️ Cancelar</button>
+              <button type="submit" className="btn-primary">💾 Salvar</button>
             </div>
           </form>
         )}

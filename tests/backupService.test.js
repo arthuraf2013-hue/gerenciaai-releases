@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { webcrypto } = require('node:crypto');
 const { freshTestDb } = require('./helpers/testDb');
 const backupService = require('../electron/services/backupService');
 
@@ -123,30 +124,77 @@ test('restoreBackup devolve fotos/anexos/NFC-e do espelho pras pastas ao vivo', 
   assert.equal(fs.readFileSync(path.join(fotosAoVivo, 'produto-1.jpg'), 'utf-8'), 'foto-original');
 });
 
-// Campo de texto livre na tela de Configurações pra registrar qual conta
-// de nuvem pessoal (Google Drive etc.) o backup usa — só um
-// registro/lembrete (não é integração de verdade com a API do Drive, ver
-// Passo 7 do LICENCIAMENTO.md). updateConfig também dispara (melhor
-// esforço) um report imediato pra Central, sem esperar o próximo ciclo de
-// sincronização de 6h.
+// updateConfig (pasta secundária) também dispara (melhor esforço) um
+// report imediato pra Central, sem esperar o próximo ciclo de
+// sincronização de 6h. O campo de texto livre "conta de nuvem pessoal"
+// que existia aqui foi removido -- virou redundante depois do fluxo
+// "Criar conta Google" (ver testes de salvarContaGoogle mais abaixo).
 
-test('updateConfig salva a conta de nuvem pessoal e getStatus devolve ela', () => {
+test('updateConfig salva a pasta secundária e getStatus devolve ela', () => {
   freshTestDb();
-  const resultado = backupService.updateConfig({ contaNuvemPessoal: 'cliente-x@gmail.com' });
+  const resultado = backupService.updateConfig({ pastaSecundaria: '/algum/caminho' });
   assert.equal(resultado.ok, true);
-  assert.equal(backupService.getStatus().contaNuvemPessoal, 'cliente-x@gmail.com');
+  assert.equal(backupService.getStatus().pastaSecundaria, '/algum/caminho');
 });
 
-test('updateConfig chamado só com pastaSecundaria não apaga a conta de nuvem pessoal já salva (e vice-versa)', () => {
+// Conta Google criada pelo fluxo "Criar conta Google" (Configurações ->
+// Backup) -- o app não tem a master key do Cofre, então protege a senha
+// cifrando com uma chave PÚBLICA (RSA-OAEP) que a Central publicou; só
+// quem destrava o Cofre com a master key consegue decifrar de volta (a
+// chave privada correspondente fica cifrada lá, não aqui). Os testes
+// abaixo validam o round-trip de criptografia de verdade (gerando um
+// par de chaves aqui mesmo, sem precisar de um projeto Firebase) e o
+// comportamento de erro quando a chave pública ainda não existe --
+// exatamente o estado real do projeto Firebase do Arthur enquanto ele
+// não gerar a chave pela Central (ver LICENCIAMENTO.md).
+
+test('cifrarComChavePublica cifra e a chave privada correspondente decifra de volta pro texto original', async () => {
+  const par = await webcrypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['encrypt', 'decrypt']
+  );
+  const publicaSpkiBase64 = Buffer.from(await webcrypto.subtle.exportKey('spki', par.publicKey)).toString('base64');
+
+  const cifradoBase64 = await backupService.cifrarComChavePublica(publicaSpkiBase64, 'S3nh@DoCliente!2026');
+
+  const buffer = await webcrypto.subtle.decrypt(
+    { name: 'RSA-OAEP' },
+    par.privateKey,
+    Buffer.from(cifradoBase64, 'base64')
+  );
+  assert.equal(new TextDecoder().decode(buffer), 'S3nh@DoCliente!2026');
+});
+
+test('cifrarComChavePublica produz cifrados diferentes pra mesma senha (RSA-OAEP não é determinístico)', async () => {
+  const par = await webcrypto.subtle.generateKey(
+    { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    true,
+    ['encrypt', 'decrypt']
+  );
+  const publicaSpkiBase64 = Buffer.from(await webcrypto.subtle.exportKey('spki', par.publicKey)).toString('base64');
+
+  const primeiro = await backupService.cifrarComChavePublica(publicaSpkiBase64, 'mesma-senha');
+  const segundo = await backupService.cifrarComChavePublica(publicaSpkiBase64, 'mesma-senha');
+  assert.notEqual(primeiro, segundo);
+});
+
+test('salvarContaGoogle recusa e-mail ou senha vazios sem tentar rede', async () => {
   freshTestDb();
-  backupService.updateConfig({ contaNuvemPessoal: 'cliente-x@gmail.com' });
-  backupService.updateConfig({ pastaSecundaria: '/algum/caminho' }); // não menciona contaNuvemPessoal
+  assert.equal((await backupService.salvarContaGoogle({ email: '', senha: 'x' })).ok, false);
+  assert.equal((await backupService.salvarContaGoogle({ email: 'a@b.com', senha: '' })).ok, false);
+});
 
-  const status = backupService.getStatus();
-  assert.equal(status.pastaSecundaria, '/algum/caminho');
-  assert.equal(status.contaNuvemPessoal, 'cliente-x@gmail.com'); // preservada
-
-  backupService.updateConfig({ contaNuvemPessoal: '' }); // limpeza intencional, string vazia
-  assert.equal(backupService.getStatus().contaNuvemPessoal, '');
-  assert.equal(backupService.getStatus().pastaSecundaria, '/algum/caminho'); // continua intacta
+test('salvarContaGoogle falha com erro claro quando a chave pública ainda não existe, e não deixa e-mail salvo localmente', async () => {
+  freshTestDb();
+  // Neste ambiente de teste não existe (e não deveria existir) uma
+  // chave pública publicada de verdade no Firestore -- é exatamente o
+  // estado real de um projeto onde a Central ainda não gerou a chave.
+  const resultado = await backupService.salvarContaGoogle({ email: 'cliente@gmail.com', senha: 'abc123' });
+  assert.equal(resultado.ok, false);
+  assert.ok(resultado.error);
+  // Falhou ANTES de conseguir proteger a senha -- não deve deixar um
+  // e-mail "órfão" salvo localmente sem a senha correspondente em
+  // lugar nenhum seguro.
+  assert.equal(backupService.getStatus().contaGoogleEmail, '');
 });

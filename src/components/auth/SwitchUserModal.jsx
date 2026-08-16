@@ -54,7 +54,7 @@ export function SwitchUserModal({ onClose, onSwitched }) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h2>Trocar de operador</h2>
+        <h2>👤 Trocar de operador</h2>
         <p className="modal-subtitle">
           Encerra a sessão de {currentUser?.nome} neste caixa e entra com outro operador.
         </p>
@@ -86,9 +86,9 @@ export function SwitchUserModal({ onClose, onSwitched }) {
         {loadError && <p className="modal-error">{loadError}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
           <button type="submit" className="btn-primary" disabled={loading || users.length === 0}>
-            {loading ? 'Entrando...' : 'Trocar'}
+            {loading ? 'Entrando...' : '🔄 Trocar'}
           </button>
         </div>
       </form>

@@ -227,7 +227,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
                 {fotoBusy ? 'Aguarde...' : fotoDataUrl ? 'Trocar foto' : 'Adicionar foto'}
               </button>
               {fotoDataUrl && (
-                <button type="button" className="btn-link-danger" onClick={handleFotoRemove} disabled={fotoBusy}>Remover</button>
+                <button type="button" className="btn-link-danger" onClick={handleFotoRemove} disabled={fotoBusy}>🗑️ Remover</button>
               )}
             </>
           ) : (
@@ -262,11 +262,11 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', gridColumn: '1 / -1' }}>
             {!form.codigoBarras && (
               <button type="button" className="btn-secondary" onClick={handleGerarCodigoInterno} disabled={barcodeBusy}>
-                {barcodeBusy ? 'Gerando...' : 'Gerar código de barras interno'}
+                {barcodeBusy ? 'Gerando...' : '🏷️ Gerar código de barras interno'}
               </button>
             )}
             {form.codigoBarras && (
-              <button type="button" className="btn-secondary" onClick={handleImprimirEtiqueta}>Imprimir etiqueta</button>
+              <button type="button" className="btn-secondary" onClick={handleImprimirEtiqueta}>🖨️ Imprimir etiqueta</button>
             )}
             <canvas ref={barcodeCanvasRef} style={{ display: 'none' }} />
           </div>
@@ -328,7 +328,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         </label>
       </div>
 
-      <h3>Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
+      <h3>🧾 Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
       <div className="form-grid">
         <label>NCM
           <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} placeholder="8 dígitos" maxLength={8} />
@@ -353,7 +353,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
 
       {profile?.camposExtras?.length > 0 && (
         <>
-          <h3>Campos do perfil "{profile.nome}"</h3>
+          <h3>📋 Campos do perfil "{profile.nome}"</h3>
           <div className="form-grid">
             {profile.camposExtras.map((campo) => (
               <label key={campo.campo}>
@@ -412,12 +412,12 @@ export function ProductForm({ product, onSaved, onCancel }) {
                     onChange={(e) => atualizarLinhaReceita(i, 'quantidade', e.target.value)}
                     style={{ flex: 1 }}
                   />
-                  <button type="button" className="btn-link-danger" onClick={() => removerLinhaReceita(i)}>Remover</button>
+                  <button type="button" className="btn-link-danger" onClick={() => removerLinhaReceita(i)}>🗑️ Remover</button>
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <button type="button" className="btn-secondary" onClick={adicionarLinhaReceita}>+ Adicionar insumo</button>
-                <button type="button" className="btn-secondary" onClick={salvarFichaTecnica}>Salvar ficha técnica</button>
+                <button type="button" className="btn-secondary" onClick={adicionarLinhaReceita}>➕ Adicionar insumo</button>
+                <button type="button" className="btn-secondary" onClick={salvarFichaTecnica}>💾 Salvar ficha técnica</button>
               </div>
               {fichaSalva && <p className="io-message" style={{ marginTop: 8 }}>{fichaSalva}</p>}
             </div>
@@ -426,9 +426,9 @@ export function ProductForm({ product, onSaved, onCancel }) {
       )}
 
       <div className="modal-actions">
-        <button type="button" className="btn-secondary" onClick={onCancel}>Cancelar</button>
+        <button type="button" className="btn-secondary" onClick={onCancel}>✖️ Cancelar</button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar produto'}
+          {saving ? 'Salvando...' : '💾 Salvar produto'}
         </button>
       </div>
     </form>

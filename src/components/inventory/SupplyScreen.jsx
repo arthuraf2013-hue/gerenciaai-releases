@@ -205,7 +205,7 @@ export function SupplyScreen() {
 
   return (
     <div className="screen">
-      <h1>Abastecimento</h1>
+      <h1>📥 Abastecimento</h1>
       <p className="screen-hint">
         Anexe a nota de compra (foto do celular, PDF ou planilha) — a IA lê fotos e PDF, e a
         planilha (CSV/Excel) é lida direto, sem gastar IA. Depois é só casar cada linha com o
@@ -213,13 +213,13 @@ export function SupplyScreen() {
       </p>
 
       <button className="btn-primary" onClick={handleAnexar} disabled={extracting}>
-        {extracting ? 'Lendo documento...' : 'Anexar nota de compra'}
+        {extracting ? 'Lendo documento...' : '📎 Anexar nota de compra'}
       </button>
       {extractError && <p className="modal-error">{extractError}</p>}
 
       {linhas.length > 0 && (
         <section className="settings-section" style={{ marginTop: 20 }}>
-          <h2>Conferir e confirmar entrada — {arquivoNome}</h2>
+          <h2>✅ Conferir e confirmar entrada — {arquivoNome}</h2>
           {restauradoDeDraft && (
             <p className="screen-hint" style={{ color: 'var(--color-primary)' }}>
               Retomando a conferência de onde você parou.
@@ -248,7 +248,7 @@ export function SupplyScreen() {
                     <ProductPicker value={l.produto} onChange={(p) => atualizarLinha(l.id, { produto: p })} />
                     {!l.produto && (
                       <button type="button" className="btn-link" onClick={() => setCadastrandoLinha(l)}>
-                        + Cadastrar novo produto
+                        ➕ Cadastrar novo produto
                       </button>
                     )}
                   </td>
@@ -261,7 +261,7 @@ export function SupplyScreen() {
                   </td>
                   <td><input style={{ width: 90 }} value={l.lote} onChange={(e) => atualizarLinha(l.id, { lote: e.target.value })} /></td>
                   <td><input type="date" value={l.validade} onChange={(e) => atualizarLinha(l.id, { validade: e.target.value })} /></td>
-                  <td><button className="btn-link-danger" onClick={() => removerLinha(l.id)}>Remover</button></td>
+                  <td><button className="btn-link-danger" onClick={() => removerLinha(l.id)}>🗑️ Remover</button></td>
                 </tr>
               ))}
             </tbody>
@@ -274,10 +274,10 @@ export function SupplyScreen() {
 
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button className="btn-primary" onClick={handleConfirmar} disabled={confirmando}>
-              {confirmando ? 'Confirmando...' : `Confirmar entrada (${linhas.filter((l) => l.produto).length} linha(s))`}
+              {confirmando ? 'Confirmando...' : `✅ Confirmar entrada (${linhas.filter((l) => l.produto).length} linha(s))`}
             </button>
             <button type="button" className="btn-secondary" onClick={handleLimparTudo} disabled={confirmando}>
-              Limpar tudo
+              🗑️ Limpar tudo
             </button>
           </div>
         </section>
@@ -291,7 +291,7 @@ export function SupplyScreen() {
       )}
 
       <section className="settings-section" style={{ marginTop: 28 }}>
-        <h2>Recomendação de venda por validade</h2>
+        <h2>📊 Recomendação de venda por validade</h2>
         <p className="screen-hint">
           Lotes recebidos pelo abastecimento, ordenados pelo vencimento mais próximo primeiro —
           venda estes antes dos que chegaram depois com validade mais distante.

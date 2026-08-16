@@ -30,8 +30,8 @@ export function PromptModal({ titulo, valorInicial, placeholder, onConfirmar, on
             placeholder={placeholder}
           />
           <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn-secondary" onClick={onCancelar}>Cancelar</button>
-            <button type="submit" className="btn-primary">OK</button>
+            <button type="button" className="btn-secondary" onClick={onCancelar}>✖️ Cancelar</button>
+            <button type="submit" className="btn-primary">✅ OK</button>
           </div>
         </form>
       </div>

@@ -126,7 +126,7 @@ export function ProductProfitReport() {
             </tbody>
           </table>
 
-          <h2 style={{ marginTop: 24 }}>Movimento por horário do dia</h2>
+          <h2 style={{ marginTop: 24 }}>📊 Movimento por horário do dia</h2>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100, marginTop: 12 }}>
             {relatorio.horariosPorMovimento.map((h) => (
               <div

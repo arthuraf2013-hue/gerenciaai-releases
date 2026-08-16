@@ -460,6 +460,13 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .data-table { width: 100%; border-collapse: collapse; background: var(--color-surface); border-radius: var(--radius); overflow: hidden; }
 .data-table th, .data-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--color-border); font-size: 14px; vertical-align: middle; }
 .data-table th { background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface)); font-size: 12px; text-transform: uppercase; color: var(--color-text-muted); }
+/* Célula de ações (Editar/Excluir/Devolver etc.) -- os botões ficam
+ * soltos, um do lado do outro, direto na <td> (sem wrapper com gap),
+ * então sem isso eles colavam uns nos outros em qualquer tela com
+ * mais de uma ação por linha (Histórico, Produtos, Clientes,
+ * Usuários...). margin-right em vez de gap porque não dá pra mudar a
+ * <td> pra display:flex sem afetar o alinhamento vertical do resto. */
+.data-table td .btn-link, .data-table td .btn-link-danger { margin-right: 8px; }
 .text-danger { color: var(--color-danger); font-weight: 600; }
 
 .dashboard-stats { display: flex; gap: 14px; margin-bottom: 22px; }
@@ -521,8 +528,21 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 }
 .modal-card-fullscreen-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
-.settings-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-.settings-section { margin-bottom: 28px; }
+.settings-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+/* Cada seção de Configurações vira um card próprio (mesma linguagem visual
+ * de .stat-card/.data-table/.nfce-box no resto do app) -- antes disso, as
+ * ~20 seções da tela ficavam todas soltas no mesmo fundo, sem separação
+ * visual nenhuma além do espaçamento e do <h2>. */
+.settings-section {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 20px 22px; margin-bottom: 18px;
+}
+.settings-section h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0 0 4px; }
+/* Linha de botões de ação dentro de uma seção -- padroniza o que antes
+ * era repetido como style inline (display:flex, gap:10, flexWrap:wrap)
+ * em cada seção separadamente. */
+.settings-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.field-label { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; margin: 0 0 2px; }
 .tables-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-top: 16px; }
 .table-card {
   border-radius: var(--radius); padding: 18px 14px; display: flex; flex-direction: column; gap: 8px;

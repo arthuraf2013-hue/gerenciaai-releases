@@ -24,55 +24,134 @@ function getStatus() {
     ultimoBackupEm: config.ultimo_backup_em,
     ultimoBackupOk: !!config.ultimo_backup_ok,
     pastaSecundaria: config.pasta_secundaria || '',
-    contaNuvemPessoal: config.conta_nuvem_pessoal || '',
+    contaGoogleEmail: config.conta_google_email || '',
   };
 }
 
-function updateConfig({ pastaSecundaria, contaNuvemPessoal } = {}) {
+function updateConfig({ pastaSecundaria } = {}) {
   const db = getDb();
-  const atual = getBackupConfig();
-  // Cada tela chama updateConfig só com o campo que ela mesma edita (ex:
-  // "Escolher pasta secundária" manda só pastaSecundaria) -- um campo
-  // omitido (undefined) preserva o valor já salvo; string vazia '' é uma
-  // limpeza intencional (ex: usuário apagou o texto e salvou em branco).
-  const novaPastaSecundaria = pastaSecundaria !== undefined ? pastaSecundaria : atual.pasta_secundaria;
-  const novaContaNuvemPessoal = contaNuvemPessoal !== undefined ? contaNuvemPessoal : atual.conta_nuvem_pessoal;
-
-  db.prepare('UPDATE backup_config SET pasta_secundaria = ?, conta_nuvem_pessoal = ? WHERE id = ?').run(
-    novaPastaSecundaria || null,
-    novaContaNuvemPessoal || null,
-    'default'
-  );
+  db.prepare('UPDATE backup_config SET pasta_secundaria = ? WHERE id = ?').run(pastaSecundaria || null, 'default');
 
   // Pedido explícito: essa configuração precisa "disparar e se apresentar
   // na Central para análise visual" assim que salva, não só na próxima
   // sincronização periódica de 6h. Melhor esforço -- se não tiver
   // internet agora, a config local já foi salva normalmente e o próximo
   // ciclo de sincronização reporta pra Central mais tarde.
-  reportarConfigBackupParaCentral({ pastaSecundaria: novaPastaSecundaria, contaNuvemPessoal: novaContaNuvemPessoal }).catch((err) => {
+  reportarConfigBackupParaCentral({ pastaSecundaria }).catch((err) => {
     console.error('[backupService] falha ao reportar config de backup pra Central (melhor esforço)', err);
   });
 
   return { ok: true };
 }
 
-async function reportarConfigBackupParaCentral({ pastaSecundaria, contaNuvemPessoal }) {
+async function reportarConfigBackupParaCentral({ pastaSecundaria }) {
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
-  const { getFirestore, doc, setDoc, serverTimestamp } = require('firebase/firestore');
+  const { getFirestore, doc, setDoc } = require('firebase/firestore');
 
   const installId = pdvRegistryService.getOrCreateDeviceUid();
   const firestore = getFirestore(licenseService.getLicenseApp());
 
   await setDoc(
     doc(firestore, 'installations', installId),
-    {
-      backupPastaSecundariaConfigurada: !!(pastaSecundaria || ''),
-      backupContaNuvemPessoal: contaNuvemPessoal || '',
-      backupContaNuvemPessoalAtualizadaEm: serverTimestamp(),
-    },
+    { backupPastaSecundariaConfigurada: !!(pastaSecundaria || '') },
     { merge: true }
   );
+}
+
+/**
+ * Conta Google criada pelo técnico direto da tela de Configurações
+ * ("Criar conta Google" abre o cadastro do Google no navegador; depois
+ * de criada, o e-mail e a senha são salvos aqui). Pedido explícito:
+ * o e-mail deve aparecer na Central sem senha nenhuma, e a senha só deve
+ * aparecer lá pra quem destrava o Cofre com a master key.
+ *
+ * O app aqui NÃO tem (e não deveria ter) a master key -- ela só existe
+ * no navegador de quem usa a Central, de propósito (ver Cofre de senhas
+ * no admin-panel). Pra mesmo assim proteger a senha sem o app conhecer
+ * a master key, usa criptografia de chave pública (RSA-OAEP):
+ *   1. A Central, quando o Cofre é destravado, gera (uma única vez) um
+ *      par de chaves. A pública vai pra 'config_publica/chave_contas_google'
+ *      (documento de leitura aberta -- não é segredo). A privada é
+ *      cifrada com a MESMA chave do Cofre (derivada da master key) e
+ *      fica em 'cofre_config/chave_contas_google' (leitura só admin).
+ *   2. O app aqui busca só a chave PÚBLICA (não precisa de login pra
+ *      isso) e cifra a senha com ela antes de mandar pro Firestore.
+ *   3. Só quem destrava o Cofre com a master key consegue decifrar a
+ *      chave privada e, com ela, ler a senha de volta.
+ * Ou seja: o app consegue PROTEGER a senha sem nunca conseguir LER
+ * nenhuma senha já protegida (nem a própria que acabou de mandar).
+ */
+async function buscarChavePublicaContasGoogle() {
+  const licenseService = require('./licenseService');
+  const { getFirestore, doc, getDoc } = require('firebase/firestore');
+  const firestore = getFirestore(licenseService.getLicenseApp());
+  const snap = await getDoc(doc(firestore, 'config_publica', 'chave_contas_google'));
+  if (!snap.exists() || !snap.data()?.chavePublicaSpki) {
+    throw new Error('A Central ainda não gerou a chave de proteção de contas Google (isso é feito uma vez só, na aba Cofre de senhas).');
+  }
+  return snap.data().chavePublicaSpki;
+}
+
+async function cifrarComChavePublica(chavePublicaSpkiBase64, textoPlano) {
+  const { webcrypto } = require('node:crypto');
+  const spkiBytes = Buffer.from(chavePublicaSpkiBase64, 'base64');
+  const chavePublica = await webcrypto.subtle.importKey(
+    'spki',
+    spkiBytes,
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    false,
+    ['encrypt']
+  );
+  const cifrado = await webcrypto.subtle.encrypt(
+    { name: 'RSA-OAEP' },
+    chavePublica,
+    new TextEncoder().encode(textoPlano)
+  );
+  return Buffer.from(cifrado).toString('base64');
+}
+
+/**
+ * Salva (ou atualiza) a conta Google vinculada a esta instalação. É uma
+ * ação direta do usuário (botão "Salvar conta"), não melhor-esforço em
+ * segundo plano como o resto do arquivo -- se falhar (sem internet, ou
+ * a Central ainda não gerou a chave de proteção), quem chamou precisa
+ * saber pra avisar o usuário e ele tentar de novo, já que a senha
+ * NUNCA é salva localmente (só em memória até ser cifrada e enviada).
+ */
+async function salvarContaGoogle({ email, senha }) {
+  const emailLimpo = String(email || '').trim();
+  const senhaLimpa = String(senha || '');
+  if (!emailLimpo || !senhaLimpa) {
+    return { ok: false, error: 'Preencha e-mail e senha.' };
+  }
+
+  const licenseService = require('./licenseService');
+  const pdvRegistryService = require('./pdvRegistryService');
+  const { getFirestore, doc, setDoc, serverTimestamp } = require('firebase/firestore');
+
+  try {
+    const chavePublica = await buscarChavePublicaContasGoogle();
+    const senhaCifradaRsa = await cifrarComChavePublica(chavePublica, senhaLimpa);
+
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+    const firestore = getFirestore(licenseService.getLicenseApp());
+    await setDoc(
+      doc(firestore, 'contas_google', installId),
+      { email: emailLimpo, senhaCifradaRsa, atualizadoEm: serverTimestamp() }
+    );
+
+    // Só grava o e-mail localmente DEPOIS de confirmar que a senha foi
+    // protegida e enviada -- evita ficar com um e-mail salvo aqui sem a
+    // senha correspondente ter chegado em algum lugar seguro.
+    const db = getDb();
+    db.prepare('UPDATE backup_config SET conta_google_email = ? WHERE id = ?').run(emailLimpo, 'default');
+
+    return { ok: true };
+  } catch (err) {
+    console.error('[backupService] falha ao salvar conta Google', err);
+    return { ok: false, error: `Não deu pra salvar (precisa de internet): ${err.message}` };
+  }
 }
 
 function nomeArquivoBackup() {
@@ -451,5 +530,9 @@ function restaurarArquivosAdicionaisSeHouver() {
 
 module.exports = {
   getStatus, updateConfig, runBackup, runBackupIfNeeded, listBackups, restoreBackup, backupsDir, getDbPath,
-  restaurarSolicitadoSeHouver, executarBackupRemotoSeSolicitado,
+  restaurarSolicitadoSeHouver, executarBackupRemotoSeSolicitado, salvarContaGoogle,
+  // Exportado só pra teste direto da criptografia (ver tests/backupService.test.js)
+  // -- sem precisar de um projeto Firebase de verdade pra validar o
+  // round-trip cifra/decifra em si.
+  cifrarComChavePublica,
 };

@@ -42,14 +42,14 @@ const STATUS_SEPARACAO_LABEL = { novo: 'Novo', em_separacao: 'Em separação', p
 
 const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
-  { id: 'pos', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'restaurant', label: 'Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'pos', label: '🛒 PDV', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'restaurant', label: '🍽️ Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
 
-  { id: 'history', label: 'Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'returns', label: 'Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'delivery', label: 'Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'quotes', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'agenda', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
+  { id: 'history', label: '🧾 Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'returns', label: '↩️ Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'delivery', label: '🚚 Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'quotes', label: '📋 Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'agenda', label: '📅 Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
 
   // Setor à parte, fora de qualquer perfil de negócio — só aparece
   // quando o admin ativa em Configurações (é onde o pedido separado
@@ -57,23 +57,27 @@ const NAV_ITEMS = [
   // separar). `requerBotDelivery` é filtrado dinamicamente abaixo,
   // igual a `perfil` — não dá pra decidir isso na hora de montar esta
   // lista estática porque depende de uma configuração salva no banco.
-  { id: 'botOrders', label: 'Separação', roles: ['operador', 'gerente', 'admin'], section: 'Separação', requerBotDelivery: true },
+  { id: 'botOrders', label: '📦 Separação', roles: ['operador', 'gerente', 'admin'], section: 'Separação', requerBotDelivery: true },
 
-  { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
-  { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
+  { id: 'products', label: '🏷️ Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
+  { id: 'customers', label: '👥 Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
 
-  { id: 'dashboard', label: 'Painel', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'supply', label: 'Abastecimento', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'financeiro', label: 'Financeiro', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
-  { id: 'users', label: 'Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'dashboard', label: '📊 Painel', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'supply', label: '📥 Abastecimento', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'financeiro', label: '💰 Financeiro', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'alerts', label: '⚠️ Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
+  { id: 'users', label: '🧑‍💼 Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
 
   // Gerente também vê Configurações agora (pra poder conectar/gerenciar
   // o canal de WhatsApp sozinho) — seções realmente restritas a admin
   // (segurança, restaurar backup) continuam bloqueadas no backend
   // mesmo que a tela apareça (ver authService.requireRole nos handlers).
-  { id: 'settings', label: 'Configurações', roles: ['gerente', 'admin'], section: 'Sistema' },
+  { id: 'settings', label: '⚙️ Configurações', roles: ['gerente', 'admin'], section: 'Sistema' },
 ];
+
+// Emoji dos títulos de seção (gaveta) da barra lateral — puramente
+// visual, pra bater com o mesmo padrão usado nas abas de Configurações.
+const SECTION_EMOJI = { Vendas: '💵', Separação: '📦', Cadastros: '🗂️', Gestão: '📈', Sistema: '⚙️' };
 
 export function AppShell() {
   const { currentUser, logout } = useSession();
@@ -230,7 +234,7 @@ export function AppShell() {
                     onClick={() => alternarSecao(grupo.titulo)}
                     aria-expanded={!fechado}
                   >
-                    <span>{grupo.titulo}</span>
+                    <span>{SECTION_EMOJI[grupo.titulo] ? `${SECTION_EMOJI[grupo.titulo]} ${grupo.titulo}` : grupo.titulo}</span>
                     <svg
                       className={fechado ? 'nav-section-arrow nav-section-arrow-fechado' : 'nav-section-arrow'}
                       width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"

@@ -35,7 +35,7 @@ export function OpenCashScreen({ locationId, onOpened }) {
   return (
     <div className="login-screen">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h1>Abrir caixa</h1>
+        <h1>💰 Abrir caixa</h1>
         <p className="modal-subtitle">
           Informe quanto em dinheiro está no caixa agora, antes da primeira venda do turno.
         </p>
@@ -50,7 +50,7 @@ export function OpenCashScreen({ locationId, onOpened }) {
         </label>
         {error && <p className="modal-error">{error}</p>}
         <button className="btn-primary" type="submit" disabled={saving}>
-          {saving ? 'Abrindo...' : 'Abrir caixa e começar a vender'}
+          {saving ? 'Abrindo...' : '💰 Abrir caixa e começar a vender'}
         </button>
       </form>
     </div>

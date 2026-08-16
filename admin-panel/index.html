@@ -335,6 +335,22 @@
         </div>
 
         <div id="cofre-desbloqueado" style="display:none;">
+          <div id="cofre-contas-google-card" class="card" style="background: var(--surface2); margin-bottom: 18px;">
+            <h2 style="font-size:14px; margin-bottom:4px;">🌐 Contas Google vinculadas</h2>
+            <p class="cliente-resumo" style="margin-bottom:10px;">
+              Criadas pelo próprio app na tela Configurações → Backup de cada instalação. O
+              e-mail sempre aparece; a senha só descriptografa aqui, com o cofre destravado —
+              nunca passa em texto puro por fora deste navegador.
+            </p>
+            <div id="cofre-chave-contas-google-setup" style="display:none; margin-bottom:12px;">
+              <p class="cliente-resumo" style="margin-bottom:8px;">
+                Ainda não existe uma chave de proteção pra contas Google — gere uma vez só (feito
+                isso, os apps já conseguem proteger as senhas que forem salvando sozinhos).
+              </p>
+              <button class="btn-primary btn-small" id="cofre-gerar-chave-contas-google-btn">Gerar chave de proteção</button>
+            </div>
+            <div id="cofre-contas-google-lista"></div>
+          </div>
           <div class="modal-form" style="flex-direction: row; flex-wrap: wrap; align-items:center; margin-bottom: 14px;">
             <input type="text" id="cofre-filtro-texto" placeholder="Buscar por rótulo, endereço, usuário, notas..." style="flex:2; min-width:220px;">
             <select id="cofre-filtro-cliente" style="flex:1; min-width:160px;"></select>
@@ -343,6 +359,7 @@
               <option value="RDP">RDP</option>
               <option value="TeamViewer">TeamViewer</option>
               <option value="AnyDesk">AnyDesk</option>
+              <option value="DWService">DWService</option>
               <option value="VPN">VPN</option>
               <option value="Admin Windows">Admin Windows</option>
               <option value="Roteador">Roteador</option>
@@ -514,6 +531,15 @@
   let cofreEntradasDecifradas = [];
   let cofreEdicaoId = null;
   let pararEscutaCofre = null;
+  // Contas Google criadas pelos apps (tela Configurações -> Backup de
+  // cada instalação) -- guardadas cifradas com RSA (chave pública que o
+  // app já tem, chave privada só decifrável aqui com a senha-mestra).
+  // Ver comentário completo em reportarConfigBackupParaCentral/
+  // salvarContaGoogle no backupService.js do app.
+  let contasGoogleCifradas = [];
+  let pararEscutaContasGoogle = null;
+  let chaveContasGoogleDoc = null; // {chavePrivadaEnc} cacheado do Firestore
+  let chavePrivadaContasGoogleImportada = null; // CryptoKey, importada só na primeira revelação
   let backupsEscutaIniciada = false; // garante que só abre a escuta da máquina selecionada uma vez
   let mensagemConfig = null;
   let errosReportados = [];
@@ -1179,20 +1205,19 @@
     }
   }
 
-  // Config de backup extra (pasta secundária / conta de nuvem pessoal)
-  // que a própria máquina reporta pro documento da instalação assim que
-  // o cliente salva na tela de Configurações — só "análise visual" aqui,
-  // não é editável pela Central.
+  // Config de pasta secundária que a própria máquina reporta pro
+  // documento da instalação assim que o cliente escolhe/troca ela na
+  // tela de Configurações — só "análise visual" aqui, não é editável
+  // pela Central. A conta Google (se houver) aparece na aba Cofre, em
+  // "Contas Google vinculadas" -- e-mail sempre visível, senha só com
+  // o cofre destravado.
   function renderBackupsConfigExtra() {
     const id = document.getElementById('backups-select-maquina').value;
     const div = document.getElementById('backups-config-extra');
     const inst = instalacoes.find((i) => i.id === id);
     if (!inst) { div.innerHTML = ''; return; }
     const pastaOk = !!inst.backupPastaSecundariaConfigurada;
-    const conta = (inst.backupContaNuvemPessoal || '').trim();
-    div.innerHTML =
-      `Pasta secundária: <strong>${pastaOk ? 'configurada' : 'não configurada'}</strong>` +
-      ` &nbsp;·&nbsp; Conta de nuvem pessoal: <strong>${conta ? escapeHtml(conta) : 'não informada'}</strong>`;
+    div.innerHTML = `Pasta secundária: <strong>${pastaOk ? 'configurada' : 'não configurada'}</strong>`;
   }
 
   document.getElementById('backups-select-maquina').addEventListener('change', () => {
@@ -1474,15 +1499,146 @@
     document.getElementById('cofre-desbloqueado').style.display = 'block';
     popularSelectClientesCofre();
     escutarCofre();
+    verificarChaveContasGoogle();
+    escutarContasGoogle();
   }
 
   document.getElementById('cofre-bloquear-btn').addEventListener('click', () => {
     cofreChave = null;
     cofreEntradasDecifradas = [];
+    chavePrivadaContasGoogleImportada = null; // some junto com a chave-mestra -- precisa desbloquear de novo pra revelar senha de novo
     if (pararEscutaCofre) { pararEscutaCofre(); pararEscutaCofre = null; }
+    if (pararEscutaContasGoogle) { pararEscutaContasGoogle(); pararEscutaContasGoogle = null; }
     document.getElementById('cofre-desbloqueado').style.display = 'none';
     document.getElementById('cofre-bloqueado-unlock').style.display = 'block';
   });
+
+  // --- Contas Google vinculadas (criadas pelos apps) ---
+
+  async function verificarChaveContasGoogle() {
+    try {
+      const snap = await getDoc(doc(db, 'cofre_config', 'chave_contas_google'));
+      chaveContasGoogleDoc = snap.exists() ? snap.data() : null;
+      document.getElementById('cofre-chave-contas-google-setup').style.display = chaveContasGoogleDoc ? 'none' : 'block';
+    } catch (err) {
+      mostrarErro(err, 'checar a chave de proteção de contas Google');
+    }
+  }
+
+  document.getElementById('cofre-gerar-chave-contas-google-btn').addEventListener('click', async () => {
+    if (!confirm(
+      'Gerar a chave de proteção de contas Google agora? Isso só precisa ser feito uma vez -- ' +
+      'gerar de novo depois faria os apps continuarem protegendo com a chave nova, mas contas já ' +
+      'salvas com a chave antiga ficariam impossíveis de decifrar (perderia acesso às senhas já guardadas).'
+    )) return;
+    limparErro();
+    try {
+      const par = await crypto.subtle.generateKey(
+        { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+        true,
+        ['encrypt', 'decrypt']
+      );
+      const chavePublicaSpki = cofreBase64Encode(await crypto.subtle.exportKey('spki', par.publicKey));
+      const chavePrivadaJwk = JSON.stringify(await crypto.subtle.exportKey('jwk', par.privateKey));
+      const chavePrivadaEnc = await cofreCriptografar(cofreChave, chavePrivadaJwk);
+
+      await setDoc(doc(db, 'cofre_config', 'chave_contas_google'), { chavePrivadaEnc, criadoEm: serverTimestamp() });
+      await setDoc(doc(db, 'config_publica', 'chave_contas_google'), { chavePublicaSpki, atualizadoEm: serverTimestamp() });
+
+      await verificarChaveContasGoogle();
+    } catch (err) {
+      mostrarErro(err, 'gerar a chave de proteção de contas Google');
+    }
+  });
+
+  function escutarContasGoogle() {
+    if (pararEscutaContasGoogle) pararEscutaContasGoogle();
+    pararEscutaContasGoogle = onSnapshot(
+      collection(db, 'contas_google'),
+      (snap) => {
+        contasGoogleCifradas = snap.docs.map((d) => ({ instalacaoId: d.id, ...d.data() }));
+        renderListaContasGoogle();
+      },
+      (err) => mostrarErro(err, 'carregar as contas Google vinculadas')
+    );
+  }
+
+  function renderListaContasGoogle() {
+    const div = document.getElementById('cofre-contas-google-lista');
+    if (contasGoogleCifradas.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhuma conta Google vinculada ainda.</p>';
+      return;
+    }
+    div.innerHTML = contasGoogleCifradas.map((c) => {
+      const inst = instalacoes.find((i) => i.id === c.instalacaoId);
+      const nomeInst = inst ? nomeDaInstalacaoComCliente(inst) : c.instalacaoId;
+      return `
+        <div class="maquina-row" data-conta-google-id="${escapeHtml(c.instalacaoId)}">
+          <span>${escapeHtml(nomeInst)} — ${escapeHtml(c.email || '')}</span>
+          <span class="senha-mascarada" data-senha-mascarada>••••••••</span>
+          <div class="maquina-acoes" style="margin-left:auto;">
+            <button class="btn-secondary btn-small" data-conta-google-revelar>Ver senha</button>
+            <button class="btn-secondary btn-small" data-conta-google-copiar>Copiar senha</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    div.querySelectorAll('[data-conta-google-revelar]').forEach((btn) => {
+      btn.addEventListener('click', () => revelarSenhaContaGoogle(btn));
+    });
+    div.querySelectorAll('[data-conta-google-copiar]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        try {
+          const linha = btn.closest('[data-conta-google-id]');
+          const span = linha.querySelector('[data-senha-mascarada]');
+          if (!span.dataset.senhaReal) await revelarSenhaContaGoogle(linha.querySelector('[data-conta-google-revelar]'));
+          navigator.clipboard?.writeText(span.dataset.senhaReal || '').catch(() => {});
+          const original = e.currentTarget.textContent;
+          e.currentTarget.textContent = 'Copiado!';
+          setTimeout(() => { e.currentTarget.textContent = original; }, 1200);
+        } catch (err) {
+          mostrarErro(err, 'copiar a senha dessa conta Google');
+        }
+      });
+    });
+  }
+
+  async function importarChavePrivadaContasGoogle() {
+    if (chavePrivadaContasGoogleImportada) return chavePrivadaContasGoogleImportada;
+    if (!chaveContasGoogleDoc) throw new Error('Chave de proteção de contas Google ainda não foi gerada.');
+    const jwkTexto = await cofreDescriptografar(cofreChave, chaveContasGoogleDoc.chavePrivadaEnc);
+    const jwk = JSON.parse(jwkTexto);
+    chavePrivadaContasGoogleImportada = await crypto.subtle.importKey(
+      'jwk', jwk, { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['decrypt']
+    );
+    return chavePrivadaContasGoogleImportada;
+  }
+
+  async function revelarSenhaContaGoogle(btn) {
+    const linha = btn.closest('[data-conta-google-id]');
+    const instalacaoId = linha.dataset.contaGoogleId;
+    const span = linha.querySelector('[data-senha-mascarada]');
+    if (span.dataset.senhaReal) {
+      // Já decifrou nessa sessão -- só alterna mostrar/ocultar, não
+      // precisa decifrar de novo.
+      const mostrando = span.textContent !== '••••••••';
+      span.textContent = mostrando ? '••••••••' : span.dataset.senhaReal;
+      btn.textContent = mostrando ? 'Ver senha' : 'Ocultar';
+      return;
+    }
+    try {
+      const chavePrivada = await importarChavePrivadaContasGoogle();
+      const entrada = contasGoogleCifradas.find((c) => c.instalacaoId === instalacaoId);
+      const cifradoBytes = cofreBase64Decode(entrada.senhaCifradaRsa);
+      const buffer = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, chavePrivada, cifradoBytes);
+      const senha = new TextDecoder().decode(buffer);
+      span.dataset.senhaReal = senha;
+      span.textContent = senha;
+      btn.textContent = 'Ocultar';
+    } catch (err) {
+      mostrarErro(err, 'decifrar a senha dessa conta Google');
+    }
+  }
 
   function escutarCofre() {
     if (pararEscutaCofre) pararEscutaCofre();

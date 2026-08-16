@@ -56,14 +56,14 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
     return (
       <div className="modal-overlay">
         <div className="modal-card">
-          <h2>Caixa fechado</h2>
+          <h2>💰 Caixa fechado</h2>
           <p>Valor esperado: <strong>R$ {resultado.valorEsperado.toFixed(2)}</strong></p>
           <p className={diff === 0 ? 'io-message' : 'modal-error'}>
             {diff === 0 ? 'Sem diferença — caixa bateu certinho.' :
               diff > 0 ? `Sobrou R$ ${diff.toFixed(2)} em relação ao esperado.` :
                 `Faltou R$ ${Math.abs(diff).toFixed(2)} em relação ao esperado.`}
           </p>
-          <button className="btn-primary" onClick={onClosed}>Concluir</button>
+          <button className="btn-primary" onClick={onClosed}>✅ Concluir</button>
         </div>
       </div>
     );
@@ -72,7 +72,7 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
   return (
     <div className="modal-overlay">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h2>Fechar caixa</h2>
+        <h2>💰 Fechar caixa</h2>
         {loadError && <p className="modal-error">{loadError}</p>}
         {summary && (
           <div className="cash-summary">
@@ -89,8 +89,8 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
         </label>
         {error && <p className="modal-error">{error}</p>}
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onCancel}>Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Fechando...' : 'Fechar caixa'}</button>
+          <button type="button" className="btn-secondary" onClick={onCancel}>✖️ Cancelar</button>
+          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Fechando...' : '💰 Fechar caixa'}</button>
         </div>
       </form>
     </div>

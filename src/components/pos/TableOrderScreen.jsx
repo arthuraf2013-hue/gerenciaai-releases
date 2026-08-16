@@ -465,7 +465,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       {editandoObs && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={salvarObs}>
-            <h2>Observação do item</h2>
+            <h2>✏️ Observação do item</h2>
             <label>Ex: sem cebola, ponto da carne mal passado...
               <textarea
                 rows={3}
@@ -476,8 +476,8 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             </label>
             <p className="screen-hint" style={{ margin: 0 }}>Vai junto na próxima comanda impressa pra cozinha.</p>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setEditandoObs(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary">Salvar</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditandoObs(null)}>✖️ Cancelar</button>
+              <button type="submit" className="btn-primary">💾 Salvar</button>
             </div>
           </form>
         </div>
@@ -485,7 +485,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       {showTransferir && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h2>Transferir pra qual mesa?</h2>
+            <h2>🍽️ Transferir pra qual mesa?</h2>
             <p className="screen-hint" style={{ margin: '0 0 10px' }}>
               A comanda inteira (itens, pessoas) vai pra mesa escolhida — essa mesa aqui fica
               aguardando limpeza.
@@ -506,7 +506,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               </div>
             )}
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setShowTransferir(false)}>Cancelar</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowTransferir(false)}>✖️ Cancelar</button>
             </div>
           </div>
         </div>

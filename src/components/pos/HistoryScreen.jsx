@@ -15,8 +15,8 @@ export function HistoryScreen({ onDevolver }) {
     <div className="screen">
       {podeVerFechamentos && (
         <div className="settings-tabs" style={{ marginTop: 0 }}>
-          <button className={aba === 'vendas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('vendas')}>Vendas</button>
-          <button className={aba === 'caixa' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('caixa')}>Fechamentos de caixa</button>
+          <button className={aba === 'vendas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('vendas')}>🧾 Vendas</button>
+          <button className={aba === 'caixa' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('caixa')}>💰 Fechamentos de caixa</button>
         </div>
       )}
 

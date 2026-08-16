@@ -64,8 +64,8 @@ export function SupplierList() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>Fornecedores</h1>
-        <button className="btn-primary" onClick={startNew}>Novo fornecedor</button>
+        <h1>🚚 Fornecedores</h1>
+        <button className="btn-primary" onClick={startNew}>➕ Novo fornecedor</button>
       </div>
 
       {editing && (
@@ -78,8 +78,8 @@ export function SupplierList() {
           </div>
           {saveError && <p className="modal-error">{saveError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn-primary" type="submit">Salvar</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+            <button className="btn-primary" type="submit">💾 Salvar</button>
+            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>✖️ Cancelar</button>
           </div>
         </form>
       )}
@@ -93,7 +93,7 @@ export function SupplierList() {
           {suppliers.map((s) => (
             <tr key={s.id}>
               <td>{s.nome}</td><td>{s.cnpj_cpf}</td><td>{s.telefone}</td>
-              <td><button className="btn-link" onClick={() => startEdit(s)}>Editar</button></td>
+              <td><button className="btn-link" onClick={() => startEdit(s)}>✏️ Editar</button></td>
             </tr>
           ))}
         </tbody>
@@ -101,7 +101,7 @@ export function SupplierList() {
       )}
 
       <section className="settings-section" style={{ marginTop: 28 }}>
-        <h2>Lista de compra sugerida</h2>
+        <h2>🚚 Lista de compra sugerida</h2>
         <p className="screen-hint">
           Baseada na velocidade de venda dos últimos 30 dias — sem IA, só estatística. Só considera
           produtos no estoque mínimo ou abaixo. Agrupada por fornecedor, pronta pra levar ou mandar.
@@ -109,11 +109,11 @@ export function SupplierList() {
         </p>
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn-secondary" onClick={carregarSugestoes} disabled={carregandoSugestoes}>
-            {carregandoSugestoes ? 'Calculando...' : 'Calcular sugestão'}
+            {carregandoSugestoes ? 'Calculando...' : '🔄 Calcular sugestão'}
           </button>
           {sugestoes.length > 0 && (
             <button className="btn-secondary" onClick={handleExportarLista} disabled={exportandoLista}>
-              {exportandoLista ? 'Exportando...' : 'Exportar planilha'}
+              {exportandoLista ? 'Exportando...' : '📊 Exportar planilha'}
             </button>
           )}
         </div>

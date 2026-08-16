@@ -161,8 +161,8 @@ export function RestaurantTables() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>Mesas</h1>
-        <button className="btn-primary" onClick={() => setShowNew(true)}>+ Nova mesa</button>
+        <h1>🍽️ Mesas</h1>
+        <button className="btn-primary" onClick={() => setShowNew(true)}>➕ Nova mesa</button>
       </div>
       <p className="screen-hint">
         Clique numa mesa livre ou reservada pra abrir uma comanda (informando quantas pessoas —
@@ -197,7 +197,7 @@ export function RestaurantTables() {
                   <span className="table-card-status">Livre</span>
                   <div className="table-card-actions">
                     <button type="button" className="table-card-action" onClick={(e) => abrirReserva(t, e)}>Reservar</button>
-                    <button type="button" className="table-card-excluir" onClick={(e) => handleExcluirMesa(t, e)}>Excluir</button>
+                    <button type="button" className="table-card-excluir" onClick={(e) => handleExcluirMesa(t, e)}>🗑️ Excluir</button>
                   </div>
                 </>
               )}
@@ -225,7 +225,7 @@ export function RestaurantTables() {
       {showNew && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={handleCriarMesa}>
-            <h2>Nova mesa</h2>
+            <h2>🍽️ Nova mesa</h2>
             <label>Número
               <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} required autoFocus />
             </label>
@@ -234,8 +234,8 @@ export function RestaurantTables() {
             </label>
             {createError && <p className="modal-error">{createError}</p>}
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}>Cancelar</button>
-              <button type="submit" className="btn-primary">Criar</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}>✖️ Cancelar</button>
+              <button type="submit" className="btn-primary">➕ Criar</button>
             </div>
           </form>
         </div>
@@ -244,7 +244,7 @@ export function RestaurantTables() {
       {abrindoMesa && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={confirmarAbrirMesa}>
-            <h2>Abrir {abrindoMesa.nome || `Mesa ${abrindoMesa.numero}`}</h2>
+            <h2>🍽️ Abrir {abrindoMesa.nome || `Mesa ${abrindoMesa.numero}`}</h2>
             <label>Quantas pessoas?
               <input
                 type="number" min="1" value={pessoasInput}
@@ -257,8 +257,8 @@ export function RestaurantTables() {
               os pagamentos automaticamente.
             </p>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setAbrindoMesa(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary">Abrir mesa</button>
+              <button type="button" className="btn-secondary" onClick={() => setAbrindoMesa(null)}>✖️ Cancelar</button>
+              <button type="submit" className="btn-primary">🍽️ Abrir mesa</button>
             </div>
           </form>
         </div>
@@ -267,7 +267,7 @@ export function RestaurantTables() {
       {reservandoMesa && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={confirmarReserva}>
-            <h2>Reservar {reservandoMesa.nome || `Mesa ${reservandoMesa.numero}`}</h2>
+            <h2>🍽️ Reservar {reservandoMesa.nome || `Mesa ${reservandoMesa.numero}`}</h2>
             <label>Pra quando? (opcional)
               <input
                 type="datetime-local"
@@ -280,8 +280,8 @@ export function RestaurantTables() {
               Deixe em branco se for só uma reserva sem hora marcada.
             </p>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setReservandoMesa(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary">Reservar</button>
+              <button type="button" className="btn-secondary" onClick={() => setReservandoMesa(null)}>✖️ Cancelar</button>
+              <button type="submit" className="btn-primary">🍽️ Reservar</button>
             </div>
           </form>
         </div>

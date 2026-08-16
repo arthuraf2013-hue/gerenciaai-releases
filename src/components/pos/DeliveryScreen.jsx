@@ -107,7 +107,7 @@ function DeliveryQueue() {
                 </td>
                 <td>
                   {d.clienteTelefone && (d.status === 'em_rota' || d.status === 'entregue') && (
-                    <button className="btn-link" onClick={() => handleAvisar(d.id)}>Avisar cliente</button>
+                    <button className="btn-link" onClick={() => handleAvisar(d.id)}>💬 Avisar cliente</button>
                   )}
                 </td>
               </tr>
@@ -120,7 +120,7 @@ function DeliveryQueue() {
         <div className="modal-overlay">
           <div className="modal-card">
             <form onSubmit={handleCriarEntrega}>
-              <h2>Nova entrega</h2>
+              <h2>➕ Nova entrega</h2>
               <p className="screen-hint" style={{ margin: '0 0 8px' }}>
                 Pra criar uma entrega vinculada a uma venda já finalizada, use o botão de entrega
                 direto na tela de Histórico. Aqui é pra pedido avulso (por telefone, por exemplo).
@@ -129,8 +129,8 @@ function DeliveryQueue() {
               <label>Taxa de entrega<input type="number" step="0.01" value={novaForm.taxaEntrega} onChange={(e) => setNovaForm({ ...novaForm, taxaEntrega: e.target.value })} /></label>
               <label>Observações<input value={novaForm.observacoes} onChange={(e) => setNovaForm({ ...novaForm, observacoes: e.target.value })} /></label>
               <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setShowNova(false)}>Cancelar</button>
-                <button type="submit" className="btn-primary">Criar</button>
+                <button type="button" className="btn-secondary" onClick={() => setShowNova(false)}>✖️ Cancelar</button>
+                <button type="submit" className="btn-primary">➕ Criar</button>
               </div>
             </form>
           </div>
@@ -180,8 +180,8 @@ function CadastroSimples({ titulo, campos, listFn, upsertFn, deactivateFn }) {
               <tr key={item.id}>
                 {campos.map((c) => <td key={c.chave}>{item[c.chave] || '—'}</td>)}
                 <td>
-                  <button className="btn-link" onClick={() => setEditando({ id: item.id, ...Object.fromEntries(campos.map((c) => [c.chave, item[c.chave] || ''])) })}>Editar</button>
-                  <button className="btn-link-danger" style={{ marginLeft: 10 }} onClick={() => handleExcluir(item.id)}>Remover</button>
+                  <button className="btn-link" onClick={() => setEditando({ id: item.id, ...Object.fromEntries(campos.map((c) => [c.chave, item[c.chave] || ''])) })}>✏️ Editar</button>
+                  <button className="btn-link-danger" onClick={() => handleExcluir(item.id)}>🗑️ Remover</button>
                 </td>
               </tr>
             ))}
@@ -198,8 +198,8 @@ function CadastroSimples({ titulo, campos, listFn, upsertFn, deactivateFn }) {
                 <label key={c.chave}>{c.label}<input value={editando[c.chave]} onChange={(e) => setEditando({ ...editando, [c.chave]: e.target.value })} autoFocus={c === campos[0]} /></label>
               ))}
               <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setEditando(null)}>Cancelar</button>
-                <button type="submit" className="btn-primary">Salvar</button>
+                <button type="button" className="btn-secondary" onClick={() => setEditando(null)}>✖️ Cancelar</button>
+                <button type="submit" className="btn-primary">💾 Salvar</button>
               </div>
             </form>
           </div>
@@ -217,30 +217,30 @@ export function DeliveryScreen() {
       <h1>Delivery</h1>
 
       <div className="settings-tabs" style={{ marginTop: 0 }}>
-        <button className={aba === 'entregas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('entregas')}>Entregas</button>
-        <button className={aba === 'rotas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('rotas')}>Rotas</button>
-        <button className={aba === 'veiculos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('veiculos')}>Veículos</button>
-        <button className={aba === 'entregadores' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('entregadores')}>Entregadores</button>
+        <button className={aba === 'entregas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('entregas')}>🚚 Entregas</button>
+        <button className={aba === 'rotas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('rotas')}>🗺️ Rotas</button>
+        <button className={aba === 'veiculos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('veiculos')}>🚗 Veículos</button>
+        <button className={aba === 'entregadores' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('entregadores')}>🛵 Entregadores</button>
       </div>
 
       {aba === 'entregas' && <DeliveryQueue />}
       {aba === 'rotas' && (
         <CadastroSimples
-          titulo="Rota"
+          titulo="🗺️ Rota"
           campos={[{ chave: 'nome', label: 'Nome' }, { chave: 'descricao', label: 'Área/bairros' }]}
           listFn={window.pdv.delivery.listRoutes} upsertFn={window.pdv.delivery.upsertRoute} deactivateFn={window.pdv.delivery.deactivateRoute}
         />
       )}
       {aba === 'veiculos' && (
         <CadastroSimples
-          titulo="Veículo"
+          titulo="🚗 Veículo"
           campos={[{ chave: 'modelo', label: 'Modelo' }, { chave: 'placa', label: 'Placa' }, { chave: 'tipo', label: 'Tipo (moto, carro, bike...)' }]}
           listFn={window.pdv.delivery.listVehicles} upsertFn={window.pdv.delivery.upsertVehicle} deactivateFn={window.pdv.delivery.deactivateVehicle}
         />
       )}
       {aba === 'entregadores' && (
         <CadastroSimples
-          titulo="Entregador"
+          titulo="🛵 Entregador"
           campos={[{ chave: 'nome', label: 'Nome' }, { chave: 'telefone', label: 'Telefone' }]}
           listFn={window.pdv.delivery.listPersons} upsertFn={window.pdv.delivery.upsertPerson} deactivateFn={window.pdv.delivery.deactivatePerson}
         />

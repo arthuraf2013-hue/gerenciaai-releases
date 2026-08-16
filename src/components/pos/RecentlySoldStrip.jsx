@@ -24,7 +24,7 @@ export function RecentlySoldStrip({ locationId, refreshKey, onSelectProduct }) {
   return (
     <div className="recent-strip">
       <span className="recent-strip-label">
-        {config?.modo_vendidos_recentes === 'frequente' ? 'Mais vendidos' : 'Vendidos recentemente'}
+        {config?.modo_vendidos_recentes === 'frequente' ? '⭐ Mais vendidos' : '⭐ Vendidos recentemente'}
       </span>
       <div className="recent-strip-items">
         {products.map((p) => (

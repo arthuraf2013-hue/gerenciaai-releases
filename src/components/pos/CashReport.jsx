@@ -37,7 +37,7 @@ export function CashReport() {
 
   return (
     <div className="screen">
-      <h1>Fechamentos de caixa</h1>
+      <h1>💰 Fechamentos de caixa</h1>
       <p className="screen-hint">
         Relatório consolidado — todos os fechamentos do período, pra conferir diferenças ao longo
         do tempo em vez de só sessão por sessão.

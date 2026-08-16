@@ -64,9 +64,9 @@ export function AuditLog() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>Auditoria</h1>
+        <h1>📜 Auditoria</h1>
         <button className="btn-secondary" onClick={handleExport} disabled={exportando || eventos.length === 0}>
-          {exportando ? 'Exportando...' : 'Exportar planilha'}
+          {exportando ? 'Exportando...' : '📤 Exportar planilha'}
         </button>
       </div>
       <p className="screen-hint">

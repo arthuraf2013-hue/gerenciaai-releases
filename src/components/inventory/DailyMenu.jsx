@@ -30,9 +30,9 @@ export function DailyMenu() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>Cardápio do dia</h1>
+        <h1>🍽️ Cardápio do dia</h1>
         <button className="btn-primary" onClick={handleImprimir} disabled={printando || itens.length === 0}>
-          {printando ? 'Imprimindo...' : 'Imprimir cardápio'}
+          {printando ? 'Imprimindo...' : '🖨️ Imprimir cardápio'}
         </button>
       </div>
       <p className="screen-hint">

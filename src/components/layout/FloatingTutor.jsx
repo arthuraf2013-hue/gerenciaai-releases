@@ -90,8 +90,8 @@ export function FloatingTutor() {
       {open && (
         <div className="tutor-panel">
           <div className="tutor-panel-header">
-            <span>IA tutora — dúvidas do sistema</span>
-            <button className="btn-link" style={{ color: 'white' }} onClick={() => setOpen(false)}>Fechar</button>
+            <span>🤖 IA tutora — dúvidas do sistema</span>
+            <button className="btn-link" style={{ color: 'white' }} onClick={() => setOpen(false)}>✖️ Fechar</button>
           </div>
 
           <div className="tutor-messages" ref={scrollRef}>
@@ -116,7 +116,7 @@ export function FloatingTutor() {
               onChange={(e) => setInput(e.target.value)}
               disabled={enviando}
             />
-            <button className="btn-primary" type="submit" disabled={enviando || !input.trim()}>Enviar</button>
+            <button className="btn-primary" type="submit" disabled={enviando || !input.trim()}>📤 Enviar</button>
           </form>
         </div>
       )}

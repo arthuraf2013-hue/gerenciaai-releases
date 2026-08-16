@@ -33,10 +33,10 @@ export class ErrorBoundary extends Component {
       return (
         <div className="license-block-screen">
           <div className="license-block-card update-block-card">
-            <h1>Algo deu errado</h1>
+            <h1>⚠️ Algo deu errado</h1>
             <p>A tela travou por causa de um erro inesperado. Seus dados continuam salvos e intactos —
               isso é só um problema na exibição.</p>
-            <button className="btn-primary" onClick={() => window.location.reload()}>Recarregar</button>
+            <button className="btn-primary" onClick={() => window.location.reload()}>🔄 Recarregar</button>
           </div>
         </div>
       );

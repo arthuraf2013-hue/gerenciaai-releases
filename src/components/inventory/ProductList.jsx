@@ -211,19 +211,19 @@ export function ProductList() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>Produtos {totalProdutos !== null && <span className="screen-hint" style={{ fontWeight: 400, fontSize: 15 }}>({totalProdutos} no total)</span>}</h1>
+        <h1>🏷️ Produtos {totalProdutos !== null && <span className="screen-hint" style={{ fontWeight: 400, fontSize: 15 }}>({totalProdutos} no total)</span>}</h1>
         <div className="screen-actions">
-          <DropdownMenu label="Ferramentas">
-            <DropdownMenuItem onClick={handleImport} disabled={ioBusy}>Importar planilha</DropdownMenuItem>
-            <DropdownMenuItem onClick={handleExport} disabled={ioBusy}>Exportar planilha</DropdownMenuItem>
+          <DropdownMenu label="🔧 Ferramentas">
+            <DropdownMenuItem onClick={handleImport} disabled={ioBusy}>📥 Importar planilha</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExport} disabled={ioBusy}>📤 Exportar planilha</DropdownMenuItem>
             <DropdownMenuItem onClick={() => setShowDuplicates(true)}>
-              Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
+              📑 Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setShowRelinkCodigos(true)}>Re-vincular códigos de barras</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowRelinkCodigos(true)}>🔗 Re-vincular códigos de barras</DropdownMenuItem>
             <div className="dropdown-menu-separator" />
-            <DropdownMenuItem danger onClick={handleClearAll}>Limpar todos os produtos</DropdownMenuItem>
+            <DropdownMenuItem danger onClick={handleClearAll}>🗑️ Limpar todos os produtos</DropdownMenuItem>
           </DropdownMenu>
-          <button className="btn-primary" onClick={() => setEditing({})}>+ Novo produto</button>
+          <button className="btn-primary" onClick={() => setEditing({})}>➕ Novo produto</button>
         </div>
       </div>
 
@@ -285,9 +285,9 @@ export function ProductList() {
                 <td>{p.estoque_minimo}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <button className="btn-link" onClick={() => setEditing(p)}>Editar</button>
-                    <button className="btn-link" onClick={() => setAdjusting(p)}>Ajustar estoque</button>
-                    <button className="btn-link-danger" onClick={() => handleDelete(p)}>Excluir</button>
+                    <button className="btn-link" onClick={() => setEditing(p)}>✏️ Editar</button>
+                    <button className="btn-link" onClick={() => setAdjusting(p)}>📦 Ajustar estoque</button>
+                    <button className="btn-link-danger" onClick={() => handleDelete(p)}>🗑️ Excluir</button>
                   </div>
                 </td>
               </tr>

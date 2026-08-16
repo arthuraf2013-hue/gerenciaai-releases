@@ -101,14 +101,14 @@ export function WasteLog() {
 
   return (
     <div className="screen">
-      <h1>Desperdício</h1>
+      <h1>🗑️ Desperdício</h1>
       <p className="screen-hint">
         Registre pratos que não foram vendidos (sobrou do prato do dia, por exemplo) ou insumos que
         estragaram — ajuda a enxergar quanto está sendo perdido, não só o que foi vendido.
       </p>
 
       <form className="modal-card" style={{ maxWidth: 600, marginBottom: 24 }} onSubmit={handleRegistrar}>
-        <h2>Registrar desperdício</h2>
+        <h2>➕ Registrar desperdício</h2>
         <label>O que foi perdido?
           <select value={tipo} onChange={(e) => { setTipo(e.target.value); setProductId(''); setIngredientId(''); }}>
             <option value="prato">Prato pronto</option>
@@ -147,7 +147,7 @@ export function WasteLog() {
         </label>
 
         {saveError && <p className="modal-error">{saveError}</p>}
-        <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Registrando...' : 'Registrar'}</button>
+        <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Registrando...' : '➕ Registrar'}</button>
       </form>
 
       <div className="period-selector">
@@ -157,7 +157,7 @@ export function WasteLog() {
           </button>
         ))}
         <button className="btn-secondary" onClick={handleExport} disabled={exportando || registros.length === 0}>
-          {exportando ? 'Exportando...' : 'Exportar planilha'}
+          {exportando ? 'Exportando...' : '📤 Exportar planilha'}
         </button>
       </div>
       {exportMsg && <p className={exportMsg.startsWith('Erro') ? 'modal-error' : 'io-message'}>{exportMsg}</p>}

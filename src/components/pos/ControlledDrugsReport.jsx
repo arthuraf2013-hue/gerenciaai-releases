@@ -63,7 +63,7 @@ export function ControlledDrugsReport() {
       )}
 
       {linhas && linhas.length > 0 && (
-        <button className="btn-secondary" style={{ marginBottom: 12 }} onClick={() => window.print()}>Imprimir</button>
+        <button className="btn-secondary" style={{ marginBottom: 12 }} onClick={() => window.print()}>🖨️ Imprimir</button>
       )}
 
       {carregando && <p className="empty-state">Carregando...</p>}

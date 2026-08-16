@@ -18,7 +18,7 @@ export function KeyboardHelpModal({ onClose }) {
   return (
     <div className="modal-overlay">
       <div className="modal-card" style={{ width: 560 }}>
-        <h2>Atalhos de teclado</h2>
+        <h2>⌨️ Atalhos de teclado</h2>
         <p className="screen-hint" style={{ margin: '0 0 12px' }}>
           O sistema todo funciona sem mouse — esses são os atalhos que valem em qualquer tela.
         </p>
@@ -31,7 +31,7 @@ export function KeyboardHelpModal({ onClose }) {
           ))}
         </ul>
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onClose}>Fechar</button>
+          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
         </div>
       </div>
     </div>

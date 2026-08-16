@@ -427,15 +427,22 @@ CREATE TABLE IF NOT EXISTS backup_config (
   -- Mesma ideia, pro pedido de "backup agora" feito remotamente pela
   -- Central (ver executarBackupRemotoSeSolicitado em backupService.js).
   ultimo_pedido_backup_processado TEXT,
-  -- Texto livre (não validado) que o usuário preenche na tela de
-  -- Configurações informando qual conta Google (ou outra nuvem pessoal,
-  -- ex: OneDrive) o backup usa — geralmente a mesma apontada em
-  -- pasta_secundaria via Google Drive Desktop (ver Passo 7 do
-  -- LICENCIAMENTO.md). Não é uma integração de verdade com a API do
-  -- Drive, é só um registro/lembrete que também é reportado pra Central
-  -- pra dar visibilidade remota de quais instalações têm esse backup
-  -- extra configurado.
-  conta_nuvem_pessoal TEXT
+  -- Coluna antiga (texto livre pra anotar qual conta de nuvem pessoal
+  -- o backup usava) -- substituída pelo fluxo estruturado "Criar conta
+  -- Google" (ver conta_google_email logo abaixo), que virou o único
+  -- lugar pra isso. Mantida aqui só porque SQLite não facilita apagar
+  -- coluna com segurança em runtime -- nenhum código lê ou escreve
+  -- nela mais.
+  conta_nuvem_pessoal TEXT,
+  -- E-mail da conta Google criada/vinculada através do fluxo "Criar
+  -- conta Google" na tela de Configurações. Só o e-mail fica salvo
+  -- aqui localmente -- a senha NUNCA é gravada no banco local (nem
+  -- cifrada): ela só existe em memória no momento do salvamento, tempo
+  -- suficiente pra cifrar com a chave pública de contas Google (ver
+  -- salvarContaGoogle em backupService.js) e mandar pro Firestore. Se
+  -- salvar sem internet, o e-mail fica aqui mas a senha se perde -- o
+  -- usuário precisa salvar de novo com conexão.
+  conta_google_email TEXT
 );
 
 -- Formato do recibo impresso — largura de impressora térmica de cupom

@@ -102,7 +102,7 @@ export function ProfileManager() {
 
   return (
     <section className="settings-section">
-      <h2>Perfis de negócio</h2>
+      <h2>🗂️ Perfis de negócio</h2>
       <p className="screen-hint">
         Cada perfil define quais campos extras aparecem no cadastro de produtos e se o alerta de
         validade próxima fica ativo — dá pra usar o GerenciaAI em qualquer tipo de comércio, não só
@@ -120,15 +120,15 @@ export function ProfileManager() {
             )}
             <div className="profile-card-actions">
               {profile?.id !== p.id && (
-                <button className="btn-link" onClick={() => handleUseProfile(p.id)}>Usar</button>
+                <button className="btn-link" onClick={() => handleUseProfile(p.id)}>✅ Usar</button>
               )}
-              <button className="btn-link" onClick={() => startEdit(p)}>Editar</button>
-              <button className="btn-link" onClick={() => handleDuplicate(p)}>Duplicar</button>
-              <button className="btn-link-danger" onClick={() => handleDelete(p)}>Excluir</button>
+              <button className="btn-link" onClick={() => startEdit(p)}>✏️ Editar</button>
+              <button className="btn-link" onClick={() => handleDuplicate(p)}>📑 Duplicar</button>
+              <button className="btn-link-danger" onClick={() => handleDelete(p)}>🗑️ Excluir</button>
             </div>
           </div>
         ))}
-        <button className="profile-card profile-card-new" onClick={startNew}>+ Novo perfil</button>
+        <button className="profile-card profile-card-new" onClick={startNew}>➕ Novo perfil</button>
       </div>
 
       {saved && <p className="io-message">Perfil ativo atualizado.</p>}
@@ -191,16 +191,16 @@ export function ProfileManager() {
                 <input type="checkbox" checked={campo.obrigatorio} onChange={(e) => updateCampo(i, { obrigatorio: e.target.checked })} />
                 Obrigatório
               </label>
-              <button type="button" className="btn-link-danger" onClick={() => removeCampo(i)}>Remover</button>
+              <button type="button" className="btn-link-danger" onClick={() => removeCampo(i)}>🗑️ Remover</button>
             </div>
           ))}
-          <button type="button" className="btn-secondary" onClick={addCampo}>+ Adicionar campo</button>
+          <button type="button" className="btn-secondary" onClick={addCampo}>➕ Adicionar campo</button>
 
           {error && <p className="modal-error">{error}</p>}
 
-          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <button className="btn-primary" type="submit">Salvar perfil</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+          <div className="settings-actions" style={{ marginTop: 16 }}>
+            <button className="btn-primary" type="submit">💾 Salvar perfil</button>
+            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>✖️ Cancelar</button>
           </div>
         </form>
       )}

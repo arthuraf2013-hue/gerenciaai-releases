@@ -59,7 +59,7 @@ export function StockAlerts() {
 
   return (
     <div className="screen">
-      <h1>Alertas de estoque</h1>
+      <h1>⚠️ Alertas de estoque</h1>
       <p className="screen-hint">
         Mesmos limiares configurados em Configurações → Perfis de negócio, que também definem a cor
         do ícone de alerta no carrinho do PDV.
@@ -68,17 +68,17 @@ export function StockAlerts() {
       {loadError && <p className="modal-error">{loadError}</p>}
 
       <section className="alert-section">
-        <h2>Crítico</h2>
+        <h2>⚠️ Crítico</h2>
         {renderTabela(criticos, 'Nenhum produto em estado crítico.')}
       </section>
 
       <section className="alert-section">
-        <h2>Aviso</h2>
+        <h2>⚠️ Aviso</h2>
         {renderTabela(avisos, 'Nenhum produto em aviso.')}
       </section>
 
       <section className="alert-section">
-        <h2>Vai faltar em breve</h2>
+        <h2>⚠️ Vai faltar em breve</h2>
         <p className="screen-hint" style={{ margin: '0 0 10px' }}>
           Diferente dos alertas acima (que só disparam depois que o estoque já bateu o mínimo
           configurado), isso olha o ritmo de venda real dos últimos 30 dias — pega produto de venda
@@ -104,7 +104,7 @@ export function StockAlerts() {
       </section>
 
       <section className="alert-section">
-        <h2>Margem fora do padrão</h2>
+        <h2>📊 Margem fora do padrão</h2>
         <p className="screen-hint" style={{ margin: '0 0 10px' }}>
           Compara a margem de cada produto com a média da própria categoria dele — pega erro de
           precificação (ex: custo subiu num abastecimento e o preço de venda nunca foi reajustado)
@@ -130,7 +130,7 @@ export function StockAlerts() {
       </section>
 
       <section className="alert-section">
-        <h2>Descontar por validade</h2>
+        <h2>🏷️ Descontar por validade</h2>
         <p className="screen-hint" style={{ margin: '0 0 10px' }}>
           Produto vencendo em breve — em vez de só esperar virar perda registrada em desperdício,
           sugere um desconto agora, enquanto ainda dá tempo de vender. O preço volta sozinho pro
@@ -148,7 +148,7 @@ export function StockAlerts() {
                   <td>{new Date(p.validade + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
                   <td>R$ {p.preco.toFixed(2)}</td>
                   <td>R$ {p.precoSugerido.toFixed(2)}</td>
-                  <td><button className="btn-link" onClick={() => handleAplicarDesconto(p)}>Aplicar desconto</button></td>
+                  <td><button className="btn-link" onClick={() => handleAplicarDesconto(p)}>✅ Aplicar desconto</button></td>
                 </tr>
               ))}
             </tbody>

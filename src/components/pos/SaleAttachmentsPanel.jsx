@@ -62,7 +62,7 @@ export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted 
   return (
     <div className="modal-overlay">
       <div className="modal-card modal-card-wide">
-        <h2>Anexos da venda</h2>
+        <h2>📎 Anexos da venda</h2>
         <p className="modal-subtitle">
           Opcional — use para anexar a foto ou o PDF de uma receita, comprovante ou nota
           relacionada a esta venda. Nenhum item exige isso para ser vendido.
@@ -85,9 +85,9 @@ export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted 
                         onClick={() => handleExtract(a.id)}
                         disabled={extractingId === a.id}
                       >
-                        {extractingId === a.id ? 'Lendo...' : 'Extrair dados com IA'}
+                        {extractingId === a.id ? 'Lendo...' : '🔍 Extrair dados com IA'}
                       </button>
-                      <button className="btn-link-danger" onClick={() => handleRemove(a.id)}>Remover</button>
+                      <button className="btn-link-danger" onClick={() => handleRemove(a.id)}>🗑️ Remover</button>
                     </div>
                   </div>
 
@@ -122,9 +122,9 @@ export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted 
         {error && <p className="modal-error">{error}</p>}
 
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onClose}>Fechar</button>
+          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
           <button className="btn-primary" onClick={handleAdd} disabled={busy}>
-            {busy ? 'Abrindo...' : '+ Anexar imagem ou PDF'}
+            {busy ? 'Abrindo...' : '📎 Anexar imagem ou PDF'}
           </button>
         </div>
       </div>

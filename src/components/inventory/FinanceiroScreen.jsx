@@ -78,8 +78,8 @@ export function FinanceiroScreen() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>Financeiro</h1>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>+ Lançar despesa</button>
+        <h1>💰 Financeiro</h1>
+        <button className="btn-primary" onClick={() => setShowForm(true)}>➕ Lançar despesa</button>
       </div>
       <p className="screen-hint">
         Visão rápida de como o negócio está indo — não substitui contador nem é uma DRE contábil
@@ -111,7 +111,7 @@ export function FinanceiroScreen() {
 
       {pendentes.length > 0 && (
         <>
-          <h2 style={{ marginTop: 24 }}>Contas a pagar em aberto</h2>
+          <h2 style={{ marginTop: 24 }}>💰 Contas a pagar em aberto</h2>
           <table className="data-table">
             <thead><tr><th>Vencimento</th><th>Descrição</th><th>Fornecedor</th><th>Valor</th><th></th></tr></thead>
             <tbody>
@@ -121,7 +121,7 @@ export function FinanceiroScreen() {
                   <td>{p.descricao}</td>
                   <td>{p.fornecedor_nome || '—'}</td>
                   <td>R$ {p.valor.toFixed(2)}</td>
-                  <td><button className="btn-link" onClick={() => handleMarcarPaga(p.id)}>Marcar como paga</button></td>
+                  <td><button className="btn-link" onClick={() => handleMarcarPaga(p.id)}>✅ Marcar como paga</button></td>
                 </tr>
               ))}
             </tbody>
@@ -129,7 +129,7 @@ export function FinanceiroScreen() {
         </>
       )}
 
-      <h2 style={{ marginTop: 24 }}>Despesas do período</h2>
+      <h2 style={{ marginTop: 24 }}>💰 Despesas do período</h2>
       {despesas.length === 0 ? (
         <p className="empty-state">Nenhuma despesa lançada nesse período.</p>
       ) : (
@@ -143,7 +143,7 @@ export function FinanceiroScreen() {
                 <td>{d.descricao}{d.fornecedor_nome ? ` (${d.fornecedor_nome})` : ''}</td>
                 <td>R$ {d.valor.toFixed(2)}</td>
                 <td>{d.data_pagamento ? 'Paga' : 'Pendente'}</td>
-                <td><button className="btn-link-danger" onClick={() => handleExcluir(d.id)}>Excluir</button></td>
+                <td><button className="btn-link-danger" onClick={() => handleExcluir(d.id)}>🗑️ Excluir</button></td>
               </tr>
             ))}
           </tbody>
@@ -154,7 +154,7 @@ export function FinanceiroScreen() {
         <div className="modal-overlay">
           <div className="modal-card">
             <form onSubmit={handleAdicionar}>
-              <h2>Lançar despesa</h2>
+              <h2>➕ Lançar despesa</h2>
               <label>
                 Categoria
                 <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}>
@@ -184,8 +184,8 @@ export function FinanceiroScreen() {
               </label>
               {erro && <p className="modal-error">{erro}</p>}
               <div className="modal-actions" style={{ marginTop: 16 }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
-                <button type="submit" className="btn-primary">Salvar</button>
+                <button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>✖️ Cancelar</button>
+                <button type="submit" className="btn-primary">💾 Salvar</button>
               </div>
             </form>
           </div>
