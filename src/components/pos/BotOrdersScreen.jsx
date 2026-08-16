@@ -150,37 +150,78 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
   useEscToClose(onClose);
   const { currentUser } = useSession();
   const [detalhe, setDetalhe] = useState(null);
+  const [erro, setErro] = useState('');
+  const [clienteCadastrado, setClienteCadastrado] = useState(null); // null = ainda não checou, true/false = resultado
+  const [cadastrando, setCadastrando] = useState(false);
 
   function carregar() {
-    window.pdv.botOrders.getWithItems({ orderId }).then((r) => { if (r.ok) setDetalhe(r); });
+    window.pdv.botOrders.getWithItems({ orderId }).then((r) => {
+      if (r.ok) setDetalhe(r);
+      else setErro(r.error || 'Não consegui carregar o pedido.');
+    });
   }
   useEffect(carregar, [orderId]);
 
+  // Só oferece "Cadastrar cliente" se o telefone do pedido ainda não
+  // bate com nenhum cliente já cadastrado -- evita duplicar cadastro.
+  useEffect(() => {
+    if (!detalhe?.pedido?.cliente_telefone) return;
+    window.pdv.customers.buscarPorTelefone({ telefone: detalhe.pedido.cliente_telefone }).then((c) => setClienteCadastrado(!!c));
+  }, [detalhe?.pedido?.cliente_telefone]);
+
   async function handleItemStatus(itemId, status) {
-    await window.pdv.botOrders.updateItemStatus({ itemId, status });
+    setErro('');
+    const resultado = await window.pdv.botOrders.updateItemStatus({ itemId, status });
+    if (!resultado?.ok) { setErro(resultado?.error || 'Não consegui atualizar o item.'); return; }
     carregar();
     onAtualizado();
   }
 
   async function handleStatusPedido(status) {
-    await window.pdv.botOrders.updateStatus({ orderId, status, operadorId: currentUser.id });
+    setErro('');
+    const resultado = await window.pdv.botOrders.updateStatus({ orderId, status, operadorId: currentUser.id });
+    if (!resultado?.ok) { setErro(resultado?.error || 'Não consegui atualizar o status do pedido.'); return; }
     onAtualizado();
     if (status === 'concluido' || status === 'cancelado') { onClose(); return; }
     carregar();
   }
 
+  async function handleCadastrarCliente() {
+    setErro('');
+    setCadastrando(true);
+    const resultado = await window.pdv.customers.upsert({
+      nome: detalhe.pedido.cliente_nome,
+      telefone: detalhe.pedido.cliente_telefone,
+    });
+    setCadastrando(false);
+    if (!resultado?.ok) { setErro(resultado?.error || 'Não consegui cadastrar o cliente.'); return; }
+    setClienteCadastrado(true);
+  }
+
   if (!detalhe) return null;
   const { pedido, itens } = detalhe;
   const todosResolvidos = itens.length > 0 && itens.every((i) => i.status_separacao !== 'pendente');
+  const itensPendentes = itens.filter((i) => i.status_separacao === 'pendente').length;
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal-card" style={{ width: 480 }}>
         <h2>Pedido de {pedido.cliente_nome}</h2>
-        <p className="screen-hint" style={{ margin: '0 0 10px' }}>
+        <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           {pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}
           {pedido.observacoes && <> · {pedido.observacoes}</>}
         </p>
+
+        {clienteCadastrado === false && (
+          <p className="screen-hint" style={{ margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            Esse cliente ainda não está cadastrado.
+            <button type="button" className="btn-link" disabled={cadastrando} onClick={handleCadastrarCliente}>
+              {cadastrando ? 'Cadastrando...' : '+ Cadastrar cliente'}
+            </button>
+          </p>
+        )}
+
+        {erro && <p className="modal-error">{erro}</p>}
 
         <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
           {itens.map((item) => (
@@ -213,12 +254,19 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
             <button className="btn-primary" onClick={() => handleStatusPedido('em_separacao')}>Começar separação</button>
           )}
           {pedido.status === 'em_separacao' && (
-            <button
-              className="btn-primary" onClick={() => handleStatusPedido('pronto')} disabled={!todosResolvidos}
-              title={!todosResolvidos ? 'Marque o status de todos os itens antes de avançar' : ''}
-            >
-              Marcar como pronto
-            </button>
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <button
+                className="btn-primary" onClick={() => handleStatusPedido('pronto')} disabled={!todosResolvidos}
+                title={!todosResolvidos ? 'Marque o status de todos os itens antes de avançar' : ''}
+              >
+                Marcar como pronto
+              </button>
+              {!todosResolvidos && (
+                <span className="screen-hint">
+                  Marque o status de cada item na lista acima (Separado / Indisponível / Substituído) — falta {itensPendentes} {itensPendentes === 1 ? 'item' : 'itens'}.
+                </span>
+              )}
+            </span>
           )}
           {pedido.status === 'pronto' && (
             <button className="btn-primary" onClick={() => handleStatusPedido('concluido')}>

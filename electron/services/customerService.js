@@ -22,6 +22,26 @@ function upsert(customer) {
   return { ok: true, id };
 }
 
+function normalizarTelefone(tel) {
+  return (tel || '').replace(/\D/g, '');
+}
+
+/** Procura um cliente ativo pelo telefone, comparando só os dígitos
+ * (ignora espaço/traço/parênteses e tolera diferença de DDI, ex:
+ * "11999998888" bate com "5511999998888") -- usado pela tela de
+ * Separação pra saber se o cliente do WhatsApp já está cadastrado
+ * antes de oferecer o botão "Cadastrar cliente". */
+function buscarPorTelefone(telefone) {
+  const alvo = normalizarTelefone(telefone);
+  if (!alvo) return null;
+  const db = getDb();
+  const candidatos = db.prepare("SELECT * FROM customers WHERE ativo = 1 AND telefone IS NOT NULL AND telefone != ''").all();
+  return candidatos.find((c) => {
+    const tel = normalizarTelefone(c.telefone);
+    return tel && (tel === alvo || tel.endsWith(alvo) || alvo.endsWith(tel));
+  }) || null;
+}
+
 /** Saldo devedor = soma dos movimentos de fiado (dívida positiva, pagamento negativo no saldo). */
 function getSaldoFiado(customerId) {
   const db = getDb();
@@ -172,5 +192,5 @@ function montarLinkReconquista(customerId) {
 module.exports = {
   list, upsert, getSaldoFiado, listWithSaldo, getCreditHistory, registrarDivida, registrarPagamento,
   getLoyaltyConfig, updateLoyaltyConfig, acumularPontos, calcularValorResgate, debitarPontos,
-  listClientesQueSumiram, montarLinkReconquista,
+  listClientesQueSumiram, montarLinkReconquista, buscarPorTelefone,
 };

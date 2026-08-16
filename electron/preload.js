@@ -216,6 +216,7 @@ contextBridge.exposeInMainWorld('pdv', {
     registrarPagamento: invoke('customer:registrarPagamento'),
     listQueSumiram: invoke('customer:listQueSumiram'),
     montarLinkReconquista: invoke('customer:montarLinkReconquista'),
+    buscarPorTelefone: invoke('customer:buscarPorTelefone'),
   },
   pets: {
     listByCustomer: invoke('pet:listByCustomer'),

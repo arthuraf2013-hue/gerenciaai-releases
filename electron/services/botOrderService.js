@@ -201,8 +201,26 @@ function listInStockByCategory({ locationId, categoria }) {
   return db.prepare(sql).all(...params);
 }
 
+/** Todos os produtos ativos do local, com estoque atual calculado --
+ * inclusive os sem estoque (ao contrário de listInStockByCategory).
+ * Usado pelo bot do WhatsApp pra responder perguntas livres tipo
+ * "vocês tem dipirona?" (o próprio whatsappBotHandler faz a busca por
+ * texto em cima dessa lista, porque só ele conhece as abreviações de
+ * nome pra "traduzir" antes de comparar -- ver humanizarNomeProduto). */
+function listarAtivosParaBusca({ locationId }) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT p.id, p.nome, p.preco, p.categoria,
+       COALESCE(SUM(sm.quantidade), 0) as estoqueAtual
+     FROM products p
+     LEFT JOIN stock_movements sm ON sm.product_id = p.id AND sm.location_id = ?
+     WHERE p.ativo = 1
+     GROUP BY p.id`
+  ).all(locationId);
+}
+
 module.exports = {
   getConfig, updateConfig,
   createOrder, listOrders, listActiveOrders, getOrderWithItems, updateOrderStatus, updateItemStatus,
-  listCategoriasComEstoque, listInStockByCategory,
+  listCategoriasComEstoque, listInStockByCategory, listarAtivosParaBusca,
 };

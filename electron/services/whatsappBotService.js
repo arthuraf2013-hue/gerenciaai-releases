@@ -133,10 +133,35 @@ async function iniciarConexao() {
           try { require('fs').rmSync(pastaAuth(), { recursive: true, force: true }); } catch { /* ignora */ }
           return;
         }
-        // Queda de rede/instabilidade -- tenta reconectar sozinho.
+        // Queda de rede/instabilidade -- OU o "restart" que o próprio
+        // WhatsApp pede logo depois que o celular lê o QR Code
+        // (statusCode 515, comportamento normal e documentado do
+        // Baileys: ele fecha a conexão de propósito e espera reconectar
+        // na hora pra terminar de parear). Tenta reconectar sozinho.
+        //
+        // IMPORTANTE: NÃO seta statusAtual = 'conectando' aqui -- isso
+        // era o bug que travava a tela em "Conectando..." pra sempre.
+        // iniciarConexao() começa recusando (`return` de propósito) se
+        // statusAtual já for 'conectando', então setar isso antes de
+        // chamá-la fazia a tentativa de reconexão virar um no-op
+        // silencioso: nenhum QR novo era gerado e, pior, quando essa
+        // reconexão automática era o "restart" pedido logo após o
+        // celular ler o QR, ela nunca completava -- o WhatsApp do
+        // celular acabava desistindo sozinho com "Não foi possível
+        // conectar o dispositivo". Deixa o próprio iniciarConexao() setar o
+        // status quando o processo realmente começar de novo.
+        statusAtual = 'desconectado';
         reconexoesRecentes.push(Date.now());
-        statusAtual = 'conectando';
-        iniciarConexao().catch((err) => { ultimoErro = err.message; statusAtual = 'erro'; });
+        const reconexoesUltimos10s = reconexoesRecentes.filter((t) => Date.now() - t < 10 * 1000).length;
+        // Se a conexão ficou caindo muito rápido (rede instável de
+        // verdade, não o restart pontual pós-QR), espera um pouco antes
+        // de tentar de novo -- evita martelar o WhatsApp com tentativas
+        // em loop apertado, o que também aumenta o risco de bloqueio do
+        // número (ver aviso no topo do arquivo).
+        const atraso = reconexoesUltimos10s >= 3 ? 3000 : 0;
+        setTimeout(() => {
+          iniciarConexao().catch((err) => { ultimoErro = err.message; statusAtual = 'erro'; });
+        }, atraso);
       }
     });
 
@@ -163,6 +188,28 @@ function conectar(requestingUserId) {
   if (!guard.ok) return guard;
   iniciarConexao().catch((err) => { ultimoErro = err.message; statusAtual = 'erro'; });
   return { ok: true };
+}
+
+/** Manda uma mensagem de texto avulsa pra um número -- usado pelas
+ * notificações automáticas de "pedido pronto" / "saiu para entrega"
+ * (ver electron/ipc/handlers.js, que chama isso depois de um
+ * botOrders:updateStatus bem-sucedido). Ao contrário de
+ * tratarMensagemRecebida, essa mensagem NÃO é resposta a nada que o
+ * cliente mandou -- é a loja iniciando contato. Isso tem um risco de
+ * bloqueio um pouco maior do que responder (ver aviso no topo do
+ * arquivo), principalmente pra número que nunca falou com a loja por
+ * aqui antes -- mais um motivo pra testar com um número de teste
+ * primeiro, como já orientado. */
+async function enviarMensagem({ telefone, texto }) {
+  if (statusAtual !== 'conectado' || !sock) return { ok: false, error: 'WhatsApp não está conectado.' };
+  const numero = (telefone || '').replace(/\D/g, '');
+  if (!numero) return { ok: false, error: 'Telefone inválido.' };
+  try {
+    await sock.sendMessage(`${numero}@s.whatsapp.net`, { text: texto });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 /** Desconecta e apaga a sessão salva -- a próxima conexão sempre pede
@@ -201,4 +248,4 @@ function iniciarAutomaticamenteSeConfigurado() {
   }
 }
 
-module.exports = { getStatus, conectar, desconectar, iniciarAutomaticamenteSeConfigurado };
+module.exports = { getStatus, conectar, desconectar, iniciarAutomaticamenteSeConfigurado, enviarMensagem };
