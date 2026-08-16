@@ -253,7 +253,7 @@ function finalizarPedido({ telefone, nomeExibicao, tipoEntrega, endereco, conver
     tipoEntrega,
     endereco,
     origem: 'whatsapp_bot',
-    itens: conversa.itens.map((i) => ({ productId: i.productId, quantidade: i.quantidade })),
+    itens: conversa.itens.map((i) => ({ productId: i.productId, quantidade: i.quantidade, precoUnitario: i.precoUnitario })),
   });
   estadoConversas.delete(telefone);
   if (!resultado.ok) {
@@ -359,7 +359,10 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
       const produto = conversa.produtos[idx - 1];
       const existente = conversa.itens.find((i) => i.productId === produto.id);
       if (existente) existente.quantidade += qtd;
-      else conversa.itens.push({ productId: produto.id, nome: produto.nome, quantidade: qtd });
+      // Congela o preço mostrado no menu agora -- é esse valor que vira
+      // a venda de verdade quando o pedido for concluído, não o preço
+      // do produto na hora da conclusão (que pode já ter mudado).
+      else conversa.itens.push({ productId: produto.id, nome: produto.nome, quantidade: qtd, precoUnitario: produto.preco });
       return {
         resposta: `Adicionado: ${humanizarNomeProduto(produto.nome)} x${qtd}. ✅${resumoCarrinho(conversa.itens)}\n\nDigite outro número pra adicionar mais, "finalizar" pra concluir o pedido, ou "categorias" pra trocar de categoria.`,
       };

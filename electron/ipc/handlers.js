@@ -580,6 +580,10 @@ function registerIpcHandlers() {
     if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
     return backupService.updateConfig({ pastaSecundaria: filePaths[0] });
   });
+  // Só um registro de texto livre (não é integração de verdade com a API
+  // do Google Drive) — reportado pra Central assim que salvo (ver
+  // reportarConfigBackupParaCentral em backupService.js).
+  safeHandle('backup:updateContaNuvem', (_e, { contaNuvemPessoal }) => backupService.updateConfig({ contaNuvemPessoal }));
 
   // --- Abastecimento de estoque (leitura de nota de compra + lotes) ---
   safeHandle('supply:pickAndExtract', async () => {

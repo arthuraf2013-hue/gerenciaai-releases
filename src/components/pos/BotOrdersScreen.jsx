@@ -7,6 +7,10 @@ const STATUS_LABEL = { novo: 'Novo', em_separacao: 'Em separação', pronto: 'Pr
 const STATUS_CLASSE = { novo: 'row-warning', em_separacao: '', pronto: '', concluido: '', cancelado: 'row-critical' };
 const STATUS_ITEM_LABEL = { pendente: 'Pendente', separado: 'Separado', indisponivel: 'Indisponível', substituido: 'Substituído' };
 
+function formatarPreco(valor) {
+  return `R$ ${Number(valor || 0).toFixed(2).replace('.', ',')}`;
+}
+
 // ---------- Busca de produto pra adicionar a um pedido novo ----------
 function BuscaProdutoParaPedido({ onEscolher }) {
   const [termo, setTermo] = useState('');
@@ -51,7 +55,7 @@ function NovoPedidoModal({ onClose, onCriado }) {
   const [salvando, setSalvando] = useState(false);
 
   function adicionarProduto(produto) {
-    setItens((prev) => [...prev, { key: `p-${produto.id}-${prev.length}`, productId: produto.id, nome: produto.nome, quantidade: 1 }]);
+    setItens((prev) => [...prev, { key: `p-${produto.id}-${prev.length}`, productId: produto.id, nome: produto.nome, quantidade: 1, precoUnitario: produto.preco }]);
   }
   function adicionarLivre() {
     if (!descricaoLivre.trim()) return;
@@ -75,7 +79,7 @@ function NovoPedidoModal({ onClose, onCriado }) {
       clienteNome, clienteTelefone, tipoEntrega,
       endereco: tipoEntrega === 'entrega' ? endereco : undefined,
       observacoes, origem: 'manual', operadorId: currentUser.id,
-      itens: itens.map((i) => ({ productId: i.productId, descricaoLivre: i.descricaoLivre, quantidade: Number(i.quantidade) || 1 })),
+      itens: itens.map((i) => ({ productId: i.productId, descricaoLivre: i.descricaoLivre, quantidade: Number(i.quantidade) || 1, precoUnitario: i.precoUnitario })),
     });
     setSalvando(false);
     if (!resultado.ok) { setError(resultado.error); return; }
@@ -206,7 +210,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal-card" style={{ width: 480 }}>
-        <h2>Pedido de {pedido.cliente_nome}</h2>
+        <h2>Pedido de {pedido.cliente_nome} · {formatarPreco(pedido.valorTotal)}</h2>
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           {pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}
           {pedido.observacoes && <> · {pedido.observacoes}</>}
@@ -228,6 +232,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
             <li key={item.id} className="customer-chip" style={{ alignItems: 'flex-start' }}>
               <div>
                 <strong>{item.produtoNome || item.descricao_livre}</strong> × {item.quantidade}
+                {item.preco_unitario != null && <> — {formatarPreco(item.preco_unitario * item.quantidade)}</>}
                 {item.product_id && (
                   <div className="screen-hint">
                     Estoque atual: {item.estoqueAtual}
@@ -311,13 +316,14 @@ export function BotOrdersScreen() {
       {pedidos !== null && pedidos.length === 0 && <p className="empty-state">Nenhum pedido por aqui.</p>}
       {pedidos && pedidos.length > 0 && (
         <table className="data-table">
-          <thead><tr><th>Cliente</th><th>Tipo</th><th>Itens</th><th>Origem</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Cliente</th><th>Tipo</th><th>Itens</th><th>Valor</th><th>Origem</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {pedidos.map((p) => (
               <tr key={p.id} className={STATUS_CLASSE[p.status]}>
                 <td>{p.cliente_nome}<br /><span className="screen-hint">{p.cliente_telefone}</span></td>
                 <td>{p.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</td>
                 <td>{p.itensSeparados || 0}/{p.totalItens}</td>
+                <td>{formatarPreco(p.valorTotal)}</td>
                 <td>{p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual'}</td>
                 <td>{STATUS_LABEL[p.status]}</td>
                 <td><button className="btn-link" onClick={() => setSeparandoId(p.id)}>Ver / Separar</button></td>

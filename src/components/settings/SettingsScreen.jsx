@@ -63,6 +63,9 @@ export function SettingsScreen() {
   const [whatsappAtualizadoEm, setWhatsappAtualizadoEm] = useState(null);
 
   const [backupStatus, setBackupStatus] = useState(null);
+  const [contaNuvemInput, setContaNuvemInput] = useState('');
+  const [contaNuvemCarregada, setContaNuvemCarregada] = useState(false);
+  const [contaNuvemSaved, setContaNuvemSaved] = useState(false);
   const [receiptLargura, setReceiptLargura] = useState(80);
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [receiptRodape, setReceiptRodape] = useState('');
@@ -133,7 +136,11 @@ export function SettingsScreen() {
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
     }));
     window.pdv.botOrders.getConfig().then((c) => setBotOrdersAtivo(!!c.ativo));
-    window.pdv.backup.getStatus().then(setBackupStatus);
+    window.pdv.backup.getStatus().then((s) => {
+      setBackupStatus(s);
+      setContaNuvemInput(s.contaNuvemPessoal || '');
+      setContaNuvemCarregada(true);
+    });
     window.pdv.print.getReceiptConfig().then((c) => {
       setReceiptLargura(c.largura_mm);
       setReceiptRodape(c.rodape_texto || '');
@@ -284,6 +291,14 @@ export function SettingsScreen() {
     const result = await window.pdv.backup.chooseSecondaryFolder();
     if (result.canceled) return;
     window.pdv.backup.getStatus().then(setBackupStatus);
+  }
+
+  async function handleSaveContaNuvem(e) {
+    e.preventDefault();
+    await window.pdv.backup.updateContaNuvem({ contaNuvemPessoal: contaNuvemInput.trim() });
+    setBackupStatus((atual) => (atual ? { ...atual, contaNuvemPessoal: contaNuvemInput.trim() } : atual));
+    setContaNuvemSaved(true);
+    setTimeout(() => setContaNuvemSaved(false), 2000);
   }
 
   async function handleReceiptSave(larguraMm) {
@@ -482,6 +497,28 @@ export function SettingsScreen() {
           <p className="screen-hint" style={{ marginBottom: 0 }}>Pasta secundária: {backupStatus.pastaSecundaria}</p>
         )}
         {backupMsg && <p className={backupMsg.includes('sucesso') ? 'io-message' : 'modal-error'}>{backupMsg}</p>}
+
+        <form onSubmit={handleSaveContaNuvem} style={{ marginTop: 16, borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
+          <label className="field-label" htmlFor="conta-nuvem-pessoal">Conta de nuvem pessoal (Google Drive, OneDrive...)</label>
+          <p className="screen-hint" style={{ marginTop: 2 }}>
+            Só um registro pra referência — não conecta com a conta de verdade. Se a pasta secundária
+            acima estiver apontada pra uma pasta sincronizada pelo Google Drive Desktop (ou similar),
+            anote aqui qual conta/e-mail é essa, pra facilitar caso precise recuperar os arquivos depois.
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              id="conta-nuvem-pessoal"
+              type="text"
+              value={contaNuvemInput}
+              onChange={(e) => setContaNuvemInput(e.target.value)}
+              placeholder="ex: cliente.backup@gmail.com"
+              style={{ flex: '1 1 260px' }}
+            />
+            <button className="btn-secondary" type="submit" disabled={!contaNuvemCarregada}>
+              {contaNuvemSaved ? 'Salvo!' : 'Salvar'}
+            </button>
+          </div>
+        </form>
 
         {showRestoreList && (
           <div className="modal-overlay">

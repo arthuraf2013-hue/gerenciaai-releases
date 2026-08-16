@@ -342,6 +342,7 @@ contextBridge.exposeInMainWorld('pdv', {
     restore: invoke('backup:restore'),
     openFolder: invoke('backup:openFolder'),
     chooseSecondaryFolder: invoke('backup:chooseSecondaryFolder'),
+    updateContaNuvem: invoke('backup:updateContaNuvem'),
   },
   supply: {
     pickAndExtract: invoke('supply:pickAndExtract'),

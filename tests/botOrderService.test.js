@@ -153,3 +153,78 @@ test('listActiveOrders só traz pedidos ainda na fila (não concluído nem cance
   assert.deepEqual(ativos.map((p) => p.cliente_nome).sort(), ['Em Separação', 'Novo', 'Pronto']);
   assert.deepEqual(ativos.map((p) => p.id).sort(), [novoId, emSeparacaoId, prontoId].sort());
 });
+
+test('concluir um pedido de retirada gera uma venda de verdade (Histórico + estoque)', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Dipirona 500mg', preco: 12.5, categoria: 'Analgésicos' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 10, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Maria', clienteTelefone: '5511999998888',
+    tipoEntrega: 'retirada', origem: 'whatsapp_bot', operadorId: adminId,
+    itens: [{ productId: produtoId, quantidade: 2, precoUnitario: 12.5 }],
+  });
+  assert.equal(criado.ok, true);
+
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'em_separacao', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'pronto', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(criado.id);
+  assert.ok(pedido.sale_id, 'pedido concluído deveria ter gerado uma venda (sale_id preenchido)');
+  assert.equal(pedido.delivery_id, null, 'retirada não deveria criar uma entrega');
+
+  const venda = db.prepare('SELECT * FROM sales WHERE id = ?').get(pedido.sale_id);
+  assert.equal(venda.status, 'finalizada');
+  assert.equal(venda.total, 25); // 12.5 x 2
+
+  const pagamento = db.prepare('SELECT * FROM payments WHERE sale_id = ?').get(pedido.sale_id);
+  assert.equal(pagamento.valor, 25);
+
+  const movimento = db.prepare("SELECT * FROM stock_movements WHERE sale_id = ?").get(pedido.sale_id);
+  assert.equal(movimento.quantidade, -2); // debitou o estoque
+
+  // Idempotência: concluir de novo (ex: chamada duplicada) não cria uma segunda venda.
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+  const totalVendas = db.prepare('SELECT COUNT(*) as n FROM sales').get().n;
+  assert.equal(totalVendas, 1);
+});
+
+test('concluir um pedido de entrega também cria a entrega correspondente', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Xarope', preco: 20, categoria: 'Gripe' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 5, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'João', clienteTelefone: '5511988887777',
+    tipoEntrega: 'entrega', endereco: 'Rua das Flores, 123', origem: 'manual', operadorId: adminId,
+    itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 20 }],
+  });
+
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'em_separacao', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'pronto', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(criado.id);
+  assert.ok(pedido.sale_id);
+  assert.ok(pedido.delivery_id, 'entrega deveria criar um registro em deliveries');
+
+  const entrega = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(pedido.delivery_id);
+  assert.equal(entrega.sale_id, pedido.sale_id);
+  assert.equal(entrega.endereco, 'Rua das Flores, 123');
+});
+
+test('createOrder congela o preço atual do produto quando não vem precoUnitario explícito', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Produto Z', preco: 9.9, categoria: 'Geral' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 5, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Ana', clienteTelefone: '5511977776666',
+    tipoEntrega: 'retirada', origem: 'manual', operadorId: adminId,
+    itens: [{ productId: produtoId, quantidade: 1 }], // sem precoUnitario
+  });
+
+  const item = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').get(criado.id);
+  assert.equal(item.preco_unitario, 9.9);
+});

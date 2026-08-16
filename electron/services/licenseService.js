@@ -22,14 +22,21 @@ const INTERVALO_CHECAGEM_MS = 6 * 60 * 60 * 1000; // confere a cada 6h (reconcil
 const INTERVALO_PING_MS = 2 * 60 * 1000; // ping de presença a cada 2min — só pra "está online agora?" no painel, escrita bem mais leve que checkLicense()
 
 let licenseApp = null;
-function getLicenseFirestore() {
+/** App Firebase compartilhado (nome 'licensing') -- usado tanto pro
+ * Firestore quanto, mais recentemente, pro Storage (backup na nuvem em
+ * backupService.js). Um app só, reaproveitado por tudo que fala com
+ * esse projeto. */
+function getLicenseApp() {
   const { initializeApp, getApps } = require('firebase/app');
-  const { getFirestore } = require('firebase/firestore');
   if (!licenseApp) {
     const existente = getApps().find((a) => a.name === 'licensing');
     licenseApp = existente || initializeApp(LICENSE_FIREBASE_CONFIG, 'licensing');
   }
-  return getFirestore(licenseApp);
+  return licenseApp;
+}
+function getLicenseFirestore() {
+  const { getFirestore } = require('firebase/firestore');
+  return getFirestore(getLicenseApp());
 }
 
 function getLocalState() {
@@ -90,6 +97,36 @@ function aplicarDadosDoServidor(dados) {
     require('./syncStateService').aplicarGrupoDaInstalacao(dados);
   } catch (err) {
     console.error('[licenseService] aplicarGrupoDaInstalacao falhou:', err);
+  }
+
+  // Override de versão mínima por instalação (rollout gradual/exceção
+  // pontual) -- mesmo documento, mesma leitura.
+  try {
+    require('./updateService').aplicarOverrideDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarOverrideDaInstalacao falhou:', err);
+  }
+
+  // Pedido de restauração remota de backup (ver backupService) --
+  // fire-and-forget de propósito: se existir um pedido pendente, isso
+  // reinicia o app sozinho no final, então não tem "resultado síncrono"
+  // útil pra devolver aqui.
+  try {
+    require('./backupService').restaurarSolicitadoSeHouver(dados).catch((err) => {
+      console.error('[licenseService] restaurarSolicitadoSeHouver falhou:', err);
+    });
+  } catch (err) {
+    console.error('[licenseService] não foi possível checar pedido de restauração:', err);
+  }
+
+  // Pedido de "backup agora" (botão na tela de Backups da Central) --
+  // mesmo padrão fire-and-forget acima.
+  try {
+    require('./backupService').executarBackupRemotoSeSolicitado(dados).catch((err) => {
+      console.error('[licenseService] executarBackupRemotoSeSolicitado falhou:', err);
+    });
+  } catch (err) {
+    console.error('[licenseService] não foi possível checar pedido de backup:', err);
   }
 }
 
@@ -266,6 +303,6 @@ function computeAccessStatus() {
 }
 
 module.exports = {
-  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, getLicenseFirestore,
+  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, getLicenseFirestore, getLicenseApp,
   GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS, INTERVALO_PING_MS,
 };

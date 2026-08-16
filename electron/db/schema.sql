@@ -412,7 +412,30 @@ CREATE TABLE IF NOT EXISTS backup_config (
   id                TEXT PRIMARY KEY DEFAULT 'default',
   pasta_secundaria  TEXT,
   ultimo_backup_em  TEXT,
-  ultimo_backup_ok  INTEGER
+  ultimo_backup_ok  INTEGER,
+  -- Upload do backup mais recente pro Storage do projeto de
+  -- licenciamento -- permite restaurar remotamente pela Central mesmo
+  -- que a máquina do cliente tenha sumido (HD morto, furto, etc.), já
+  -- que a cópia não fica só localmente. Melhor esforço: se não tiver
+  -- internet na hora, o backup local continua valendo normalmente.
+  ultimo_upload_nuvem_em TEXT,
+  ultimo_upload_nuvem_ok INTEGER,
+  -- Evita aplicar a MESMA solicitação de restauração remota duas vezes
+  -- (ex: se a escuta em tempo real e a checagem periódica pegarem o
+  -- mesmo pedido antes do campo ser limpo no servidor).
+  ultima_restauracao_processada TEXT,
+  -- Mesma ideia, pro pedido de "backup agora" feito remotamente pela
+  -- Central (ver executarBackupRemotoSeSolicitado em backupService.js).
+  ultimo_pedido_backup_processado TEXT,
+  -- Texto livre (não validado) que o usuário preenche na tela de
+  -- Configurações informando qual conta Google (ou outra nuvem pessoal,
+  -- ex: OneDrive) o backup usa — geralmente a mesma apontada em
+  -- pasta_secundaria via Google Drive Desktop (ver Passo 7 do
+  -- LICENCIAMENTO.md). Não é uma integração de verdade com a API do
+  -- Drive, é só um registro/lembrete que também é reportado pra Central
+  -- pra dar visibilidade remota de quais instalações têm esse backup
+  -- extra configurado.
+  conta_nuvem_pessoal TEXT
 );
 
 -- Formato do recibo impresso — largura de impressora térmica de cupom
@@ -476,7 +499,15 @@ CREATE TABLE IF NOT EXISTS security_config (
 CREATE TABLE IF NOT EXISTS forced_update_state (
   id                      TEXT PRIMARY KEY DEFAULT 'default',
   versao_minima_exigida   TEXT,
-  obrigatoria             INTEGER NOT NULL DEFAULT 0
+  obrigatoria             INTEGER NOT NULL DEFAULT 0,
+  -- Override POR INSTALAÇÃO (vem junto no documento da própria
+  -- instalação, igual mensagem/grupo de sincronização) -- quando
+  -- ativo, vale no lugar da regra global daquela máquina em diante.
+  -- Serve tanto pra testar uma versão nova só numa máquina antes de
+  -- publicar pra todo mundo (rollout gradual) quanto pra isentar um
+  -- cliente específico da regra global por um tempo.
+  versao_minima_override  TEXT,
+  override_ativo          INTEGER NOT NULL DEFAULT 0
 );
 
 -- Cache local das mensagens publicadas no painel de licenciamento —
@@ -744,6 +775,12 @@ CREATE TABLE IF NOT EXISTS bot_order_items (
   product_id        TEXT REFERENCES products(id), -- pode ficar NULL se o bot/atendente não achou um produto exato
   descricao_livre   TEXT, -- o que o cliente pediu, como veio (guarda o pedido original mesmo se o produto for trocado)
   quantidade        REAL NOT NULL DEFAULT 1,
+  -- Preço mostrado ao cliente no momento em que o item entrou no
+  -- pedido (congelado aqui) -- é isso que vira sale_items.preco_unitario
+  -- quando o pedido é convertido em venda na conclusão, não o preço
+  -- atual do produto (que pode já ter mudado). Nulo em pedidos antigos
+  -- de antes dessa coluna existir.
+  preco_unitario    REAL,
   status_separacao  TEXT NOT NULL DEFAULT 'pendente' CHECK (status_separacao IN ('pendente','separado','indisponivel','substituido')),
   observacao        TEXT
 );

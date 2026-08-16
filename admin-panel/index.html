@@ -16,8 +16,8 @@
   h2 { font-size: 16px; margin: 0; }
   .subtitle { color: var(--text-muted); margin: 0 0 24px; font-size: 14px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
-  input, select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
-  input:focus, select:focus { outline: none; border-color: var(--primary); }
+  input, select, textarea { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
   /* Mesmo truque do app — o Chromium força fundo claro + letra preta
      em campo com sugestão de autofill, ignorando o CSS normal. */
   input:-webkit-autofill, input:-webkit-autofill:hover,
@@ -33,11 +33,26 @@
   .btn-danger-strong { background: var(--danger-strong); color: white; }
   .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
   .btn-small { padding: 5px 10px; font-size: 12px; }
-  #login-screen { max-width: 360px; margin: 80px auto; }
+  /* Cada clique num setor é uma navegação de página de verdade (link
+     <a> normal, não JS) -- de propósito, pra Ctrl+clique abrir em aba
+     nova funcionar sem código nenhum (ver comentário em SETORES_VALIDOS
+     mais abaixo). O preço disso é que a página recarrega do zero a cada
+     clique, e o Firebase Auth leva um instante pra confirmar a sessão
+     já salva -- sem uma tela própria pra esse instante, dava pra ver a
+     tela de login "piscar" toda vez, mesmo já estando logado. */
+  #loading-screen { max-width: 360px; margin: 140px auto; text-align: center; color: var(--text-muted); }
+  #login-screen { max-width: 360px; margin: 80px auto; display: none; }
   #login-screen form { display: flex; flex-direction: column; gap: 10px; }
   #app-screen { display: none; }
   .toolbar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
   .toolbar input { flex: 1; }
+  .setores-nav { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 6px; }
+  .setor-link {
+    display: inline-block; padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    text-decoration: none; color: var(--text); border: 1px solid var(--border); background: transparent;
+  }
+  .setor-link:hover { border-color: var(--primary); }
+  .setor-link.ativo { background: var(--primary); color: white; border-color: var(--primary); }
   .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .badge-warning { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; background: #453a1f; color: #f6c453; }
   .status-ativa { background: rgba(55,171,153,0.2); color: var(--primary); }
@@ -100,16 +115,22 @@
   .erro-mensagem { font-weight: 600; margin-bottom: 4px; }
   .erro-stack { color: var(--text-muted); font-size: 11px; white-space: pre-wrap; font-family: monospace; max-height: 100px; overflow-y: auto; }
 
-  #novo-cliente-modal, #vincular-modal {
+  #novo-cliente-modal, #vincular-modal, #cofre-acesso-modal {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
     align-items: center; justify-content: center; z-index: 50;
   }
   #novo-cliente-modal .card, #vincular-modal .card { width: 360px; }
+  #cofre-acesso-modal .card { width: 420px; }
   .modal-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+  .senha-mascarada { font-family: monospace; letter-spacing: 1px; }
 </style>
 </head>
 <body>
+
+<div id="loading-screen">
+  <p>Carregando...</p>
+</div>
 
 <div id="login-screen">
   <div class="card">
@@ -128,91 +149,212 @@
   <div class="wrap">
     <button id="sair-btn" class="btn-secondary">Sair</button>
     <h1>Central GerenciaAI</h1>
-    <p class="subtitle">
-      Instalações agrupadas por cliente — clique num bloco pra ver as máquinas vinculadas.
-      Congelar avisa e dá 2 dias de carência; bloquear é imediato e suspende na hora.
+
+    <nav class="setores-nav">
+      <a href="?tela=painel" data-tela="painel" class="setor-link">🏠 Painel</a>
+      <a href="?tela=metricas" data-tela="metricas" class="setor-link">📊 Métricas</a>
+      <a href="?tela=erros" data-tela="erros" class="setor-link">⚠️ Erros</a>
+      <a href="?tela=mensagem" data-tela="mensagem" class="setor-link">💬 Mensagem</a>
+      <a href="?tela=atualizacao" data-tela="atualizacao" class="setor-link">⬆ Atualização</a>
+      <a href="?tela=sincronizacao" data-tela="sincronizacao" class="setor-link">🔗 Sincronização</a>
+      <a href="?tela=backups" data-tela="backups" class="setor-link">🗄 Backups</a>
+      <a href="?tela=cofre" data-tela="cofre" class="setor-link">🔒 Cofre</a>
+    </nav>
+    <p class="cliente-resumo" style="margin: -6px 0 18px;">
+      Clique num setor pra trocar de tela aqui mesmo. Ctrl+clique (⌘+clique no Mac) ou clique com o
+      botão do meio abre aquele setor numa aba nova — cada aba funciona sozinha, sem afetar as outras.
     </p>
 
-    <div class="toolbar">
-      <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
-      <button class="btn-secondary" id="metricas-toggle-btn">📊 Métricas</button>
-      <button class="btn-secondary" id="erros-toggle-btn">⚠️ Erros</button>
-      <button class="btn-secondary" id="mensagem-toggle-btn">💬 Mensagem</button>
-      <button class="btn-secondary" id="atualizacao-toggle-btn">⬆ Atualização</button>
-      <button class="btn-secondary" id="sincronizacao-toggle-btn">🔗 Sincronização</button>
-      <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
-    </div>
+    <div id="erro-geral" class="error" style="display:none; margin-bottom: 14px; padding: 10px 14px; background: rgba(224,112,93,0.12); border: 1px solid var(--danger); border-radius: 8px;"></div>
 
-    <div id="sincronizacao-card" class="card" style="display:none; margin-bottom: 20px;">
-      <h2>Sincronização entre PDVs</h2>
-      <p class="subtitle" style="margin-bottom: 14px;">
-        Agrupe instalações do mesmo negócio (ex: duas caixas registradoras da mesma loja) pra elas
-        somarem vendas juntas no relatório consolidado. Diferente do agrupamento por cliente — um
-        cliente pode ter negócios diferentes que NÃO deveriam somar vendas juntos (padaria e
-        restaurante, por exemplo); um grupo de sincronização é só pra terminais do MESMO negócio.
+    <div id="secao-painel">
+      <p class="subtitle">
+        Instalações agrupadas por cliente — clique num bloco pra ver as máquinas vinculadas.
+        Congelar avisa e dá 2 dias de carência; bloquear é imediato e suspende na hora.
       </p>
-      <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 480px; margin-bottom: 16px;">
-        <input type="text" id="grupo-nome-input" placeholder="Nome do grupo (ex: Padaria do João — caixas)" style="flex: 1;">
-        <button class="btn-primary" id="grupo-criar-btn">Criar grupo</button>
+
+      <div id="alerta-sumidas" class="card" style="display:none; margin-bottom: 16px; border-color: var(--warning); background: rgba(242,206,122,0.1); color: var(--warning); font-size: 13px; padding: 12px 16px;"></div>
+
+      <div class="toolbar">
+        <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
+        <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
       </div>
-      <div id="grupos-lista"></div>
+
+      <div id="lista-clientes"></div>
+      <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
     </div>
 
-    <div id="metricas-card" class="card" style="display:none; margin-bottom: 20px;">
-      <h2>Visão geral do negócio</h2>
-      <p class="subtitle" style="margin-bottom: 14px;">
-        Somado de todas as instalações — só contagens, nunca o conteúdo de uma venda específica.
-        Atualiza sozinho conforme os clientes ficam online (cada um manda o próprio número a cada 6h).
-      </p>
-      <div id="metricas-conteudo"></div>
+    <div id="secao-sincronizacao" style="display:none;">
+      <div id="sincronizacao-card" class="card" style="margin-bottom: 20px;">
+        <h2>Sincronização entre PDVs</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Agrupe instalações do mesmo negócio (ex: duas caixas registradoras da mesma loja) pra elas
+          somarem vendas juntas no relatório consolidado. Diferente do agrupamento por cliente — um
+          cliente pode ter negócios diferentes que NÃO deveriam somar vendas juntos (padaria e
+          restaurante, por exemplo); um grupo de sincronização é só pra terminais do MESMO negócio.
+        </p>
+        <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 480px; margin-bottom: 16px;">
+          <input type="text" id="grupo-nome-input" placeholder="Nome do grupo (ex: Padaria do João — caixas)" style="flex: 1;">
+          <button class="btn-primary" id="grupo-criar-btn">Criar grupo</button>
+        </div>
+        <div id="grupos-lista"></div>
+      </div>
     </div>
 
-    <div id="erros-card" class="card" style="display:none; margin-bottom: 20px;">
-      <h2>Erros reportados automaticamente</h2>
-      <p class="subtitle" style="margin-bottom: 14px;">
-        Quando o app quebra na máquina de um cliente, um relato técnico chega aqui — antes dele ligar
-        reclamando. Só texto de erro/diagnóstico, nunca dado de venda ou cliente.
-      </p>
-      <div id="erros-conteudo"></div>
+    <div id="secao-metricas" style="display:none;">
+      <div id="metricas-card" class="card" style="margin-bottom: 20px;">
+        <h2>Visão geral do negócio</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Somado de todas as instalações — só contagens, nunca o conteúdo de uma venda específica.
+          Atualiza sozinho conforme os clientes ficam online (cada um manda o próprio número a cada 6h).
+        </p>
+        <div id="metricas-conteudo"></div>
+      </div>
     </div>
 
-    <div id="mensagem-card" class="card" style="display:none; margin-bottom: 20px;">
-      <h2>Mensagem na tela inicial</h2>
-      <p class="subtitle" style="margin-bottom: 14px;">
-        Aparece como um banner na tela inicial do app de todo cliente — pra avisos gerais, horário de
-        feriado, ou uma imagem sazonal. Pra mensagem específica de UM cliente (ex: pendência), use o
-        campo "Mensagem" dentro do bloco daquele cliente, na lista abaixo.
-      </p>
-      <div id="mensagem-status-atual" class="cliente-resumo" style="margin-bottom: 14px;"></div>
-      <div class="modal-form" style="max-width: 560px;">
-        <input type="text" id="mensagem-texto-input" placeholder="Texto da mensagem (ex: Horário especial no feriado: 9h às 14h)">
-        <input type="text" id="mensagem-imagem-input" placeholder="URL de uma imagem (opcional — hospede em algum lugar e cole o link aqui)">
-        <div class="modal-actions" style="justify-content: flex-start;">
-          <button class="btn-primary" id="mensagem-publicar-btn">Publicar</button>
-          <button class="btn-secondary" id="mensagem-desativar-btn">Desativar</button>
+    <div id="secao-erros" style="display:none;">
+      <div id="erros-card" class="card" style="margin-bottom: 20px;">
+        <h2>Erros reportados automaticamente</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Quando o app quebra na máquina de um cliente, um relato técnico chega aqui — antes dele ligar
+          reclamando. Só texto de erro/diagnóstico, nunca dado de venda ou cliente.
+        </p>
+        <div id="erros-conteudo"></div>
+      </div>
+    </div>
+
+    <div id="secao-mensagem" style="display:none;">
+      <div id="mensagem-card" class="card" style="margin-bottom: 20px;">
+        <h2>Mensagem na tela inicial</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Aparece como um banner na tela inicial do app de todo cliente — pra avisos gerais, horário de
+          feriado, ou uma imagem sazonal. Pra mensagem específica de UM cliente (ex: pendência), use o
+          campo "Mensagem" dentro do bloco daquele cliente, na tela Painel.
+        </p>
+        <div id="mensagem-status-atual" class="cliente-resumo" style="margin-bottom: 14px;"></div>
+        <div class="modal-form" style="max-width: 560px;">
+          <input type="text" id="mensagem-texto-input" placeholder="Texto da mensagem (ex: Horário especial no feriado: 9h às 14h)">
+          <input type="text" id="mensagem-imagem-input" placeholder="URL de uma imagem (opcional — hospede em algum lugar e cole o link aqui)">
+          <div class="modal-actions" style="justify-content: flex-start;">
+            <button class="btn-primary" id="mensagem-publicar-btn">Publicar</button>
+            <button class="btn-secondary" id="mensagem-desativar-btn">Desativar</button>
+          </div>
         </div>
       </div>
     </div>
 
-    <div id="atualizacao-card" class="card" style="display:none; margin-bottom: 20px;">
-      <h2>Atualização obrigatória</h2>
-      <p class="subtitle" style="margin-bottom: 14px;">
-        Publique uma versão mínima obrigatória — todo cliente com versão mais antiga é bloqueado até
-        atualizar, com download e barra de progresso automáticos. Use a versão exata que você acabou de
-        publicar no GitHub Releases (ex: 0.5.0).
-      </p>
-      <div id="atualizacao-status-atual" class="cliente-resumo" style="margin-bottom: 14px;"></div>
-      <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 480px;">
-        <input type="text" id="atualizacao-versao-input" placeholder="Ex: 0.5.0" style="flex: 1;">
-        <button class="btn-primary" id="atualizacao-publicar-btn">Publicar para todos os clientes</button>
-        <button class="btn-secondary" id="atualizacao-desativar-btn">Desativar</button>
+    <div id="secao-atualizacao" style="display:none;">
+      <div id="atualizacao-card" class="card" style="margin-bottom: 20px;">
+        <h2>Atualização obrigatória</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Publique uma versão mínima obrigatória — todo cliente com versão mais antiga é bloqueado até
+          atualizar, com download e barra de progresso automáticos. Use a versão exata que você acabou de
+          publicar no GitHub Releases (ex: 0.5.0).
+        </p>
+        <div id="atualizacao-status-atual" class="cliente-resumo" style="margin-bottom: 14px;"></div>
+        <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 480px;">
+          <input type="text" id="atualizacao-versao-input" placeholder="Ex: 0.5.0" style="flex: 1;">
+          <button class="btn-primary" id="atualizacao-publicar-btn">Publicar para todos os clientes</button>
+          <button class="btn-secondary" id="atualizacao-desativar-btn">Desativar</button>
+        </div>
+        <p class="cliente-resumo" style="margin-top: 12px;">
+          Quer testar uma versão só numa máquina antes de publicar pra todo mundo (ou isentar um cliente
+          específico da regra global por um tempo)? Use o botão "Testar versão" no bloco daquele cliente,
+          na tela Painel — isso vale só naquela máquina, sem afetar as outras.
+        </p>
       </div>
     </div>
 
-    <div id="erro-geral" class="error" style="display:none; margin-bottom: 14px; padding: 10px 14px; background: rgba(224,112,93,0.12); border: 1px solid var(--danger); border-radius: 8px;"></div>
+    <div id="secao-backups" style="display:none;">
+      <div id="backups-card" class="card" style="margin-bottom: 20px;">
+        <h2>Backups na nuvem</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Cada instalação sobe uma cópia do próprio backup local pra nuvem sozinha (guarda os 10 mais
+          recentes por máquina). Use "Pedir backup agora" se não quiser esperar o próximo automático, e
+          "Restaurar" pra aplicar um backup de volta remotamente — a máquina do cliente reinicia sozinha
+          em seguida, sem precisar de ninguém sentado lá.
+        </p>
+        <div class="modal-form" style="flex-direction: row; align-items: center; max-width: 640px; margin-bottom: 14px;">
+          <select id="backups-select-maquina" style="flex: 1;"></select>
+          <button class="btn-secondary" id="backups-pedir-btn">Pedir backup agora</button>
+        </div>
+        <div id="backups-config-extra" class="cliente-resumo" style="margin-bottom: 14px;"></div>
+        <div id="backups-lista"></div>
+      </div>
+    </div>
 
-    <div id="lista-clientes"></div>
-    <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
+    <div id="secao-cofre" style="display:none;">
+      <div id="cofre-card" class="card" style="margin-bottom: 20px;">
+        <h2>Cofre de senhas</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Acessos remotos (RDP, TeamViewer, AnyDesk...) e credenciais de admin dos servidores dos
+          clientes. Cada senha é cifrada aqui no seu navegador com uma senha-mestra que só você sabe,
+          ANTES de ir pro Firestore — sem essa senha-mestra, ninguém lê o conteúdo, nem quem tiver
+          acesso ao projeto Firebase. <strong>Guarde bem a senha-mestra — não existe "esqueci minha
+          senha" aqui, é só isso mesmo que protege os dados.</strong>
+        </p>
+
+        <div class="card" style="background: var(--surface2); margin-bottom: 18px;">
+          <h2 style="font-size:14px; margin-bottom:4px;">🎲 Gerador de senha aleatória</h2>
+          <p class="cliente-resumo" style="margin-bottom:10px;">
+            Só existe aqui na tela — nunca é salva sozinha em lugar nenhum. Some assim que você
+            limpar, gerar outra, trocar de tela ou fechar essa aba. Pra guardar de verdade, use o
+            botão "Gerar" dentro de um acesso (em "+ Novo acesso") e clique em Salvar.
+          </p>
+          <div class="modal-form" style="flex-direction: row; flex-wrap: wrap; align-items:center;">
+            <input type="text" id="cofre-gerador-resultado" readonly placeholder="Clique em Gerar" style="flex:2; min-width:220px; font-family:monospace;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; white-space:nowrap;">
+              Tamanho: <input type="number" id="cofre-gerador-tamanho" value="20" min="8" max="64" style="width:64px;">
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; font-size:12px; white-space:nowrap;">
+              <input type="checkbox" id="cofre-gerador-simbolos" checked style="width:auto;"> Símbolos
+            </label>
+            <button class="btn-primary btn-small" id="cofre-gerador-gerar-btn">Gerar</button>
+            <button class="btn-secondary btn-small" id="cofre-gerador-copiar-btn">Copiar</button>
+            <button class="btn-secondary btn-small" id="cofre-gerador-limpar-btn">Limpar da tela</button>
+          </div>
+        </div>
+
+        <div id="cofre-bloqueado-setup" style="display:none;">
+          <p class="cliente-resumo" style="margin-bottom:10px;">
+            Ainda não existe uma senha-mestra pra esse cofre — crie uma agora.
+          </p>
+          <form class="modal-form" id="cofre-criar-form" style="max-width:400px;">
+            <input type="password" id="cofre-criar-senha" placeholder="Senha-mestra (pelo menos 8 caracteres)" required minlength="8" autocomplete="new-password">
+            <input type="password" id="cofre-criar-senha-confirma" placeholder="Confirme a senha-mestra" required minlength="8" autocomplete="new-password">
+            <button type="submit" class="btn-primary">Criar senha-mestra e desbloquear</button>
+          </form>
+        </div>
+
+        <div id="cofre-bloqueado-unlock" style="display:none;">
+          <form class="modal-form" id="cofre-unlock-form" style="flex-direction:row; align-items:center; max-width:420px;">
+            <input type="password" id="cofre-unlock-senha" placeholder="Senha-mestra" required style="flex:1;" autocomplete="current-password">
+            <button type="submit" class="btn-primary">Desbloquear</button>
+          </form>
+          <p class="error" id="cofre-unlock-erro" style="display:none; margin-top:8px;"></p>
+        </div>
+
+        <div id="cofre-desbloqueado" style="display:none;">
+          <div class="modal-form" style="flex-direction: row; flex-wrap: wrap; align-items:center; margin-bottom: 14px;">
+            <input type="text" id="cofre-filtro-texto" placeholder="Buscar por rótulo, endereço, usuário, notas..." style="flex:2; min-width:220px;">
+            <select id="cofre-filtro-cliente" style="flex:1; min-width:160px;"></select>
+            <select id="cofre-filtro-tipo" style="flex:1; min-width:150px;">
+              <option value="">Todos os tipos</option>
+              <option value="RDP">RDP</option>
+              <option value="TeamViewer">TeamViewer</option>
+              <option value="AnyDesk">AnyDesk</option>
+              <option value="VPN">VPN</option>
+              <option value="Admin Windows">Admin Windows</option>
+              <option value="Roteador">Roteador</option>
+              <option value="Outro">Outro</option>
+            </select>
+            <button class="btn-primary btn-small" id="cofre-novo-btn">+ Novo acesso</button>
+            <button class="btn-secondary btn-small" id="cofre-bloquear-btn">Bloquear cofre</button>
+          </div>
+          <div id="cofre-lista"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -222,6 +364,8 @@
     <form class="modal-form" id="novo-cliente-form">
       <input type="text" id="novo-cliente-nome" placeholder="Nome do cliente / dono" required>
       <input type="text" id="novo-cliente-doc" placeholder="CPF ou CNPJ (opcional)">
+      <label class="cliente-resumo" for="novo-cliente-vencimento">Vencimento / cobrança (opcional)</label>
+      <input type="date" id="novo-cliente-vencimento">
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="novo-cliente-cancelar">Cancelar</button>
         <button type="submit" class="btn-primary">Criar</button>
@@ -238,6 +382,38 @@
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="vincular-cancelar">Cancelar</button>
         <button type="submit" class="btn-primary">Vincular</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="cofre-acesso-modal">
+  <div class="card">
+    <h2 id="cofre-acesso-modal-titulo">Novo acesso</h2>
+    <form class="modal-form" id="cofre-acesso-form">
+      <select id="cofre-acesso-cliente"></select>
+      <input type="text" id="cofre-acesso-rotulo" placeholder="Rótulo (ex: RDP - Servidor principal)" required>
+      <select id="cofre-acesso-tipo">
+        <option>RDP</option>
+        <option>TeamViewer</option>
+        <option>AnyDesk</option>
+        <option>DWService</option>
+        <option>VPN</option>
+        <option>Admin Windows</option>
+        <option>Roteador</option>
+        <option>Outro</option>
+      </select>
+      <input type="text" id="cofre-acesso-endereco" placeholder="Endereço / IP / ID (opcional)">
+      <input type="text" id="cofre-acesso-link" placeholder="Link de acesso remoto (opcional — ex: link do DWService que abre esse dispositivo)">
+      <input type="text" id="cofre-acesso-usuario" placeholder="Usuário (opcional)">
+      <div style="display:flex; gap:6px;">
+        <input type="text" id="cofre-acesso-senha" placeholder="Senha (opcional)" style="flex:1;">
+        <button type="button" class="btn-secondary btn-small" id="cofre-acesso-gerar-senha-btn" title="Gerar senha aleatória">🎲 Gerar</button>
+      </div>
+      <textarea id="cofre-acesso-notas" placeholder="Notas (opcional)" rows="3"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="cofre-acesso-cancelar">Cancelar</button>
+        <button type="submit" class="btn-primary">Salvar</button>
       </div>
     </form>
   </div>
@@ -262,7 +438,7 @@
     getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
   import {
-    getFirestore, collection, onSnapshot, doc, updateDoc, setDoc, addDoc, deleteDoc,
+    getFirestore, collection, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc,
     writeBatch, query, orderBy, serverTimestamp,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
@@ -270,6 +446,7 @@
   const auth = getAuth(app);
   const db = getFirestore(app);
 
+  const loadingScreen = document.getElementById('loading-screen');
   const loginScreen = document.getElementById('login-screen');
   const appScreen = document.getElementById('app-screen');
   const loginForm = document.getElementById('login-form');
@@ -295,9 +472,49 @@
     erroGeralDiv.style.display = 'none';
   }
 
+  // --- Navegação por setor: cada setor é sua própria "tela", uma de
+  // cada vez -- em vez do modelo antigo de vários cards que abriam e
+  // fechavam na mesma página. Os links do menu são <a href="?tela=..">
+  // de verdade: clique normal troca de tela nesta mesma aba (o
+  // navegador recarrega a página, o que já reautentica sozinho — a
+  // sessão do Firebase Auth fica salva no navegador); Ctrl+clique/
+  // clique do meio abre numa aba nova, com o comportamento nativo do
+  // navegador, sem eu precisar simular nada com window.open.
+  const SETORES_VALIDOS = ['painel', 'metricas', 'erros', 'mensagem', 'atualizacao', 'sincronizacao', 'backups', 'cofre'];
+  const TELA_ATUAL = (() => {
+    const pedida = new URLSearchParams(location.search).get('tela');
+    return SETORES_VALIDOS.includes(pedida) ? pedida : 'painel';
+  })();
+
+  function aplicarTelaVisual() {
+    for (const setor of SETORES_VALIDOS) {
+      const el = document.getElementById(`secao-${setor}`);
+      if (el) el.style.display = setor === TELA_ATUAL ? 'block' : 'none';
+    }
+    document.querySelectorAll('.setor-link').forEach((a) => {
+      a.classList.toggle('ativo', a.dataset.tela === TELA_ATUAL);
+    });
+  }
+  aplicarTelaVisual(); // roda já, antes até do login, pra não piscar tudo montado na tela
+
   let instalacoes = [];
   let clientes = [];
   let atualizacaoConfig = null;
+
+  // --- Cofre de senhas: estado em memória, NUNCA persistido ---
+  // A chave derivada da senha-mestra só existe enquanto essa aba do
+  // navegador estiver aberta e o cofre desbloqueado -- recarregar a
+  // página exige desbloquear de novo, de propósito (é o que faz a
+  // senha-mestra valer alguma coisa; guardar em localStorage anularia
+  // a proteção pra qualquer um com acesso físico ao navegador aberto).
+  let cofreChave = null;
+  let cofreSalt = null;
+  let cofreVerificacaoEnc = null;
+  let cofreEntradasCifradas = [];
+  let cofreEntradasDecifradas = [];
+  let cofreEdicaoId = null;
+  let pararEscutaCofre = null;
+  let backupsEscutaIniciada = false; // garante que só abre a escuta da máquina selecionada uma vez
   let mensagemConfig = null;
   let errosReportados = [];
   let gruposSincronizacao = [];
@@ -319,10 +536,12 @@
   document.getElementById('sair-btn').addEventListener('click', () => signOut(auth));
 
   onAuthStateChanged(auth, (user) => {
+    loadingScreen.style.display = 'none';
     if (user) {
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       escutarDados();
+      if (TELA_ATUAL === 'cofre') abrirCofre(); // só essa tela precisa checar a senha-mestra ao entrar
       // Reavalia online/offline periodicamente — sem isso, uma máquina
       // que simplesmente parou de mandar ping só apareceria "offline"
       // quando algum OUTRO dado mudasse no Firestore e disparasse um
@@ -369,8 +588,10 @@
           // Só presença mudou — atualiza os pontos/resumos sem tocar
           // no resto do DOM, preservando o que alguém esteja digitando.
           renderMetricas();
+          renderAlertaSumidas();
           atualizarSinaisOnline();
         }
+        atualizarSecaoBackupsSeAtiva();
       },
       (err) => mostrarErro(err, 'carregar as instalações')
     );
@@ -480,6 +701,33 @@
     return { texto: 'Ativa', classe: 'status-ativa' };
   }
 
+  /**
+   * Banner sempre visível (não precisa abrir nada) com as instalações
+   * sumidas — mesma regra do pill "Sem contato há Xd" de cada máquina,
+   * só que resumida no topo pra você bater o olho sem precisar abrir
+   * bloco por bloco de cliente. Ignora as que já estão congeladas ou
+   * bloqueadas de propósito (essas já têm status próprio, não são
+   * "sumidas" por engano).
+   */
+  function renderAlertaSumidas() {
+    const div = document.getElementById('alerta-sumidas');
+    const sumidas = instalacoes
+      .filter((i) => !i.bloqueioImediato && i.ativo !== false)
+      .map((i) => ({ inst: i, dias: diasAtras(i.ultimoContato) }))
+      .filter((x) => x.dias !== null && x.dias >= 2)
+      .sort((a, b) => b.dias - a.dias);
+
+    if (sumidas.length === 0) {
+      div.style.display = 'none';
+      return;
+    }
+    div.style.display = 'block';
+    const nomes = sumidas.slice(0, 5)
+      .map((x) => `${escapeHtml(nomeDaInstalacaoComCliente(x.inst))} (${Math.floor(x.dias)}d)`)
+      .join(', ');
+    div.innerHTML = `⚠️ <strong>${sumidas.length} instalação(ões) sem contato há 2+ dias:</strong> ${nomes}${sumidas.length > 5 ? '…' : ''}`;
+  }
+
   // --- Ações em uma instalação individual ---
 
   async function alternarCongelamento(id, ativoAtual) {
@@ -515,6 +763,43 @@
     }
   }
 
+  /**
+   * Override de versão mínima SÓ nessa máquina — vale no lugar da regra
+   * global (publicada no card Atualização) enquanto estiver ativo.
+   * Serve tanto pra testar uma versão nova numa máquina antes de
+   * publicar geral (rollout gradual) quanto pra isentar um cliente
+   * específico por um tempo (deixa em branco a versão nesse caso).
+   */
+  async function alternarOverrideAtualizacao(id, overrideAtivoAtual) {
+    if (overrideAtivoAtual) {
+      if (!confirm('Remover o override de versão dessa máquina? Ela volta a seguir a regra global de atualização.')) return;
+      limparErro();
+      try {
+        await updateDoc(doc(db, 'installations', id), { overrideAtivo: false, versaoMinimaOverride: null });
+      } catch (err) {
+        mostrarErro(err, 'remover o override de versão');
+      }
+      return;
+    }
+
+    const versao = prompt(
+      'Exigir qual versão mínima SÓ nessa máquina? (ex: 0.5.0 — deixe em branco pra só isentar essa ' +
+      'máquina de uma regra global vigente, sem exigir versão nenhuma dela)',
+      ''
+    );
+    if (versao === null) return; // cancelou
+    if (versao && !/^\d+\.\d+\.\d+$/.test(versao)) {
+      mostrarErro(new Error('Use o formato de versão completo, ex: 0.5.0'), 'ativar o override de versão');
+      return;
+    }
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { overrideAtivo: true, versaoMinimaOverride: versao || null });
+    } catch (err) {
+      mostrarErro(err, 'ativar o override de versão');
+    }
+  }
+
   async function salvarNomeNegocio(id, novoNome) {
     limparErro();
     try {
@@ -538,6 +823,29 @@
       await updateDoc(doc(db, 'installations', instalacaoId), { clienteId: null });
     } catch (err) {
       mostrarErro(err, 'desvincular a máquina');
+    }
+  }
+
+  /** Status do vencimento/cobrança de um cliente — só um lembrete visual
+   * pra você, não afeta bloqueio nem congelamento automaticamente
+   * (continua sendo você quem decide bloquear ou não, na mão). */
+  function statusVencimento(cliente) {
+    if (!cliente.vencimento) return null;
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const venc = new Date(cliente.vencimento + 'T00:00:00');
+    const dias = Math.round((venc - hoje) / 86400000);
+    if (dias < 0) return { texto: `Vencido há ${Math.abs(dias)}d`, classe: 'status-atraso' };
+    if (dias <= 5) return { texto: `Vence em ${dias}d`, classe: 'status-atraso' };
+    return { texto: `Vence em ${dias}d`, classe: 'status-ativa' };
+  }
+
+  async function salvarVencimentoCliente(clienteId, novaData) {
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'clientes', clienteId), { vencimento: novaData || null });
+    } catch (err) {
+      mostrarErro(err, 'salvar o vencimento do cliente');
     }
   }
 
@@ -595,12 +903,6 @@
 
   // --- Métricas agregadas ---
 
-  document.getElementById('metricas-toggle-btn').addEventListener('click', () => {
-    const card = document.getElementById('metricas-card');
-    card.style.display = card.style.display === 'none' ? 'block' : 'none';
-    renderMetricas();
-  });
-
   function renderMetricas() {
     const div = document.getElementById('metricas-conteudo');
     const totalVendas = instalacoes.reduce((acc, i) => acc + (i.totalVendasHistorico || 0), 0);
@@ -613,6 +915,19 @@
     }
     const perfilMaisComum = Object.entries(porPerfil).sort((a, b) => b[1] - a[1])[0];
 
+    // Clientes mais ativos — soma as vendas de 30 dias de TODAS as
+    // máquinas do mesmo cliente (um cliente com 2 caixas conta junto).
+    const vendasPorCliente = new Map();
+    for (const i of instalacoes) {
+      if (!i.clienteId) continue;
+      vendasPorCliente.set(i.clienteId, (vendasPorCliente.get(i.clienteId) || 0) + (i.vendasUltimos30Dias || 0));
+    }
+    const topClientes = [...vendasPorCliente.entries()]
+      .map(([clienteId, vendas]) => ({ nome: clientes.find((c) => c.id === clienteId)?.nome || clienteId, vendas }))
+      .filter((c) => c.vendas > 0)
+      .sort((a, b) => b.vendas - a.vendas)
+      .slice(0, 5);
+
     div.innerHTML = `
       <div class="metricas-grid">
         <div class="metrica-box"><div class="metrica-valor">${instalacoes.length}</div><div class="metrica-label">Instalações no total</div></div>
@@ -620,15 +935,21 @@
         <div class="metrica-box"><div class="metrica-valor">${vendas30Dias}</div><div class="metrica-label">Vendas — últimos 30 dias</div></div>
         <div class="metrica-box"><div class="metrica-valor">${perfilMaisComum ? escapeHtml(perfilMaisComum[0]) : '—'}</div><div class="metrica-label">Perfil mais comum (${perfilMaisComum ? perfilMaisComum[1] : 0} instalação(ões))</div></div>
       </div>
+      ${topClientes.length > 0 ? `
+        <div style="margin-top: 18px;">
+          <div class="metrica-label" style="margin-bottom: 8px;">Clientes mais ativos (vendas nos últimos 30 dias)</div>
+          ${topClientes.map((c, idx) => `
+            <div class="maquina-row" style="margin-bottom: 6px;">
+              <span>${idx + 1}. ${escapeHtml(c.nome)}</span>
+              <span class="maquina-meta" style="margin-left: auto;">${c.vendas} venda(s)</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
     `;
   }
 
   // --- Erros reportados automaticamente ---
-
-  document.getElementById('erros-toggle-btn').addEventListener('click', () => {
-    const card = document.getElementById('erros-card');
-    card.style.display = card.style.display === 'none' ? 'block' : 'none';
-  });
 
   function nomeDoCliente(installationId) {
     const inst = instalacoes.find((i) => i.id === installationId);
@@ -670,11 +991,6 @@
 
   // --- Mensagem global (feriados/avisos) ---
 
-  document.getElementById('mensagem-toggle-btn').addEventListener('click', () => {
-    const card = document.getElementById('mensagem-card');
-    card.style.display = card.style.display === 'none' ? 'block' : 'none';
-  });
-
   function renderStatusMensagem() {
     const div = document.getElementById('mensagem-status-atual');
     if (!mensagemConfig || !mensagemConfig.ativa) {
@@ -707,17 +1023,7 @@
     }
   });
 
-  document.getElementById('atualizacao-toggle-btn').addEventListener('click', () => {
-    const card = document.getElementById('atualizacao-card');
-    card.style.display = card.style.display === 'none' ? 'block' : 'none';
-  });
-
   // --- Sincronização entre PDVs ---
-
-  document.getElementById('sincronizacao-toggle-btn').addEventListener('click', () => {
-    const card = document.getElementById('sincronizacao-card');
-    card.style.display = card.style.display === 'none' ? 'block' : 'none';
-  });
 
   document.getElementById('grupo-criar-btn').addEventListener('click', async () => {
     const nome = document.getElementById('grupo-nome-input').value.trim();
@@ -848,6 +1154,564 @@
     });
   }
 
+  // --- Backups na nuvem ---
+
+  let pararEscutaBackups = null;
+
+  function popularSelectBackups() {
+    const select = document.getElementById('backups-select-maquina');
+    const atual = select.value;
+    select.innerHTML = instalacoes.map((i) => `<option value="${i.id}">${escapeHtml(nomeDaInstalacaoComCliente(i))}</option>`).join('');
+    if (atual && instalacoes.some((i) => i.id === atual)) select.value = atual;
+  }
+
+  // Chamada sempre que os dados mudam -- só faz algo de fato quando a
+  // tela atual é "backups". Popula o select toda vez (a lista de
+  // máquinas pode mudar), mas só ABRE a escuta da máquina selecionada
+  // UMA vez (senão recriaria o listener a cada atualização de dados).
+  function atualizarSecaoBackupsSeAtiva() {
+    if (TELA_ATUAL !== 'backups') return;
+    popularSelectBackups();
+    renderBackupsConfigExtra();
+    if (!backupsEscutaIniciada && document.getElementById('backups-select-maquina').value) {
+      backupsEscutaIniciada = true;
+      escutarBackupsDaMaquinaSelecionada();
+    }
+  }
+
+  // Config de backup extra (pasta secundária / conta de nuvem pessoal)
+  // que a própria máquina reporta pro documento da instalação assim que
+  // o cliente salva na tela de Configurações — só "análise visual" aqui,
+  // não é editável pela Central.
+  function renderBackupsConfigExtra() {
+    const id = document.getElementById('backups-select-maquina').value;
+    const div = document.getElementById('backups-config-extra');
+    const inst = instalacoes.find((i) => i.id === id);
+    if (!inst) { div.innerHTML = ''; return; }
+    const pastaOk = !!inst.backupPastaSecundariaConfigurada;
+    const conta = (inst.backupContaNuvemPessoal || '').trim();
+    div.innerHTML =
+      `Pasta secundária: <strong>${pastaOk ? 'configurada' : 'não configurada'}</strong>` +
+      ` &nbsp;·&nbsp; Conta de nuvem pessoal: <strong>${conta ? escapeHtml(conta) : 'não informada'}</strong>`;
+  }
+
+  document.getElementById('backups-select-maquina').addEventListener('change', () => {
+    escutarBackupsDaMaquinaSelecionada();
+    renderBackupsConfigExtra();
+  });
+
+  document.getElementById('backups-pedir-btn').addEventListener('click', async () => {
+    const id = document.getElementById('backups-select-maquina').value;
+    if (!id) return;
+    if (!confirm(
+      'Pedir um backup agora nessa máquina? Ela faz e sobe pra nuvem sozinha assim que perceber o ' +
+      'pedido (poucos segundos, se estiver online agora).'
+    )) return;
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { backupSolicitadoEm: Date.now() });
+    } catch (err) {
+      mostrarErro(err, 'pedir o backup');
+    }
+  });
+
+  // Assina a subcoleção de backups só da máquina selecionada (não de
+  // todas de uma vez) — evita abrir dezenas de listeners à toa.
+  function escutarBackupsDaMaquinaSelecionada() {
+    const id = document.getElementById('backups-select-maquina').value;
+    if (pararEscutaBackups) { pararEscutaBackups(); pararEscutaBackups = null; }
+    const div = document.getElementById('backups-lista');
+    if (!id) { div.innerHTML = ''; return; }
+    div.innerHTML = '<p class="cliente-resumo">Carregando...</p>';
+    pararEscutaBackups = onSnapshot(
+      query(collection(db, 'installations', id, 'backups'), orderBy('criadoEm', 'desc')),
+      (snap) => renderListaBackups(id, snap.docs.map((d) => d.data())),
+      (err) => mostrarErro(err, 'carregar os backups dessa máquina')
+    );
+  }
+
+  function renderListaBackups(instalacaoId, backups) {
+    const div = document.getElementById('backups-lista');
+    if (backups.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhum backup na nuvem ainda pra essa máquina (sobe sozinho depois do próximo backup local).</p>';
+      return;
+    }
+    div.innerHTML = backups.map((b) => `
+      <div class="maquina-row">
+        <span>${escapeHtml(b.nomeArquivo || '')}</span>
+        <span class="maquina-meta">${b.tamanhoBytes ? (b.tamanhoBytes / 1024 / 1024).toFixed(1) + ' MB · ' : ''}${formatarData(b.criadoEm)}</span>
+        <div class="maquina-acoes">
+          <button class="btn-danger btn-small" data-restaurar-backup="${escapeHtml(b.nomeArquivo || '')}">Restaurar</button>
+        </div>
+      </div>
+    `).join('');
+    div.querySelectorAll('[data-restaurar-backup]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const backup = backups.find((b) => b.nomeArquivo === btn.dataset.restaurarBackup);
+        if (backup) restaurarBackupRemoto(instalacaoId, backup);
+      });
+    });
+  }
+
+  async function restaurarBackupRemoto(instalacaoId, backup) {
+    if (!confirm(
+      `Restaurar "${backup.nomeArquivo}" nessa máquina? Isso SUBSTITUI os dados atuais dela sem volta ` +
+      `(a não ser que restaure outro backup depois), e a máquina reinicia sozinha em seguida assim que ` +
+      `perceber o pedido. Confirma?`
+    )) return;
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', instalacaoId), {
+        restaurarBackupSolicitado: {
+          nomeArquivo: backup.nomeArquivo,
+          caminhoStorage: backup.caminhoStorage,
+          solicitadoEmMs: Date.now(),
+        },
+      });
+    } catch (err) {
+      mostrarErro(err, 'pedir a restauração remota');
+    }
+  }
+
+  // --- Cofre de senhas ---
+  //
+  // Criptografia AES-GCM 256 bits, chave derivada da senha-mestra via
+  // PBKDF2 (210.000 iterações, SHA-256, salt aleatório de 16 bytes
+  // gerado uma vez e guardado -- não é segredo, só precisa ser único).
+  // Cada campo sensível de cada entrada é cifrado separadamente, com
+  // um IV aleatório próprio (nunca reaproveita IV com a mesma chave).
+  // Tudo roda local no navegador via Web Crypto (SubtleCrypto) -- o
+  // Firestore só vê texto cifrado, nunca a senha-mestra nem os dados
+  // em claro. Precisa de contexto seguro (HTTPS ou file://, que a
+  // maioria dos navegadores trata como seguro) -- ver aviso abaixo.
+
+  const COFRE_KDF_ITERACOES = 210000;
+  const COFRE_TEXTO_VERIFICACAO = 'gerenciaai-cofre-ok';
+
+  function cofreBase64Encode(buffer) {
+    return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  }
+  function cofreBase64Decode(base64) {
+    return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  }
+
+  async function cofreDerivarChave(senhaMestra, saltBase64) {
+    const enc = new TextEncoder();
+    const salt = cofreBase64Decode(saltBase64);
+    const chaveBase = await crypto.subtle.importKey('raw', enc.encode(senhaMestra), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: COFRE_KDF_ITERACOES, hash: 'SHA-256' },
+      chaveBase,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  async function cofreCriptografar(chave, textoPlano) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = new TextEncoder();
+    const buffer = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, chave, enc.encode(textoPlano || ''));
+    return { iv: cofreBase64Encode(iv), ct: cofreBase64Encode(buffer) };
+  }
+
+  async function cofreDescriptografar(chave, blob) {
+    if (!blob || !blob.ct) return '';
+    const iv = cofreBase64Decode(blob.iv);
+    const ct = cofreBase64Decode(blob.ct);
+    const buffer = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, chave, ct);
+    return new TextDecoder().decode(buffer);
+  }
+
+  // --- Gerador de senha aleatória ---
+  // Só existe em memória/na tela -- nunca é gravado em lugar nenhum
+  // sozinho. Some ao trocar de tela (a página inteira recarrega, ver
+  // navegação por setor acima), ao limpar manualmente, ou ao gerar
+  // outra por cima. Só vira dado de verdade se você colar num acesso
+  // e clicar em Salvar (aí sim vai cifrado pro Firestore, como
+  // qualquer outro campo do cofre).
+  const COFRE_GERADOR_MAIUSCULAS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // sem I/O (confunde visualmente)
+  const COFRE_GERADOR_MINUSCULAS = 'abcdefghijkmnopqrstuvwxyz'; // sem l
+  const COFRE_GERADOR_NUMEROS = '23456789'; // sem 0/1
+  const COFRE_GERADOR_SIMBOLOS = '!@#$%^&*()-_=+[]{}';
+
+  function cofreSorteioEntre(max) {
+    return crypto.getRandomValues(new Uint32Array(1))[0] % max;
+  }
+
+  function cofreGerarSenha(tamanho, incluirSimbolos) {
+    const conjuntos = [COFRE_GERADOR_MAIUSCULAS, COFRE_GERADOR_MINUSCULAS, COFRE_GERADOR_NUMEROS];
+    if (incluirSimbolos) conjuntos.push(COFRE_GERADOR_SIMBOLOS);
+    const todos = conjuntos.join('');
+
+    let caracteres = Array.from({ length: tamanho }, () => todos[cofreSorteioEntre(todos.length)]);
+
+    // Garante pelo menos um caractere de cada conjunto exigido -- troca
+    // uma posição aleatória (não as primeiras, que ficariam
+    // previsíveis) por um representante do conjunto que ainda faltou.
+    const posicoesLivres = Array.from({ length: tamanho }, (_, i) => i);
+    for (const conjunto of conjuntos) {
+      if (caracteres.some((c) => conjunto.includes(c))) continue;
+      const idx = cofreSorteioEntre(posicoesLivres.length);
+      const posicao = posicoesLivres.splice(idx, 1)[0];
+      caracteres[posicao] = conjunto[cofreSorteioEntre(conjunto.length)];
+    }
+    return caracteres.join('');
+  }
+
+  function cofreLerOpcoesGerador() {
+    const tamanho = Math.min(64, Math.max(8, parseInt(document.getElementById('cofre-gerador-tamanho').value, 10) || 20));
+    const simbolos = document.getElementById('cofre-gerador-simbolos').checked;
+    return { tamanho, simbolos };
+  }
+
+  document.getElementById('cofre-gerador-gerar-btn').addEventListener('click', () => {
+    const { tamanho, simbolos } = cofreLerOpcoesGerador();
+    document.getElementById('cofre-gerador-resultado').value = cofreGerarSenha(tamanho, simbolos);
+  });
+
+  document.getElementById('cofre-gerador-copiar-btn').addEventListener('click', (e) => {
+    const valor = document.getElementById('cofre-gerador-resultado').value;
+    if (!valor) return;
+    navigator.clipboard?.writeText(valor).catch(() => {});
+    const btn = e.currentTarget;
+    const original = btn.textContent;
+    btn.textContent = 'Copiado!';
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  });
+
+  document.getElementById('cofre-gerador-limpar-btn').addEventListener('click', () => {
+    document.getElementById('cofre-gerador-resultado').value = '';
+  });
+
+  // Botão "Gerar" dentro do formulário de acesso -- usa as mesmas
+  // opções (tamanho/símbolos) do gerador avulso acima, preenche direto
+  // no campo de senha do acesso (não fica salvo em lugar nenhum até
+  // você clicar em Salvar no formulário).
+  document.getElementById('cofre-acesso-gerar-senha-btn').addEventListener('click', () => {
+    const { tamanho, simbolos } = cofreLerOpcoesGerador();
+    document.getElementById('cofre-acesso-senha').value = cofreGerarSenha(tamanho, simbolos);
+  });
+
+  async function abrirCofre() {
+    if (!window.crypto || !window.crypto.subtle) {
+      mostrarErro(
+        new Error('Esse navegador/contexto não suporta criptografia aqui (Web Crypto indisponível). Tente hospedar o painel pelo Firebase Hosting (Passo 6, opção B) em vez de abrir o arquivo direto.'),
+        'abrir o cofre'
+      );
+      return;
+    }
+    if (cofreChave) { mostrarCofreDesbloqueado(); return; }
+    limparErro();
+    try {
+      const snap = await getDoc(doc(db, 'cofre_config', 'verificacao'));
+      if (!snap.exists()) {
+        document.getElementById('cofre-bloqueado-setup').style.display = 'block';
+        document.getElementById('cofre-bloqueado-unlock').style.display = 'none';
+        document.getElementById('cofre-desbloqueado').style.display = 'none';
+      } else {
+        cofreSalt = snap.data().salt;
+        cofreVerificacaoEnc = snap.data().verificacaoEnc;
+        document.getElementById('cofre-bloqueado-setup').style.display = 'none';
+        document.getElementById('cofre-bloqueado-unlock').style.display = 'block';
+        document.getElementById('cofre-desbloqueado').style.display = 'none';
+      }
+    } catch (err) {
+      mostrarErro(err, 'abrir o cofre');
+    }
+  }
+
+  document.getElementById('cofre-criar-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const senha = document.getElementById('cofre-criar-senha').value;
+    const confirma = document.getElementById('cofre-criar-senha-confirma').value;
+    if (senha !== confirma) {
+      mostrarErro(new Error('As duas senhas digitadas não são iguais.'), 'criar a senha-mestra');
+      return;
+    }
+    if (senha.length < 8) {
+      mostrarErro(new Error('Use uma senha-mestra com pelo menos 8 caracteres.'), 'criar a senha-mestra');
+      return;
+    }
+    limparErro();
+    try {
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      const saltBase64 = cofreBase64Encode(salt);
+      const chave = await cofreDerivarChave(senha, saltBase64);
+      const verificacaoEnc = await cofreCriptografar(chave, COFRE_TEXTO_VERIFICACAO);
+      await setDoc(doc(db, 'cofre_config', 'verificacao'), { salt: saltBase64, verificacaoEnc, criadoEm: serverTimestamp() });
+      cofreChave = chave;
+      cofreSalt = saltBase64;
+      cofreVerificacaoEnc = verificacaoEnc;
+      document.getElementById('cofre-criar-form').reset();
+      mostrarCofreDesbloqueado();
+    } catch (err) {
+      mostrarErro(err, 'criar a senha-mestra do cofre');
+    }
+  });
+
+  document.getElementById('cofre-unlock-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const senha = document.getElementById('cofre-unlock-senha').value;
+    const erroDiv = document.getElementById('cofre-unlock-erro');
+    erroDiv.style.display = 'none';
+    try {
+      const chave = await cofreDerivarChave(senha, cofreSalt);
+      const textoVerificado = await cofreDescriptografar(chave, cofreVerificacaoEnc);
+      if (textoVerificado !== COFRE_TEXTO_VERIFICACAO) throw new Error('senha incorreta');
+      cofreChave = chave;
+      document.getElementById('cofre-unlock-senha').value = '';
+      mostrarCofreDesbloqueado();
+    } catch (err) {
+      erroDiv.textContent = 'Senha-mestra incorreta.';
+      erroDiv.style.display = 'block';
+    }
+  });
+
+  function mostrarCofreDesbloqueado() {
+    document.getElementById('cofre-bloqueado-setup').style.display = 'none';
+    document.getElementById('cofre-bloqueado-unlock').style.display = 'none';
+    document.getElementById('cofre-desbloqueado').style.display = 'block';
+    popularSelectClientesCofre();
+    escutarCofre();
+  }
+
+  document.getElementById('cofre-bloquear-btn').addEventListener('click', () => {
+    cofreChave = null;
+    cofreEntradasDecifradas = [];
+    if (pararEscutaCofre) { pararEscutaCofre(); pararEscutaCofre = null; }
+    document.getElementById('cofre-desbloqueado').style.display = 'none';
+    document.getElementById('cofre-bloqueado-unlock').style.display = 'block';
+  });
+
+  function escutarCofre() {
+    if (pararEscutaCofre) pararEscutaCofre();
+    pararEscutaCofre = onSnapshot(
+      query(collection(db, 'cofre_acessos'), orderBy('rotulo')),
+      async (snap) => {
+        cofreEntradasCifradas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        await cofreDecifrarEntradas();
+        renderListaCofre();
+      },
+      (err) => mostrarErro(err, 'carregar o cofre')
+    );
+  }
+
+  async function cofreDecifrarEntradas() {
+    const decifradas = [];
+    for (const entrada of cofreEntradasCifradas) {
+      try {
+        decifradas.push({
+          id: entrada.id,
+          clienteId: entrada.clienteId || null,
+          tipo: entrada.tipo || 'Outro',
+          rotulo: entrada.rotulo || '(sem rótulo)',
+          endereco: await cofreDescriptografar(cofreChave, entrada.enderecoEnc),
+          // Link direto pro acesso remoto (ex: URL do DWService que já
+          // leva pro dispositivo certo) — DWService não tem API gratuita
+          // pra abrir sessão embutida na Central (pesquisado e confirmado:
+          // só no plano pago), então isso aqui é o meio-termo: fica salvo
+          // cifrado igual senha, e um clique abre numa aba nova.
+          link: entrada.linkEnc ? await cofreDescriptografar(cofreChave, entrada.linkEnc) : '',
+          usuario: await cofreDescriptografar(cofreChave, entrada.usuarioEnc),
+          senha: await cofreDescriptografar(cofreChave, entrada.senhaEnc),
+          notas: await cofreDescriptografar(cofreChave, entrada.notasEnc),
+        });
+      } catch (err) {
+        // Não deveria acontecer (a senha-mestra já foi validada no
+        // desbloqueio) -- só protege contra um dado corrompido isolado
+        // sem derrubar a lista inteira.
+        console.error('[cofre] falha ao decifrar uma entrada', err);
+      }
+    }
+    cofreEntradasDecifradas = decifradas;
+  }
+
+  function popularSelectClientesCofre() {
+    const opcoesClientes = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+
+    const filtroSelect = document.getElementById('cofre-filtro-cliente');
+    const filtroAtual = filtroSelect.value;
+    filtroSelect.innerHTML = '<option value="">Todos os clientes</option>' + opcoesClientes;
+    if (filtroAtual) filtroSelect.value = filtroAtual;
+
+    const modalSelect = document.getElementById('cofre-acesso-cliente');
+    const modalAtual = modalSelect.value;
+    modalSelect.innerHTML = '<option value="">Sem cliente vinculado</option>' + opcoesClientes;
+    if (modalAtual) modalSelect.value = modalAtual;
+  }
+
+  ['cofre-filtro-texto', 'cofre-filtro-cliente', 'cofre-filtro-tipo'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', renderListaCofre);
+  });
+
+  function renderListaCofre() {
+    if (!cofreChave) return;
+    const div = document.getElementById('cofre-lista');
+    const textoFiltro = document.getElementById('cofre-filtro-texto').value.trim().toLowerCase();
+    const clienteFiltro = document.getElementById('cofre-filtro-cliente').value;
+    const tipoFiltro = document.getElementById('cofre-filtro-tipo').value;
+
+    const filtradas = cofreEntradasDecifradas.filter((e) => {
+      if (clienteFiltro && e.clienteId !== clienteFiltro) return false;
+      if (tipoFiltro && e.tipo !== tipoFiltro) return false;
+      if (textoFiltro) {
+        const alvo = `${e.rotulo} ${e.endereco} ${e.usuario} ${e.notas}`.toLowerCase();
+        if (!alvo.includes(textoFiltro)) return false;
+      }
+      // O link não entra na busca de texto de propósito (pode ter token
+      // de sessão/id longo do DWService, só atrapalharia a busca).
+      return true;
+    });
+
+    if (filtradas.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhum acesso encontrado.</p>';
+      return;
+    }
+
+    div.innerHTML = filtradas.map((e) => {
+      const clienteNome = e.clienteId ? (clientes.find((c) => c.id === e.clienteId)?.nome || null) : null;
+      return `
+        <div class="card cliente-card" style="margin-bottom: 10px;">
+          <div class="cliente-header" style="cursor:default;">
+            <div class="cliente-info">
+              <span class="cliente-nome">${escapeHtml(e.rotulo)}</span>
+              <span class="status-pill status-ativa" style="margin-left:8px;">${escapeHtml(e.tipo)}</span>
+              ${clienteNome ? `<span class="cliente-doc">${escapeHtml(clienteNome)}</span>` : ''}
+            </div>
+            <div class="cliente-acoes">
+              ${e.link ? `<button class="btn-primary btn-small" data-cofre-abrir-link="${escapeHtml(e.link)}">🔗 Abrir acesso remoto</button>` : ''}
+              <button class="btn-secondary btn-small" data-cofre-editar="${e.id}">Editar</button>
+              <button class="btn-danger btn-small" data-cofre-apagar="${e.id}">Apagar</button>
+            </div>
+          </div>
+          <div class="maquinas-lista aberto">
+            ${e.endereco ? `
+              <div class="maquina-row">
+                <span>Endereço: ${escapeHtml(e.endereco)}</span>
+                <button class="btn-secondary btn-small" style="margin-left:auto;" data-cofre-copiar="${escapeHtml(e.endereco)}">Copiar</button>
+              </div>` : ''}
+            ${e.usuario ? `
+              <div class="maquina-row">
+                <span>Usuário: ${escapeHtml(e.usuario)}</span>
+                <button class="btn-secondary btn-small" style="margin-left:auto;" data-cofre-copiar="${escapeHtml(e.usuario)}">Copiar</button>
+              </div>` : ''}
+            ${e.senha ? `
+              <div class="maquina-row">
+                <span>Senha: <span class="senha-mascarada" data-senha-real="${escapeHtml(e.senha)}">••••••••</span></span>
+                <div class="maquina-acoes" style="margin-left:auto;">
+                  <button class="btn-secondary btn-small" data-cofre-mostrar-senha>Mostrar</button>
+                  <button class="btn-secondary btn-small" data-cofre-copiar="${escapeHtml(e.senha)}">Copiar</button>
+                </div>
+              </div>` : ''}
+            ${e.notas ? `
+              <div class="maquina-row" style="align-items:flex-start;">
+                <span style="white-space:pre-wrap;">Notas: ${escapeHtml(e.notas)}</span>
+              </div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    div.querySelectorAll('[data-cofre-abrir-link]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        // noopener: a aba nova nunca deve conseguir mexer nesta aba da
+        // Central via window.opener (o link pode ser de um site externo,
+        // ex: dwservice.net).
+        window.open(btn.dataset.cofreAbrirLink, '_blank', 'noopener');
+      });
+    });
+    div.querySelectorAll('[data-cofre-editar]').forEach((btn) => {
+      btn.addEventListener('click', () => abrirEdicaoCofre(btn.dataset.cofreEditar));
+    });
+    div.querySelectorAll('[data-cofre-apagar]').forEach((btn) => {
+      btn.addEventListener('click', () => apagarAcessoCofre(btn.dataset.cofreApagar));
+    });
+    div.querySelectorAll('[data-cofre-copiar]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        navigator.clipboard?.writeText(btn.dataset.cofreCopiar).catch(() => {});
+        const original = btn.textContent;
+        btn.textContent = 'Copiado!';
+        setTimeout(() => { btn.textContent = original; }, 1200);
+      });
+    });
+    div.querySelectorAll('[data-cofre-mostrar-senha]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const span = btn.closest('.maquina-row').querySelector('[data-senha-real]');
+        const mostrando = span.textContent !== '••••••••';
+        span.textContent = mostrando ? '••••••••' : span.dataset.senhaReal;
+        btn.textContent = mostrando ? 'Mostrar' : 'Ocultar';
+      });
+    });
+  }
+
+  document.getElementById('cofre-novo-btn').addEventListener('click', () => {
+    cofreEdicaoId = null;
+    document.getElementById('cofre-acesso-modal-titulo').textContent = 'Novo acesso';
+    document.getElementById('cofre-acesso-form').reset();
+    document.getElementById('cofre-acesso-modal').style.display = 'flex';
+  });
+
+  document.getElementById('cofre-acesso-cancelar').addEventListener('click', () => {
+    document.getElementById('cofre-acesso-modal').style.display = 'none';
+    document.getElementById('cofre-acesso-form').reset(); // limpa qualquer senha gerada e não salva
+  });
+
+  function abrirEdicaoCofre(id) {
+    const entrada = cofreEntradasDecifradas.find((e) => e.id === id);
+    if (!entrada) return;
+    cofreEdicaoId = id;
+    document.getElementById('cofre-acesso-modal-titulo').textContent = 'Editar acesso';
+    document.getElementById('cofre-acesso-cliente').value = entrada.clienteId || '';
+    document.getElementById('cofre-acesso-rotulo').value = entrada.rotulo === '(sem rótulo)' ? '' : entrada.rotulo;
+    document.getElementById('cofre-acesso-tipo').value = entrada.tipo;
+    document.getElementById('cofre-acesso-endereco').value = entrada.endereco;
+    document.getElementById('cofre-acesso-link').value = entrada.link;
+    document.getElementById('cofre-acesso-usuario').value = entrada.usuario;
+    document.getElementById('cofre-acesso-senha').value = entrada.senha;
+    document.getElementById('cofre-acesso-notas').value = entrada.notas;
+    document.getElementById('cofre-acesso-modal').style.display = 'flex';
+  }
+
+  document.getElementById('cofre-acesso-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!cofreChave) return;
+    limparErro();
+    try {
+      const dados = {
+        clienteId: document.getElementById('cofre-acesso-cliente').value || null,
+        tipo: document.getElementById('cofre-acesso-tipo').value,
+        rotulo: document.getElementById('cofre-acesso-rotulo').value.trim(),
+        enderecoEnc: await cofreCriptografar(cofreChave, document.getElementById('cofre-acesso-endereco').value.trim()),
+        linkEnc: await cofreCriptografar(cofreChave, document.getElementById('cofre-acesso-link').value.trim()),
+        usuarioEnc: await cofreCriptografar(cofreChave, document.getElementById('cofre-acesso-usuario').value.trim()),
+        senhaEnc: await cofreCriptografar(cofreChave, document.getElementById('cofre-acesso-senha').value),
+        notasEnc: await cofreCriptografar(cofreChave, document.getElementById('cofre-acesso-notas').value.trim()),
+        atualizadoEm: serverTimestamp(),
+      };
+      if (cofreEdicaoId) {
+        await updateDoc(doc(db, 'cofre_acessos', cofreEdicaoId), dados);
+      } else {
+        dados.criadoEm = serverTimestamp();
+        await addDoc(collection(db, 'cofre_acessos'), dados);
+      }
+      document.getElementById('cofre-acesso-modal').style.display = 'none';
+      document.getElementById('cofre-acesso-form').reset();
+    } catch (err) {
+      mostrarErro(err, 'salvar o acesso no cofre');
+    }
+  });
+
+  async function apagarAcessoCofre(id) {
+    if (!confirm('Apagar esse acesso do cofre? Não tem como desfazer.')) return;
+    limparErro();
+    try {
+      await deleteDoc(doc(db, 'cofre_acessos', id));
+    } catch (err) {
+      mostrarErro(err, 'apagar o acesso');
+    }
+  }
+
   function renderStatusAtualizacao() {
     const div = document.getElementById('atualizacao-status-atual');
     if (!atualizacaoConfig || !atualizacaoConfig.obrigatoria) {
@@ -900,10 +1764,13 @@
     e.preventDefault();
     const nome = document.getElementById('novo-cliente-nome').value.trim();
     const documento = document.getElementById('novo-cliente-doc').value.trim();
+    const vencimento = document.getElementById('novo-cliente-vencimento').value;
     if (!nome) return;
     limparErro();
     try {
-      await addDoc(collection(db, 'clientes'), { nome, documento: documento || null, criadoEm: serverTimestamp() });
+      await addDoc(collection(db, 'clientes'), {
+        nome, documento: documento || null, vencimento: vencimento || null, criadoEm: serverTimestamp(),
+      });
       novoClienteModal.style.display = 'none';
     } catch (err) {
       mostrarErro(err, 'criar o cliente');
@@ -934,7 +1801,13 @@
 
   function render() {
     renderMetricas();
+    renderAlertaSumidas();
     renderGrupos();
+    atualizarSecaoBackupsSeAtiva();
+    if (TELA_ATUAL === 'cofre' && cofreChave) {
+      popularSelectClientesCofre();
+      renderListaCofre();
+    }
     const filtro = buscaInput.value.trim().toLowerCase();
 
     const instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {
@@ -999,6 +1872,7 @@
   function renderBlocoCliente(cliente, maquinas) {
     const aberto = blocosAbertos.has(cliente.id);
     const resumoStatus = calcularResumoStatus(maquinas);
+    const venc = statusVencimento(cliente);
 
     return `
       <div class="card cliente-card" data-cliente-card="${cliente.id}">
@@ -1007,6 +1881,7 @@
           <div class="cliente-info">
             <span class="cliente-nome">${escapeHtml(cliente.nome)}</span>
             ${cliente.documento ? `<span class="cliente-doc">${escapeHtml(cliente.documento)}</span>` : ''}
+            ${venc ? `<span class="status-pill ${venc.classe}" style="margin-left:8px;">${venc.texto}</span>` : ''}
             <div class="cliente-resumo" data-resumo-cliente="${cliente.id}">${resumoStatus}</div>
           </div>
           <div class="cliente-acoes">
@@ -1023,6 +1898,10 @@
               placeholder="Mensagem só pra esse cliente (ex: Pendência de pagamento — entre em contato)">
             <button class="btn-secondary btn-small" data-salvar-mensagem-cliente="${cliente.id}">Salvar mensagem</button>
             <button class="btn-secondary btn-small" data-limpar-mensagem-cliente="${cliente.id}">Limpar</button>
+          </div>
+          <div class="mensagem-cliente-wrap">
+            <label class="cliente-resumo" style="align-self:center;" for="vencimento-${cliente.id}">Vencimento / cobrança:</label>
+            <input type="date" id="vencimento-${cliente.id}" style="max-width:160px;" data-vencimento-cliente="${cliente.id}" value="${cliente.vencimento || ''}">
           </div>
           ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
         </div>
@@ -1069,6 +1948,10 @@
             data-bloquear="${inst.id}" data-bloqueado="${!!inst.bloqueioImediato}">
             ${inst.bloqueioImediato ? 'Desbloquear' : 'Bloquear agora'}
           </button>
+          <button class="btn-secondary btn-small" data-override="${inst.id}" data-override-ativo="${!!inst.overrideAtivo}"
+            title="Exigir/isentar uma versão de atualização só nessa máquina">
+            ${inst.overrideAtivo ? `Override: ${inst.versaoMinimaOverride || 'isenta'}` : 'Testar versão'}
+          </button>
         </div>
         ${inst.atualizacaoBaixando ? `
           <div class="maquina-progress-wrap">
@@ -1102,6 +1985,12 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         alternarBloqueioImediato(btn.dataset.bloquear, btn.dataset.bloqueado === 'true');
+      });
+    });
+    listaClientes.querySelectorAll('[data-override]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alternarOverrideAtualizacao(btn.dataset.override, btn.dataset.overrideAtivo === 'true');
       });
     });
     listaClientes.querySelectorAll('[data-bloquear-cliente]').forEach((btn) => {
@@ -1151,6 +2040,10 @@
     });
     listaClientes.querySelectorAll('[data-mensagem-cliente]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
+    });
+    listaClientes.querySelectorAll('[data-vencimento-cliente]').forEach((input) => {
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('change', () => salvarVencimentoCliente(input.dataset.vencimentoCliente, input.value));
     });
   }
 

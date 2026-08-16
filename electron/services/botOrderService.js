@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const { precoEfetivo } = require('./productService');
 
 const STATUS_PEDIDO_VALIDOS = ['novo', 'em_separacao', 'pronto', 'concluido', 'cancelado'];
 const STATUS_ITEM_VALIDOS = ['pendente', 'separado', 'indisponivel', 'substituido'];
@@ -47,9 +48,10 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo')`
   );
   const inserirItem = db.prepare(
-    `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, observacao)
-     VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, observacao, preco_unitario)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
+  const buscarProduto = db.prepare('SELECT * FROM products WHERE id = ?');
 
   const transacao = db.transaction(() => {
     inserirPedido.run(
@@ -58,14 +60,100 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
       origem === 'whatsapp_bot' ? 'whatsapp_bot' : 'manual'
     );
     for (const item of itensValidos) {
+      // Congela o preço que foi mostrado ao cliente agora, na criação
+      // do pedido -- se não veio explícito (quem chamou não sabia o
+      // preço), cai pro preço efetivo atual do produto como melhor
+      // esforço. Isso é o que vira sale_items.preco_unitario quando o
+      // pedido for convertido em venda de verdade na conclusão (ver
+      // updateOrderStatus) -- sem isso, o valor da venda saía zerado.
+      let preco = item.precoUnitario != null ? Number(item.precoUnitario) : null;
+      if (preco == null && item.productId) {
+        const produto = buscarProduto.get(item.productId);
+        if (produto) preco = precoEfetivo(produto);
+      }
       inserirItem.run(
         randomUUID(), id, item.productId || null, item.descricaoLivre || null,
-        Number(item.quantidade) > 0 ? Number(item.quantidade) : 1, item.observacao || null
+        Number(item.quantidade) > 0 ? Number(item.quantidade) : 1, item.observacao || null,
+        preco
       );
     }
   });
   transacao();
   return { ok: true, id, operadorId };
+}
+
+/** Converte um pedido em venda de verdade (entra no Histórico, debita
+ * estoque, e -- se for entrega -- cria a entrega correspondente pra
+ * aparecer na tela de Entregas) assim que ele é concluído. Sem isso, o
+ * pedido nunca virava faturamento nenhum -- ficava só marcado
+ * "concluído" no bot_orders sem nenhum rastro em sales/estoque. Idempotente:
+ * se o pedido já tem sale_id (já foi convertido antes), não faz nada de
+ * novo -- protege contra duplicar a venda se updateOrderStatus for
+ * chamado duas vezes pro mesmo pedido.
+ *
+ * Limitação conhecida: item sem product_id (descrição livre, quando
+ * quem lançou o pedido não achou o produto exato no catálogo) não vira
+ * linha de venda -- sale_items exige um produto de verdade (não dá pra
+ * debitar estoque nem faturar algo que não está cadastrado). Esse tipo
+ * de item continua visível no pedido em si, só não soma no total da
+ * venda gerada.
+ */
+function converterEmVendaSeAplicavel({ orderId, operadorId }) {
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido || pedido.sale_id) return;
+
+  const itens = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').all(orderId);
+  const itensComProduto = itens.filter((i) => i.product_id);
+  if (itensComProduto.length === 0) return;
+
+  const operadorVenda = operadorId || pedido.separado_por;
+  if (!operadorVenda) return; // não deveria acontecer (em_separacao já grava separado_por), mas nunca deixa a venda sem operador
+
+  const saleId = randomUUID();
+  const transacao = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO sales (id, location_id, operador_id, customer_id, status, total, finalizada_em)
+       VALUES (?, ?, ?, ?, 'finalizada', 0, NOW_SYNCED())`
+    ).run(saleId, pedido.location_id, operadorVenda, pedido.customer_id || null);
+
+    let total = 0;
+    for (const item of itensComProduto) {
+      const preco = item.preco_unitario != null ? item.preco_unitario : 0;
+      const saleItemId = randomUUID();
+      db.prepare(
+        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)`
+      ).run(saleItemId, saleId, item.product_id, item.quantidade, preco);
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
+         VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
+      ).run(randomUUID(), item.product_id, pedido.location_id, -Math.abs(item.quantidade), saleId, saleItemId, operadorVenda, 'bot_orders');
+      total += preco * item.quantidade;
+    }
+    db.prepare('UPDATE sales SET total = ? WHERE id = ?').run(total, saleId);
+
+    // Pagamento coletado na retirada/entrega -- não dá pra saber o
+    // método exato por aqui (dinheiro, pix, cartão na maquininha do
+    // entregador...), então registra como valor recebido sem detalhar
+    // o método. Quem quiser reclassificar o método de pagamento pode
+    // editar na tela de Histórico depois.
+    db.prepare(
+      `INSERT INTO payments (id, sale_id, metodo, valor, detalhes) VALUES (?, ?, 'outro', ?, ?)`
+    ).run(randomUUID(), saleId, total, JSON.stringify({ origem: 'pedido_separacao', observacao: 'Coletado na retirada/entrega' }));
+
+    db.prepare('UPDATE bot_orders SET sale_id = ? WHERE id = ?').run(saleId, orderId);
+
+    if (pedido.tipo_entrega === 'entrega') {
+      const deliveryId = randomUUID();
+      db.prepare(
+        `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, operador_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'pendente')`
+      ).run(deliveryId, pedido.location_id, saleId, pedido.customer_id || null, pedido.endereco, operadorVenda);
+      db.prepare('UPDATE bot_orders SET delivery_id = ? WHERE id = ?').run(deliveryId, orderId);
+    }
+  });
+  transacao();
+  return saleId;
 }
 
 /** Fila de pedidos — já vem com a contagem de itens/itens separados
@@ -75,7 +163,8 @@ function listOrders({ locationId, status } = {}) {
   let sql = `
     SELECT o.*,
       COUNT(i.id) as totalItens,
-      SUM(CASE WHEN i.status_separacao = 'separado' THEN 1 ELSE 0 END) as itensSeparados
+      SUM(CASE WHEN i.status_separacao = 'separado' THEN 1 ELSE 0 END) as itensSeparados,
+      COALESCE(SUM(i.preco_unitario * i.quantidade), 0) as valorTotal
     FROM bot_orders o
     LEFT JOIN bot_order_items i ON i.bot_order_id = o.id
     WHERE o.location_id = ?`;
@@ -120,7 +209,9 @@ function getOrderWithItems(orderId) {
      WHERE i.bot_order_id = @orderId`
   ).all({ locationId: pedido.location_id, orderId });
 
-  return { ok: true, pedido, itens };
+  const valorTotal = itens.reduce((soma, i) => soma + (i.preco_unitario || 0) * i.quantidade, 0);
+
+  return { ok: true, pedido: { ...pedido, valorTotal }, itens };
 }
 
 /** Muda o status do pedido — carimba automaticamente quando começou a
@@ -141,6 +232,19 @@ function updateOrderStatus({ orderId, status, operadorId }) {
 
   db.prepare(`UPDATE bot_orders SET ${sets.join(', ')} WHERE id = @orderId`)
     .run({ orderId, status, operadorId: operadorId || null });
+
+  if (status === 'concluido') {
+    try {
+      converterEmVendaSeAplicavel({ orderId, operadorId });
+    } catch (err) {
+      // Nunca deixa a mudança de status em si falhar por causa disso --
+      // mas isso não pode ficar em silêncio: se a venda não foi criada,
+      // o pedido "concluído" não vai aparecer no faturamento, e isso
+      // precisa ficar visível em algum lugar pra alguém investigar.
+      console.error('[botOrderService] falha ao converter pedido em venda', orderId, err);
+    }
+  }
+
   return { ok: true };
 }
 

@@ -111,12 +111,39 @@ function saveLocalForcedUpdateState({ versaoMinimaExigida, obrigatoria }) {
     .run(versaoMinimaExigida || null, obrigatoria ? 1 : 0, 'default');
 }
 
+/** Override POR INSTALAÇÃO (vem junto no documento da própria
+ * instalação, escrito pela Central) -- chamada pela escuta em tempo
+ * real de licenseService, mesmo padrão de aplicarMensagemDaInstalacao.
+ * Quando ativo, vale no lugar da regra global SÓ nessa máquina --
+ * serve tanto pra testar uma versão nova aos poucos (rollout gradual:
+ * ativa o override numa máquina de teste ANTES de publicar a regra
+ * global) quanto pra isentar um cliente específico por um tempo. */
+function aplicarOverrideDaInstalacao(dadosInstalacao) {
+  const db = getDb();
+  db.prepare('UPDATE forced_update_state SET versao_minima_override = ?, override_ativo = ? WHERE id = ?')
+    .run(
+      dadosInstalacao.versaoMinimaOverride || null,
+      dadosInstalacao.overrideAtivo === true ? 1 : 0,
+      'default'
+    );
+}
+
 /** Decide, só com dado local (sem rede), se a atualização obrigatória
  * está bloqueando o uso agora — pode ser chamado a qualquer momento,
- * inclusive offline (usa o último valor conhecido). */
+ * inclusive offline (usa o último valor conhecido). O override por
+ * instalação, quando ativo, sempre vence a regra global (positivo ou
+ * negativo: tanto pra exigir uma versão MAIOR quanto pra dispensar
+ * dessa máquina uma exigência global vigente). */
 function verificarAtualizacaoObrigatoria() {
   const state = getLocalForcedUpdateState();
   const versaoAtual = require('electron').app.getVersion();
+
+  if (state.override_ativo) {
+    if (!state.versao_minima_override) return { bloqueado: false };
+    const precisaAtualizar = versaoMenorQue(versaoAtual, state.versao_minima_override);
+    return { bloqueado: precisaAtualizar, versaoMinimaExigida: state.versao_minima_override, versaoAtual, viaOverride: true };
+  }
+
   if (!state.obrigatoria || !state.versao_minima_exigida) {
     return { bloqueado: false };
   }
@@ -176,5 +203,5 @@ async function reportarProgressoNoFirestore() {
 module.exports = {
   setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall, getStatus,
   verificarAtualizacaoObrigatoria, iniciarEscutaAtualizacaoObrigatoria, versaoMenorQue,
-  reportarProgressoNoFirestore,
+  reportarProgressoNoFirestore, aplicarOverrideDaInstalacao,
 };

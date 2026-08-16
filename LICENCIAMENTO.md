@@ -77,11 +77,44 @@ service cloud.firestore {
           .hasOnly([
             'ultimoContato', 'versaoApp', 'ultimoPing',
             'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo',
-            'totalVendasHistorico', 'vendasUltimos30Dias', 'perfilAtivo', 'conflitosCodigoBarrasPendentes'
+            'totalVendasHistorico', 'vendasUltimos30Dias', 'perfilAtivo', 'conflitosCodigoBarrasPendentes',
+            // Sinal de volta de uma restauração remota de backup pedida
+            // pela Central (ver Passo 3.5 e backupService.js) — a própria
+            // instalação escreve isso sozinha, sem login, avisando se deu
+            // certo ou não.
+            'restauracaoStatus', 'restauracaoErro', 'restauracaoConcluidaEm',
+            // Reporte (só informativo, pra "análise visual" na Central)
+            // de que a instalação tem uma pasta secundária de backup
+            // configurada e/ou qual conta de nuvem pessoal (Google Drive
+            // etc.) o cliente anotou na tela de Configurações — dispara
+            // sozinho assim que o cliente salva, sem esperar o próximo
+            // sinal de vida periódico.
+            'backupPastaSecundariaConfigurada', 'backupContaNuvemPessoal', 'backupContaNuvemPessoalAtualizadaEm'
           ])
       ) || request.auth != null;
+      // Os campos que só a Central escreve (autenticada) -- congelar,
+      // bloquear, vincular a cliente, mensagem personalizada, grupo de
+      // sincronização, pedir backup agora (`backupSolicitadoEm`), pedir
+      // restauração remota (`restaurarBackupSolicitado`) e o override de
+      // versão por instalação (`versaoMinimaOverride`/`overrideAtivo`) --
+      // já caem no `|| request.auth != null` acima, sem precisar listar
+      // cada um: qualquer update feito por você, logado no painel, é
+      // sempre permitido.
 
       allow delete: if request.auth != null;
+
+      // Metadados dos backups que essa instalação subiu pro Storage (ver
+      // Passo 3.5) — um documento por arquivo, criado pela PRÓPRIA
+      // instalação (sem login, mesmo modelo de confiança do documento pai:
+      // o installId é um UUID aleatório, não exposto em lugar nenhum
+      // público, então funciona como um "segredo" de fato). Só a Central
+      // (autenticada) lista esses documentos, na aba Backups do painel.
+      match /backups/{nomeArquivo} {
+        allow read: if request.auth != null;
+        allow create: if request.resource.data.keys().hasAll(['nomeArquivo', 'caminhoStorage', 'tamanhoBytes']);
+        allow update: if false; // nunca precisa editar, só criar ou apagar
+        allow delete: if true; // rotação automática -- mantém só os 10 mais recentes por instalação
+      }
     }
 
     // "clientes" é só usado pelo painel administrativo — o app em si
@@ -89,6 +122,21 @@ service cloud.firestore {
     // permite ações em bloco (bloquear todas as máquinas de um dono
     // de uma vez). Por isso é 100% restrito a admin autenticado.
     match /clientes/{clienteId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Cofre de senhas — igual "clientes": só o painel toca aqui, nunca
+    // o app do cliente. O conteúdo sensível (usuário/senha/endereço/
+    // notas) já vem CIFRADO do navegador antes de chegar até aqui (ver
+    // admin-panel/index.html) — essa regra só garante que ninguém sem
+    // login nem lê nem escreve, é uma segunda camada, não a única.
+    match /cofre_acessos/{acessoId} {
+      allow read, write: if request.auth != null;
+    }
+    // Guarda o salt e o "carimbo de verificação" (cifrado) usados pra
+    // conferir a senha-mestra no desbloqueio — nenhum dos dois é a
+    // senha em si, mas mesmo assim fica restrito a admin autenticado.
+    match /cofre_config/{docId} {
       allow read, write: if request.auth != null;
     }
 
@@ -184,6 +232,34 @@ precisa republicar com esse bloco novo de novo — sem isso, o campo
 online do painel vai ficar sempre cinza/offline, mesmo com o cliente
 rodando normalmente.
 
+**Se você já tinha publicado as regras antes dos recursos de backup na
+nuvem, override de versão por instalação e vencimento de cliente
+existirem**: republique de novo com o bloco atual — ele já inclui a
+subcoleção `backups` e os campos `restauracaoStatus`/`restauracaoErro`/
+`restauracaoConcluidaEm`. Os campos que só a Central escreve
+(`backupSolicitadoEm`, `restaurarBackupSolicitado`,
+`versaoMinimaOverride`, `overrideAtivo`, `vencimento` em `clientes`)
+não precisam de nada extra na regra — qualquer escrita autenticada já
+é permitida. E não esqueça do **Passo 3.5**, que é uma regra nova (do
+Storage, não do Firestore) — sem publicar aquela também, o upload do
+backup pra nuvem falha com `storage/unauthorized`.
+
+**Se você já tinha publicado as regras antes do Cofre de senhas
+existir**: republique de novo — o bloco atual inclui as coleções novas
+`cofre_acessos` e `cofre_config` (sem elas, o painel nem consegue
+abrir a tela do cofre, dá erro de permissão na hora de checar se já
+existe uma senha-mestra).
+
+**Se você já tinha publicado as regras antes do campo "conta de nuvem
+pessoal" existir** (tela de Configurações → Backup, no app do
+cliente): republique de novo — o bloco atual inclui
+`backupPastaSecundariaConfigurada`, `backupContaNuvemPessoal` e
+`backupContaNuvemPessoalAtualizadaEm` na lista de campos que a própria
+instalação pode escrever sem login. Sem isso, salvar esse campo no app
+do cliente falha silenciosamente (é melhor-esforço — não trava o
+salvamento local, só o reporte pra Central que fica sem aparecer na
+aba Backups).
+
 **Antes de confiar nisso em produção**: eu não tenho como testar essas
 regras ao vivo aqui (não tenho acesso a um projeto Firebase de
 verdade) — eu escrevi com cuidado e segui o padrão documentado do
@@ -191,6 +267,66 @@ Firestore, mas teste você mesmo antes de depender disso: tente, pelo
 simulador de regras do próprio Firebase (aba "Regras" → "Simulador"),
 simular uma escrita não-autenticada tentando mudar `ativo` — deve ser
 negada.
+
+## Passo 3.5 — Regras do Storage (backup na nuvem)
+
+O `storageBucket` já vem preenchido no `firebaseConfig` desde o
+início, mas até agora nada usava o Storage de verdade — por isso ele
+provavelmente nunca teve regra nenhuma publicada (o padrão do Firebase
+em modo produção é **negar tudo** até você publicar algo). Isso mudou:
+cada instalação agora sobe uma cópia do próprio backup local pra lá
+(pra você conseguir restaurar remotamente pela Central se a máquina de
+um cliente sumir de vez — HD morto, furto, etc.), e a aba **🗄
+Backups** do painel usa isso.
+
+No Firebase, vá em **Storage** (se ainda não tiver entrado nessa seção
+nenhuma vez, clique em "Vamos começar" primeiro — mesma região do
+Firestore) → aba **Regras**, apague o que estiver lá e cole:
+
+```
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /backups/{installId}/{arquivo} {
+      // Mesmo modelo de confiança do Firestore acima: a própria
+      // instalação sobe e baixa o próprio backup, sem se autenticar —
+      // o installId (um UUID aleatório, gerado localmente, nunca
+      // exposto em lugar nenhum público) faz esse papel. A Central em
+      // si NUNCA acessa o Storage diretamente pra restaurar; ela só
+      // grava o PEDIDO no Firestore (`restaurarBackupSolicitado`), e é
+      // a própria instalação que baixa o arquivo sozinha ao perceber
+      // o pedido.
+      allow read: if true;
+      allow write: if request.resource.size < 200 * 1024 * 1024; // limite generoso, 200MB por backup
+      allow delete: if true; // rotação automática -- mantém só os 10 backups mais recentes por instalação
+    }
+  }
+}
+```
+
+Clique em "Publicar".
+
+**⚠️ Sobre privacidade**: como o backup é o banco INTEIRO (clientes,
+telefones, vendas — o dado mais sensível que existe no sistema), vale
+entender o trade-off aqui: `allow read: if true` significa que
+QUALQUER UM que descubra o `installId` exato de uma instalação (e o
+nome do arquivo) consegue baixar aquele backup, sem precisar de login
+nenhum. Na prática isso é bem difícil — o `installId` é um UUID
+aleatório de 128 bits, nunca publicado em lugar nenhum acessível
+(nem a Central expõe isso fora do login autenticado) — mas é segurança
+por obscuridade, não uma trava de verdade, e é o mesmo modelo que o
+resto do sistema já usa (mensagem personalizada, grupo de
+sincronização, etc.). Não tem como fazer melhor sem montar um backend
+próprio com Cloud Functions pra gerar link assinado — fora do escopo
+de "sem servidor" desse projeto por enquanto. Se um dia isso incomodar,
+é a primeira coisa que eu mudaria com mais tempo de infraestrutura.
+
+**Teste rápido depois de publicar**: peça um backup pela aba 🗄
+Backups da Central numa instalação de teste — se dentro de alguns
+segundos (com a instalação online) aparecer um arquivo novo na lista,
+as regras estão certas. Se continuar vazio, confira o console (F12 →
+aba Console) da própria instalação: um erro `storage/unauthorized`
+significa que essa regra ainda não foi publicada certinho.
 
 ## Passo 4 — Preencher a configuração no app
 
@@ -239,6 +375,49 @@ firebase deploy
 
 Isso te dá uma URL tipo `https://gerenciaai-licencas.web.app` — acesse
 de qualquer navegador, faz login com o e-mail/senha do Passo 1.
+
+## Passo 7 (opcional) — Backup extra por cliente, numa nuvem pessoal (Google Drive, OneDrive...)
+
+Além do backup automático que já sobe pro Storage do projeto de
+licenciamento (Passo 3.5), dá pra ter uma **segunda cópia fora da
+máquina**, numa conta de nuvem pessoal — sem precisar escrever
+código nenhum, reaproveitando o campo "pasta secundária" que o app já
+tem em Configurações → Backups.
+
+A ideia: durante a implantação naquele cliente, crie uma conta Google
+**dedicada só a isso** (não a conta pessoal do dono do negócio — assim
+os 15GB grátis do Google Drive ficam só pra backup, sem disputar
+espaço com e-mail ou fotos de ninguém). Funciona igual com uma conta
+Microsoft/OneDrive, se preferir.
+
+**Passo a passo na implantação:**
+
+1. Crie a conta Google nova (ex: `backup.nomedocliente@gmail.com`).
+2. Instale o **Google Drive para Desktop**
+   ([drive.google.com/drive/download](https://www.google.com/drive/download/))
+   na máquina do cliente e faça login com essa conta.
+3. Configure pra sincronizar (ou crie) uma pasta local, ex:
+   `G:\Meu Drive\Backups PDV` (o Drive Desktop mapeia como uma unidade
+   ou pasta comum, dependendo da versão).
+4. Dentro do GerenciaAI, vá em **Configurações → Backups** e cole esse
+   caminho no campo "Pasta secundária".
+
+Pronto — a partir daí, todo backup que o app já faz sozinho (diário,
+ou quando você pede pela Central) grava também nessa pasta, e o
+próprio Google Drive sobe pra nuvem em segundo plano, sem precisar de
+nada meu rodando. Mesmo que o computador do cliente pare de
+funcionar de vez, o arquivo já sincronizado continua acessível em
+[drive.google.com](https://drive.google.com) de qualquer lugar, só
+com o login daquela conta.
+
+**Diferença importante em relação ao backup do Firebase**: o botão
+"Restaurar" da aba 🗄 Backups da Central só sabe puxar do Storage do
+Firebase — ele não enxerga o Google Drive. Restaurar a partir do Drive
+nesse modelo é manual: baixe o arquivo pelo site/app do Drive e copie
+pra máquina (ou instale o Drive Desktop na máquina nova, logado na
+mesma conta, e ele sincroniza de volta sozinho). Pense nisso como uma
+segunda rede de proteção, não como substituto do fluxo de restauração
+remota automática.
 
 ## Testando
 

@@ -99,6 +99,22 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'products', 'promocao_valida_ate', 'TEXT');
   adicionarColunaSeFaltando(database, 'fiscal_config', 'qr_code_url', 'TEXT');
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'qr_code_conteudo', 'TEXT');
+  // Congela o preço mostrado ao cliente (WhatsApp ou digitado manualmente)
+  // no momento em que o item entra no pedido -- sem isso, converter o
+  // pedido em venda na conclusão usaria o preço ATUAL do produto, que
+  // pode já ter mudado desde que o cliente viu o valor.
+  adicionarColunaSeFaltando(database, 'bot_order_items', 'preco_unitario', 'REAL');
+  adicionarColunaSeFaltando(database, 'backup_config', 'ultimo_upload_nuvem_em', 'TEXT');
+  adicionarColunaSeFaltando(database, 'backup_config', 'ultimo_upload_nuvem_ok', 'INTEGER');
+  adicionarColunaSeFaltando(database, 'backup_config', 'ultima_restauracao_processada', 'TEXT');
+  // Evita rodar o MESMO pedido de "backup agora" (feito pela Central)
+  // duas vezes, igual ultima_restauracao_processada acima.
+  adicionarColunaSeFaltando(database, 'backup_config', 'ultimo_pedido_backup_processado', 'TEXT');
+  // Registro/lembrete de qual conta de nuvem pessoal (Google Drive etc.)
+  // esse backup usa -- ver comentário completo em schema.sql.
+  adicionarColunaSeFaltando(database, 'backup_config', 'conta_nuvem_pessoal', 'TEXT');
+  adicionarColunaSeFaltando(database, 'forced_update_state', 'versao_minima_override', 'TEXT');
+  adicionarColunaSeFaltando(database, 'forced_update_state', 'override_ativo', 'INTEGER NOT NULL DEFAULT 0');
 
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
