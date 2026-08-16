@@ -123,3 +123,33 @@ test('updateItemStatus marca separado/indisponível, e listInStockByCategory só
   assert.equal(itensAtualizados[0].status_separacao, 'indisponivel');
   assert.equal(itensAtualizados[0].observacao, 'acabou na prateleira');
 });
+
+test('listActiveOrders só traz pedidos ainda na fila (não concluído nem cancelado)', () => {
+  const { locationId } = freshTestDb();
+
+  const criar = (clienteNome) => botOrderService.createOrder({
+    locationId, clienteNome, clienteTelefone: '11999999999',
+    itens: [{ descricaoLivre: 'Item qualquer' }],
+  }).id;
+
+  const novoId = criar('Novo');
+  const emSeparacaoId = criar('Em Separação');
+  const prontoId = criar('Pronto');
+  const concluidoId = criar('Concluído');
+  const canceladoId = criar('Cancelado');
+
+  botOrderService.updateOrderStatus({ orderId: emSeparacaoId, status: 'em_separacao' });
+  botOrderService.updateOrderStatus({ orderId: prontoId, status: 'em_separacao' });
+  botOrderService.updateOrderStatus({ orderId: prontoId, status: 'pronto' });
+  botOrderService.updateOrderStatus({ orderId: concluidoId, status: 'em_separacao' });
+  botOrderService.updateOrderStatus({ orderId: concluidoId, status: 'pronto' });
+  botOrderService.updateOrderStatus({ orderId: concluidoId, status: 'concluido' });
+  botOrderService.updateOrderStatus({ orderId: canceladoId, status: 'cancelado' });
+
+  const ativos = botOrderService.listActiveOrders({ locationId });
+  // Ordem exata não importa aqui (empate de timestamp é possível já
+  // que os pedidos são criados no mesmo segundo) -- só que sejam
+  // exatamente esses três, nem mais nem menos.
+  assert.deepEqual(ativos.map((p) => p.cliente_nome).sort(), ['Em Separação', 'Novo', 'Pronto']);
+  assert.deepEqual(ativos.map((p) => p.id).sort(), [novoId, emSeparacaoId, prontoId].sort());
+});

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { useProfile } from '../../context/ProfileContext';
 import { POSScreen } from '../pos/POSScreen';
@@ -33,6 +34,11 @@ const CHAVE_SECOES_FECHADAS = 'gerenciaai:secoes-fechadas';
 // Padaria também, já que ela também monta receita com insumos
 // (farinha, fermento etc.) e pode ter itens tipo "prato do dia".
 const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
+
+// Rótulo dos status "ativos" (na fila) pro balão de consulta rápida no
+// contador da barra lateral — concluído/cancelado não aparecem aqui
+// porque já saíram da fila (ver listActiveOrders no botOrderService).
+const STATUS_SEPARACAO_LABEL = { novo: 'Novo', em_separacao: 'Em separação', pronto: 'Pronto' };
 
 const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
@@ -87,6 +93,11 @@ export function AppShell() {
   });
   const [trocarUsuarioAberto, setTrocarUsuarioAberto] = useState(false);
   const [botDeliveryAtivo, setBotDeliveryAtivo] = useState(false);
+  const [pedidosSeparacaoAtivos, setPedidosSeparacaoAtivos] = useState([]);
+  const [balaoSeparacaoAberto, setBalaoSeparacaoAberto] = useState(false);
+  const [posicaoBalaoSeparacao, setPosicaoBalaoSeparacao] = useState({ top: 0, left: 0 });
+  const badgeSeparacaoRef = useRef(null);
+  const balaoSeparacaoRef = useRef(null);
   const keyboardHelp = useKeyboardHelpShortcut();
 
   function alternarSecao(titulo) {
@@ -108,6 +119,41 @@ export function AppShell() {
     // já aparece no menu sem precisar reabrir o app.
     window.pdv.botOrders.getConfig().then((c) => setBotDeliveryAtivo(!!c.ativo));
   }, [screen]);
+
+  useEffect(() => {
+    if (!botDeliveryAtivo) { setPedidosSeparacaoAtivos([]); return; }
+    function carregarPedidosAtivos() {
+      window.pdv.botOrders.listActive({ locationId: window.APP_LOCATION_ID })
+        .then((list) => setPedidosSeparacaoAtivos(Array.isArray(list) ? list : []));
+    }
+    carregarPedidosAtivos();
+    // Um pedido pode cair na fila a qualquer momento (digitado por
+    // alguém, ou futuramente pelo chatbot do WhatsApp) enquanto quem
+    // está usando o PDV está em qualquer outra tela — por isso esse
+    // contador atualiza sozinho aqui, independente da aba aberta.
+    const id = setInterval(carregarPedidosAtivos, 20000);
+    return () => clearInterval(id);
+  }, [botDeliveryAtivo]);
+
+  useEscToClose(() => setBalaoSeparacaoAberto(false), balaoSeparacaoAberto);
+
+  useEffect(() => {
+    if (!balaoSeparacaoAberto) return;
+    function handleClickFora(e) {
+      if (balaoSeparacaoRef.current?.contains(e.target)) return;
+      if (badgeSeparacaoRef.current?.contains(e.target)) return;
+      setBalaoSeparacaoAberto(false);
+    }
+    document.addEventListener('mousedown', handleClickFora);
+    return () => document.removeEventListener('mousedown', handleClickFora);
+  }, [balaoSeparacaoAberto]);
+
+  function handleAbrirBalaoSeparacao(e) {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPosicaoBalaoSeparacao({ top: rect.bottom + 6, left: rect.left });
+    setBalaoSeparacaoAberto((v) => !v);
+  }
 
   useEffect(() => {
     if (!sincronizacaoAtiva) return;
@@ -198,17 +244,35 @@ export function AppShell() {
                   <ul className="nav-group-list">
                     {grupo.itens.map((item) => (
                       <li key={item.id}>
-                        <button
-                          className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
-                          onClick={() => setScreen(item.id)}
-                        >
-                          {item.label}
-                          {item.id === 'products' && conflitosProdutos > 0 && (
-                            <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
-                              ⚠ {conflitosProdutos}
-                            </span>
+                        <div style={{ display: 'flex', alignItems: 'stretch' }}>
+                          <button
+                            className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
+                            style={{ flex: 1 }}
+                            onClick={() => setScreen(item.id)}
+                          >
+                            {item.label}
+                            {item.id === 'products' && conflitosProdutos > 0 && (
+                              <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
+                                ⚠ {conflitosProdutos}
+                              </span>
+                            )}
+                          </button>
+                          {item.id === 'botOrders' && pedidosSeparacaoAtivos.length > 0 && (
+                            <button
+                              ref={badgeSeparacaoRef}
+                              type="button"
+                              onClick={handleAbrirBalaoSeparacao}
+                              title="Pedidos aguardando separação — clique para uma consulta rápida"
+                              style={{
+                                alignSelf: 'center', marginRight: 12, flexShrink: 0,
+                                background: 'var(--sidebar-accent)', color: 'white', border: 'none',
+                                borderRadius: 999, padding: '1px 9px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                              }}
+                            >
+                              {pedidosSeparacaoAtivos.length}
+                            </button>
                           )}
-                        </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -311,6 +375,30 @@ export function AppShell() {
           onClose={() => setTrocarUsuarioAberto(false)}
           onSwitched={() => setScreen('pos')}
         />
+      )}
+      {balaoSeparacaoAberto && (
+        <div
+          ref={balaoSeparacaoRef}
+          className="cart-alert-popover"
+          style={{ position: 'fixed', top: posicaoBalaoSeparacao.top, left: posicaoBalaoSeparacao.left, zIndex: 301 }}
+        >
+          <span className="cart-alert-popover-title">Pedidos aguardando separação</span>
+          {pedidosSeparacaoAtivos.length === 0 ? (
+            <p className="screen-hint" style={{ margin: 0 }}>Nenhum pedido na fila.</p>
+          ) : (
+            <ul>
+              {pedidosSeparacaoAtivos.map((p) => (
+                <li key={p.id}>
+                  {p.cliente_nome} — {STATUS_SEPARACAO_LABEL[p.status] || p.status}
+                  {p.tipo_entrega === 'entrega' ? ' (entrega)' : ' (retirada)'}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="screen-hint" style={{ margin: '8px 0 0' }}>
+            Só consulta rápida — abra a aba "Separação" para atualizar um pedido.
+          </p>
+        </div>
       )}
     </div>
   );

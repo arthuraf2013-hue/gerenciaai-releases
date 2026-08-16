@@ -3,6 +3,9 @@ const { getDb } = require('../db/database');
 
 const STATUS_PEDIDO_VALIDOS = ['novo', 'em_separacao', 'pronto', 'concluido', 'cancelado'];
 const STATUS_ITEM_VALIDOS = ['pendente', 'separado', 'indisponivel', 'substituido'];
+// "Na fila" pra fins do contador/balão na barra lateral -- concluído e
+// cancelado já saíram da fila, não contam mais.
+const STATUS_ATIVOS = ['novo', 'em_separacao', 'pronto'];
 
 // ---------- Configuração (liga/desliga a aba "Separação") ----------
 function getConfig() {
@@ -83,6 +86,22 @@ function listOrders({ locationId, status } = {}) {
   }
   sql += ' GROUP BY o.id ORDER BY o.criado_em DESC';
   return db.prepare(sql).all(...params);
+}
+
+/** Pedidos ainda "na fila" (não concluídos nem cancelados) — usado só
+ * pro contador/balão que aparece do lado de "Separação" na barra
+ * lateral, fora da tela de verdade. Bem enxuto de propósito (não traz
+ * itens nem estoque) porque é só uma consulta rápida — quem quiser
+ * realmente mexer no pedido precisa abrir a aba "Separação". */
+function listActiveOrders({ locationId }) {
+  const db = getDb();
+  const placeholders = STATUS_ATIVOS.map(() => '?').join(',');
+  return db.prepare(
+    `SELECT id, cliente_nome, tipo_entrega, status, criado_em
+     FROM bot_orders
+     WHERE location_id = ? AND status IN (${placeholders})
+     ORDER BY criado_em ASC`
+  ).all(locationId, ...STATUS_ATIVOS);
 }
 
 /** Detalhe de um pedido com os itens, já casados com o produto (nome,
@@ -184,6 +203,6 @@ function listInStockByCategory({ locationId, categoria }) {
 
 module.exports = {
   getConfig, updateConfig,
-  createOrder, listOrders, getOrderWithItems, updateOrderStatus, updateItemStatus,
+  createOrder, listOrders, listActiveOrders, getOrderWithItems, updateOrderStatus, updateItemStatus,
   listCategoriasComEstoque, listInStockByCategory,
 };

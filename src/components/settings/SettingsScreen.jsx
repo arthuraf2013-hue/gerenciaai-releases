@@ -14,6 +14,13 @@ const WHATSAPP_STATUS_LABEL = {
   erro: 'Erro na conexão',
 };
 const WHATSAPP_QUALIDADE_LABEL = { boa: 'Estável', instavel: 'Instável (reconectando com frequência)' };
+const WHATSAPP_STATUS_COR = {
+  desconectado: 'var(--color-text-muted)',
+  aguardando_leitura: '#f5a623',
+  conectando: '#f5a623',
+  conectado: '#2E9C59',
+  erro: 'var(--color-danger)',
+};
 
 export function SettingsScreen() {
   const { currentUser } = useSession();
@@ -53,6 +60,7 @@ export function SettingsScreen() {
   const [botOrdersSaving, setBotOrdersSaving] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappBusy, setWhatsappBusy] = useState(false);
+  const [whatsappAtualizadoEm, setWhatsappAtualizadoEm] = useState(null);
 
   const [backupStatus, setBackupStatus] = useState(null);
   const [receiptLargura, setReceiptLargura] = useState(80);
@@ -157,8 +165,11 @@ export function SettingsScreen() {
   // tela em outra aba.
   useEffect(() => {
     if (aba !== 'whatsapp') return;
-    window.pdv.whatsapp.getStatus().then(setWhatsappStatus);
-    const id = setInterval(() => window.pdv.whatsapp.getStatus().then(setWhatsappStatus), 3000);
+    function consultarStatusWhatsapp() {
+      window.pdv.whatsapp.getStatus().then((s) => { setWhatsappStatus(s); setWhatsappAtualizadoEm(new Date()); });
+    }
+    consultarStatusWhatsapp();
+    const id = setInterval(consultarStatusWhatsapp, 3000);
     return () => clearInterval(id);
   }, [aba]);
 
@@ -1100,43 +1111,80 @@ export function SettingsScreen() {
           Tanto admin quanto gerente podem conectar ou desconectar.
         </p>
 
-        <div className="pdv-number-badge" style={{ background: whatsappStatus?.status === 'erro' ? 'var(--color-danger)' : undefined }}>
-          {WHATSAPP_STATUS_LABEL[whatsappStatus?.status] || 'Carregando...'}
-          {whatsappStatus?.status === 'conectado' && whatsappStatus?.numero && ` — número ${whatsappStatus.numero}`}
-          {whatsappStatus?.status === 'conectado' && whatsappStatus?.qualidade && ` — qualidade: ${WHATSAPP_QUALIDADE_LABEL[whatsappStatus.qualidade] || whatsappStatus.qualidade}`}
-        </div>
-
-        {whatsappStatus?.status === 'aguardando_leitura' && whatsappStatus?.qrCodeDataUrl && (
-          <div style={{ marginTop: 12 }}>
-            <p className="screen-hint" style={{ margin: '0 0 8px' }}>
-              No celular com o WhatsApp que vai atender os pedidos: abra o WhatsApp → Mais opções
-              (ou Configurações) → Aparelhos conectados → Conectar um aparelho, e escaneie o
-              código abaixo.
-            </p>
-            <img
-              src={whatsappStatus.qrCodeDataUrl} alt="QR Code para conectar o WhatsApp"
-              style={{ width: 220, height: 220, borderRadius: 8, border: '1px solid var(--color-border)' }}
-            />
+        <div
+          style={{
+            background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)',
+            padding: 18, display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 340,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 40, height: 40, borderRadius: '50%', background: 'var(--color-primary)', color: 'white',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 17, flexShrink: 0,
+              }}
+            >
+              W
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>Chatbot de Separação</div>
+              <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>WhatsApp · Baileys (não-oficial)</div>
+            </div>
           </div>
-        )}
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-          {whatsappStatus?.status !== 'conectado' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span
+              style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: WHATSAPP_STATUS_COR[whatsappStatus?.status] || 'var(--color-text-muted)',
+              }}
+            />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              {WHATSAPP_STATUS_LABEL[whatsappStatus?.status] || 'Carregando...'}
+            </span>
+          </div>
+
+          {whatsappStatus?.status === 'conectado' && (
+            <div style={{ fontSize: 13, color: 'var(--color-text-muted)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {whatsappStatus.numero && <span>Número: <strong style={{ color: 'var(--color-text)' }}>{whatsappStatus.numero}</strong></span>}
+              <span>Qualidade: {WHATSAPP_QUALIDADE_LABEL[whatsappStatus.qualidade] || whatsappStatus.qualidade}</span>
+            </div>
+          )}
+
+          {whatsappStatus?.status === 'aguardando_leitura' && whatsappStatus?.qrCodeDataUrl && (
+            <div>
+              <p className="screen-hint" style={{ margin: '0 0 8px' }}>
+                No celular que vai atender os pedidos: WhatsApp → Mais opções (ou Configurações) →
+                Aparelhos conectados → Conectar um aparelho, e escaneie:
+              </p>
+              <img
+                src={whatsappStatus.qrCodeDataUrl} alt="QR Code para conectar o WhatsApp"
+                style={{ width: 180, height: 180, borderRadius: 8, border: '1px solid var(--color-border)' }}
+              />
+            </div>
+          )}
+
+          {whatsappStatus?.erro && <p className="modal-error" style={{ margin: 0 }}>{whatsappStatus.erro}</p>}
+
+          {whatsappAtualizadoEm && (
+            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+              Atualizado: {whatsappAtualizadoEm.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}
+            </span>
+          )}
+
+          {whatsappStatus?.status === 'aguardando_leitura' ? null : whatsappStatus?.status !== 'conectado' ? (
             <button
               className="btn-primary" onClick={handleWhatsappConnect}
-              disabled={whatsappBusy || whatsappStatus?.status === 'conectando' || whatsappStatus?.status === 'aguardando_leitura'}
+              disabled={whatsappBusy || whatsappStatus?.status === 'conectando'}
             >
-              {whatsappBusy ? 'Conectando...' : 'Conectar'}
+              {whatsappBusy || whatsappStatus?.status === 'conectando' ? 'Conectando...' : 'Conectar'}
             </button>
-          )}
-          {whatsappStatus?.status === 'conectado' && (
+          ) : (
             <button className="btn-link-danger" onClick={handleWhatsappDisconnect} disabled={whatsappBusy}>
               {whatsappBusy ? 'Desconectando...' : 'Desconectar'}
             </button>
           )}
         </div>
-
-        {whatsappStatus?.erro && <p className="modal-error" style={{ marginTop: 8 }}>{whatsappStatus.erro}</p>}
       </section>
 
       <section className="settings-section">

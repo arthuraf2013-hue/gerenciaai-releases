@@ -382,6 +382,7 @@ function registerIpcHandlers() {
   safeHandle('botOrders:updateConfig', (_e, payload) => botOrderService.updateConfig(payload));
   safeHandle('botOrders:create', (_e, payload) => botOrderService.createOrder(payload));
   safeHandle('botOrders:list', (_e, payload) => botOrderService.listOrders(payload));
+  safeHandle('botOrders:listActive', (_e, payload) => botOrderService.listActiveOrders(payload));
   safeHandle('botOrders:getWithItems', (_e, { orderId }) => botOrderService.getOrderWithItems(orderId));
   safeHandle('botOrders:updateStatus', (_e, payload) => botOrderService.updateOrderStatus(payload));
   safeHandle('botOrders:updateItemStatus', (_e, payload) => botOrderService.updateItemStatus(payload));

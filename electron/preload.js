@@ -245,6 +245,7 @@ contextBridge.exposeInMainWorld('pdv', {
     updateConfig: invoke('botOrders:updateConfig'),
     create: invoke('botOrders:create'),
     list: invoke('botOrders:list'),
+    listActive: invoke('botOrders:listActive'),
     getWithItems: invoke('botOrders:getWithItems'),
     updateStatus: invoke('botOrders:updateStatus'),
     updateItemStatus: invoke('botOrders:updateItemStatus'),
