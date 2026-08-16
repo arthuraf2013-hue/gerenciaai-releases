@@ -240,6 +240,16 @@ contextBridge.exposeInMainWorld('pdv', {
     list: invoke('delivery:list'),
     montarLinkStatus: invoke('delivery:montarLinkStatus'),
   },
+  botOrders: {
+    getConfig: invoke('botOrders:getConfig'),
+    updateConfig: invoke('botOrders:updateConfig'),
+    create: invoke('botOrders:create'),
+    list: invoke('botOrders:list'),
+    getWithItems: invoke('botOrders:getWithItems'),
+    updateStatus: invoke('botOrders:updateStatus'),
+    updateItemStatus: invoke('botOrders:updateItemStatus'),
+    listInStockByCategory: invoke('botOrders:listInStockByCategory'),
+  },
   quotes: {
     create: invoke('quote:create'),
     addItem: invoke('quote:addItem'),

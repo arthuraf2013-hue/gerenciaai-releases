@@ -30,6 +30,7 @@ const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
 const petService = require('../services/petService');
 const deliveryService = require('../services/deliveryService');
+const botOrderService = require('../services/botOrderService');
 const quoteService = require('../services/quoteService');
 const eyewearService = require('../services/eyewearService');
 const appointmentService = require('../services/appointmentService');
@@ -374,6 +375,16 @@ function registerIpcHandlers() {
   safeHandle('delivery:updateStatus', (_e, payload) => deliveryService.updateDeliveryStatus(payload));
   safeHandle('delivery:list', (_e, payload) => deliveryService.listDeliveries(payload));
   safeHandle('delivery:montarLinkStatus', (_e, { deliveryId }) => deliveryService.montarLinkStatusEntrega(deliveryId));
+
+  // --- Pedidos do bot de WhatsApp ("Separação") ---
+  safeHandle('botOrders:getConfig', () => botOrderService.getConfig());
+  safeHandle('botOrders:updateConfig', (_e, payload) => botOrderService.updateConfig(payload));
+  safeHandle('botOrders:create', (_e, payload) => botOrderService.createOrder(payload));
+  safeHandle('botOrders:list', (_e, payload) => botOrderService.listOrders(payload));
+  safeHandle('botOrders:getWithItems', (_e, { orderId }) => botOrderService.getOrderWithItems(orderId));
+  safeHandle('botOrders:updateStatus', (_e, payload) => botOrderService.updateOrderStatus(payload));
+  safeHandle('botOrders:updateItemStatus', (_e, payload) => botOrderService.updateItemStatus(payload));
+  safeHandle('botOrders:listInStockByCategory', (_e, payload) => botOrderService.listInStockByCategory(payload));
 
   safeHandle('quote:create', (_e, payload) => quoteService.createQuote(payload));
   safeHandle('quote:addItem', (_e, payload) => quoteService.addQuoteItem(payload));

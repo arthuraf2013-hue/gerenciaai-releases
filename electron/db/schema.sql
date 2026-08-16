@@ -708,6 +708,56 @@ CREATE INDEX IF NOT EXISTS idx_deliveries_status ON deliveries(status);
 CREATE INDEX IF NOT EXISTS idx_deliveries_sale ON deliveries(sale_id);
 CREATE INDEX IF NOT EXISTS idx_deliveries_location ON deliveries(location_id);
 
+-- Pedidos separados por categoria (retirada ou entrega) — pensado pro
+-- chatbot de WhatsApp: o cliente escolhe uma categoria numerada ("1 -
+-- Analgésicos"), o bot mostra o que tem em estoque, e o pedido fechado
+-- cai aqui pra um funcionário separar fisicamente. Funciona hoje com
+-- pedidos digitados manualmente também (`origem = 'manual'`) — o bot
+-- ainda não existe, mas quando entrar só vai criar pedidos aqui do
+-- mesmo jeito (`origem = 'whatsapp_bot'`). Não mexe em estoque nem em
+-- caixa até virar venda/entrega de verdade na conclusão — mesmo
+-- princípio de `quotes`/`quote_items`.
+CREATE TABLE IF NOT EXISTS bot_orders (
+  id                TEXT PRIMARY KEY,
+  location_id       TEXT NOT NULL REFERENCES locations(id),
+  customer_id       TEXT REFERENCES customers(id), -- pode não estar cadastrado ainda (telefone novo no WhatsApp)
+  cliente_nome      TEXT NOT NULL,
+  cliente_telefone  TEXT NOT NULL,
+  tipo_entrega      TEXT NOT NULL DEFAULT 'retirada' CHECK (tipo_entrega IN ('retirada','entrega')),
+  endereco          TEXT, -- obrigatório só quando tipo_entrega = 'entrega'
+  status            TEXT NOT NULL DEFAULT 'novo' CHECK (status IN ('novo','em_separacao','pronto','concluido','cancelado')),
+  origem            TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual')),
+  observacoes       TEXT,
+  separado_por      TEXT REFERENCES users(id),
+  delivery_id       TEXT REFERENCES deliveries(id), -- preenchido se virou uma entrega de verdade
+  sale_id           TEXT REFERENCES sales(id), -- preenchido quando convertido em venda na conclusão
+  criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  separado_em       TEXT,
+  concluido_em      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bot_orders_location ON bot_orders(location_id);
+CREATE INDEX IF NOT EXISTS idx_bot_orders_status ON bot_orders(status);
+
+CREATE TABLE IF NOT EXISTS bot_order_items (
+  id                TEXT PRIMARY KEY,
+  bot_order_id      TEXT NOT NULL REFERENCES bot_orders(id),
+  product_id        TEXT REFERENCES products(id), -- pode ficar NULL se o bot/atendente não achou um produto exato
+  descricao_livre   TEXT, -- o que o cliente pediu, como veio (guarda o pedido original mesmo se o produto for trocado)
+  quantidade        REAL NOT NULL DEFAULT 1,
+  status_separacao  TEXT NOT NULL DEFAULT 'pendente' CHECK (status_separacao IN ('pendente','separado','indisponivel','substituido')),
+  observacao        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bot_order_items_order ON bot_order_items(bot_order_id);
+
+-- Liga/desliga a aba "Separação" no menu — independente do perfil de
+-- negócio (farmácia, restaurante etc.), qualquer perfil pode usar. Vem
+-- desligado por padrão; o admin ativa em Configurações quando for
+-- começar a usar o WhatsApp pra pedidos.
+CREATE TABLE IF NOT EXISTS delivery_bot_config (
+  id     TEXT PRIMARY KEY DEFAULT 'default',
+  ativo  INTEGER NOT NULL DEFAULT 0
+);
+
 -- Orçamento (Material de Construção, mas útil em qualquer perfil): uma
 -- cotação prévia que o cliente pede antes de fechar — NÃO mexe em
 -- estoque nem em caixa até virar venda de verdade (por isso é uma

@@ -15,6 +15,7 @@ import { UserManagement } from '../users/UserManagement';
 import { Dashboard } from '../pos/Dashboard';
 import { CustomerList } from '../pos/CustomerList';
 import { DeliveryScreen } from '../pos/DeliveryScreen';
+import { BotOrdersScreen } from '../pos/BotOrdersScreen';
 import { QuotesScreen } from '../pos/QuotesScreen';
 import { AgendaScreen } from '../pos/AgendaScreen';
 import { ReturnFlow } from '../pos/ReturnFlow';
@@ -43,6 +44,14 @@ const NAV_ITEMS = [
   { id: 'delivery', label: 'Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
   { id: 'quotes', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
   { id: 'agenda', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
+
+  // Setor à parte, fora de qualquer perfil de negócio — só aparece
+  // quando o admin ativa em Configurações (é onde o pedido separado
+  // pelo chatbot de WhatsApp, ou digitado manualmente, cai pra alguém
+  // separar). `requerBotDelivery` é filtrado dinamicamente abaixo,
+  // igual a `perfil` — não dá pra decidir isso na hora de montar esta
+  // lista estática porque depende de uma configuração salva no banco.
+  { id: 'botOrders', label: 'Separação', roles: ['operador', 'gerente', 'admin'], section: 'Separação', requerBotDelivery: true },
 
   { id: 'products', label: 'Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
   { id: 'customers', label: 'Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
@@ -73,6 +82,7 @@ export function AppShell() {
     }
   });
   const [trocarUsuarioAberto, setTrocarUsuarioAberto] = useState(false);
+  const [botDeliveryAtivo, setBotDeliveryAtivo] = useState(false);
   const keyboardHelp = useKeyboardHelpShortcut();
 
   function alternarSecao(titulo) {
@@ -87,6 +97,13 @@ export function AppShell() {
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
   }, []);
+
+  useEffect(() => {
+    // Refeito a cada troca de tela (não só uma vez no início) — assim,
+    // se o admin ligar "Separação" nas Configurações e voltar, o item
+    // já aparece no menu sem precisar reabrir o app.
+    window.pdv.botOrders.getConfig().then((c) => setBotDeliveryAtivo(!!c.ativo));
+  }, [screen]);
 
   useEffect(() => {
     if (!sincronizacaoAtiva) return;
@@ -107,6 +124,7 @@ export function AppShell() {
 
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(currentUser.role)) return false;
+    if (item.requerBotDelivery && !botDeliveryAtivo) return false;
     if (!item.perfil) return true;
     const perfisPermitidos = Array.isArray(item.perfil) ? item.perfil : [item.perfil];
     return perfisPermitidos.includes(profile?.id);
@@ -280,6 +298,7 @@ export function AppShell() {
         {screen === 'alerts' && <StockAlerts />}
         {screen === 'settings' && <SettingsScreen />}
         {screen === 'users' && <UserManagement />}
+        {screen === 'botOrders' && <BotOrdersScreen />}
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
       {keyboardHelp.open && <KeyboardHelpModal onClose={keyboardHelp.close} />}

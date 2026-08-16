@@ -40,6 +40,8 @@ export function SettingsScreen() {
   const [loyaltyForm, setLoyaltyForm] = useState({ ativado: false, reaisPorPonto: 10, valorResgatePonto: 0.05 });
   const [loyaltySaving, setLoyaltySaving] = useState(false);
   const [loyaltySaved, setLoyaltySaved] = useState(false);
+  const [botOrdersAtivo, setBotOrdersAtivo] = useState(false);
+  const [botOrdersSaving, setBotOrdersSaving] = useState(false);
 
   const [backupStatus, setBackupStatus] = useState(null);
   const [receiptLargura, setReceiptLargura] = useState(80);
@@ -111,6 +113,7 @@ export function SettingsScreen() {
     window.pdv.loyalty.getConfig().then((l) => setLoyaltyForm({
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
     }));
+    window.pdv.botOrders.getConfig().then((c) => setBotOrdersAtivo(!!c.ativo));
     window.pdv.backup.getStatus().then(setBackupStatus);
     window.pdv.print.getReceiptConfig().then((c) => {
       setReceiptLargura(c.largura_mm);
@@ -202,6 +205,13 @@ export function SettingsScreen() {
     setLoyaltySaving(false);
     setLoyaltySaved(true);
     setTimeout(() => setLoyaltySaved(false), 2000);
+  }
+
+  async function handleBotOrdersToggle(ativo) {
+    setBotOrdersSaving(true);
+    await window.pdv.botOrders.updateConfig({ ativo });
+    setBotOrdersAtivo(ativo);
+    setBotOrdersSaving(false);
   }
 
   async function handleBackupNow() {
@@ -779,6 +789,23 @@ export function SettingsScreen() {
           </button>
         </form>
         {pixSaved && <p className="io-message">Chave Pix salva.</p>}
+      </section>
+
+      <section className="settings-section">
+        <h2>Separação de pedidos (WhatsApp)</h2>
+        <p className="screen-hint">
+          Ativa a aba "Separação" no menu, onde pedidos de retirada/entrega ficam na fila pra
+          alguém separar — hoje digitados manualmente por um funcionário; futuramente também
+          recebidos por um chatbot de WhatsApp (a integração com o WhatsApp ainda não está
+          configurada, isso só liga a tela de gerenciamento).
+        </p>
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox" checked={botOrdersAtivo} disabled={botOrdersSaving}
+            onChange={(e) => handleBotOrdersToggle(e.target.checked)} style={{ width: 'auto' }}
+          />
+          Ativar aba "Separação"
+        </label>
       </section>
 
       <section className="settings-section">
