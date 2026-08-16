@@ -62,7 +62,11 @@ const NAV_ITEMS = [
   { id: 'alerts', label: 'Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
   { id: 'users', label: 'Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
 
-  { id: 'settings', label: 'Configurações', roles: ['admin'], section: 'Sistema' },
+  // Gerente também vê Configurações agora (pra poder conectar/gerenciar
+  // o canal de WhatsApp sozinho) — seções realmente restritas a admin
+  // (segurança, restaurar backup) continuam bloqueadas no backend
+  // mesmo que a tela apareça (ver authService.requireRole nos handlers).
+  { id: 'settings', label: 'Configurações', roles: ['gerente', 'admin'], section: 'Sistema' },
 ];
 
 export function AppShell() {

@@ -153,6 +153,11 @@ app.whenReady().then(() => {
   require('./services/productSyncService').iniciarEscutaProdutos();
   require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 });
   require('./services/messageService').iniciarEscutaMensagemGlobal();
+  // Reconecta sozinho no chatbot de WhatsApp se esta máquina já tinha
+  // sido pareada antes e a aba "Separação" está ativada — sem isso, o
+  // bot só voltaria a responder depois de alguém abrir Configurações
+  // manualmente a cada vez que o app é reiniciado.
+  require('./services/whatsappBotService').iniciarAutomaticamenteSeConfigurado();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
   // Reenvio periódico de segurança — o push de cada venda ao finalizar
   // é best-effort (não trava a venda se a rede cair naquele instante

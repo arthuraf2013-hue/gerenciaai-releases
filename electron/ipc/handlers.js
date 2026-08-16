@@ -31,6 +31,7 @@ const customerService = require('../services/customerService');
 const petService = require('../services/petService');
 const deliveryService = require('../services/deliveryService');
 const botOrderService = require('../services/botOrderService');
+const whatsappBotService = require('../services/whatsappBotService');
 const quoteService = require('../services/quoteService');
 const eyewearService = require('../services/eyewearService');
 const appointmentService = require('../services/appointmentService');
@@ -385,6 +386,11 @@ function registerIpcHandlers() {
   safeHandle('botOrders:updateStatus', (_e, payload) => botOrderService.updateOrderStatus(payload));
   safeHandle('botOrders:updateItemStatus', (_e, payload) => botOrderService.updateItemStatus(payload));
   safeHandle('botOrders:listInStockByCategory', (_e, payload) => botOrderService.listInStockByCategory(payload));
+
+  // --- Canal de WhatsApp (conexão Baileys que alimenta o bot acima) ---
+  safeHandle('whatsapp:getStatus', () => whatsappBotService.getStatus());
+  safeHandle('whatsapp:connect', (_e, { requestingUserId }) => whatsappBotService.conectar(requestingUserId));
+  safeHandle('whatsapp:disconnect', (_e, { requestingUserId }) => whatsappBotService.desconectar(requestingUserId));
 
   safeHandle('quote:create', (_e, payload) => quoteService.createQuote(payload));
   safeHandle('quote:addItem', (_e, payload) => quoteService.addQuoteItem(payload));

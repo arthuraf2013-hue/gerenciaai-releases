@@ -6,6 +6,15 @@ import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
+const WHATSAPP_STATUS_LABEL = {
+  desconectado: 'Desconectado',
+  aguardando_leitura: 'Aguardando leitura do QR Code',
+  conectando: 'Conectando...',
+  conectado: 'Conectado',
+  erro: 'Erro na conexão',
+};
+const WHATSAPP_QUALIDADE_LABEL = { boa: 'Estável', instavel: 'Instável (reconectando com frequência)' };
+
 export function SettingsScreen() {
   const { currentUser } = useSession();
   const [aba, setAba] = useState('geral');
@@ -42,6 +51,8 @@ export function SettingsScreen() {
   const [loyaltySaved, setLoyaltySaved] = useState(false);
   const [botOrdersAtivo, setBotOrdersAtivo] = useState(false);
   const [botOrdersSaving, setBotOrdersSaving] = useState(false);
+  const [whatsappStatus, setWhatsappStatus] = useState(null);
+  const [whatsappBusy, setWhatsappBusy] = useState(false);
 
   const [backupStatus, setBackupStatus] = useState(null);
   const [receiptLargura, setReceiptLargura] = useState(80);
@@ -140,6 +151,17 @@ export function SettingsScreen() {
     return () => clearInterval(id);
   }, [updateStatus?.checking, updateStatus?.baixando]);
 
+  // Só consulta o status do WhatsApp enquanto a aba correspondente
+  // está aberta (o QR Code muda, a conexão pode cair e reconectar
+  // sozinha) — sem sentido ficar consultando isso o tempo todo com a
+  // tela em outra aba.
+  useEffect(() => {
+    if (aba !== 'whatsapp') return;
+    window.pdv.whatsapp.getStatus().then(setWhatsappStatus);
+    const id = setInterval(() => window.pdv.whatsapp.getStatus().then(setWhatsappStatus), 3000);
+    return () => clearInterval(id);
+  }, [aba]);
+
   async function handleLocationSave(e) {
     e.preventDefault();
     await window.pdv.settings.updateLocationName({ locationId, nome: locationName });
@@ -212,6 +234,28 @@ export function SettingsScreen() {
     await window.pdv.botOrders.updateConfig({ ativo });
     setBotOrdersAtivo(ativo);
     setBotOrdersSaving(false);
+  }
+
+  async function handleWhatsappConnect() {
+    setWhatsappBusy(true);
+    const result = await window.pdv.whatsapp.connect({ requestingUserId: currentUser.id });
+    setWhatsappBusy(false);
+    if (!result.ok) {
+      setWhatsappStatus((prev) => ({ ...prev, erro: result.error }));
+      return;
+    }
+    window.pdv.whatsapp.getStatus().then(setWhatsappStatus);
+  }
+
+  async function handleWhatsappDisconnect() {
+    const confirmado = confirm(
+      'Desconectar o WhatsApp? A sessão salva é apagada — pra conectar de novo vai precisar escanear o QR Code novamente.'
+    );
+    if (!confirmado) return;
+    setWhatsappBusy(true);
+    await window.pdv.whatsapp.disconnect({ requestingUserId: currentUser.id });
+    setWhatsappBusy(false);
+    window.pdv.whatsapp.getStatus().then(setWhatsappStatus);
   }
 
   async function handleBackupNow() {
@@ -393,6 +437,7 @@ export function SettingsScreen() {
         <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}>Geral</button>
         <button className={aba === 'impressora' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('impressora')}>Impressora</button>
         <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}>Balança</button>
+        <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}>WhatsApp</button>
       </div>
 
       {aba === 'geral' && (
@@ -792,23 +837,6 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>Separação de pedidos (WhatsApp)</h2>
-        <p className="screen-hint">
-          Ativa a aba "Separação" no menu, onde pedidos de retirada/entrega ficam na fila pra
-          alguém separar — hoje digitados manualmente por um funcionário; futuramente também
-          recebidos por um chatbot de WhatsApp (a integração com o WhatsApp ainda não está
-          configurada, isso só liga a tela de gerenciamento).
-        </p>
-        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <input
-            type="checkbox" checked={botOrdersAtivo} disabled={botOrdersSaving}
-            onChange={(e) => handleBotOrdersToggle(e.target.checked)} style={{ width: 'auto' }}
-          />
-          Ativar aba "Separação"
-        </label>
-      </section>
-
-      <section className="settings-section">
         <h2>Programa de fidelidade</h2>
         <p className="screen-hint">
           Clientes vinculados a uma venda acumulam pontos automaticamente. Pontos podem ser
@@ -1052,6 +1080,78 @@ export function SettingsScreen() {
           <select value={balancaHwForm.baudRate} onChange={(e) => handleSalvarBaudRate(Number(e.target.value))}>
             {[1200, 2400, 4800, 9600, 19200, 38400].map((b) => <option key={b} value={b}>{b}</option>)}
           </select>
+        </label>
+      </section>
+      </>
+      )}
+
+      {aba === 'whatsapp' && (
+      <>
+      <section className="settings-section">
+        <h2>Canal do WhatsApp</h2>
+        <p className="screen-hint">
+          Conecta este PDV a um número de WhatsApp pra receber pedidos automaticamente por
+          chatbot: o cliente manda mensagem, escolhe uma categoria numerada, escolhe os produtos
+          que tem em estoque, e o pedido cai sozinho na fila de "Separação". Usa uma conexão
+          não-oficial (mesmo princípio do WhatsApp Web do navegador, via Baileys) — <strong>não é a
+          API oficial da Meta</strong>, então existe risco real do número usado ser banido pelo
+          WhatsApp, principalmente com volume alto de mensagens. Recomendado testar primeiro com
+          um número que não seja o principal da farmácia, antes de confiar nisso no dia a dia.
+          Tanto admin quanto gerente podem conectar ou desconectar.
+        </p>
+
+        <div className="pdv-number-badge" style={{ background: whatsappStatus?.status === 'erro' ? 'var(--color-danger)' : undefined }}>
+          {WHATSAPP_STATUS_LABEL[whatsappStatus?.status] || 'Carregando...'}
+          {whatsappStatus?.status === 'conectado' && whatsappStatus?.numero && ` — número ${whatsappStatus.numero}`}
+          {whatsappStatus?.status === 'conectado' && whatsappStatus?.qualidade && ` — qualidade: ${WHATSAPP_QUALIDADE_LABEL[whatsappStatus.qualidade] || whatsappStatus.qualidade}`}
+        </div>
+
+        {whatsappStatus?.status === 'aguardando_leitura' && whatsappStatus?.qrCodeDataUrl && (
+          <div style={{ marginTop: 12 }}>
+            <p className="screen-hint" style={{ margin: '0 0 8px' }}>
+              No celular com o WhatsApp que vai atender os pedidos: abra o WhatsApp → Mais opções
+              (ou Configurações) → Aparelhos conectados → Conectar um aparelho, e escaneie o
+              código abaixo.
+            </p>
+            <img
+              src={whatsappStatus.qrCodeDataUrl} alt="QR Code para conectar o WhatsApp"
+              style={{ width: 220, height: 220, borderRadius: 8, border: '1px solid var(--color-border)' }}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+          {whatsappStatus?.status !== 'conectado' && (
+            <button
+              className="btn-primary" onClick={handleWhatsappConnect}
+              disabled={whatsappBusy || whatsappStatus?.status === 'conectando' || whatsappStatus?.status === 'aguardando_leitura'}
+            >
+              {whatsappBusy ? 'Conectando...' : 'Conectar'}
+            </button>
+          )}
+          {whatsappStatus?.status === 'conectado' && (
+            <button className="btn-link-danger" onClick={handleWhatsappDisconnect} disabled={whatsappBusy}>
+              {whatsappBusy ? 'Desconectando...' : 'Desconectar'}
+            </button>
+          )}
+        </div>
+
+        {whatsappStatus?.erro && <p className="modal-error" style={{ marginTop: 8 }}>{whatsappStatus.erro}</p>}
+      </section>
+
+      <section className="settings-section">
+        <h2>Aba "Separação"</h2>
+        <p className="screen-hint">
+          Ativa a aba "Separação" no menu, onde pedidos de retirada/entrega ficam na fila pra
+          alguém separar — hoje digitados manualmente por um funcionário, e assim que o WhatsApp
+          estiver conectado acima, também recebidos automaticamente pelo chatbot.
+        </p>
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <input
+            type="checkbox" checked={botOrdersAtivo} disabled={botOrdersSaving}
+            onChange={(e) => handleBotOrdersToggle(e.target.checked)} style={{ width: 'auto' }}
+          />
+          Ativar aba "Separação"
         </label>
       </section>
       </>

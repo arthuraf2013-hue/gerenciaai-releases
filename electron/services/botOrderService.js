@@ -137,6 +137,25 @@ function updateItemStatus({ itemId, status, observacao }) {
   return { ok: true };
 }
 
+/** Categorias que têm pelo menos um produto ativo com estoque > 0 no
+ * local — é a partir dessa lista (sempre em ordem alfabética, sempre
+ * recalculada na hora) que o bot do WhatsApp monta o menu numerado
+ * ("1 - Analgésicos", "2 - ..."). Categoria sem nenhum item disponível
+ * não aparece — não faz sentido oferecer uma opção vazia pro cliente. */
+function listCategoriasComEstoque({ locationId }) {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT p.categoria as categoria
+     FROM products p
+     JOIN stock_movements sm ON sm.product_id = p.id AND sm.location_id = ?
+     WHERE p.ativo = 1 AND p.categoria IS NOT NULL AND TRIM(p.categoria) != ''
+     GROUP BY p.categoria
+     HAVING SUM(sm.quantidade) > 0
+     ORDER BY p.categoria COLLATE NOCASE`
+  ).all(locationId);
+  return rows.map((r) => r.categoria);
+}
+
 /** Produtos ativos com estoque no local, filtrados por categoria — é
  * isso que o bot vai usar pra responder uma opção numerada ("1 -
  * Analgésicos") com o que realmente tem disponível. Já serve hoje
@@ -166,5 +185,5 @@ function listInStockByCategory({ locationId, categoria }) {
 module.exports = {
   getConfig, updateConfig,
   createOrder, listOrders, getOrderWithItems, updateOrderStatus, updateItemStatus,
-  listInStockByCategory,
+  listCategoriasComEstoque, listInStockByCategory,
 };

@@ -250,6 +250,11 @@ contextBridge.exposeInMainWorld('pdv', {
     updateItemStatus: invoke('botOrders:updateItemStatus'),
     listInStockByCategory: invoke('botOrders:listInStockByCategory'),
   },
+  whatsapp: {
+    getStatus: invoke('whatsapp:getStatus'),
+    connect: invoke('whatsapp:connect'),
+    disconnect: invoke('whatsapp:disconnect'),
+  },
   quotes: {
     create: invoke('quote:create'),
     addItem: invoke('quote:addItem'),
