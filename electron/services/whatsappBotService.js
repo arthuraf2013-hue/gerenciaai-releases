@@ -81,9 +81,15 @@ async function tratarMensagemRecebida(msg) {
   const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
   const telefone = jid.split('@')[0];
 
-  const { resposta } = whatsappBotHandler.processarMensagem({ telefone, texto, nomeExibicao: msg.pushName });
+  const { resposta, reservaConfirmada } = whatsappBotHandler.processarMensagem({ telefone, texto, nomeExibicao: msg.pushName });
   if (resposta && sock) {
     try { await sock.sendMessage(jid, { text: resposta }); } catch (err) { console.error('[whatsappBot] falha ao responder', err); }
+  }
+  // Sinalizado pelo handler (que não conhece o Electron, ver comentário
+  // no topo de whatsappBotHandler.js) -- é aqui, do lado de quem tem a
+  // conexão de verdade, que a notificação nativa pro balcão é disparada.
+  if (reservaConfirmada) {
+    try { require('./notificationService').notifyReservationConfirmed(reservaConfirmada); } catch (err) { console.error('[whatsappBot] falha ao notificar reserva confirmada', err); }
   }
 }
 

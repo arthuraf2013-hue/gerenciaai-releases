@@ -8,6 +8,7 @@ const backupService = require('./services/backupService');
 const updateService = require('./services/updateService');
 const licenseService = require('./services/licenseService');
 const errorReportService = require('./services/errorReportService');
+const reservationService = require('./services/reservationService');
 
 const isDev = !app.isPackaged;
 
@@ -171,6 +172,18 @@ app.whenReady().then(() => {
   // não precisam ser reenviadas de novo pra sempre).
   setInterval(() => require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 }), 15 * 60 * 1000);
 
+  // Lembrete de reserva "1h antes" — não existe agendador exato no
+  // projeto (ver comentário em reservationService.findPendingLembrete),
+  // então isso segue o mesmo padrão dos outros jobs periódicos daqui:
+  // uma checagem a cada poucos minutos. 5 min garante pelo menos uma
+  // passada dentro da janela de 10 min (55-65 min antes) que
+  // findPendingLembrete usa, mesmo se o app ficar momentaneamente sem
+  // conexão com o WhatsApp num ciclo (tenta de novo no próximo, a
+  // reserva só é marcada como "lembrete enviado" se o envio realmente
+  // funcionar). Também aproveita o mesmo ciclo pra limpar reservas que
+  // ficaram "aguardando confirmação" por tempo demais sem resposta.
+  setInterval(() => checarLembretesDeReserva().catch((err) => console.error('[reserva]', err)), 5 * 60 * 1000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -188,6 +201,33 @@ app.whenReady().then(() => {
   );
   app.quit();
 });
+
+/** Manda o "confirma sua reserva?" pra quem está a ~1h do horário
+ * marcado, e limpa reservas que ficaram esperando resposta por tempo
+ * demais. Ver reservationService.findPendingLembrete/
+ * marcarNaoConfirmadasVencidas pro porquê da janela de tempo. */
+async function checarLembretesDeReserva() {
+  const agora = timeService.agoraLocalString();
+  const pendentes = reservationService.findPendingLembrete(agora);
+  if (pendentes.length) {
+    const whatsappBotHandler = require('./services/whatsappBotHandler');
+    const whatsappBotService = require('./services/whatsappBotService');
+    for (const reserva of pendentes) {
+      const quando = whatsappBotHandler.formatarDataHoraReserva(reserva.data_hora);
+      const texto = `Oi, ${reserva.cliente_nome}! Passando pra confirmar: sua reserva de ${reserva.pessoas} pessoa(s) é ${quando} 🙂 Pode confirmar? Responda *sim* ou *não*.`;
+      const resultado = await whatsappBotService.enviarMensagem({ telefone: reserva.cliente_telefone, texto });
+      if (resultado.ok) {
+        reservationService.marcarLembreteEnviado(reserva.id);
+      } else {
+        // Não marca como enviado -- assim a próxima passada do
+        // setInterval tenta de novo enquanto a reserva ainda estiver
+        // dentro da janela de 55-65 min (ex: WhatsApp caiu bem na hora).
+        console.error('[reserva] falha ao mandar lembrete', reserva.id, resultado.error);
+      }
+    }
+  }
+  reservationService.marcarNaoConfirmadasVencidas(agora);
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

@@ -6,6 +6,7 @@ const customerService = require('./customerService');
 const { precoEfetivo } = require('./productService');
 const profileService = require('./profileService');
 const salesSyncService = require('./salesSyncService');
+const ingredientService = require('./ingredientService');
 
 function openSale({ locationId, operadorId }) {
   const db = getDb();
@@ -322,6 +323,12 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
        VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
     ).run(movId, productId, locationId, -Math.abs(quantidade), saleId, itemId, operadorId, deviceId);
 
+    // Se o produto tiver ficha técnica (prato com insumos cadastrados),
+    // já desconta os insumos na mesma transação — mesma ideia do
+    // estoque do produto em si, "vendas diminuem estoque diretamente".
+    // Produto sem ficha técnica: não faz nada (ver ingredientService).
+    ingredientService.descontarPorVenda(productId, quantidade);
+
     db.prepare(
       `UPDATE sales SET total = total + ? WHERE id = ?`
     ).run(precoDeVenda * quantidade, saleId);
@@ -551,6 +558,11 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
        VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
     ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de item', saleId, saleItemId, currentOperatorId, autorizadoPorId, deviceId);
 
+    // Espelha o estorno de estoque do produto pros insumos da ficha
+    // técnica (se tiver) — devolve exatamente o que foi descontado
+    // no addItem original.
+    ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+
     db.prepare(`UPDATE sales SET total = total - ? WHERE id = ?`).run(item.preco_unitario * item.quantidade, saleId);
   });
   tx();
@@ -603,6 +615,8 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
          VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
       ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPor?.id || null, deviceId);
+
+      ingredientService.reverterPorVenda(item.product_id, item.quantidade);
 
       db.prepare(`UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED() WHERE id = ?`)
         .run(autorizadoPor?.id || currentOperatorId, item.id);

@@ -40,7 +40,7 @@ export function PetsModal({ customer, onFechar }) {
 
   return (
     <div className="modal-overlay">
-      <div className="modal-card" style={{ width: 560 }}>
+      <div className="modal-card" style={{ width: 'min(560px, 94vw)' }}>
         <h2>🐾 Pets — {customer.nome}</h2>
 
         {!editando && (

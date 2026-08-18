@@ -888,6 +888,41 @@ CREATE INDEX IF NOT EXISTS idx_appointments_professional ON appointments(profess
 CREATE INDEX IF NOT EXISTS idx_appointments_location ON appointments(location_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_data ON appointments(data_hora_inicio);
 
+-- Reservas de mesa (perfil Restaurante/Padaria) feitas pelo cliente
+-- via chatbot do WhatsApp, ou cadastradas manualmente pela equipe.
+-- Diferente da reserva simples de UMA mesa específica (ver
+-- restaurant_tables.reservado_para, feita na hora pela equipe direto
+-- na tela de Mesas) -- aqui o cliente reserva "solto" (nome + pessoas
+-- + horário, sem escolher mesa nenhuma pelo WhatsApp) e a equipe
+-- vincula a uma mesa quando quiser (mesa_id fica NULL até lá). As duas
+-- formas de reserva convivem sem se misturar.
+CREATE TABLE IF NOT EXISTS reservations (
+  id                  TEXT PRIMARY KEY,
+  location_id         TEXT NOT NULL REFERENCES locations(id),
+  cliente_nome        TEXT NOT NULL,
+  cliente_telefone    TEXT NOT NULL,
+  pessoas             INTEGER NOT NULL,
+  -- Hora LOCAL (Brasília), igual a appointments.data_hora_inicio --
+  -- NÃO passa pela correção de -3h que criado_em/finalizada_em usam
+  -- em outras tabelas (essas são UTC via NOW_SYNCED()).
+  data_hora           TEXT NOT NULL,
+  status              TEXT NOT NULL DEFAULT 'pendente'
+                        CHECK (status IN ('pendente','aguardando_confirmacao','confirmada','cancelada','nao_confirmada','concluida')),
+  mesa_id             TEXT REFERENCES restaurant_tables(id),
+  origem              TEXT NOT NULL DEFAULT 'whatsapp' CHECK (origem IN ('whatsapp','manual')),
+  observacoes         TEXT,
+  -- Marca quando o lembrete de 1h antes foi mandado -- evita mandar
+  -- de novo a cada rodada do poller em main.js (ver reservationService.
+  -- findPendingLembrete). NULL até o lembrete sair.
+  lembrete_enviado_em TEXT,
+  confirmado_em       TEXT,
+  operador_id         TEXT REFERENCES users(id), -- quem criou, quando origem = 'manual'
+  criado_em           TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_reservations_location_data ON reservations(location_id, data_hora);
+CREATE INDEX IF NOT EXISTS idx_reservations_telefone ON reservations(cliente_telefone);
+CREATE INDEX IF NOT EXISTS idx_reservations_mesa ON reservations(mesa_id);
+
 CREATE TABLE IF NOT EXISTS loyalty_config (
   id                  TEXT PRIMARY KEY DEFAULT 'default',
   ativado             INTEGER NOT NULL DEFAULT 0,

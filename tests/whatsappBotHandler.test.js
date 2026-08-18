@@ -166,3 +166,147 @@ test('pergunta sobre produto que não existe não trava a conversa', () => {
   const r = whatsappBotHandler.processarMensagem({ telefone: '5511900001111', texto: 'vocês tem insulina importada rara?', locationId, estadoConversas: conversas });
   assert.match(r.resposta, /não encontrei/i);
 });
+
+// ---------- Reserva de mesa ----------
+
+function ativarPerfilRestaurante(db) {
+  db.prepare(`UPDATE business_profile SET perfil_ativo = 'restaurante' WHERE id = 'default'`).run();
+}
+
+test('parseHorarioReserva entende formatos comuns', () => {
+  const agora = new Date(2026, 0, 1, 15, 0, 0); // 01/01/2026 15:00
+
+  assert.equal(whatsappBotHandler.parseHorarioReserva('hoje 20h', agora), '2026-01-01 20:00:00');
+  assert.equal(whatsappBotHandler.parseHorarioReserva('amanhã 19h30', agora), '2026-01-02 19:30:00');
+  assert.equal(whatsappBotHandler.parseHorarioReserva('15/03 20h', agora), '2026-03-15 20:00:00');
+  assert.equal(whatsappBotHandler.parseHorarioReserva('20:00', agora), '2026-01-01 20:00:00'); // sem prefixo, ainda não passou hoje
+  assert.equal(whatsappBotHandler.parseHorarioReserva('10h', agora), '2026-01-02 10:00:00'); // sem prefixo, já passou hoje -> rola pra amanhã
+  assert.equal(whatsappBotHandler.parseHorarioReserva('não entendi isso', agora), null);
+  assert.equal(whatsappBotHandler.parseHorarioReserva('25h', agora), null); // hora inválida
+});
+
+test('conversa completa de reserva: reservar -> nome -> pessoas -> horário -> reserva criada', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilRestaurante(db);
+  const reservationService = require('../electron/services/reservationService');
+
+  const conversas = new Map();
+  const telefone = '5511988887777';
+
+  let r = whatsappBotHandler.processarMensagem({ telefone, texto: 'reservar', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /nome pra reserva/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: 'Carlos', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /quantas pessoas/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: '4', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /dia e hor[áa]rio/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: 'hoje 20h', locationId, estadoConversas: conversas });
+  assert.equal(r.reservaCriada, true);
+  assert.ok(r.reservationId);
+
+  const [reserva] = reservationService.list({ locationId });
+  assert.equal(reserva.cliente_nome, 'Carlos');
+  assert.equal(reserva.cliente_telefone, telefone);
+  assert.equal(reserva.pessoas, 4);
+  assert.equal(reserva.status, 'pendente');
+  assert.equal(reserva.origem, 'whatsapp');
+
+  // conversa foi encerrada
+  const proxima = whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  assert.match(proxima.resposta, /bem-vindo/i);
+});
+
+test('reserva não é oferecida fora do perfil restaurante/padaria', () => {
+  const { locationId } = freshTestDb(); // perfil padrão seedado é 'farmacia'
+  const conversas = new Map();
+  const r = whatsappBotHandler.processarMensagem({ telefone: '5511977778888', texto: 'reservar', locationId, estadoConversas: conversas });
+  // Sem o perfil certo, "reservar" não é reconhecido como comando -- cai no fluxo normal (menu de categorias/pergunta de produto)
+  assert.notEqual(r.resposta, undefined);
+  assert.doesNotMatch(r.resposta, /nome pra reserva/i);
+});
+
+test('horário inválido no fluxo de reserva pede de novo sem travar', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilRestaurante(db);
+  const conversas = new Map();
+  const telefone = '5511900001234';
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'reservar', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'Ana', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '2', locationId, estadoConversas: conversas });
+
+  const tentativaRuim = whatsappBotHandler.processarMensagem({ telefone, texto: 'qualquer hora', locationId, estadoConversas: conversas });
+  assert.match(tentativaRuim.resposta, /não entendi o hor[áa]rio/i);
+
+  const tentativaBoa = whatsappBotHandler.processarMensagem({ telefone, texto: 'amanhã 12h', locationId, estadoConversas: conversas });
+  assert.equal(tentativaBoa.reservaCriada, true);
+});
+
+test('cliente confirma a reserva quando o lembrete de 1h antes já foi mandado', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilRestaurante(db);
+  const reservationService = require('../electron/services/reservationService');
+  const telefone = '5511955554444';
+
+  const { id } = reservationService.create({ locationId, clienteNome: 'Beatriz', clienteTelefone: telefone, pessoas: 3, dataHora: '2026-01-01 20:00:00' });
+  reservationService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'sim', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /confirmada/i);
+  assert.ok(r.reservaConfirmada);
+  assert.equal(r.reservaConfirmada.id, id);
+
+  const [reserva] = reservationService.list({ locationId });
+  assert.equal(reserva.status, 'confirmada');
+});
+
+test('cliente recusa a reserva quando o lembrete de 1h antes já foi mandado', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilRestaurante(db);
+  const reservationService = require('../electron/services/reservationService');
+  const telefone = '5511944443333';
+
+  const { id } = reservationService.create({ locationId, clienteNome: 'Diego', clienteTelefone: telefone, pessoas: 2, dataHora: '2026-01-01 20:00:00' });
+  reservationService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'não posso ir', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /cancelada/i);
+
+  const [reserva] = reservationService.list({ locationId });
+  assert.equal(reserva.status, 'cancelada');
+});
+
+test('resposta ambígua ao lembrete repete a pergunta sem confirmar nem cancelar', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilRestaurante(db);
+  const reservationService = require('../electron/services/reservationService');
+  const telefone = '5511933332222';
+
+  const { id } = reservationService.create({ locationId, clienteNome: 'Elisa', clienteTelefone: telefone, pessoas: 2, dataHora: '2026-01-01 20:00:00' });
+  reservationService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'quem é vc?', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /confirma/i);
+  assert.equal(r.reservaConfirmada, undefined);
+
+  const [reserva] = reservationService.list({ locationId });
+  assert.equal(reserva.status, 'aguardando_confirmacao'); // não mudou
+});
+
+test('resposta ao lembrete tem prioridade sobre "cancelar" genérico', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilRestaurante(db);
+  const reservationService = require('../electron/services/reservationService');
+  const telefone = '5511922221111';
+
+  const { id } = reservationService.create({ locationId, clienteNome: 'Fábio', clienteTelefone: telefone, pessoas: 2, dataHora: '2026-01-01 20:00:00' });
+  reservationService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'cancelar', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /reserva cancelada/i); // é a RESERVA que foi cancelada, não um pedido genérico
+
+  const [reserva] = reservationService.list({ locationId });
+  assert.equal(reserva.status, 'cancelada');
+});

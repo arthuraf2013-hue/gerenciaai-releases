@@ -43,6 +43,7 @@ const printService = require('../services/printService');
 const dashboardService = require('../services/dashboardService');
 const supplyService = require('../services/supplyService');
 const batchService = require('../services/batchService');
+const reservationService = require('../services/reservationService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -198,6 +199,8 @@ function registerIpcHandlers() {
   safeHandle('ingredient:getRecipe', (_e, { productId }) => ingredientService.getRecipe(productId));
   safeHandle('ingredient:setRecipe', (_e, { productId, itens }) => ingredientService.setRecipe(productId, itens));
   safeHandle('ingredient:computeDishCost', (_e, { productId }) => ingredientService.computeDishCost(productId));
+  safeHandle('ingredient:preverPorcoesPossiveis', (_e, { productId }) => ingredientService.preverPorcoesPossiveis(productId));
+  safeHandle('ingredient:preverPorcoesPossiveisTodos', () => ingredientService.preverPorcoesPossiveisTodos());
 
   // --- Desperdício ---
   safeHandle('waste:suggestCost', (_e, payload) => wasteService.suggestCost(payload));
@@ -449,6 +452,16 @@ function registerIpcHandlers() {
   safeHandle('appointment:updateStatus', (_e, payload) => appointmentService.updateAppointmentStatus(payload));
   safeHandle('appointment:list', (_e, payload) => appointmentService.listAppointments(payload));
   safeHandle('appointment:montarLinkConfirmacao', (_e, { appointmentId }) => appointmentService.montarLinkConfirmacao(appointmentId));
+
+  safeHandle('reservation:create', (_e, payload) => reservationService.create(payload));
+  safeHandle('reservation:list', (_e, payload) => reservationService.list(payload));
+  safeHandle('reservation:listVinculadasAtivas', (_e, { locationId }) => reservationService.listVinculadasAtivas(locationId));
+  safeHandle('reservation:linkMesa', (_e, payload) => reservationService.linkMesa(payload));
+  safeHandle('reservation:unlinkMesa', (_e, { reservationId }) => reservationService.unlinkMesa(reservationId));
+  safeHandle('reservation:updateStatus', (_e, payload) => reservationService.updateStatus(payload));
+  safeHandle('reservation:cancel', (_e, { reservationId }) => reservationService.cancel(reservationId));
+  safeHandle('reservation:confirmar', (_e, { reservationId }) => reservationService.confirmar(reservationId));
+
   safeHandle('loyalty:getConfig', () => customerService.getLoyaltyConfig());
   safeHandle('loyalty:updateConfig', (_e, payload) => customerService.updateLoyaltyConfig(payload));
 

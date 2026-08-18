@@ -162,7 +162,7 @@ export function CustomerList() {
 
       {selected && (
         <div className="modal-overlay">
-          <div className="modal-card" style={{ width: 480 }}>
+          <div className="modal-card" style={{ width: 'min(480px, 94vw)' }}>
             <h2>🧾 Fiado — {selected.nome}</h2>
             <p>Saldo devedor: <strong>R$ {customers.find((c) => c.id === selected.id)?.saldoFiado.toFixed(2)}</strong></p>
 

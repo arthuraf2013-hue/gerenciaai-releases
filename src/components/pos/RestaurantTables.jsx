@@ -10,9 +10,21 @@ const STATUS_LABEL = {
   reservada: 'Reservada',
 };
 
+// Indicador de reserva feita pelo chatbot (ou cadastrada manualmente na
+// tela de Reservas) já vinculada a essa mesa -- ver reservationService.
+// Ícone/rótulo por status, igual à jornada que o cliente vive no
+// WhatsApp (ver whatsappBotHandler): pendente -> aguardando confirmação
+// (lembrete de 1h antes já mandado) -> confirmada.
+const RESERVA_BADGE = {
+  pendente: { icone: '🕐', texto: 'Reservada' },
+  aguardando_confirmacao: { icone: '📨', texto: 'Aguardando confirmação' },
+  confirmada: { icone: '✅', texto: 'Confirmada' },
+};
+
 export function RestaurantTables() {
   const { currentUser } = useSession();
   const [tables, setTables] = useState([]);
+  const [reservasPorMesa, setReservasPorMesa] = useState({});
   const [loadError, setLoadError] = useState('');
   const [offsetMs, setOffsetMs] = useState(0);
   const [, setTick] = useState(0); // só pra forçar recalcular o tempo de ocupação a cada minuto
@@ -42,12 +54,24 @@ export function RestaurantTables() {
   const [pessoasInput, setPessoasInput] = useState('2');
   const [reservandoMesa, setReservandoMesa] = useState(null);
   useEscToClose(() => setReservandoMesa(null), !!reservandoMesa);
-  const [reservaDataHora, setReservaDataHora] = useState('');
+  // Antes era um único <input type="datetime-local">, mas o ícone de
+  // calendário/relógio embutido nele não abria de forma confiável (o
+  // controle combinado do Chromium é mais frágil dentro do Electron) --
+  // dois campos separados (data + hora), igual ao padrão já usado e
+  // funcionando na tela de Reservas, resolve isso.
+  const [reservaData, setReservaData] = useState('');
+  const [reservaHora, setReservaHora] = useState('');
   const [mesaAberta, setMesaAberta] = useState(null); // { tableId, saleId, numero, nome, pessoas } | null
 
   async function reload() {
-    const list = await window.pdv.table.list({ locationId: window.APP_LOCATION_ID });
+    const [list, reservas] = await Promise.all([
+      window.pdv.table.list({ locationId: window.APP_LOCATION_ID }),
+      window.pdv.reservation.listVinculadasAtivas({ locationId: window.APP_LOCATION_ID }),
+    ]);
     setTables(Array.isArray(list) ? list : []);
+    const mapa = {};
+    (Array.isArray(reservas) ? reservas : []).forEach((r) => { mapa[r.mesa_id] = r; });
+    setReservasPorMesa(mapa);
   }
 
   useEffect(() => { reload(); }, []);
@@ -119,15 +143,20 @@ export function RestaurantTables() {
   function abrirReserva(table, e) {
     e.stopPropagation();
     setLoadError('');
-    setReservaDataHora('');
+    setReservaData('');
+    setReservaHora('');
     setReservandoMesa(table);
   }
 
   async function confirmarReserva(e) {
     e.preventDefault();
+    // Mesmo formato ISO local ('YYYY-MM-DDTHH:MM') que o antigo
+    // datetime-local produzia -- continua batendo com o `new Date(...)`
+    // usado mais abaixo pra exibir a data/hora no card da mesa.
+    const reservadoPara = reservaData ? `${reservaData}T${reservaHora || '00:00'}` : undefined;
     const result = await window.pdv.table.markReserved({
       tableId: reservandoMesa.id,
-      reservadoPara: reservaDataHora || undefined,
+      reservadoPara,
     });
     if (!result.ok) {
       setLoadError(result.error);
@@ -184,6 +213,14 @@ export function RestaurantTables() {
               onClick={() => handleClickMesa(t)}
             >
               <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+              {reservasPorMesa[t.id] && (
+                <span
+                  className={`table-reserva-badge table-reserva-badge-${reservasPorMesa[t.id].status}`}
+                  title={`${reservasPorMesa[t.id].cliente_nome} — ${reservasPorMesa[t.id].pessoas} pessoa(s)`}
+                >
+                  {RESERVA_BADGE[reservasPorMesa[t.id].status]?.icone} {RESERVA_BADGE[reservasPorMesa[t.id].status]?.texto}
+                </span>
+              )}
               {t.status === 'ocupada' && (
                 <span className="table-card-status">
                   Ocupada{t.pessoas ? ` — ${t.pessoas} pessoa(s)` : ''} — R$ {(t.total_atual || 0).toFixed(2)}
@@ -268,14 +305,25 @@ export function RestaurantTables() {
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={confirmarReserva}>
             <h2>🍽️ Reservar {reservandoMesa.nome || `Mesa ${reservandoMesa.numero}`}</h2>
-            <label>Pra quando? (opcional)
-              <input
-                type="datetime-local"
-                value={reservaDataHora}
-                onChange={(e) => setReservaDataHora(e.target.value)}
-                autoFocus
-              />
-            </label>
+            <p className="screen-hint" style={{ margin: '0 0 4px' }}>Pra quando? (opcional)</p>
+            <div className="form-grid">
+              <label>Data
+                <input
+                  type="date"
+                  value={reservaData}
+                  onChange={(e) => setReservaData(e.target.value)}
+                  autoFocus
+                />
+              </label>
+              <label>Hora
+                <input
+                  type="time"
+                  value={reservaHora}
+                  onChange={(e) => setReservaHora(e.target.value)}
+                  disabled={!reservaData}
+                />
+              </label>
+            </div>
             <p className="screen-hint" style={{ margin: '0 0 8px' }}>
               Deixe em branco se for só uma reserva sem hora marcada.
             </p>

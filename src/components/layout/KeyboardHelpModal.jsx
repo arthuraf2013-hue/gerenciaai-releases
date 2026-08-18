@@ -17,7 +17,7 @@ export function KeyboardHelpModal({ onClose }) {
   useEscToClose(onClose);
   return (
     <div className="modal-overlay">
-      <div className="modal-card" style={{ width: 560 }}>
+      <div className="modal-card" style={{ width: 'min(560px, 94vw)' }}>
         <h2>⌨️ Atalhos de teclado</h2>
         <p className="screen-hint" style={{ margin: '0 0 12px' }}>
           O sistema todo funciona sem mouse — esses são os atalhos que valem em qualquer tela.

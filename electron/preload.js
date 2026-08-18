@@ -109,6 +109,8 @@ contextBridge.exposeInMainWorld('pdv', {
     getRecipe: invoke('ingredient:getRecipe'),
     setRecipe: invoke('ingredient:setRecipe'),
     computeDishCost: invoke('ingredient:computeDishCost'),
+    preverPorcoesPossiveis: invoke('ingredient:preverPorcoesPossiveis'),
+    preverPorcoesPossiveisTodos: invoke('ingredient:preverPorcoesPossiveisTodos'),
   },
   waste: {
     suggestCost: invoke('waste:suggestCost'),
@@ -280,6 +282,16 @@ contextBridge.exposeInMainWorld('pdv', {
     updateStatus: invoke('appointment:updateStatus'),
     list: invoke('appointment:list'),
     montarLinkConfirmacao: invoke('appointment:montarLinkConfirmacao'),
+  },
+  reservation: {
+    create: invoke('reservation:create'),
+    list: invoke('reservation:list'),
+    listVinculadasAtivas: invoke('reservation:listVinculadasAtivas'),
+    linkMesa: invoke('reservation:linkMesa'),
+    unlinkMesa: invoke('reservation:unlinkMesa'),
+    updateStatus: invoke('reservation:updateStatus'),
+    cancel: invoke('reservation:cancel'),
+    confirmar: invoke('reservation:confirmar'),
   },
   loyalty: {
     getConfig: invoke('loyalty:getConfig'),

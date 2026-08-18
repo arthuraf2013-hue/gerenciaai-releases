@@ -201,10 +201,23 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(15, 30, 32, 0.55);
   display: flex; align-items: center; justify-content: center; z-index: 50;
+  /* Respiro nas bordas em janela pequena/baixa -- sem isso um modal
+   * mais alto que a tela encostava direto na borda de cima/baixo. */
+  padding: 20px; overflow-y: auto;
 }
 .modal-card {
   background: var(--color-surface); border-radius: var(--radius); padding: 24px;
-  width: 380px; display: flex; flex-direction: column; gap: 14px;
+  /* min() em vez de largura fixa -- 380px sobrava numa janela normal,
+   * mas numa janela mais estreita (ou com o teclado/zoom do Windows
+   * aumentado) ficava maior que a área visível e uma parte do card
+   * saía cortada pra fora da tela (mesma causa-raiz do corte de texto
+   * relatado em telas com tabela larga -- ver .main-content abaixo).
+   * max-height + overflow-y: se o formulário dentro for mais alto que
+   * a tela, ele rola por dentro do próprio card em vez de espremer o
+   * botão "Salvar" pra fora da área visível, sem barra de rolagem
+   * nenhuma pra alcançar (o body inteiro tem overflow:hidden). */
+  width: min(380px, 100%); max-height: 90vh;
+  display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
 }
 .modal-subtitle { color: var(--color-text-muted); font-size: 13px; margin: 0; }
 .modal-warning { color: var(--color-danger); font-size: 13px; }
@@ -365,7 +378,7 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
    * sidebar, o destaque parece parte contínua dela em vez de uma cor
    * emprestada de outro lugar do app. */
   --sidebar-accent: #1d5850;
-  width: 220px; background: #0d2b28; color: white;
+  width: 220px; flex-shrink: 0; background: #0d2b28; color: white;
   display: flex; flex-direction: column; padding: 20px 0;
   /* Trava a sidebar na altura da tela — sem isso, se a lista de menu
    * (muitos itens) não coubesse na altura da janela, a sidebar (e o
@@ -445,7 +458,23 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .theme-toggle-btn:hover { background: rgba(255,255,255,0.14); }
 .theme-toggle-btn-danger { align-self: stretch; color: rgba(224,112,93,0.9); border-color: rgba(224,112,93,0.25); }
 .theme-toggle-btn-danger:hover { background: rgba(224,112,93,0.25); border-color: rgba(224,112,93,0.4); color: white; }
-.main-content { flex: 1; min-height: 0; overflow-y: auto; padding: 28px; }
+/* min-width: 0 é a correção principal do "texto/modal cortado" relatado
+ * em várias telas: .main-content é filho de um flex row (.app-shell)
+ * mas por padrão um item flex nunca encolhe abaixo da largura mínima do
+ * próprio conteúdo (min-width:auto implícito) -- então bastava UMA
+ * tabela larga (muitas colunas, um <select> ou par de botões numa
+ * célula) ou um parágrafo comprido em qualquer tela pra empurrar
+ * .main-content (e o app-shell inteiro) pra além da largura da janela.
+ * Como html/body ficam com overflow:hidden (ver comentário lá em cima,
+ * necessário por outro motivo), essa sobra ficava simplesmente CORTADA
+ * fora da área visível, sem faixa de rolagem nenhuma pra alcançar --
+ * exatamente o texto cortado na borda direita que aparecia em telas com
+ * tabela larga (inclusive a nova tela de Reservas) e, com uma tela
+ * mais estreita, também no formulário/hint acima. overflow-x: auto
+ * garante que, se AINDA ASSIM algo for largo demais (uma tabela de
+ * verdade não cabendo de jeito nenhum), agora aparece uma barra de
+ * rolagem horizontal local em vez de cortar o conteúdo sem avisar. */
+.main-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: auto; padding: 28px; }
 
 /* --- Telas genéricas (produtos, alertas, configurações, usuários) --- */
 .screen-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -520,8 +549,15 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .product-photo-preview { width: 84px; height: 84px; border-radius: 12px; object-fit: cover; border: 1px solid var(--color-border); }
 .product-photo-placeholder { display: flex; align-items: center; justify-content: center; background: var(--color-bg); color: var(--color-text-muted); font-size: 12px; }
 .product-photo-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.modal-card-wide { width: 640px; max-height: 85vh; overflow-y: auto; }
+/* minmax(0, 1fr) em vez de 1fr puro -- 1fr sozinho ainda respeita a
+ * largura mínima "de conteúdo" de cada célula (o mesmo bug de
+ * min-width:auto do flexbox, só que pro grid): um <input> ou <select>
+ * um pouco mais largo empurrava a coluna (e o modal-card inteiro) pra
+ * fora da largura definida, cortando a borda do formulário pra fora da
+ * tela em vez de simplesmente cada coluna ficar mais estreita. */
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.modal-card-wide { width: min(640px, 100%); max-width: 94vw; max-height: 85vh; overflow-y: auto; }
 .modal-card-fullscreen {
   width: 95vw; height: 92vh; max-width: none; max-height: none;
   display: flex; flex-direction: column;
@@ -569,6 +605,17 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 }
 .table-card-action:hover { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
 .table-card-tempo-longo { color: var(--color-warning-text); font-weight: 600; }
+/* Indicador de reserva feita pelo chatbot do WhatsApp, vinculada a essa
+ * mesa (ver ReservasScreen) -- independente do status.reservada nativo
+ * da mesa (table-card-reservada acima), os dois convivem: uma mesa
+ * "livre" hoje pode já ter uma reserva vinculada pra daqui a 3 dias. */
+.table-reserva-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px; line-height: 1.4;
+}
+.table-reserva-badge-pendente { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.table-reserva-badge-aguardando_confirmacao { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); color: var(--color-primary); }
+.table-reserva-badge-confirmada { background: var(--color-primary); color: white; }
 
 .profile-cards { display: flex; gap: 12px; flex-wrap: wrap; }
 .profile-card {

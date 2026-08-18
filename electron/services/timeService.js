@@ -77,6 +77,18 @@ function diasAPartirDeHojeLocalISO(dias) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(nowMs() + dias * 86400000));
 }
 
+/** "Agora" no fuso de São Paulo, no formato 'YYYY-MM-DD HH:MM:SS' -- o
+ * mesmo formato usado por appointments.data_hora_inicio e
+ * reservations.data_hora (hora local, não UTC). Usado pelo poller de
+ * lembrete de reserva em main.js pra comparar com data_hora sem precisar
+ * fazer a conta de fuso manualmente em cada lugar. */
+function agoraLocalString() {
+  const now = new Date(nowMs());
+  const dateFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const timeFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  return `${dateFmt.format(now)} ${timeFmt.format(now)}`;
+}
+
 function getStatus() {
   return {
     sincronizado: lastSyncOk,
@@ -91,4 +103,4 @@ function startAutoSync() {
   setInterval(syncNow, 15 * 60 * 1000); // resincroniza a cada 15 minutos
 }
 
-module.exports = { syncNow, nowMs, nowSyncedUTCString, getBrasiliaNowParts, hojeLocalISO, diasAPartirDeHojeLocalISO, getStatus, startAutoSync };
+module.exports = { syncNow, nowMs, nowSyncedUTCString, getBrasiliaNowParts, hojeLocalISO, diasAPartirDeHojeLocalISO, agoraLocalString, getStatus, startAutoSync };

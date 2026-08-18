@@ -63,7 +63,7 @@ function NovoAgendamento({ profissionais, dataInicial, onCriado, onCancelar }) {
             </div>
           )}
 
-          <div className="form-grid">
+          <div className="form-grid-3">
             <label>Data<input type="date" value={form.data} onChange={(e) => setForm({ ...form, data: e.target.value })} required /></label>
             <label>Hora<input type="time" value={form.hora} onChange={(e) => setForm({ ...form, hora: e.target.value })} required /></label>
             <label>Duração (min)<input type="number" value={form.duracaoMinutos} onChange={(e) => setForm({ ...form, duracaoMinutos: e.target.value })} /></label>

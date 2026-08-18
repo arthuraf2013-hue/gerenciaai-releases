@@ -25,4 +25,21 @@ function notifyLowStock(product, estoqueAtual) {
   notif.show();
 }
 
-module.exports = { notifyLowStock };
+/** Dispara quando o cliente responde confirmando uma reserva pelo
+ * WhatsApp — avisa quem está no balcão sem precisar ficar checando a
+ * tela de Reservas o tempo todo. Só dispara uma vez por confirmação
+ * (é a própria reservationService que já garante isso, mudando o
+ * status pra 'confirmada' só na primeira resposta válida). */
+function notifyReservationConfirmed(reserva) {
+  const { Notification } = require('electron');
+  if (!Notification || !Notification.isSupported()) return;
+
+  const notif = new Notification({
+    title: 'Reserva confirmada — GerenciaAI',
+    body: `${reserva.cliente_nome} confirmou a reserva de ${reserva.pessoas} pessoa(s) ${reserva.quando || ''}.`,
+    silent: false,
+  });
+  notif.show();
+}
+
+module.exports = { notifyLowStock, notifyReservationConfirmed };

@@ -54,7 +54,7 @@ export function EyewearModal({ customer, onFechar }) {
 
   return (
     <div className="modal-overlay">
-      <div className="modal-card" style={{ width: 620 }}>
+      <div className="modal-card" style={{ width: 'min(620px, 94vw)' }}>
         <h2>👓 Receita óptica — {customer.nome}</h2>
 
         {!editando && (
@@ -93,7 +93,7 @@ export function EyewearModal({ customer, onFechar }) {
 
         {editando && (
           <form onSubmit={handleSave}>
-            <div className="form-grid">
+            <div className="form-grid-3">
               <label>Data da receita<input type="date" value={editando.dataReceita} onChange={(e) => setEditando({ ...editando, dataReceita: e.target.value })} /></label>
               <label>Tipo de lente<input value={editando.tipoLente} onChange={(e) => setEditando({ ...editando, tipoLente: e.target.value })} placeholder="Monofocal, multifocal..." /></label>
               <label>Distância pupilar (mm)<input type="number" step="0.1" value={editando.distanciaPupilar} onChange={(e) => setEditando({ ...editando, distanciaPupilar: e.target.value })} /></label>

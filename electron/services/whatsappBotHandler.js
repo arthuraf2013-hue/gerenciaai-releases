@@ -1,5 +1,11 @@
 const { getDb } = require('../db/database');
 const botOrderService = require('./botOrderService');
+const reservationService = require('./reservationService');
+const profileService = require('./profileService');
+
+// Perfis que fazem sentido oferecer "reservar mesa" pelo chatbot --
+// mesmo critério do frontend (ver PERFIS_RESTAURANTE em AppShell.jsx).
+const PERFIS_ACEITAM_RESERVA = ['restaurante', 'padaria'];
 
 /**
  * Motor da conversa do chatbot de WhatsApp — sabe processar UMA
@@ -270,6 +276,135 @@ function finalizarPedido({ telefone, nomeExibicao, tipoEntrega, endereco, conver
   };
 }
 
+// ---------- Fluxo de reserva de mesa (perfil Restaurante/Padaria) ----------
+
+const MESES_2D = (n) => String(n).padStart(2, '0');
+
+/** Formata 'YYYY-MM-DD HH:MM:SS' (hora local, mesmo padrão de
+ * appointments.data_hora_inicio) pra algo natural tipo "hoje às 20h"
+ * ou "15/03 às 20h30". */
+function formatarDataHoraReserva(dataHoraStr, agora = new Date()) {
+  const [dataParte, horaParte] = dataHoraStr.split(/[ T]/);
+  const [ano, mes, dia] = dataParte.split('-').map(Number);
+  const [hora, minuto] = horaParte.split(':').map(Number);
+  const horaFormatada = minuto ? `${hora}h${MESES_2D(minuto)}` : `${hora}h`;
+
+  const hojeStr = `${agora.getFullYear()}-${MESES_2D(agora.getMonth() + 1)}-${MESES_2D(agora.getDate())}`;
+  const amanha = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + 1);
+  const amanhaStr = `${amanha.getFullYear()}-${MESES_2D(amanha.getMonth() + 1)}-${MESES_2D(amanha.getDate())}`;
+
+  if (dataParte === hojeStr) return `hoje às ${horaFormatada}`;
+  if (dataParte === amanhaStr) return `amanhã às ${horaFormatada}`;
+  return `${MESES_2D(dia)}/${MESES_2D(mes)} às ${horaFormatada}`;
+}
+
+/**
+ * Interpreta um horário de reserva digitado em texto livre e devolve
+ * 'YYYY-MM-DD HH:MM:SS' (hora local) -- ou null se não conseguiu
+ * entender. NÃO é IA/modelo de linguagem, é um parser baseado em
+ * regex, igual ao resto da "inteligência" deste arquivo (ver
+ * comentário no topo). Aceita:
+ *   "20h", "20:00", "20h30", "8 da noite" (não -- só formato 24h ou
+ *   com "h") prefixado opcionalmente por "hoje"/"amanhã" ou uma data
+ *   "dd/mm". Sem prefixo de data, assume hoje -- e se esse horário já
+ *   passou hoje, rola pra amanhã sozinho (comportamento mais natural
+ *   pra quem só disse "reservar pra 20h" de noite).
+ */
+function parseHorarioReserva(textoBruto, agora = new Date()) {
+  const texto = (textoBruto || '').trim().toLowerCase();
+
+  let diasAFrente = null; // null = ainda não decidido (decide depois, olhando se já passou)
+  let dataExplicita = null; // { dia, mes }
+  let resto = texto;
+
+  const mHoje = resto.match(/^hoje\b\s*/);
+  // Sem \b depois de "ã": \b exige um lado ser char de "palavra" (\w,
+  // que no JS não inclui acentos) -- "ã" seguido de espaço são os dois
+  // não-\w, então \b nunca bateria ali e "amanhã" nunca seria reconhecido.
+  const mAmanha = resto.match(/^amanh[ãa](?:\s+|$)/);
+  const mData = resto.match(/^(\d{1,2})\/(\d{1,2})\b\s*/);
+
+  if (mHoje) { diasAFrente = 0; resto = resto.slice(mHoje[0].length); }
+  else if (mAmanha) { diasAFrente = 1; resto = resto.slice(mAmanha[0].length); }
+  else if (mData) {
+    dataExplicita = { dia: parseInt(mData[1], 10), mes: parseInt(mData[2], 10) };
+    resto = resto.slice(mData[0].length);
+  }
+
+  resto = resto.replace(/^(para|pra|às|as|de|do dia)\s+/, '').trim();
+
+  const mHora = resto.match(/^(\d{1,2})(?:[:h](\d{2}))?\s*h?\s*$/);
+  if (!mHora) return null;
+
+  const hora = parseInt(mHora[1], 10);
+  const minuto = mHora[2] ? parseInt(mHora[2], 10) : 0;
+  if (hora > 23 || minuto > 59) return null;
+
+  let base;
+  if (dataExplicita) {
+    const ano = agora.getFullYear();
+    base = new Date(ano, dataExplicita.mes - 1, dataExplicita.dia, hora, minuto, 0);
+    // Data explícita já passou esse ano (ex: pediu "10/01" em dezembro) -- assume o ano que vem.
+    if (base.getTime() < agora.getTime()) base = new Date(ano + 1, dataExplicita.mes - 1, dataExplicita.dia, hora, minuto, 0);
+  } else if (diasAFrente !== null) {
+    base = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + diasAFrente, hora, minuto, 0);
+  } else {
+    // Sem prefixo de data -- tenta hoje; se já passou, rola pra amanhã.
+    base = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), hora, minuto, 0);
+    if (base.getTime() < agora.getTime()) base = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + 1, hora, minuto, 0);
+  }
+
+  if (isNaN(base.getTime())) return null;
+  return `${base.getFullYear()}-${MESES_2D(base.getMonth() + 1)}-${MESES_2D(base.getDate())} ${MESES_2D(base.getHours())}:${MESES_2D(base.getMinutes())}:00`;
+}
+
+function finalizarReserva({ telefone, conversa, locationId, estadoConversas }) {
+  const resultado = reservationService.create({
+    locationId,
+    clienteNome: conversa.reserva.nome,
+    clienteTelefone: telefone,
+    pessoas: conversa.reserva.pessoas,
+    dataHora: conversa.reserva.dataHora,
+    origem: 'whatsapp',
+  });
+  estadoConversas.delete(telefone);
+  if (!resultado.ok) {
+    return { resposta: `Ih, não consegui registrar sua reserva agora (${resultado.error}) 😕 Pode mandar uma mensagem pra gente tentar de novo?` };
+  }
+  const quando = formatarDataHoraReserva(conversa.reserva.dataHora);
+  return {
+    resposta: `Reserva confirmada! ✅🍽️ ${conversa.reserva.nome}, ${conversa.reserva.pessoas} pessoa(s), ${quando}.\n\nVamos te chamar por aqui perto da hora pra confirmar. Até lá! 😊`,
+    reservaCriada: true,
+    reservationId: resultado.id,
+  };
+}
+
+/** Interpreta a resposta do cliente ao lembrete de "sua reserva é daqui
+ * a 1h, confirma?" -- sim/não em várias formas comuns; qualquer outra
+ * coisa repete a pergunta (não força uma segunda tentativa de
+ * interpretar texto livre, pra não arriscar confirmar/cancelar por
+ * engano uma leitura errada). `reservaConfirmada`/`reservaRecusada` no
+ * retorno são só sinalizadores pra quem chama (whatsappBotService)
+ * decidir se dispara a notificação nativa pro balcão -- este arquivo
+ * não fala com o Electron diretamente (ver comentário no topo). */
+function responderConfirmacaoReserva({ reserva, textoLimpo }) {
+  const quando = formatarDataHoraReserva(reserva.data_hora);
+  if (/^(sim|s|confirmo|confirmar|isso|ok|pode ser|claro|1)\b/i.test(textoLimpo)) {
+    reservationService.confirmar(reserva.id);
+    return {
+      resposta: `Show, ${reserva.cliente_nome}! ✅ Sua reserva pra ${reserva.pessoas} pessoa(s) ${quando} está confirmada. Te esperamos! 🍽️`,
+      reservaConfirmada: { ...reserva, quando },
+    };
+  }
+  if (/^(n[aã]o|nao|cancelar|cancela|desmarcar|2)\b/i.test(textoLimpo)) {
+    reservationService.recusar(reserva.id);
+    return { resposta: 'Tudo bem, reserva cancelada 👍 Quando quiser reservar de novo, é só chamar por aqui!' };
+  }
+  return {
+    resposta: `Oi! Só confirmando: sua reserva de ${reserva.pessoas} pessoa(s) é ${quando} 🙂 Pode confirmar? Responda *sim* ou *não*.`,
+  };
+}
+
 /**
  * Processa uma mensagem de um cliente e devolve `{ resposta, pedidoCriado?, pedidoId? }`.
  * `estadoConversas` é injetável só para os testes (cada teste começa
@@ -286,9 +421,34 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
     return { resposta: 'Por enquanto só consigo entender mensagens de texto 🙏 Pode escrever o que você precisa?' };
   }
 
+  // Resposta ao lembrete de reserva (mandado ~1h antes, ver
+  // reservationService.findPendingLembrete + main.js) tem prioridade
+  // sobre qualquer outro fluxo -- não depende de nenhum estado de
+  // conversa em memória, porque pode chegar horas depois de qualquer
+  // outra interação (o Map de conversas provavelmente nem tem mais
+  // essa entrada). Roda ANTES do "cancelar" genérico de propósito: se
+  // o cliente responder "cancelar" a um lembrete de reserva, é a
+  // RESERVA que ele quer cancelar, não um pedido que nem existe mais.
+  const reservaAguardandoResposta = reservationService.findAguardandoConfirmacaoByTelefone(telefone);
+  if (reservaAguardandoResposta) {
+    return responderConfirmacaoReserva({ reserva: reservaAguardandoResposta, textoLimpo });
+  }
+
   if (/^(cancelar|sair)$/i.test(textoLimpo)) {
     estadoConversas.delete(telefone);
     return { resposta: 'Pedido cancelado 👍 Quando quiser fazer um novo pedido, é só mandar uma mensagem por aqui!' };
+  }
+
+  // "Reservar mesa" é um fluxo à parte do pedido normal -- interrompe
+  // qualquer coisa em andamento (mesmo comportamento do "cancelar"
+  // acima: começa do zero). Só oferecido pra perfil Restaurante/Padaria.
+  if (/^(reservar|reserva|fazer\s+reserva)$/i.test(textoLimpo)) {
+    const profile = profileService.getActiveProfile();
+    if (profile && PERFIS_ACEITAM_RESERVA.includes(profile.id)) {
+      const novaConversaReserva = { estado: 'aguardando_nome_reserva', categorias: [], produtos: [], categoriaAtual: null, itens: [], reserva: {} };
+      estadoConversas.set(telefone, novaConversaReserva);
+      return { resposta: 'Vamos marcar sua mesa! 🍽️ Qual o nome pra reserva?' };
+    }
   }
 
   let conversa = estadoConversas.get(telefone);
@@ -315,7 +475,38 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
       const menu = montarMenuCategorias(location);
       conversa.categorias = menu.categorias;
       if (menu.categorias.length) conversa.estado = 'aguardando_categoria';
-      return { resposta: `Oi${conversa.nomeExibicao ? ', ' + conversa.nomeExibicao : ''}! 👋😊 Seja bem-vindo(a)! ${menu.texto}` };
+      const profile = profileService.getActiveProfile();
+      const dicaReserva = profile && PERFIS_ACEITAM_RESERVA.includes(profile.id)
+        ? '\n\nOu digite *reservar* pra marcar uma mesa 🍽️'
+        : '';
+      return { resposta: `Oi${conversa.nomeExibicao ? ', ' + conversa.nomeExibicao : ''}! 👋😊 Seja bem-vindo(a)! ${menu.texto}${dicaReserva}` };
+    }
+
+    case 'aguardando_nome_reserva': {
+      const nome = textoLimpo.trim();
+      if (nome.length < 2) return { resposta: 'Não entendi 🤔 Qual o nome pra reserva?' };
+      conversa.reserva.nome = nome;
+      conversa.estado = 'aguardando_pessoas_reserva';
+      return { resposta: `Perfeito, ${nome}! Pra quantas pessoas? 🙂` };
+    }
+
+    case 'aguardando_pessoas_reserva': {
+      const n = parseInt(textoLimpo, 10);
+      if (!n || n < 1 || n > 50) {
+        return { resposta: 'Não entendi 🤔 Quantas pessoas vão na reserva? (só o número, ex: "4")' };
+      }
+      conversa.reserva.pessoas = n;
+      conversa.estado = 'aguardando_horario_reserva';
+      return { resposta: 'E qual dia e horário? 📅 (ex: "hoje 20h", "amanhã 19h30", ou "15/03 20h")' };
+    }
+
+    case 'aguardando_horario_reserva': {
+      const dataHora = parseHorarioReserva(textoLimpo);
+      if (!dataHora) {
+        return { resposta: 'Não entendi o horário 🤔 Tenta assim: "hoje 20h", "amanhã 19h30" ou "15/03 20h".' };
+      }
+      conversa.reserva.dataHora = dataHora;
+      return finalizarReserva({ telefone, conversa, locationId: location, estadoConversas });
     }
 
     case 'aguardando_categoria': {
@@ -390,4 +581,7 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
   }
 }
 
-module.exports = { processarMensagem, humanizarNomeProduto, _conversasEmMemoria: conversas };
+module.exports = {
+  processarMensagem, humanizarNomeProduto, _conversasEmMemoria: conversas,
+  parseHorarioReserva, formatarDataHoraReserva,
+};

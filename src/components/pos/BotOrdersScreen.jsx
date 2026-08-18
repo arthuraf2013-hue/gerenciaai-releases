@@ -89,7 +89,7 @@ function NovoPedidoModal({ onClose, onCriado }) {
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
-      <form className="modal-card" style={{ width: 460 }} onSubmit={handleSubmit}>
+      <form className="modal-card" style={{ width: 'min(460px, 94vw)' }} onSubmit={handleSubmit}>
         <h2>➕ Novo pedido</h2>
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           Pra digitar um pedido recebido por telefone/WhatsApp manualmente — enquanto o chatbot
@@ -209,7 +209,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal-card" style={{ width: 480 }}>
+      <div className="modal-card" style={{ width: 'min(480px, 94vw)' }}>
         <h2>Pedido de {pedido.cliente_nome} · {formatarPreco(pedido.valorTotal)}</h2>
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           {pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}

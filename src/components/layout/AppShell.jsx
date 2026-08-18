@@ -19,6 +19,7 @@ import { DeliveryScreen } from '../pos/DeliveryScreen';
 import { BotOrdersScreen } from '../pos/BotOrdersScreen';
 import { QuotesScreen } from '../pos/QuotesScreen';
 import { AgendaScreen } from '../pos/AgendaScreen';
+import { ReservasScreen } from '../pos/ReservasScreen';
 import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
 import { SwitchUserModal } from '../auth/SwitchUserModal';
@@ -50,6 +51,7 @@ const NAV_ITEMS = [
   { id: 'delivery', label: '🚚 Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
   { id: 'quotes', label: '📋 Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
   { id: 'agenda', label: '📅 Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
+  { id: 'reservations', label: '📖 Reservas', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
 
   // Setor à parte, fora de qualquer perfil de negócio — só aparece
   // quando o admin ativa em Configurações (é onde o pedido separado
@@ -364,6 +366,7 @@ export function AppShell() {
         {screen === 'delivery' && <DeliveryScreen />}
         {screen === 'quotes' && <QuotesScreen />}
         {screen === 'agenda' && <AgendaScreen />}
+        {screen === 'reservations' && <ReservasScreen />}
         {screen === 'returns' && (
           <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
         )}

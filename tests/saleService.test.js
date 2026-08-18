@@ -66,6 +66,100 @@ test('cancelSaleItem autorizado por um gerente diferente estorna o estoque', () 
   assert.equal(stockService.getCurrentStock(ctx.productId, ctx.locationId), 10); // voltou ao original
 });
 
+function criarPratoComReceita(ctx, { estoqueFarinha = 10, estoqueOvo = 20, qtdFarinhaPorPrato = 2, qtdOvoPorPrato = 1 } = {}) {
+  const { randomUUID } = require('crypto');
+  const farinhaId = randomUUID();
+  const ovoId = randomUUID();
+  ctx.db.prepare(
+    `INSERT INTO ingredients (id, nome, unidade, custo_unitario, estoque_atual, estoque_minimo) VALUES (?, 'Farinha', 'kg', 5, ?, 1)`
+  ).run(farinhaId, estoqueFarinha);
+  ctx.db.prepare(
+    `INSERT INTO ingredients (id, nome, unidade, custo_unitario, estoque_atual, estoque_minimo) VALUES (?, 'Ovo', 'un', 1, ?, 6)`
+  ).run(ovoId, estoqueOvo);
+
+  const productId = createProduct(ctx.db, { nome: 'Bolo', preco: 30, estoqueMinimo: 0 });
+  addStock(ctx.db, { productId, locationId: ctx.locationId, quantidade: 999, operadorId: ctx.adminId }); // estoque do produto em si nunca é o gargalo aqui
+  ctx.db.prepare(`INSERT INTO dish_ingredients (id, product_id, ingredient_id, quantidade) VALUES (?, ?, ?, ?)`)
+    .run(randomUUID(), productId, farinhaId, qtdFarinhaPorPrato);
+  ctx.db.prepare(`INSERT INTO dish_ingredients (id, product_id, ingredient_id, quantidade) VALUES (?, ?, ?, ?)`)
+    .run(randomUUID(), productId, ovoId, qtdOvoPorPrato);
+
+  return { ...ctx, productId, farinhaId, ovoId };
+}
+
+function estoqueInsumo(db, ingredientId) {
+  return db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(ingredientId).estoque_atual;
+}
+
+test('addItem desconta os insumos da ficha técnica do prato vendido', () => {
+  const ctx = criarPratoComReceita(freshTestDb());
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+
+  const result = saleService.addItem({
+    saleId, productId: ctx.productId, locationId: ctx.locationId, quantidade: 3,
+    operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(estoqueInsumo(ctx.db, ctx.farinhaId), 10 - 2 * 3); // 3 bolos x 2kg de farinha cada
+  assert.equal(estoqueInsumo(ctx.db, ctx.ovoId), 20 - 1 * 3); // 3 bolos x 1 ovo cada
+});
+
+test('addItem em produto sem ficha técnica não mexe em nenhum insumo', () => {
+  const ctx = criarPratoComReceita(freshTestDb());
+  const produtoSemReceita = createProduct(ctx.db, { nome: 'Refrigerante', preco: 8 });
+  addStock(ctx.db, { productId: produtoSemReceita, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+
+  const result = saleService.addItem({
+    saleId, productId: produtoSemReceita, locationId: ctx.locationId, quantidade: 2,
+    operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(estoqueInsumo(ctx.db, ctx.farinhaId), 10); // intocado
+  assert.equal(estoqueInsumo(ctx.db, ctx.ovoId), 20); // intocado
+});
+
+test('cancelSaleItem devolve os insumos descontados', () => {
+  const ctx = criarPratoComReceita(freshTestDb());
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  const addResult = saleService.addItem({
+    saleId, productId: ctx.productId, locationId: ctx.locationId, quantidade: 4,
+    operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+  assert.equal(estoqueInsumo(ctx.db, ctx.farinhaId), 10 - 2 * 4);
+
+  const cancelResult = saleService.cancelSaleItem({
+    saleId, saleItemId: addResult.itemId, locationId: ctx.locationId,
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234',
+    deviceId: 'device-teste',
+  });
+
+  assert.equal(cancelResult.ok, true);
+  assert.equal(estoqueInsumo(ctx.db, ctx.farinhaId), 10); // voltou ao original
+  assert.equal(estoqueInsumo(ctx.db, ctx.ovoId), 20);
+});
+
+test('cancelSale devolve os insumos de todos os itens em aberto', () => {
+  const ctx = criarPratoComReceita(freshTestDb());
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  saleService.addItem({
+    saleId, productId: ctx.productId, locationId: ctx.locationId, quantidade: 5,
+    operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+  assert.equal(estoqueInsumo(ctx.db, ctx.farinhaId), 10 - 2 * 5);
+
+  const cancelResult = saleService.cancelSale({
+    saleId, locationId: ctx.locationId, currentOperatorId: ctx.operadorId,
+    candidateManagerId: ctx.gerenteId, pin: '1234', motivo: 'Teste', deviceId: 'device-teste',
+  });
+
+  assert.equal(cancelResult.ok, true);
+  assert.equal(estoqueInsumo(ctx.db, ctx.farinhaId), 10);
+  assert.equal(estoqueInsumo(ctx.db, ctx.ovoId), 20);
+});
+
 test('finalizeSale recusa quando o pagamento não cobre o total', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 }); // total = 20
   saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 15, detalhes: {} });
