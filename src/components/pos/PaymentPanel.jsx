@@ -52,6 +52,18 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   const totalAPagar = subtotalComDesconto + valorTaxaServico;
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
   const restante = Math.max(0, totalAPagar - totalPago);
+  // Mesma tolerância de meio centavo usada em finalizeSale (backend) --
+  // sem isso, comparar `restante > 0` direto podia deixar o botão de
+  // Finalizar travado pra sempre com "Falta R$ 0,00" na tela: somar
+  // preços em ponto flutuante às vezes sobra um resíduo minúsculo (tipo
+  // 0,00000000000004) que o toFixed(2) esconde na exibição mas que
+  // continua sendo "maior que zero" numa comparação direta. Isso batia
+  // menos com pagamentos parciais via Pix (o valor pago é sempre <= o
+  // que faltava, validado em gerarQrPix) do que com um valor digitado
+  // manualmente pra outras formas, o que explicava o botão só destravar
+  // com Pix. Com a mesma tolerância dos dois lados, front e back sempre
+  // concordam se a venda está paga.
+  const pagamentoCompleto = totalPago + 0.005 >= totalAPagar;
   // Enquanto ainda está digitando o valor, mostra uma prévia do troco na
   // hora — depois que o pagamento é confirmado, o campo é limpo, então
   // passa a mostrar o troco do último pagamento que de fato gerou troco
@@ -376,11 +388,11 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
         <strong>R$ {totalPago.toFixed(2)}</strong>
       </div>
       <div className="payment-summary highlight">
-        <span>{restante > 0 ? 'Falta' : 'Troco'}</span>
-        <strong>R$ {(restante > 0 ? restante : troco).toFixed(2)}</strong>
+        <span>{!pagamentoCompleto ? 'Falta' : 'Troco'}</span>
+        <strong>R$ {(!pagamentoCompleto ? restante : troco).toFixed(2)}</strong>
       </div>
 
-      {restante > 0 && !pix && (
+      {!pagamentoCompleto && !pix && (
         <div className="payment-input-row">
           <select value={metodo} onChange={(e) => { setMetodo(e.target.value); setError(''); }}>
             {METODOS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
@@ -413,7 +425,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
         </div>
       )}
 
-      {restante > 0 && !pix && (
+      {!pagamentoCompleto && !pix && (
         <div className="payment-quick-values">
           <button type="button" className="quick-value-btn" onClick={() => setValor(restante.toFixed(2))}>
             Valor exato (R$ {restante.toFixed(2)})
@@ -454,7 +466,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
 
       {error && <p className="modal-error">{error}</p>}
 
-      <button className="btn-primary" disabled={restante > 0 || finalizando} onClick={finalizar}>
+      <button className="btn-primary" disabled={!pagamentoCompleto || finalizando} onClick={finalizar}>
         {finalizando ? 'Finalizando...' : '✅ Finalizar venda'}
       </button>
 
