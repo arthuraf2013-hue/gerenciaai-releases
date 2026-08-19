@@ -252,7 +252,18 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .payment-summary { display: flex; justify-content: space-between; font-size: 14px; }
 .payment-summary.highlight { font-size: 16px; color: var(--color-primary); }
 .payment-service-charge { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.payment-input-row { display: grid; grid-template-columns: 1.2fr 1fr auto; gap: 8px; }
+/* Era um grid de 3 colunas fixas (1.2fr 1fr auto) dentro do modal-card
+ * padrão (380px) -- exatamente o mesmo bug de min-width:auto do
+ * .form-grid (ver comentário lá em cima): numa forma de pagamento com
+ * rótulo mais longo (ex: "Cartão de crédito"), o <select> não encolhia
+ * o suficiente, e o botão "Adicionar" (coluna auto, a última) acabava
+ * empurrado pra fora da largura do card -- literalmente escondido, sem
+ * rolagem nem aviso nenhum. Com flex-wrap, se não couber tudo numa
+ * linha só, o botão desce pra linha de baixo em vez de sumir. */
+.payment-input-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.payment-input-row select { flex: 1 1 130px; min-width: 0; }
+.payment-input-row input { flex: 1 1 90px; min-width: 0; }
+.payment-input-row button { flex: 0 0 auto; }
 .payment-quick-values { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .quick-value-btn {
   background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);

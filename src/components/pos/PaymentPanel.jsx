@@ -173,6 +173,22 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
     setValor('');
   }
 
+  // Clicar em "Valor exato" só preenchia o campo -- ainda exigia um
+  // segundo clique manual em "Adicionar" (ou "Gerar QR Code"), o que
+  // muita gente não percebia que precisava fazer. Agora, se o valor no
+  // campo já é exatamente o que falta (ou seja, a pessoa clicou de novo
+  // em cima do mesmo valor que "Valor exato" já preencheu), o segundo
+  // clique já efetiva o pagamento -- sem precisar caçar o botão
+  // "Adicionar" ao lado.
+  function handleValorExatoClick() {
+    const jaPreenchidoComValorExato = valor !== '' && Math.abs(Number(valor) - restante) < 0.005;
+    if (jaPreenchidoComValorExato) {
+      if (metodo === 'pix') gerarQrPix(); else addPayment();
+      return;
+    }
+    setValor(restante.toFixed(2));
+  }
+
   async function gerarQrPix() {
     const numeric = Number(valor);
     if (!numeric || numeric <= 0) return setError('Informe o valor a cobrar via Pix (pode ser parcial).');
@@ -412,7 +428,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
           />
           {metodo === 'pix' ? (
             <>
-              <button className="btn-secondary" onClick={gerarQrPix} disabled={pixGerando}>
+              <button className="btn-primary" onClick={gerarQrPix} disabled={pixGerando}>
                 {pixGerando ? 'Gerando...' : 'Gerar QR Code'}
               </button>
               <button className="btn-secondary" onClick={addPayment} title="Cliente já pagou por fora (QR fixo, chave, transferência) — só registra o valor, sem gerar nada aqui">
@@ -420,14 +436,18 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
               </button>
             </>
           ) : (
-            <button className="btn-secondary" onClick={addPayment}>Adicionar</button>
+            // Era btn-secondary (cinza-esverdeado, baixo contraste no
+            // tema escuro) -- ficava quase invisível ao lado do campo de
+            // valor. btn-primary chama mais atenção pra essa ação, que é
+            // o passo que de fato registra o pagamento.
+            <button className="btn-primary" onClick={addPayment}>➕ Adicionar</button>
           )}
         </div>
       )}
 
       {!pagamentoCompleto && !pix && (
         <div className="payment-quick-values">
-          <button type="button" className="quick-value-btn" onClick={() => setValor(restante.toFixed(2))}>
+          <button type="button" className="quick-value-btn" onClick={handleValorExatoClick}>
             Valor exato (R$ {restante.toFixed(2)})
           </button>
           {metodo === 'dinheiro' && [10, 20, 50, 100, 200].map((v) => (
