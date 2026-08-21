@@ -575,6 +575,20 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 }
 .modal-card-fullscreen-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
+/* --- Produto personalizado (CustomItemBuilder) --- */
+.custom-item-linhas { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+.custom-item-linha {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 10px;
+}
+.custom-item-linha-busca { position: relative; flex: 2 1 220px; min-width: 0; }
+.custom-item-linha-busca input { width: 100%; }
+.custom-item-modo-toggle { display: flex; gap: 4px; flex: 0 0 auto; }
+.btn-toggle-active { background: var(--color-primary); color: white; }
+.custom-item-qtd { flex: 1 1 110px; min-width: 0; font-size: 12.5px; }
+.custom-item-qtd input { width: 100%; }
+
 .settings-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
 /* Cada seção de Configurações vira um card próprio (mesma linguagem visual
  * de .stat-card/.data-table/.nfce-box no resto do app) -- antes disso, as
@@ -763,6 +777,13 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   max-height: 320px;
 }
 .product-search-results-blocks .product-card { width: 100%; }
+.product-card-personalizado {
+  border-style: dashed; border-color: var(--color-primary); border-width: 2px;
+}
+.product-card-personalizado-icon { font-size: 22px; }
+.product-search-result-personalizado {
+  color: var(--color-primary); font-weight: 600;
+}
 
 .scan-feedback { padding: 6px 24px 12px; font-size: 14px; border-radius: 0; }
 .scan-feedback-info { color: var(--color-text-muted); }

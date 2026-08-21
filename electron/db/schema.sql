@@ -171,6 +171,33 @@ CREATE TABLE IF NOT EXISTS dish_ingredients (
 );
 CREATE INDEX IF NOT EXISTS idx_dish_ingredients_product ON dish_ingredients(product_id);
 
+-- Linhas de um "produto personalizado" (prato/produto montado na hora,
+-- ex: pizza meio-a-meio, drink combinado) — sale_items.eh_personalizado=1
+-- aponta pra um grupo dessas linhas via sale_item_id. Cada linha usa OU
+-- um insumo direto OU um produto do catálogo como componente (nunca os
+-- dois), em dois modos possíveis:
+--   'quantidade'  -> quantidade absoluta (na unidade do insumo/produto)
+--   'percentual'  -> fração de UMA unidade inteira do produto (só faz
+--                    sentido pra tipo='produto' — ex: pizza 50% sabor A)
+-- quantidade_ajustada guarda a quantidade REAL informada depois (aba de
+-- ajuste), já que um prato personalizado raramente tem medida exata na
+-- hora de montar — só uma estimativa inicial.
+CREATE TABLE IF NOT EXISTS custom_item_lines (
+  id                TEXT PRIMARY KEY,
+  sale_item_id      TEXT NOT NULL REFERENCES sale_items(id),
+  tipo              TEXT NOT NULL CHECK(tipo IN ('insumo', 'produto')),
+  insumo_id         TEXT REFERENCES ingredients(id),
+  produto_id        TEXT REFERENCES products(id),
+  modo              TEXT NOT NULL DEFAULT 'quantidade' CHECK(modo IN ('quantidade', 'percentual')),
+  quantidade        REAL, -- usado quando modo='quantidade'
+  percentual        REAL, -- usado quando modo='percentual' (0-100)
+  quantidade_ajustada REAL,
+  ajustado_em       TEXT,
+  ajustado_por_id   TEXT REFERENCES users(id),
+  criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_custom_item_lines_sale_item ON custom_item_lines(sale_item_id);
+
 -- Registro de desperdício — prato ou insumo que não virou venda
 -- (sobrou do prato do dia, venceu, errou o preparo, etc). Guarda o
 -- valor gasto perdido, calculado pela ficha técnica quando possível,
@@ -314,7 +341,12 @@ CREATE TABLE IF NOT EXISTS sale_items (
   -- verdade" versus o que foi realmente cobrado.
   preco_original       REAL,
   preco_alterado_por_id TEXT REFERENCES users(id),
-  preco_alterado_motivo TEXT
+  preco_alterado_motivo TEXT,
+  -- Produto personalizado (prato/produto montado na hora) -- todo item
+  -- personalizado compartilha o mesmo product_id "âncora" (oculto do
+  -- catálogo), então o nome de verdade fica aqui. Ver customItemService.js.
+  nome_personalizado    TEXT,
+  eh_personalizado      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);

@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('pdv', {
     removeManagerDiscount: invoke('sale:removeManagerDiscount'),
     setServiceCharge: invoke('sale:setServiceCharge'),
     addItem: invoke('sale:addItem'),
+    addCustomItem: invoke('sale:addCustomItem'),
     addPayment: invoke('sale:addPayment'),
     removePayment: invoke('sale:removePayment'),
     setItemNote: invoke('sale:setItemNote'),
@@ -111,6 +112,12 @@ contextBridge.exposeInMainWorld('pdv', {
     computeDishCost: invoke('ingredient:computeDishCost'),
     preverPorcoesPossiveis: invoke('ingredient:preverPorcoesPossiveis'),
     preverPorcoesPossiveisTodos: invoke('ingredient:preverPorcoesPossiveisTodos'),
+  },
+  customItem: {
+    buscar: invoke('customItem:buscar'),
+    sugerirPreco: invoke('customItem:sugerirPreco'),
+    listarParaAjuste: invoke('customItem:listarParaAjuste'),
+    ajustar: invoke('customItem:ajustar'),
   },
   waste: {
     suggestCost: invoke('waste:suggestCost'),

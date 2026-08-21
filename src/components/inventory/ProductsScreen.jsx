@@ -3,6 +3,7 @@ import { useProfile } from '../../context/ProfileContext';
 import { ProductList } from './ProductList';
 import { IngredientManager } from './IngredientManager';
 import { WasteLog } from './WasteLog';
+import { PersonalizedItemsAdjustment } from './PersonalizedItemsAdjustment';
 import { CategoryManager } from './CategoryManager';
 
 const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
@@ -21,6 +22,7 @@ export function ProductsScreen() {
           <>
             <button className={aba === 'insumos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('insumos')}>🥫 Insumos</button>
             <button className={aba === 'desperdicio' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('desperdicio')}>🗑️ Desperdício</button>
+            <button className={aba === 'personalizados' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('personalizados')}>🎨 Personalizados</button>
           </>
         )}
       </div>
@@ -28,6 +30,7 @@ export function ProductsScreen() {
       {aba === 'categorias' && <CategoryManager />}
       {aba === 'insumos' && mostraAbasRestaurante && <IngredientManager />}
       {aba === 'desperdicio' && mostraAbasRestaurante && <WasteLog />}
+      {aba === 'personalizados' && mostraAbasRestaurante && <PersonalizedItemsAdjustment />}
       {aba === 'produtos' && <ProductList />}
     </div>
   );

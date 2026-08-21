@@ -8,6 +8,7 @@ import { PromptModal } from '../common/PromptModal';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { PaymentPanel } from './PaymentPanel';
 import { ProductSearchBox } from './ProductSearchBox';
+import { CustomItemBuilder } from './CustomItemBuilder';
 import { SaleAttachmentsPanel } from './SaleAttachmentsPanel';
 import { OpenCashScreen } from './OpenCashScreen';
 import { CloseCashModal } from './CloseCashModal';
@@ -55,6 +56,7 @@ export function POSScreen() {
   const [showPayment, setShowPayment] = useState(false);
   useEscToClose(() => setShowPayment(false), showPayment);
   const [showAttachments, setShowAttachments] = useState(false);
+  const [showCustomItemBuilder, setShowCustomItemBuilder] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [recentRefreshKey, setRecentRefreshKey] = useState(0);
   const [vendasHoje, setVendasHoje] = useState(null);
@@ -242,6 +244,19 @@ export function POSScreen() {
     addProductToCart(product);
   }, [addProductToCart]);
 
+  /** Item personalizado já foi gravado no backend (CustomItemBuilder cuida
+   * disso) — aqui só reflete no carrinho, igual addProductToCart faz
+   * depois de um addItem normal. */
+  const handleCustomItemAdded = useCallback((result) => {
+    setItems((prev) => [...prev, {
+      id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
+    }]);
+    setTotal((prev) => prev + result.precoUnitario);
+    setShowCustomItemBuilder(false);
+    setFeedback({ message: `${result.nome} adicionado.`, type: 'success' });
+    playBeep();
+  }, []);
+
   async function confirmarPesagemManual(e) {
     e.preventDefault();
     const peso = Number(pesoDigitado.replace(',', '.'));
@@ -313,7 +328,7 @@ export function POSScreen() {
     playErrorBeep();
   }, [saleId, addProductToCart]);
 
-  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !showAttachments });
+  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !showAttachments && !showCustomItemBuilder });
 
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
@@ -476,7 +491,7 @@ export function POSScreen() {
             </button>
           </div>
         </div>
-        <ProductSearchBox onSelect={handleSelectProduct} />
+        <ProductSearchBox onSelect={handleSelectProduct} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
         <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
           📎 Anexar receita / arquivo
         </button>
@@ -626,6 +641,17 @@ export function POSScreen() {
           title={authAction.type === 'item' ? 'Cancelar item' : 'Cancelar venda inteira'}
           onConfirm={handleAuthConfirm}
           onClose={() => setAuthAction(null)}
+        />
+      )}
+
+      {showCustomItemBuilder && (
+        <CustomItemBuilder
+          saleId={saleId}
+          locationId={LOCATION_ID}
+          operadorId={currentUser.id}
+          deviceId={DEVICE_ID}
+          onAdded={handleCustomItemAdded}
+          onClose={() => setShowCustomItemBuilder(false)}
         />
       )}
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductSearchBox } from './ProductSearchBox';
+import { CustomItemBuilder } from './CustomItemBuilder';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { PaymentPanel } from './PaymentPanel';
 import { ManagerAuthModal } from './ManagerAuthModal';
@@ -59,6 +60,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   const [mostrarDivisao, setMostrarDivisao] = useState(false);
   const [mesasLivres, setMesasLivres] = useState([]);
   const [transferError, setTransferError] = useState('');
+  const [showCustomItemBuilder, setShowCustomItemBuilder] = useState(false);
 
   useEffect(() => {
     window.pdv.table.getCart({ saleId }).then((cart) => {
@@ -101,6 +103,19 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
   }
 
+  /** Item personalizado já foi gravado no backend pelo CustomItemBuilder —
+   * aqui só reflete no carrinho da mesa, igual addProductToCart faz
+   * depois de um addItem normal. */
+  function handleCustomItemAdded(result) {
+    setItems((prev) => [...prev, {
+      id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
+    }]);
+    setTotal((prev) => prev + result.precoUnitario);
+    setShowCustomItemBuilder(false);
+    setFeedback({ message: `${result.nome} adicionado.`, type: 'success' });
+    playBeep();
+  }
+
   const handleScan = useCallback(async (codigoBarras) => {
     const product = await window.pdv.products.findByBarcode(codigoBarras);
     if (product) {
@@ -124,7 +139,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     playErrorBeep();
   }, [addProductToCart]);
 
-  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas });
+  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder });
 
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
@@ -333,7 +348,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             </button>
           </div>
         </div>
-        <ProductSearchBox onSelect={addProductToCart} />
+        <ProductSearchBox onSelect={addProductToCart} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
       </div>
 
       {feedback && <p className={feedback.type === 'error' ? 'modal-error' : 'io-message'} style={{ margin: '8px 24px' }}>{feedback.message}</p>}
@@ -435,6 +450,17 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
           title={authAction.type === 'desocupar' ? 'Desocupar mesa' : 'Cancelar item'}
           onConfirm={handleAuthConfirm}
           onClose={() => setAuthAction(null)}
+        />
+      )}
+
+      {showCustomItemBuilder && (
+        <CustomItemBuilder
+          saleId={saleId}
+          locationId={LOCATION_ID}
+          operadorId={currentUser.id}
+          deviceId={DEVICE_ID}
+          onAdded={handleCustomItemAdded}
+          onClose={() => setShowCustomItemBuilder(false)}
         />
       )}
 

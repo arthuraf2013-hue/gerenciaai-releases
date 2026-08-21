@@ -3,9 +3,9 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { ProductThumbnail } from './ProductThumbnail';
 
 /**
- * @param {{ onSelect: (product: object) => void }} props
+ * @param {{ onSelect: (product: object) => void, onSelectPersonalizado?: () => void }} props
  */
-export function ProductSearchBox({ onSelect }) {
+export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 180); // mais curto que outras telas — isso é usado durante a venda, precisa continuar ágil
   const [results, setResults] = useState([]);
@@ -59,6 +59,25 @@ export function ProductSearchBox({ onSelect }) {
     setOpen(false);
     setIndiceSelecionado(-1);
   }
+
+  function handleSelectPersonalizado() {
+    if (!onSelectPersonalizado) return;
+    onSelectPersonalizado();
+    setQuery('');
+    setResults([]);
+    setResultadosDoGrupo([]);
+    setOpen(false);
+    setIndiceSelecionado(-1);
+  }
+
+  // Card de "produto personalizado" só aparece quando a busca é
+  // especificamente por essa palavra (prefixo de "personalizado") — não
+  // é um produto de verdade no catálogo, é um atalho pra montar um
+  // prato/produto na hora com insumos e/ou produtos do catálogo.
+  const queryNormalizada = query.trim().toLowerCase();
+  const mostrarCardPersonalizado = !!onSelectPersonalizado
+    && queryNormalizada.length >= 4
+    && 'personalizado'.startsWith(queryNormalizada);
 
   /** Produto achado na consulta ao grupo, mas ainda sem existir
    * localmente — traz ele pra base local (só esse produto, só agora,
@@ -129,6 +148,24 @@ export function ProductSearchBox({ onSelect }) {
         onFocus={() => results.length > 0 && setOpen(true)}
         onKeyDown={handleKeyDown}
       />
+      {mostrarCardPersonalizado && modoBusca === 'blocos' && (
+        <div className="product-search-results product-search-results-blocks">
+          <button type="button" className="product-card product-card-personalizado" onClick={handleSelectPersonalizado}>
+            <span className="product-card-personalizado-icon" aria-hidden>🎨</span>
+            <span className="product-card-name">Produto personalizado</span>
+            <span className="product-card-price">Montar agora</span>
+          </button>
+        </div>
+      )}
+      {mostrarCardPersonalizado && modoBusca !== 'blocos' && (
+        <ul className="product-search-results">
+          <li>
+            <button type="button" className="product-search-result-personalizado" onClick={handleSelectPersonalizado}>
+              <span>🎨 Produto personalizado — montar agora</span>
+            </button>
+          </li>
+        </ul>
+      )}
       {open && results.length > 0 && modoBusca === 'blocos' && (
         <div className="product-search-results product-search-results-blocks">
           {results.map((p, i) => (

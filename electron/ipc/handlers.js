@@ -9,6 +9,7 @@ const licenseService = require('../services/licenseService');
 const messageService = require('../services/messageService');
 const tableService = require('../services/tableService');
 const ingredientService = require('../services/ingredientService');
+const customItemService = require('../services/customItemService');
 const wasteService = require('../services/wasteService');
 const stockService = require('../services/stockService');
 const saleService = require('../services/saleService');
@@ -157,6 +158,7 @@ function registerIpcHandlers() {
   safeHandle('posDisplay:getConfig', () => posDisplayService.getConfig());
   safeHandle('posDisplay:updateConfig', (_e, payload) => posDisplayService.updateConfig(payload));
   safeHandle('sale:addItem', (_e, payload) => saleService.addItem(payload));
+  safeHandle('sale:addCustomItem', (_e, payload) => saleService.addCustomItem(payload));
   safeHandle('sale:addPayment', (_e, payload) => saleService.addPayment(payload));
   safeHandle('sale:removePayment', (_e, payload) => saleService.removePayment(payload));
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
@@ -201,6 +203,10 @@ function registerIpcHandlers() {
   safeHandle('ingredient:computeDishCost', (_e, { productId }) => ingredientService.computeDishCost(productId));
   safeHandle('ingredient:preverPorcoesPossiveis', (_e, { productId }) => ingredientService.preverPorcoesPossiveis(productId));
   safeHandle('ingredient:preverPorcoesPossiveisTodos', () => ingredientService.preverPorcoesPossiveisTodos());
+  safeHandle('customItem:buscar', (_e, opts) => customItemService.buscarInsumosEProdutos(opts));
+  safeHandle('customItem:sugerirPreco', (_e, payload) => customItemService.sugerirPreco(payload));
+  safeHandle('customItem:listarParaAjuste', (_e, opts) => customItemService.listItensParaAjuste(opts));
+  safeHandle('customItem:ajustar', (_e, payload) => customItemService.ajustarLinhas(payload));
 
   // --- Desperdício ---
   safeHandle('waste:suggestCost', (_e, payload) => wasteService.suggestCost(payload));

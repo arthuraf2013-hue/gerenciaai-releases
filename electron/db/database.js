@@ -94,6 +94,13 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_original', 'REAL');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_por_id', 'TEXT');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_motivo', 'TEXT');
+  // Produto personalizado (prato/produto montado na hora, ex: pizza
+  // meio-a-meio) -- todo item personalizado compartilha o mesmo
+  // product_id "âncora" (oculto do catálogo via ativo=0), então o nome
+  // de verdade fica aqui em vez de vir de products.nome. Ver
+  // customItemService.js e a tabela custom_item_lines.
+  adicionarColunaSeFaltando(database, 'sale_items', 'nome_personalizado', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sale_items', 'eh_personalizado', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'products', 'conflito_codigo_barras_pendente', 'TEXT');
   adicionarColunaSeFaltando(database, 'products', 'preco_promocional', 'REAL');
   adicionarColunaSeFaltando(database, 'products', 'promocao_valida_ate', 'TEXT');

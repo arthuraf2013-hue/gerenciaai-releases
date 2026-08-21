@@ -178,7 +178,7 @@ function buildReceiptWhatsappLink(saleId) {
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
   const items = db.prepare(
-    `SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
   ).all(saleId);
   const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
   const location = db.prepare('SELECT * FROM locations WHERE id = ?').get(sale.location_id);
@@ -236,7 +236,7 @@ async function printReceipt(saleId) {
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
   const items = db.prepare(
-    `SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
   ).all(saleId);
   const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
   const location = db.prepare('SELECT * FROM locations WHERE id = ?').get(sale.location_id);
@@ -320,7 +320,7 @@ function printKitchenTicket(saleId, mesaLabel) {
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
   const itens = db.prepare(
-    `SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id
      WHERE si.sale_id = ? AND si.cancelado = 0 AND si.enviado_cozinha = 0`
   ).all(saleId);
 

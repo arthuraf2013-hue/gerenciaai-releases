@@ -7,6 +7,7 @@ const { precoEfetivo } = require('./productService');
 const profileService = require('./profileService');
 const salesSyncService = require('./salesSyncService');
 const ingredientService = require('./ingredientService');
+const customItemService = require('./customItemService');
 
 function openSale({ locationId, operadorId }) {
   const db = getDb();
@@ -35,7 +36,7 @@ function getOrOpenCurrentSale({ locationId, operadorId }) {
   })();
 
   const items = db.prepare(
-    `SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id
      WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em`
   ).all(sale.id);
 
@@ -62,13 +63,16 @@ function getOrOpenCurrentSale({ locationId, operadorId }) {
  */
 function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
   const db = getDb();
+  // Item personalizado NUNCA entra nos atalhos rápidos: todos compartilham
+  // o mesmo product_id âncora (sem sentido clicar de novo pra "repetir"
+  // um combo que foi montado na hora), e si.eh_personalizado já marca isso.
   if (modo === 'frequente') {
     return db.prepare(
       `SELECT p.*, SUM(si.quantidade) as total_vendido
        FROM sale_items si
        JOIN sales s ON s.id = si.sale_id
        JOIN products p ON p.id = si.product_id
-       WHERE s.location_id = ? AND si.cancelado = 0
+       WHERE s.location_id = ? AND si.cancelado = 0 AND si.eh_personalizado = 0
          AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') >= date('now', '-30 days')
        GROUP BY p.id
        ORDER BY total_vendido DESC, p.nome
@@ -80,7 +84,7 @@ function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
-     WHERE s.location_id = ? AND si.cancelado = 0
+     WHERE s.location_id = ? AND si.cancelado = 0 AND si.eh_personalizado = 0
      GROUP BY p.id
      ORDER BY ultima_venda_em DESC
      LIMIT ?`
@@ -345,6 +349,62 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   return { ok: true, itemId, precoUnitario: precoDeVenda, avisoReceita, alerta, quantidadeTotal };
 }
 
+/**
+ * Adiciona um item PERSONALIZADO (prato/produto montado na hora a
+ * partir de insumos e/ou produtos escolhidos ali, ex: pizza meio-a-meio)
+ * — deliberadamente uma função separada de addItem: cada personalizado
+ * é sempre uma linha NOVA (nunca soma na linha existente pelo mesmo
+ * product_id, já que todo item personalizado compartilha o mesmo
+ * product_id "âncora" — somar quebraria dois combos diferentes na
+ * mesma venda em uma linha só). Preço já vem definido pela tela (a
+ * sugestão de custo é só um ponto de partida, o operador confirma).
+ */
+function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, deviceId }) {
+  const db = getDb();
+
+  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta — não é possível adicionar itens.' };
+
+  const nomeLimpo = (nome || '').trim();
+  if (!nomeLimpo) return { ok: false, error: 'Informe um nome para o item personalizado.' };
+
+  const precoNumerico = Number(preco);
+  if (!(precoNumerico >= 0)) return { ok: false, error: 'Preço inválido.' };
+
+  const linhasValidas = (linhas || []).filter((l) => {
+    if (l.tipo === 'insumo' && !l.insumoId) return false;
+    if (l.tipo === 'produto' && !l.produtoId) return false;
+    if (!['insumo', 'produto'].includes(l.tipo)) return false;
+    const qtd = l.modo === 'percentual' ? Number(l.percentual) : Number(l.quantidade);
+    return qtd > 0;
+  });
+  if (linhasValidas.length === 0) return { ok: false, error: 'Adicione ao menos um insumo ou produto ao item personalizado.' };
+
+  const anchorId = customItemService.garantirProdutoPersonalizado();
+  const itemId = randomUUID();
+  const movId = randomUUID();
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, nome_personalizado, eh_personalizado)
+       VALUES (?, ?, ?, 1, ?, ?, 1)`
+    ).run(itemId, saleId, anchorId, precoNumerico, nomeLimpo);
+
+    db.prepare(
+      `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
+       VALUES (?, ?, ?, 'venda', -1, ?, ?, ?, ?)`
+    ).run(movId, anchorId, locationId, saleId, itemId, operadorId, deviceId);
+
+    customItemService.gravarEDescontarLinhas(itemId, linhasValidas, { locationId, saleId, saleItemId: itemId, operadorId, deviceId });
+
+    db.prepare(`UPDATE sales SET total = total + ? WHERE id = ?`).run(precoNumerico, saleId);
+  });
+  tx();
+
+  return { ok: true, itemId, precoUnitario: precoNumerico };
+}
+
 /** Registra um ou mais pagamentos (suporta pagamento misto/split). */
 function addPayment({ saleId, metodo, valor, detalhes }) {
   const db = getDb();
@@ -474,7 +534,7 @@ function finalizeSale(saleId) {
   // por causa disso. Um espelho pra relatório consolidado E pro
   // histórico compartilhado entre PDVs do mesmo grupo.
   const itensDetalhados = db.prepare(
-    `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
+    `SELECT COALESCE(si.nome_personalizado, p.nome) as nome, si.quantidade, si.preco_unitario FROM sale_items si
      JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
   ).all(saleId);
   const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(saleId).map((p) => p.metodo);
@@ -563,6 +623,14 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
     // no addItem original.
     ingredientService.reverterPorVenda(item.product_id, item.quantidade);
 
+    // Item personalizado: devolve o estoque de cada insumo/produto usado
+    // na composição dele (ver customItemService) — o item.product_id
+    // acima é só o produto-âncora compartilhado, sem ficha técnica
+    // própria, então reverterPorVenda não faz nada por si só.
+    if (item.eh_personalizado) {
+      customItemService.reverterLinhasDoItem(saleItemId, { locationId, saleId, saleItemId, operadorId: currentOperatorId, deviceId });
+    }
+
     db.prepare(`UPDATE sales SET total = total - ? WHERE id = ?`).run(item.preco_unitario * item.quantidade, saleId);
   });
   tx();
@@ -618,6 +686,10 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
 
       ingredientService.reverterPorVenda(item.product_id, item.quantidade);
 
+      if (item.eh_personalizado) {
+        customItemService.reverterLinhasDoItem(item.id, { locationId, saleId, saleItemId: item.id, operadorId: autorizadoPor?.id || currentOperatorId, deviceId });
+      }
+
       db.prepare(`UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED() WHERE id = ?`)
         .run(autorizadoPor?.id || currentOperatorId, item.id);
     }
@@ -652,7 +724,7 @@ function needsManagerAuthForCancel(saleId) {
 function getSaleItemsDetail(saleId) {
   const db = getDb();
   return db.prepare(
-    `SELECT si.id, p.nome, si.quantidade, si.preco_unitario, si.cancelado, si.observacao
+    `SELECT si.id, COALESCE(si.nome_personalizado, p.nome) as nome, si.quantidade, si.preco_unitario, si.cancelado, si.observacao
      FROM sale_items si JOIN products p ON p.id = si.product_id
      WHERE si.sale_id = ? ORDER BY si.criado_em`
   ).all(saleId);
@@ -670,10 +742,16 @@ function getSaleItemsDetail(saleId) {
  */
 async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   const db = getDb();
+  // Itens personalizados ficam FORA dessa checagem: o estoque de verdade
+  // deles já foi debitado localmente por insumo/produto no momento do
+  // addCustomItem, e o product_id que aparece aqui é só o produto-âncora
+  // compartilhado (sem estoque próprio de verdade) — incluí-lo bloquearia
+  // a venda por falta de "estoque remoto" de um produto que não existe
+  // de verdade no grupo de sincronização.
   const itens = db.prepare(
-    `SELECT si.product_id as productId, si.quantidade, p.nome
+    `SELECT si.product_id as productId, si.quantidade, COALESCE(si.nome_personalizado, p.nome) as nome
      FROM sale_items si JOIN products p ON p.id = si.product_id
-     WHERE si.sale_id = ? AND si.cancelado = 0`
+     WHERE si.sale_id = ? AND si.cancelado = 0 AND si.eh_personalizado = 0`
   ).all(saleId);
 
   const stockSyncService = require('./stockSyncService');
@@ -769,7 +847,7 @@ async function editarHistoricoVenda({ saleId, novaDataHora, novoTotal, motivo, c
   // grupo, na mesma hora que você corrige aqui.
   try {
     const itensDetalhados = db.prepare(
-      `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
+      `SELECT COALESCE(si.nome_personalizado, p.nome) as nome, si.quantidade, si.preco_unitario FROM sale_items si
        JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
     ).all(saleId);
     const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(saleId).map((p) => p.metodo);
@@ -791,6 +869,6 @@ async function editarHistoricoVenda({ saleId, novaDataHora, novoTotal, motivo, c
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
-  addItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
+  addItem, addCustomItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
   getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
 };
