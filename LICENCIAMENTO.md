@@ -124,6 +124,18 @@ service cloud.firestore {
       allow read, write: if request.auth != null;
     }
 
+    // "acoes_log" — registro de auditoria da Central (congelar, bloquear,
+    // restaurar backup, publicar/desativar atualização obrigatória): quem
+    // fez, o quê e quando. Só o painel grava e lê aqui, o app do cliente
+    // nunca toca nisso — mesmo padrão de "clientes", 100% restrito a admin
+    // autenticado. Update/delete ficam bloqueados de propósito: um
+    // registro de auditoria não deveria dar pra editar ou apagar depois
+    // (nem sem querer, nem por engano) — só criar e ler.
+    match /acoes_log/{acaoId} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if false;
+    }
+
     // Cofre de senhas — igual "clientes": só o painel toca aqui, nunca
     // o app do cliente. O conteúdo sensível (usuário/senha/endereço/
     // notas) já vem CIFRADO do navegador antes de chegar até aqui (ver
@@ -295,6 +307,19 @@ motivo na própria tela. Lembre também de gerar a chave de proteção
 uma vez, na aba Cofre → "Contas Google vinculadas" → "Gerar chave de
 proteção" — sem isso feito, o mesmo botão falha do mesmo jeito, mesmo
 com as regras já publicadas.
+
+**Se você já tinha publicado as regras antes da aba "🕐 Auditoria"
+existir**: republique de novo — o bloco atual inclui a coleção nova
+`acoes_log`, onde a Central grava um registro toda vez que você
+congela, bloqueia, restaura um backup remoto ou publica/desativa uma
+atualização obrigatória. Sem essa regra, cada uma dessas ações
+continua funcionando normalmente (o registro de auditoria é só um
+`addDoc` de melhor esforço, feito depois da ação principal), mas
+falha silenciosamente ao tentar gravar o log — a aba Auditoria fica
+sempre vazia e o console do navegador mostra `[auditoria] falha ao
+registrar ação`. Repare que a regra bloqueia `update` e `delete` de
+propósito (só `create` e `read`): um registro de auditoria não deveria
+dar pra editar ou apagar depois, nem sem querer.
 
 **Antes de confiar nisso em produção**: eu não tenho como testar essas
 regras ao vivo aqui (não tenho acesso a um projeto Firebase de
