@@ -111,6 +111,32 @@ export function ProductForm({ product, onSaved, onCancel }) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
+  const [identificandoFoto, setIdentificandoFoto] = useState(false);
+  const [avisoIdentificacao, setAvisoIdentificacao] = useState('');
+
+  // Só faz sentido pra produto NOVO (o de editar já tem esses campos
+  // preenchidos) -- diferente da foto do cadastro em si (fotoDataUrl
+  // acima, que exige o produto já salvo), essa foto é só um atalho
+  // pra preencher o formulário, nunca fica guardada em lugar nenhum.
+  async function handleIdentificarPorFoto() {
+    setAvisoIdentificacao('');
+    setIdentificandoFoto(true);
+    const resultado = await window.pdv.ai.pickAndIdentifyProduct();
+    setIdentificandoFoto(false);
+    if (resultado?.canceled) return;
+    if (!resultado?.ok) return setAvisoIdentificacao(resultado?.error || 'Não consegui analisar a foto.');
+    const dados = resultado.data || {};
+    setForm((prev) => ({
+      ...prev,
+      nome: dados.nome || prev.nome,
+      categoria: dados.categoria || prev.categoria,
+      unidade: dados.unidade || prev.unidade,
+    }));
+    setAvisoIdentificacao(
+      dados.confianca === 'baixa' ? 'Sugestão de baixa confiança — confira os campos antes de salvar.' : ''
+    );
+  }
+
   // Editar a margem recalcula o preço de venda a partir do custo atual.
   function handleMargemChange(novaMargem) {
     setMargemPercentual(novaMargem);
@@ -213,6 +239,15 @@ export function ProductForm({ product, onSaved, onCancel }) {
       onSubmit={handleSubmit}
     >
       <h2>{form.id ? 'Editar produto' : 'Novo produto'}</h2>
+
+      {!form.id && (
+        <div style={{ marginBottom: 12 }}>
+          <button type="button" className="btn-secondary" onClick={handleIdentificarPorFoto} disabled={identificandoFoto}>
+            {identificandoFoto ? 'Analisando foto...' : '🤖 Identificar por foto (IA)'}
+          </button>
+          {avisoIdentificacao && <p className="screen-hint" style={{ margin: '4px 0 0' }}>{avisoIdentificacao}</p>}
+        </div>
+      )}
 
       <div className="product-photo-section">
         {fotoDataUrl ? (

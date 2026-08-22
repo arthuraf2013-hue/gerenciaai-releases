@@ -47,13 +47,29 @@ export function SettingsScreen() {
   const [fiscalSaved, setFiscalSaved] = useState(false);
   const [selecionandoCertificado, setSelecionandoCertificado] = useState(false);
 
+  // Inutilização de numeração NFC-e (números pulados que nunca saíram
+  // com nenhuma NFC-e vinculada) — ver fiscalService.inutilizarNumeracao.
+  const [inutForm, setInutForm] = useState({ serie: '', numeroInicial: '', numeroFinal: '', justificativa: '' });
+  const [inutEnviando, setInutEnviando] = useState(false);
+  const [inutMensagem, setInutMensagem] = useState(null);
+  const [inutilizacoes, setInutilizacoes] = useState([]);
+
   const [pixForm, setPixForm] = useState({ pixChave: '', pixTipoChave: 'aleatoria', pixNomeRecebedor: '', pixCidade: '' });
   const [pixSaving, setPixSaving] = useState(false);
   const [pixSaved, setPixSaved] = useState(false);
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
 
-  const [loyaltyForm, setLoyaltyForm] = useState({ ativado: false, reaisPorPonto: 10, valorResgatePonto: 0.05 });
+  const [loyaltyForm, setLoyaltyForm] = useState({
+    ativado: false, reaisPorPonto: 10, valorResgatePonto: 0.05,
+    ativarCupomAniversario: false, pontosBonusAniversario: 20,
+  });
+  const [whatsappAutomationForm, setWhatsappAutomationForm] = useState({
+    telefoneDono: '', reconquistaAutomaticaAtiva: false, alertaEstoqueBaixoAtivo: false,
+    resumoDiarioAtivo: false, resumoDiarioHora: '20:00',
+  });
+  const [whatsappAutomationSaving, setWhatsappAutomationSaving] = useState(false);
+  const [whatsappAutomationSaved, setWhatsappAutomationSaved] = useState(false);
   const [loyaltySaving, setLoyaltySaving] = useState(false);
   const [loyaltySaved, setLoyaltySaved] = useState(false);
   const [botOrdersAtivo, setBotOrdersAtivo] = useState(false);
@@ -127,6 +143,7 @@ export function SettingsScreen() {
         },
       });
     });
+    window.pdv.fiscal.listInutilizacoes().then((lista) => setInutilizacoes(Array.isArray(lista) ? lista : []));
     window.pdv.payment.getConfig().then((p) => {
       setPixForm({
         pixChave: p.pix_chave || '', pixTipoChave: p.pix_tipo_chave || 'aleatoria',
@@ -136,8 +153,16 @@ export function SettingsScreen() {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
     window.pdv.loyalty.getConfig().then((l) => setLoyaltyForm({
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
+      ativarCupomAniversario: !!l.ativar_cupom_aniversario, pontosBonusAniversario: l.pontos_bonus_aniversario ?? 20,
     }));
     window.pdv.botOrders.getConfig().then((c) => setBotOrdersAtivo(!!c.ativo));
+    window.pdv.whatsappAutomation.getConfig().then((w) => setWhatsappAutomationForm({
+      telefoneDono: w.telefone_dono || '',
+      reconquistaAutomaticaAtiva: !!w.reconquista_automatica_ativa,
+      alertaEstoqueBaixoAtivo: !!w.alerta_estoque_baixo_ativo,
+      resumoDiarioAtivo: !!w.resumo_diario_ativo,
+      resumoDiarioHora: w.resumo_diario_hora || '20:00',
+    }));
     window.pdv.backup.getStatus().then((s) => {
       setBackupStatus(s);
       setContaGoogleEmailAtual(s.contaGoogleEmail || '');
@@ -230,6 +255,33 @@ export function SettingsScreen() {
     setTimeout(() => setFiscalSaved(false), 2000);
   }
 
+  async function handleInutilizar(e) {
+    e.preventDefault();
+    setInutMensagem(null);
+    setInutEnviando(true);
+    const result = await window.pdv.fiscal.inutilizarNumeracao({
+      requestingUserId: currentUser.id,
+      serie: inutForm.serie || undefined,
+      numeroInicial: Number(inutForm.numeroInicial),
+      numeroFinal: Number(inutForm.numeroFinal),
+      justificativa: inutForm.justificativa,
+    });
+    setInutEnviando(false);
+    if (!result.ok) {
+      setInutMensagem({ sucesso: false, texto: result.error });
+      return;
+    }
+    setInutMensagem({
+      sucesso: result.homologada !== false,
+      texto: result.aviso || (result.homologada
+        ? `Inutilização homologada pela SEFAZ (protocolo ${result.protocolo}).`
+        : `SEFAZ rejeitou: ${result.motivo || 'motivo não informado'}.`),
+    });
+    setInutForm({ serie: '', numeroInicial: '', numeroFinal: '', justificativa: '' });
+    const lista = await window.pdv.fiscal.listInutilizacoes();
+    setInutilizacoes(Array.isArray(lista) ? lista : []);
+  }
+
   async function handlePixSave(e) {
     e.preventDefault();
     setPixSaving(true);
@@ -246,6 +298,15 @@ export function SettingsScreen() {
     setLoyaltySaving(false);
     setLoyaltySaved(true);
     setTimeout(() => setLoyaltySaved(false), 2000);
+  }
+
+  async function handleWhatsappAutomationSave(e) {
+    e.preventDefault();
+    setWhatsappAutomationSaving(true);
+    await window.pdv.whatsappAutomation.updateConfig(whatsappAutomationForm);
+    setWhatsappAutomationSaving(false);
+    setWhatsappAutomationSaved(true);
+    setTimeout(() => setWhatsappAutomationSaved(false), 2000);
   }
 
   async function handleBotOrdersToggle(ativo) {
@@ -891,6 +952,53 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
+        <h2>🗑️ Inutilização de numeração NFC-e</h2>
+        <p className="screen-hint">
+          Use quando um número de NFC-e nunca chegou a ser usado (ex: pulou um número por erro do
+          app, ou o app fechou antes de terminar de emitir) — a SEFAZ exige declarar isso
+          formalmente pra fechar o "buraco" na sequência numérica. Só admin pode fazer isso, e não
+          tem volta depois de homologado.
+        </p>
+        <form className="inline-form" onSubmit={handleInutilizar}>
+          <label>Série <span className="screen-hint">(vazio = série atual)</span>
+            <input value={inutForm.serie} onChange={(e) => setInutForm({ ...inutForm, serie: e.target.value })} placeholder={fiscal?.serie_nfce || '1'} />
+          </label>
+          <label>Número inicial
+            <input type="number" min="1" value={inutForm.numeroInicial} onChange={(e) => setInutForm({ ...inutForm, numeroInicial: e.target.value })} required />
+          </label>
+          <label>Número final
+            <input type="number" min="1" value={inutForm.numeroFinal} onChange={(e) => setInutForm({ ...inutForm, numeroFinal: e.target.value })} required />
+          </label>
+          <label>Justificativa <span className="screen-hint">(mín. 15 caracteres, exigência da SEFAZ)</span>
+            <input value={inutForm.justificativa} onChange={(e) => setInutForm({ ...inutForm, justificativa: e.target.value })} minLength={15} required />
+          </label>
+          <button className="btn-danger" type="submit" disabled={inutEnviando}>
+            {inutEnviando ? 'Enviando...' : '🗑️ Inutilizar numeração'}
+          </button>
+        </form>
+        {inutMensagem && (
+          <p className={inutMensagem.sucesso ? 'io-message' : 'modal-error'}>{inutMensagem.texto}</p>
+        )}
+        {inutilizacoes.length > 0 && (
+          <table className="data-table" style={{ marginTop: 12 }}>
+            <thead>
+              <tr><th>Série</th><th>Faixa</th><th>Status</th><th>Protocolo</th></tr>
+            </thead>
+            <tbody>
+              {inutilizacoes.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.serie}</td>
+                  <td>{i.numero_inicial} — {i.numero_final}</td>
+                  <td>{i.status}</td>
+                  <td>{i.protocolo || i.motivo_rejeicao || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="settings-section">
         <h2>💳 Pagamento (Pix)</h2>
         <p className="screen-hint">
           Cadastre sua chave Pix para gerar o QR Code de cobrança direto no PDV. Não há
@@ -938,6 +1046,21 @@ export function SettingsScreen() {
           </label>
           <label>Valor de cada ponto no resgate (R$)
             <input type="number" step="0.01" value={loyaltyForm.valorResgatePonto} onChange={(e) => setLoyaltyForm({ ...loyaltyForm, valorResgatePonto: Number(e.target.value) })} />
+          </label>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox" style={{ width: 'auto' }}
+              checked={loyaltyForm.ativarCupomAniversario}
+              onChange={(e) => setLoyaltyForm({ ...loyaltyForm, ativarCupomAniversario: e.target.checked })}
+            />
+            🎂 Mandar cupom de aniversário automático pelo WhatsApp (precisa do WhatsApp conectado e da data de nascimento cadastrada em Clientes)
+          </label>
+          <label>Pontos de bônus no aniversário
+            <input
+              type="number" min="0" value={loyaltyForm.pontosBonusAniversario}
+              onChange={(e) => setLoyaltyForm({ ...loyaltyForm, pontosBonusAniversario: Number(e.target.value) })}
+              disabled={!loyaltyForm.ativarCupomAniversario}
+            />
           </label>
           <button className="btn-primary" type="submit" disabled={loyaltySaving}>
             💾 {loyaltySaving ? 'Salvando...' : 'Salvar'}
@@ -1276,6 +1399,60 @@ export function SettingsScreen() {
           />
           Ativar aba "Separação"
         </label>
+      </section>
+
+      <section className="settings-section">
+        <h2>🤖 Automações proativas do WhatsApp</h2>
+        <p className="screen-hint">
+          Diferente do chatbot acima (que só responde quando o cliente manda mensagem), essas
+          automações fazem o número <strong>iniciar</strong> a conversa sozinho — o que aumenta um
+          pouco mais o risco de bloqueio do número (ver aviso acima). Recomendado ativar só depois
+          de já confiar na conexão. Todas exigem o WhatsApp conectado acima pra funcionar.
+        </p>
+        <form className="inline-form" onSubmit={handleWhatsappAutomationSave}>
+          <label>Telefone do dono/gerente (recebe os alertas de estoque e o resumo diário)
+            <input
+              value={whatsappAutomationForm.telefoneDono}
+              onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, telefoneDono: e.target.value })}
+              placeholder="(11) 99999-9999"
+            />
+          </label>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox" style={{ width: 'auto' }}
+              checked={whatsappAutomationForm.reconquistaAutomaticaAtiva}
+              onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, reconquistaAutomaticaAtiva: e.target.checked })}
+            />
+            💌 Mandar mensagem de reconquista automática pro "cliente que sumiu" (mesmo texto da tela Clientes → Clientes que sumiram, com intervalo mínimo de 30 dias por cliente)
+          </label>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox" style={{ width: 'auto' }}
+              checked={whatsappAutomationForm.alertaEstoqueBaixoAtivo}
+              onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, alertaEstoqueBaixoAtivo: e.target.checked })}
+            />
+            📉 Mandar alerta diário de estoque baixo pro telefone do dono acima
+          </label>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox" style={{ width: 'auto' }}
+              checked={whatsappAutomationForm.resumoDiarioAtivo}
+              onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, resumoDiarioAtivo: e.target.checked })}
+            />
+            📊 Mandar resumo de fechamento (vendas do dia) pro telefone do dono acima
+          </label>
+          <label>Horário do resumo diário
+            <input
+              type="time" value={whatsappAutomationForm.resumoDiarioHora}
+              onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, resumoDiarioHora: e.target.value })}
+              disabled={!whatsappAutomationForm.resumoDiarioAtivo}
+            />
+          </label>
+          <button className="btn-primary" type="submit" disabled={whatsappAutomationSaving}>
+            💾 {whatsappAutomationSaving ? 'Salvando...' : 'Salvar'}
+          </button>
+        </form>
+        {whatsappAutomationSaved && <p className="io-message">Automações salvas.</p>}
       </section>
       </>
       )}

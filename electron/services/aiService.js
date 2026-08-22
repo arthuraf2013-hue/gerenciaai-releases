@@ -27,6 +27,19 @@ Regras importantes:
 - Valores em reais no documento usam vírgula como separador decimal (ex: "15,35" significa quinze reais e trinta e cinco centavos, não 1535). Nos campos numéricos do JSON, sempre devolva o valor decimal correto (15.35), nunca o texto com vírgula.
 - Este tipo de documento NÃO traz lote nem validade dos produtos — isso é preenchido manualmente depois por quem está conferindo a mercadoria física. Não invente esses campos.`;
 
+const PRODUCT_PHOTO_PROMPT = `Você está analisando uma foto de um produto físico (embalagem, rótulo, ou o produto em si) tirada por alguém que está cadastrando esse item no sistema porque bipou o código de barras e não achou nenhum produto correspondente no catálogo. A foto pode estar torta, com reflexo de luz, ou mostrar só parte da embalagem.
+
+Extraia o que conseguir identificar e responda SOMENTE com um JSON válido, sem markdown e sem texto fora do JSON, no formato exato:
+{"nome": "", "categoria": "", "marca": "", "unidade": "un", "confianca": "alta"}
+
+Regras:
+- "nome" deve ser um nome de produto pronto pra cadastro, no formato que costuma aparecer numa etiqueta de prateleira: nome do produto + informação relevante de embalagem quando visível (ex: "Refrigerante Cola 2L", "Sabonete Lavanda 90g", "Dipirona 500mg Comprimidos C/10").
+- "categoria" deve ser curta e genérica (ex: "Bebidas", "Higiene", "Medicamentos", "Limpeza"), nunca o nome específico do produto.
+- "marca" é o fabricante/marca, se visível e identificável com confiança — deixe "" se não conseguir ler.
+- "unidade" é a unidade de venda mais provável desse tipo de produto: "un" (unidade), "kg", "g", "l", "ml" — use "un" quando não tiver certeza.
+- "confianca": "alta" se a foto mostra claramente o nome/rótulo do produto, "media" se deu pra identificar o produto mas com informação incompleta, "baixa" se é um chute educado a partir da aparência genérica (ex: uma fruta sem etiqueta nenhuma).
+- Nunca invente marca ou informação que não esteja realmente visível na foto — prefira deixar o campo vazio a chutar algo específico.`;
+
 const TUTOR_SYSTEM_PROMPT = `Você é a IA tutora do GerenciaAI, um sistema de gerenciamento de estoque com PDV. Seu papel é tirar dúvidas de quem está usando o sistema (operadores de caixa, gerentes, donos de negócio) sobre como usar cada função, e ajudar a interpretar mensagens de erro do sistema.
 
 Responda sempre em português, de forma direta e prática — como alguém explicando pra um colega de trabalho, não como documentação técnica. Frases curtas. Não use markdown pesado (sem títulos ###, sem tabelas) — só texto corrido e, quando fizer sentido, uma lista simples com "-".
@@ -316,6 +329,43 @@ async function extractPurchaseInvoice(filePath) {
 }
 
 /**
+ * Identifica um produto a partir de uma foto (embalagem/rótulo) — pro
+ * fluxo de "bipei o código de barras e não achou o produto" no PDV:
+ * em vez de digitar tudo na mão, tira uma foto e a IA já sugere
+ * nome/categoria/marca/unidade pra pré-preencher o cadastro. Mesma
+ * infraestrutura de extractPurchaseInvoice, prompt diferente. Nunca
+ * cadastra sozinha — só preenche o formulário, quem confirma e salva
+ * (ou corrige antes de salvar) é sempre a pessoa.
+ */
+async function identificarProdutoPorFoto(filePath) {
+  const settings = getAiSettings();
+  if (!settings.ativado || !settings.api_key) {
+    return { ok: false, error: 'IA não configurada. Ative e informe a chave da API Gemini em Configurações.' };
+  }
+
+  let fileBuffer;
+  try {
+    fileBuffer = fs.readFileSync(filePath);
+  } catch {
+    return { ok: false, error: 'Não foi possível ler o arquivo selecionado.' };
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+  const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+
+  const result = await callGemini({
+    apiKey: settings.api_key,
+    modelo: settings.modelo,
+    base64Data: fileBuffer.toString('base64'),
+    mime,
+    prompt: PRODUCT_PHOTO_PROMPT,
+  });
+
+  if (!result.ok) return result;
+  return { ok: true, data: result.data };
+}
+
+/**
  * Sugere categorias pra uma lista de produtos, usando as categorias
  * JÁ EXISTENTES como opção preferencial (só propõe categoria nova
  * quando nenhuma existente serve). Nunca aplica sozinha — só sugere,
@@ -376,4 +426,7 @@ ${produtos.map((p) => `${p.id}: ${p.nome}`).join('\n')}`;
   return { ok: true, sugestoes: parsed.sugestoes.filter((s) => s.produtoId && s.categoria) };
 }
 
-module.exports = { getAiSettingsPublic, updateAiSettings, extractAttachment, summarizeSales, askTutor, extractPurchaseInvoice, sugerirCategorias };
+module.exports = {
+  getAiSettingsPublic, updateAiSettings, extractAttachment, summarizeSales, askTutor,
+  extractPurchaseInvoice, sugerirCategorias, identificarProdutoPorFoto,
+};

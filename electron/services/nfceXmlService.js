@@ -157,7 +157,7 @@ function montarGrupoPisCofins(regimeTributario) {
  * importante — reemitir com os mesmos parâmetros mas cNF diferente
  * gera uma chave diferente).
  */
-function gerarXmlNFCe({ config, sale, items, payments, numero, dataEmissao }) {
+function gerarXmlNFCe({ config, sale, items, payments, numero, dataEmissao, tpEmis = '1', justificativaContingencia }) {
   const dataEmissaoFinal = dataEmissao || new Date();
   const cNF = gerarCodigoNumericoAleatorio();
   const cUF = CODIGO_UF[config.uf];
@@ -165,7 +165,7 @@ function gerarXmlNFCe({ config, sale, items, payments, numero, dataEmissao }) {
 
   const chaveAcesso = montarChaveAcesso({
     uf: config.uf, dataEmissao: dataEmissaoFinal, cnpj: config.cnpj,
-    serie: config.serie_nfce || '1', numero, codigoNumerico: cNF,
+    serie: config.serie_nfce || '1', numero, codigoNumerico: cNF, tpEmis,
   });
 
   const cMunFG = config.municipio_codigo_ibge;
@@ -185,7 +185,7 @@ function gerarXmlNFCe({ config, sale, items, payments, numero, dataEmissao }) {
     <idDest>1</idDest>
     <cMunFG>${escapeXml(cMunFG)}</cMunFG>
     <tpImp>4</tpImp>
-    <tpEmis>1</tpEmis>
+    <tpEmis>${tpEmis}</tpEmis>
     <cDV>${chaveAcesso[43]}</cDV>
     <tpAmb>${tpAmb}</tpAmb>
     <finNFe>1</finNFe>
@@ -193,6 +193,7 @@ function gerarXmlNFCe({ config, sale, items, payments, numero, dataEmissao }) {
     <indPres>1</indPres>
     <procEmi>0</procEmi>
     <verProc>1.0</verProc>
+    ${tpEmis !== '1' ? `<dhCont>${fmtDataHora(dataEmissaoFinal, config.uf)}</dhCont><xJust>${escapeXml(justificativaContingencia || 'Falha de comunicacao com a SEFAZ no momento da venda')}</xJust>` : ''}
   </ide>`;
 
   // --- <emit> ---
@@ -307,4 +308,11 @@ function gerarXmlNFCe({ config, sale, items, payments, numero, dataEmissao }) {
   return { xml, chaveAcesso, codigoNumerico: cNF, infNFeId };
 }
 
-module.exports = { gerarXmlNFCe, crtDoRegime, TPAG_POR_METODO };
+module.exports = {
+  gerarXmlNFCe, crtDoRegime, TPAG_POR_METODO,
+  // Exportados também pra nfceEventoService.js/nfceInutilizacaoService.js
+  // reaproveitarem em vez de duplicar (mesmo formato de data COM fuso
+  // por UF, mesmo escape de XML) -- funções puras, sem estado, não criam
+  // acoplamento de verdade entre "montar NFe" e "montar evento/inutilização".
+  escapeXml, fmtDataHora,
+};

@@ -5,9 +5,19 @@ const { getDb } = require('../db/database');
 const secrets = require('./secretsService');
 const { gerarXmlNFCe } = require('./nfceXmlService');
 const { carregarCertificado } = require('./nfceCertificateService');
-const { assinarXmlNFCe } = require('./nfceSignatureService');
-const { enviarNFCe } = require('./nfceTransmissionService');
+const { assinarXmlNFCe, assinarXmlEvento, assinarXmlInutilizacao } = require('./nfceSignatureService');
+const { enviarNFCe, enviarEventoNFCe, enviarInutilizacaoNFCe } = require('./nfceTransmissionService');
 const { montarConteudoQrCode, montarUrlQrCode } = require('./nfceQrCodeService');
+const { gerarXmlCancelamento } = require('./nfceEventoService');
+const { gerarXmlInutilizacao } = require('./nfceInutilizacaoService');
+
+// Prazo legal pra cancelar uma NFC-e já autorizada — Ajuste SINIEF 07/05
+// prevê até 24h da autorização na maioria das UFs (algumas ampliam esse
+// prazo, mas nenhuma reduz abaixo disso) — usar 24h aqui é o limite mais
+// conservador possível, nunca vai bloquear um cancelamento que a SEFAZ
+// aceitaria. Fora desse prazo, o caminho correto deixa de ser
+// cancelamento e passa a ser outro procedimento fora do escopo deste app.
+const PRAZO_CANCELAMENTO_HORAS = 24;
 
 function getFiscalConfig() {
   const db = getDb();
@@ -98,16 +108,18 @@ function configuracaoCompleta(config) {
  * registrada como "pendente" — já assinada e com o XML salvo — pronta
  * pra reenviar depois via `reenviarNFCe`, sem "queimar" o número.
  *
- * O que este ciclo NÃO cobre ainda (ver conversa com o Arthur em
- * 14/08/2026 — a documentação antiga deste arquivo dizia que nada
- * disso tinha sido feito, o que não é mais verdade; só o que segue
- * abaixo continua faltando de fato):
- *   1) cancelamento de NFC-e já autorizada;
- *   2) inutilização de numeração pulada;
- *   3) contingência (emissão offline quando a SEFAZ está fora do ar).
- * Cada uma dessas é uma peça de SOAP/XML própria (evento, não
- * autorização) e ainda não foi implementada — tratada como próxima
- * fase, não como algo que "já deveria funcionar".
+ * Se a transmissão falhar por COMUNICAÇÃO (SEFAZ fora do ar, sem
+ * internet) — não por rejeição, que é uma resposta válida da SEFAZ —
+ * este ciclo cai automaticamente em CONTINGÊNCIA (tpEmis=9, ver
+ * comentário mais abaixo): a venda não pode esperar a SEFAZ voltar, o
+ * cliente já saiu com o documento fiscal (mesmo que provisório), e a
+ * transmissão de verdade acontece depois, sozinha, via o job periódico
+ * de reenvio (ver reenviarPendentesEContingencia em main.js e
+ * reenviarNFCe abaixo — a mesma função já cobre pendente E contingência).
+ *
+ * Cancelamento de NFC-e autorizada e inutilização de numeração pulada
+ * (as outras duas peças que faltavam) ficam em cancelarNFCe e
+ * inutilizarNumeracao, mais abaixo neste arquivo.
  *
  * IMPORTANTE mesmo com o que já existe: nunca foi testado contra um
  * ambiente de homologação real da SEFAZ (certificado, CNPJ e CSC de
@@ -183,50 +195,100 @@ async function emitirNFCe(saleId) {
   ).run(id, saleId, numero, config.serie_nfce, chaveAcesso, config.ambiente, xmlPath);
   db.prepare(`UPDATE fiscal_config SET proximo_numero_nfce = ? WHERE id = 'default'`).run(numero + 1);
 
-  // Transmite pra SEFAZ — isso PODE falhar por rede/indisponibilidade
-  // sem que seja um erro de verdade: a NFC-e já está gerada, assinada
-  // e registrada como 'pendente' aqui, dá pra tentar de novo depois
-  // (função separada, reenviarNFCe) sem perder o número nem o XML.
+  // Transmite pra SEFAZ — isso PODE falhar por COMUNICAÇÃO (rede fora,
+  // SEFAZ indisponível) sem que seja um erro de verdade: nesse caso a
+  // venda não pode esperar, então cai automaticamente em contingência
+  // (tpEmis=9) — regenera o XML com a mesma numeração, assina de novo
+  // e entrega esse documento como válido, deixando a transmissão real
+  // pro job periódico de reenvio (reenviarNFCe cobre esse status
+  // também). Rejeição da SEFAZ (resposta chegou, só que negativa) NÃO
+  // aciona contingência — é uma resposta válida, fica 'rejeitada'.
+  let resultadoTransmissao;
+  let erroComunicacao = null;
   try {
-    const resultadoTransmissao = await enviarNFCe({ xmlNFeAssinado: xmlAssinado, config, certificado, idLote: numero });
-
-    if (!resultadoTransmissao.ok) {
-      return {
-        ok: true, xmlGerado: true, assinado: true, transmitido: false, numero, chaveAcesso, xmlPath, id,
-        aviso: `XML gerado, assinado e salvo — mas não foi possível transmitir agora (${resultadoTransmissao.error}). Continua registrada como pendente, pode tentar reenviar depois.`,
-      };
-    }
-
-    const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
-    const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso, ambiente: config.ambiente }) : null;
-    db.prepare(
-      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
-    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, qrCodeConteudo, id);
-
-    return {
-      ok: true, xmlGerado: true, assinado: true, transmitido: true,
-      autorizada: resultadoTransmissao.autorizada, numero, chaveAcesso, xmlPath, id,
-      protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao,
-      motivo: resultadoTransmissao.motivo,
-      qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
-    };
+    resultadoTransmissao = await enviarNFCe({ xmlNFeAssinado: xmlAssinado, config, certificado, idLote: numero });
+    if (!resultadoTransmissao.ok) erroComunicacao = resultadoTransmissao.error;
   } catch (err) {
-    // erro de comunicação de verdade (rede fora, timeout) -- a NFC-e
-    // continua 'pendente', registrada, pronta pra reenviar.
-    return {
-      ok: true, xmlGerado: true, assinado: true, transmitido: false, numero, chaveAcesso, xmlPath, id,
-      aviso: `XML gerado, assinado e salvo — mas a transmissão falhou (${err.message}). Continua pendente, pode tentar reenviar depois.`,
-    };
+    erroComunicacao = err.message;
   }
+
+  if (erroComunicacao) {
+    return entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao });
+  }
+
+  const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
+  const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso, ambiente: config.ambiente }) : null;
+  db.prepare(
+    `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
+  ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, qrCodeConteudo, id);
+
+  return {
+    ok: true, xmlGerado: true, assinado: true, transmitido: true,
+    autorizada: resultadoTransmissao.autorizada, numero, chaveAcesso, xmlPath, id,
+    protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao,
+    motivo: resultadoTransmissao.motivo,
+    qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
+  };
 }
 
-/** Tenta transmitir de novo uma NFC-e que ficou 'pendente' (já
- * assinada, só não conseguiu falar com a SEFAZ da primeira vez). */
+/**
+ * Chamado quando a transmissão normal (tpEmis=1) falhou por
+ * COMUNICAÇÃO — regenera o XML com tpEmis=9 (contingência), assina de
+ * novo e grava por cima do registro 'pendente' já criado (mesmo id,
+ * mesmo número — não "queima" um segundo número pra mesma venda). Não
+ * tenta transmitir agora: contingência é justamente o documento sendo
+ * usado SEM confirmação da SEFAZ no momento; a transmissão de verdade
+ * fica pro job periódico (reenviarNFCe, chamado em loop por
+ * main.js/reenviarPendentesEContingencia).
+ */
+function entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao }) {
+  let xmlContingencia, chaveContingencia, xmlAssinadoContingencia;
+  try {
+    ({ xml: xmlContingencia, chaveAcesso: chaveContingencia } = gerarXmlNFCe({
+      config, sale, items, payments, numero, dataEmissao: new Date(sale.finalizada_em),
+      tpEmis: '9',
+      justificativaContingencia: `Falha de comunicacao com a SEFAZ no momento da venda: ${String(erroComunicacao).slice(0, 200)}`,
+    }));
+    xmlAssinadoContingencia = assinarXmlNFCe(xmlContingencia, certificado);
+  } catch (err) {
+    // Não conseguiu nem montar/assinar a versão de contingência --
+    // fica como 'pendente' mesmo (já gravada acima), só sem o
+    // documento provisório pra entregar ao cliente agora.
+    return {
+      ok: true, xmlGerado: true, assinado: true, transmitido: false, numero, chaveAcesso, id,
+      aviso: `XML gerado e salvo — mas a transmissão falhou (${erroComunicacao}) e não foi possível gerar a versão de contingência (${err.message}). Continua pendente, pode tentar reenviar depois.`,
+    };
+  }
+
+  const { app } = require('electron');
+  const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
+  fs.mkdirSync(pastaDestino, { recursive: true });
+  const xmlPath = path.join(pastaDestino, `${chaveContingencia}.xml`);
+  fs.writeFileSync(xmlPath, xmlAssinadoContingencia, 'utf-8');
+
+  db.prepare(
+    `UPDATE nfce_emitidas SET status = 'contingencia', chave_acesso = ?, xml_path = ?, transmitida_em_contingencia = 1 WHERE id = ?`
+  ).run(chaveContingencia, xmlPath, id);
+
+  return {
+    ok: true, xmlGerado: true, assinado: true, transmitido: false, contingencia: true,
+    numero, chaveAcesso: chaveContingencia, xmlPath, id,
+    aviso: `A SEFAZ está indisponível (${erroComunicacao}) — NFC-e emitida em CONTINGÊNCIA. O documento já vale como comprovante fiscal; a confirmação com a SEFAZ acontece automaticamente assim que a conexão voltar.`,
+  };
+}
+
+/** Tenta transmitir de novo uma NFC-e que ficou 'pendente' ou
+ * 'contingencia' (já assinada, só não conseguiu falar com a SEFAZ da
+ * primeira vez, ou foi emitida offline e precisa ser confirmada assim
+ * que a conexão voltar — os dois casos reenviam o MESMO jeito, o
+ * tpEmis já está gravado no XML salvo em disco). */
 async function reenviarNFCe(nfceId) {
   const db = getDb();
   const nfce = db.prepare('SELECT * FROM nfce_emitidas WHERE id = ?').get(nfceId);
   if (!nfce) return { ok: false, error: 'NFC-e não encontrada.' };
-  if (nfce.status !== 'pendente') return { ok: false, error: `Essa NFC-e já está com status "${nfce.status}" — só dá pra reenviar as pendentes.` };
+  if (nfce.status !== 'pendente' && nfce.status !== 'contingencia') {
+    return { ok: false, error: `Essa NFC-e já está com status "${nfce.status}" — só dá pra reenviar as pendentes ou em contingência.` };
+  }
 
   const config = getFiscalConfig();
   let certificado;
@@ -257,6 +319,169 @@ async function reenviarNFCe(nfceId) {
   } catch (err) {
     return { ok: false, error: `Transmissão falhou de novo: ${err.message}` };
   }
+}
+
+/**
+ * Cancela uma NFC-e já autorizada (evento 110111) — dentro do prazo
+ * legal, contado da AUTORIZAÇÃO (não da venda). Sempre exige
+ * autorização de gerente/admin diferente do operador logado (mesmo
+ * esquema de PIN + auditoria de cancelSale/applyManagerDiscount em
+ * saleService.js/authService.authorizeManagerOverride) — cancelar uma
+ * nota fiscal já entregue ao cliente é sensível demais pra depender só
+ * do toggle "exigir autorização" das configurações de segurança
+ * (esse toggle é sobre cancelamento de ITEM/VENDA antes do pagamento,
+ * um contexto bem menos crítico). Ciclo igual ao de emissão: monta o
+ * XML do evento, assina com o mesmo certificado configurado,
+ * transmite, e só grava o cancelamento se a SEFAZ confirmar (cStat
+ * 135) — rejeição do evento não cancela nada, a NFC-e continua
+ * 'autorizada' normalmente.
+ */
+async function cancelarNFCe(nfceId, { justificativa, currentOperatorId, candidateManagerId, pin } = {}) {
+  const { authorizeManagerOverride } = require('./authService');
+  const db = getDb();
+
+  const nfcePreCheck = db.prepare('SELECT sale_id FROM nfce_emitidas WHERE id = ?').get(nfceId);
+  const auth = authorizeManagerOverride({
+    candidateUserId: candidateManagerId, pin, currentOperatorId,
+    tipoEvento: 'cancelamento_nfce', saleId: nfcePreCheck?.sale_id, motivo: justificativa,
+  });
+  if (!auth.ok) return auth;
+
+  const nfce = db.prepare('SELECT * FROM nfce_emitidas WHERE id = ?').get(nfceId);
+  if (!nfce) return { ok: false, error: 'NFC-e não encontrada.' };
+  if (nfce.status !== 'autorizada') {
+    return { ok: false, error: `Só é possível cancelar uma NFC-e autorizada — essa está com status "${nfce.status}".` };
+  }
+  if (!nfce.protocolo_autorizacao) {
+    return { ok: false, error: 'NFC-e autorizada sem protocolo registrado — não é possível cancelar.' };
+  }
+
+  const autorizadaEm = new Date(nfce.criado_em);
+  const horasDesdeAutorizacao = (Date.now() - autorizadaEm.getTime()) / (1000 * 60 * 60);
+  if (horasDesdeAutorizacao > PRAZO_CANCELAMENTO_HORAS) {
+    return {
+      ok: false,
+      error: `O prazo legal de cancelamento (${PRAZO_CANCELAMENTO_HORAS}h após a autorização) já passou. Procure outro procedimento fiscal (fora do escopo deste app).`,
+    };
+  }
+
+  const config = getFiscalConfig();
+
+  // Mesma ordem de inutilizarNumeracao: valida a justificativa (e o
+  // resto dos dados do evento) ANTES de tocar no certificado — evita
+  // pedir a senha do certificado à toa quando o problema é só um dado
+  // de entrada inválido.
+  let xmlEvento;
+  try {
+    ({ xml: xmlEvento } = gerarXmlCancelamento({
+      chaveAcesso: nfce.chave_acesso,
+      uf: config.uf,
+      cnpj: config.cnpj,
+      ambiente: config.ambiente,
+      protocoloAutorizacao: nfce.protocolo_autorizacao,
+      justificativa,
+    }));
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+
+  let certificado, xmlEventoAssinado;
+  try {
+    const senhaDescriptografada = secrets.decrypt(config.certificado_senha);
+    certificado = carregarCertificado(config.certificado_path, senhaDescriptografada);
+    xmlEventoAssinado = assinarXmlEvento(xmlEvento, certificado);
+  } catch (err) {
+    return { ok: false, error: `Não foi possível abrir o certificado: ${err.message}` };
+  }
+
+  try {
+    const resultado = await enviarEventoNFCe({ envEventoAssinado: xmlEventoAssinado, config, certificado });
+    if (!resultado.ok) return { ok: false, error: resultado.error };
+    if (!resultado.registrado) {
+      return { ok: false, error: `A SEFAZ rejeitou o cancelamento (${resultado.cStat}): ${resultado.motivo}` };
+    }
+
+    db.prepare(
+      `UPDATE nfce_emitidas SET status = 'cancelada', cancelamento_justificativa = ?, cancelamento_protocolo = ?, cancelada_em = ? WHERE id = ?`
+    ).run(justificativa.trim(), resultado.protocolo, new Date().toISOString(), nfceId);
+
+    return { ok: true, protocolo: resultado.protocolo, motivo: resultado.motivo };
+  } catch (err) {
+    return { ok: false, error: `Transmissão do cancelamento falhou: ${err.message}` };
+  }
+}
+
+/**
+ * Inutiliza uma faixa de numeração de NFC-e que nunca foi usada (ex:
+ * pulou número por erro do app). Só admin — é um procedimento fiscal
+ * raro e sem volta, não faz sentido deixar qualquer operador acionar.
+ * Mesmo ciclo dos outros dois: monta XML, assina, transmite, só grava
+ * 'homologada' se a SEFAZ confirmar (cStat 102).
+ */
+async function inutilizarNumeracao({ serie, numeroInicial, numeroFinal, justificativa, requestingUserId }) {
+  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  if (!guard.ok) return guard;
+
+  const config = getFiscalConfig();
+  const db = getDb();
+
+  // Valida a faixa/justificativa ANTES de tocar no certificado — não
+  // faz sentido pedir a senha do certificado (ou falhar por causa dele)
+  // se o problema é só um dado de entrada inválido.
+  let xmlInut, ano;
+  try {
+    ({ xml: xmlInut, ano } = gerarXmlInutilizacao({
+      uf: config.uf, cnpj: config.cnpj, ambiente: config.ambiente,
+      serie: serie || config.serie_nfce, numeroInicial, numeroFinal, justificativa,
+    }));
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+
+  let certificado, xmlInutAssinado;
+  try {
+    const senhaDescriptografada = secrets.decrypt(config.certificado_senha);
+    certificado = carregarCertificado(config.certificado_path, senhaDescriptografada);
+    xmlInutAssinado = assinarXmlInutilizacao(xmlInut, certificado);
+  } catch (err) {
+    return { ok: false, error: `Não foi possível abrir o certificado: ${err.message}` };
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO nfce_inutilizacoes (id, ano, serie, numero_inicial, numero_final, justificativa, ambiente, status, requerente_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pendente', ?)`
+  ).run(id, ano, String(serie || config.serie_nfce), numeroInicial, numeroFinal, justificativa.trim(), config.ambiente, requestingUserId || null);
+
+  try {
+    const resultado = await enviarInutilizacaoNFCe({ inutNFeAssinado: xmlInutAssinado, config, certificado });
+    if (!resultado.ok) {
+      return { ok: true, id, transmitido: false, aviso: `Registrado, mas não foi possível transmitir agora (${resultado.error}). Continua pendente.` };
+    }
+
+    const novoStatus = resultado.homologada ? 'homologada' : 'rejeitada';
+    db.prepare(
+      `UPDATE nfce_inutilizacoes SET status = ?, protocolo = ?, motivo_rejeicao = ? WHERE id = ?`
+    ).run(novoStatus, resultado.protocolo || null, resultado.homologada ? null : resultado.motivo, id);
+
+    return { ok: true, id, transmitido: true, homologada: resultado.homologada, protocolo: resultado.protocolo, motivo: resultado.motivo };
+  } catch (err) {
+    return { ok: true, id, transmitido: false, aviso: `Registrado, mas a transmissão falhou (${err.message}). Continua pendente.` };
+  }
+}
+
+/** Histórico de inutilizações — usado na tela de Configurações pra
+ * mostrar o que já foi declarado, sem precisar consultar a SEFAZ. */
+function listInutilizacoes() {
+  const db = getDb();
+  return db.prepare('SELECT * FROM nfce_inutilizacoes ORDER BY criado_em DESC').all();
+}
+
+/** NFC-e's pendentes ou em contingência — usado pelo job periódico de
+ * reenvio automático (main.js) pra saber o que precisa tentar de novo. */
+function listNfcePendentesOuContingencia() {
+  const db = getDb();
+  return db.prepare(`SELECT * FROM nfce_emitidas WHERE status IN ('pendente', 'contingencia') ORDER BY criado_em ASC`).all();
 }
 
 function listNfceForSale(saleId) {
@@ -315,5 +540,6 @@ function livroDeControlados({ locationId, dataInicio, dataFim }) {
 
 module.exports = {
   getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe,
+  cancelarNFCe, inutilizarNumeracao, listInutilizacoes, listNfcePendentesOuContingencia,
   listNfceForSale, getNfceMaisRecente, getQrCodeUrlParaNfce, livroDeControlados,
 };

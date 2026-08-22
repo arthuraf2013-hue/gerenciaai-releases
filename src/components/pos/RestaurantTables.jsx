@@ -62,6 +62,11 @@ export function RestaurantTables() {
   const [reservaData, setReservaData] = useState('');
   const [reservaHora, setReservaHora] = useState('');
   const [mesaAberta, setMesaAberta] = useState(null); // { tableId, saleId, numero, nome, pessoas } | null
+  const [qrMesa, setQrMesa] = useState(null); // mesa que está com o modal de QR code aberto
+  useEscToClose(() => setQrMesa(null), !!qrMesa);
+  const [qrDados, setQrDados] = useState(null); // { url, qrCodeDataUrl } | null
+  const [qrError, setQrError] = useState('');
+  const [qrCarregando, setQrCarregando] = useState(false);
 
   async function reload() {
     const [list, reservas] = await Promise.all([
@@ -174,6 +179,18 @@ export function RestaurantTables() {
     reload();
   }
 
+  async function abrirQrCode(table, e) {
+    e.stopPropagation();
+    setQrMesa(table);
+    setQrDados(null);
+    setQrError('');
+    setQrCarregando(true);
+    const result = await window.pdv.table.montarLinkPedido({ tableId: table.id });
+    setQrCarregando(false);
+    if (!result.ok) return setQrError(result.error);
+    setQrDados(result);
+  }
+
   if (mesaAberta) {
     return (
       <TableOrderScreen
@@ -213,6 +230,12 @@ export function RestaurantTables() {
               onClick={() => handleClickMesa(t)}
             >
               <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+              <button
+                type="button" className="table-card-action" style={{ marginTop: 4 }}
+                onClick={(e) => abrirQrCode(t, e)}
+              >
+                📱 QR do cardápio
+              </button>
               {reservasPorMesa[t.id] && (
                 <span
                   className={`table-reserva-badge table-reserva-badge-${reservasPorMesa[t.id].status}`}
@@ -332,6 +355,38 @@ export function RestaurantTables() {
               <button type="submit" className="btn-primary">🍽️ Reservar</button>
             </div>
           </form>
+        </div>
+      )}
+      {qrMesa && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <h2>📱 QR do cardápio — {qrMesa.nome || `Mesa ${qrMesa.numero}`}</h2>
+            <p className="screen-hint" style={{ margin: '0 0 8px' }}>
+              Imprima e cole na mesa: o cliente escaneia, o WhatsApp já abre com "Mesa {qrMesa.numero}"
+              preenchido, e o pedido feito por ali cai direto nessa comanda pra alguém confirmar.
+            </p>
+            {qrCarregando && <p className="empty-state">Gerando...</p>}
+            {qrError && <p className="modal-error">{qrError}</p>}
+            {qrDados && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                {qrDados.qrCodeDataUrl && (
+                  <img
+                    src={qrDados.qrCodeDataUrl} alt={`QR code de pedido da Mesa ${qrMesa.numero}`}
+                    style={{ width: 220, height: 220, borderRadius: 8, border: '1px solid var(--color-border)' }}
+                  />
+                )}
+                <button type="button" className="btn-secondary" onClick={() => window.open(qrDados.url, '_blank')}>
+                  🔗 Abrir o link
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--color-text-muted)', wordBreak: 'break-all', textAlign: 'center' }}>
+                  {qrDados.url}
+                </span>
+              </div>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setQrMesa(null)}>✖️ Fechar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

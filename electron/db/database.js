@@ -126,6 +126,25 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'forced_update_state', 'versao_minima_override', 'TEXT');
   adicionarColunaSeFaltando(database, 'forced_update_state', 'override_ativo', 'INTEGER NOT NULL DEFAULT 0');
 
+  // Cupom automático de aniversário (ver customerService.js / loyalty_config).
+  adicionarColunaSeFaltando(database, 'customers', 'data_nascimento', 'TEXT');
+  adicionarColunaSeFaltando(database, 'customers', 'ano_ultimo_cupom_aniversario', 'INTEGER');
+  adicionarColunaSeFaltando(database, 'customers', 'reconquista_automatica_enviada_em', 'TEXT');
+  adicionarColunaSeFaltando(database, 'loyalty_config', 'ativar_cupom_aniversario', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'loyalty_config', 'pontos_bonus_aniversario', 'INTEGER NOT NULL DEFAULT 20');
+
+  // Painel de cozinha / KDS (ver kitchenService.js).
+  adicionarColunaSeFaltando(database, 'sale_items', 'status_preparo', "TEXT NOT NULL DEFAULT 'pendente' CHECK (status_preparo IN ('pendente','preparando','pronto'))");
+
+  // Pedido de mesa pelo chatbot do WhatsApp (ver whatsappBotHandler.js / botOrderService.lancarPedidoNaMesa).
+  adicionarColunaSeFaltando(database, 'bot_orders', 'mesa_numero', 'TEXT');
+
+  // Cancelamento e contingência de NFC-e (ver nfceEventoService.js / fiscalService.js).
+  adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_justificativa', 'TEXT');
+  adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_protocolo', 'TEXT');
+  adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelada_em', 'TEXT');
+  adicionarColunaSeFaltando(database, 'nfce_emitidas', 'transmitida_em_contingencia', 'INTEGER NOT NULL DEFAULT 0');
+
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
   // o código pra sempre, invisíveis na busca mas bloqueando qualquer
@@ -293,6 +312,11 @@ function seedIfEmpty(database) {
   const loyaltyConfigCount = database.prepare('SELECT COUNT(*) as c FROM loyalty_config').get().c;
   if (loyaltyConfigCount === 0) {
     database.prepare(`INSERT INTO loyalty_config (id) VALUES ('default')`).run();
+  }
+
+  const whatsappAutomationConfigCount = database.prepare('SELECT COUNT(*) as c FROM whatsapp_automation_config').get().c;
+  if (whatsappAutomationConfigCount === 0) {
+    database.prepare(`INSERT INTO whatsapp_automation_config (id) VALUES ('default')`).run();
   }
 
   const userCount = database.prepare('SELECT COUNT(*) as c FROM users').get().c;

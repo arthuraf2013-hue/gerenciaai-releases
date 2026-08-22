@@ -2,6 +2,7 @@ const { getDb } = require('../db/database');
 const botOrderService = require('./botOrderService');
 const reservationService = require('./reservationService');
 const profileService = require('./profileService');
+const tableService = require('./tableService');
 
 // Perfis que fazem sentido oferecer "reservar mesa" pelo chatbot --
 // mesmo critério do frontend (ver PERFIS_RESTAURANTE em AppShell.jsx).
@@ -251,13 +252,14 @@ function resumoCarrinho(itens) {
   return `\n\n🛒 Seu pedido até agora:\n${linhas.join('\n')}`;
 }
 
-function finalizarPedido({ telefone, nomeExibicao, tipoEntrega, endereco, conversa, locationId, estadoConversas }) {
+function finalizarPedido({ telefone, nomeExibicao, tipoEntrega, endereco, mesaNumero, conversa, locationId, estadoConversas }) {
   const resultado = botOrderService.createOrder({
     locationId,
     clienteNome: (nomeExibicao || '').trim() || 'Cliente WhatsApp',
     clienteTelefone: telefone,
     tipoEntrega,
     endereco,
+    mesaNumero,
     origem: 'whatsapp_bot',
     itens: conversa.itens.map((i) => ({ productId: i.productId, quantidade: i.quantidade, precoUnitario: i.precoUnitario })),
   });
@@ -265,12 +267,13 @@ function finalizarPedido({ telefone, nomeExibicao, tipoEntrega, endereco, conver
   if (!resultado.ok) {
     return { resposta: `Ih, não consegui registrar seu pedido agora (${resultado.error}) 😕 Pode mandar uma mensagem pra gente tentar de novo?` };
   }
+  const mensagemFinal = mesaNumero
+    ? `Já mandei pra cozinha 👨‍🍳🔥 Assim que estiver pronto, alguém leva até a Mesa ${mesaNumero}.`
+    : tipoEntrega === 'entrega'
+      ? 'Assim que estiver pronto pra entrega, alguém te avisa por aqui mesmo 🛵💨'
+      : 'Assim que estiver pronto pra retirada, alguém te avisa por aqui mesmo 🏬😊';
   return {
-    resposta: `Pedido confirmado! ✅🎉${resumoCarrinho(conversa.itens)}\n\n${
-      tipoEntrega === 'entrega'
-        ? 'Assim que estiver pronto pra entrega, alguém te avisa por aqui mesmo 🛵💨'
-        : 'Assim que estiver pronto pra retirada, alguém te avisa por aqui mesmo 🏬😊'
-    }`,
+    resposta: `Pedido confirmado! ✅🎉${resumoCarrinho(conversa.itens)}\n\n${mensagemFinal}`,
     pedidoCriado: true,
     pedidoId: resultado.id,
   };
@@ -451,6 +454,30 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
     }
   }
 
+  // "Mesa N" -- é o texto que já vem preenchido no QR code colado na
+  // mesa (ver tableService.montarLinkPedidoMesa): abre direto o cardápio
+  // pra pedir sentado, pulando reserva/retirada/entrega (o cliente já
+  // está lá). Mesma prioridade de "reservar mesa" acima: interrompe
+  // qualquer coisa em andamento e começa do zero. Só reconhece pra
+  // perfil Restaurante/Padaria E se a mesa de fato existir nesse
+  // local -- QR de mesa excluída ou número digitado errado não deve
+  // criar um pedido "fantasma" sem mesa nenhuma pra receber.
+  const matchMesa = textoLimpo.match(/^mesa\s+(\S+)$/i);
+  if (matchMesa) {
+    const profile = profileService.getActiveProfile();
+    const numeroMesa = matchMesa[1];
+    if (profile && PERFIS_ACEITAM_RESERVA.includes(profile.id) && tableService.existeMesa(location, numeroMesa)) {
+      const menu = montarMenuCategorias(location);
+      const conversaMesa = {
+        estado: menu.categorias.length ? 'aguardando_categoria' : 'inicio',
+        categorias: menu.categorias, produtos: [], categoriaAtual: null, itens: [], mesaNumero: numeroMesa,
+      };
+      if (nomeExibicao) conversaMesa.nomeExibicao = nomeExibicao;
+      estadoConversas.set(telefone, conversaMesa);
+      return { resposta: `Boa! Pedido pra Mesa ${numeroMesa} 🍽️\n\n${menu.texto}` };
+    }
+  }
+
   let conversa = estadoConversas.get(telefone);
   if (!conversa) {
     conversa = novaConversa();
@@ -534,6 +561,14 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
       if (/^finalizar$/i.test(textoLimpo)) {
         if (conversa.itens.length === 0) {
           return { resposta: 'Você ainda não adicionou nenhum item 🛒 Digite o número de um produto da lista pra adicionar.' };
+        }
+        // Pedido de mesa não pergunta retirada/entrega -- o cliente já
+        // está sentado ali, então fecha direto (ver fluxo "Mesa N" acima).
+        if (conversa.mesaNumero) {
+          return finalizarPedido({
+            telefone, nomeExibicao: conversa.nomeExibicao, tipoEntrega: 'retirada', mesaNumero: conversa.mesaNumero,
+            conversa, locationId: location, estadoConversas,
+          });
         }
         conversa.estado = 'aguardando_tipo_entrega';
         return { resposta: `Perfeito! Como você prefere receber? 😊\n1 - Retirada no local\n2 - Entrega${resumoCarrinho(conversa.itens)}` };

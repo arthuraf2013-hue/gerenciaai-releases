@@ -120,4 +120,104 @@ async function enviarNFCe({ xmlNFeAssinado, config, certificado, idLote = 1 }) {
   };
 }
 
-module.exports = { montarEnvelopeAutorizacao, enviarSoapComCertificado, extrairResultado, enviarNFCe };
+/** Envelope SOAP 1.2 pro webservice NFeRecepcaoEvento4 — usado pra
+ * cancelamento (evento 110111) e, no futuro, qualquer outro evento de
+ * NFC-e (carta de correção não existe pra NFC-e, mas outros eventos
+ * como EPEC existem — só cancelamento está implementado por enquanto). */
+function montarEnvelopeEvento(envEventoAssinado) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+  <soap12:Body>
+    <nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">
+      ${envEventoAssinado}
+    </nfeDadosMsg>
+  </soap12:Body>
+</soap12:Envelope>`;
+}
+
+/** Envelope SOAP 1.2 pro webservice NFeInutilizacao4. */
+function montarEnvelopeInutilizacao(inutNFeAssinado) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+  <soap12:Body>
+    <nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4">
+      ${inutNFeAssinado}
+    </nfeDadosMsg>
+  </soap12:Body>
+</soap12:Envelope>`;
+}
+
+/**
+ * Envia o evento de cancelamento assinado pra SEFAZ — mesma lógica de
+ * sucesso/rejeição/erro-de-comunicação de enviarNFCe acima, só que
+ * cStat 135 (evento registrado e vinculado à NFC-e) é o "autorizado"
+ * aqui, em vez de 100.
+ */
+async function enviarEventoNFCe({ envEventoAssinado, config, certificado }) {
+  const urls = getWebserviceUrls(config.uf, config.ambiente);
+  const envelope = montarEnvelopeEvento(envEventoAssinado);
+
+  const resposta = await enviarSoapComCertificado({
+    url: urls.recepcaoEvento,
+    envelopeSoap: envelope,
+    chavePrivadaPem: certificado.chavePrivadaPem,
+    certificadoPem: certificado.certificadoPem,
+    soapAction: 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4/nfeRecepcaoEvento',
+  });
+
+  if (resposta.statusCode !== 200) {
+    return {
+      ok: false, erroComunicacao: true,
+      error: `A SEFAZ recusou a conexão (HTTP ${resposta.statusCode}) — confira se o certificado está correto e dentro da validade.`,
+    };
+  }
+
+  const resultado = extrairResultado(resposta.corpo);
+  return {
+    ok: true,
+    registrado: resultado.cStat === '135',
+    cStat: resultado.cStat,
+    motivo: resultado.xMotivo,
+    protocolo: resultado.protocoloAutorizacao,
+    xmlRespostaCompleto: resposta.corpo,
+  };
+}
+
+/**
+ * Envia o pedido de inutilização assinado pra SEFAZ — cStat 102
+ * (inutilização homologada) é o "sucesso" aqui.
+ */
+async function enviarInutilizacaoNFCe({ inutNFeAssinado, config, certificado }) {
+  const urls = getWebserviceUrls(config.uf, config.ambiente);
+  const envelope = montarEnvelopeInutilizacao(inutNFeAssinado);
+
+  const resposta = await enviarSoapComCertificado({
+    url: urls.inutilizacao,
+    envelopeSoap: envelope,
+    chavePrivadaPem: certificado.chavePrivadaPem,
+    certificadoPem: certificado.certificadoPem,
+    soapAction: 'http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4/nfeInutilizacaoNF',
+  });
+
+  if (resposta.statusCode !== 200) {
+    return {
+      ok: false, erroComunicacao: true,
+      error: `A SEFAZ recusou a conexão (HTTP ${resposta.statusCode}) — confira se o certificado está correto e dentro da validade.`,
+    };
+  }
+
+  const resultado = extrairResultado(resposta.corpo);
+  return {
+    ok: true,
+    homologada: resultado.cStat === '102',
+    cStat: resultado.cStat,
+    motivo: resultado.xMotivo,
+    protocolo: resultado.protocoloAutorizacao,
+    xmlRespostaCompleto: resposta.corpo,
+  };
+}
+
+module.exports = {
+  montarEnvelopeAutorizacao, enviarSoapComCertificado, extrairResultado, enviarNFCe,
+  enviarEventoNFCe, enviarInutilizacaoNFCe,
+};

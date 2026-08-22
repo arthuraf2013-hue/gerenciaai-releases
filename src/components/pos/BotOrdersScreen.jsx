@@ -190,6 +190,24 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
     carregar();
   }
 
+  const [lancandoMesa, setLancandoMesa] = useState(false);
+
+  // Pedido de mesa não passa pelo fluxo normal de separação -- entra
+  // direto na comanda real da mesa (ver botOrderService.lancarPedidoNaMesa).
+  // Nunca chama updateStatus('concluido') pra esse tipo de pedido: isso
+  // criaria uma venda avulsa separada em vez de lançar na comanda certa.
+  async function handleLancarNaMesa() {
+    setErro('');
+    setLancandoMesa(true);
+    const resultado = await window.pdv.botOrders.lancarNaMesa({
+      orderId, operadorId: currentUser.id, deviceId: window.APP_DEVICE_ID,
+    });
+    setLancandoMesa(false);
+    if (!resultado?.ok) { setErro(resultado?.error || 'Não consegui lançar o pedido na mesa.'); return; }
+    onAtualizado();
+    onClose();
+  }
+
   async function handleCadastrarCliente() {
     setErro('');
     setCadastrando(true);
@@ -212,7 +230,9 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
       <div className="modal-card" style={{ width: 'min(480px, 94vw)' }}>
         <h2>Pedido de {pedido.cliente_nome} · {formatarPreco(pedido.valorTotal)}</h2>
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
-          {pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}
+          {pedido.mesa_numero
+            ? `🍽️ Mesa ${pedido.mesa_numero}`
+            : pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}
           {pedido.observacoes && <> · {pedido.observacoes}</>}
         </p>
 
@@ -243,40 +263,60 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
                 )}
                 {item.observacao && <div className="screen-hint">Obs: {item.observacao}</div>}
               </div>
-              <select value={item.status_separacao} onChange={(e) => handleItemStatus(item.id, e.target.value)}>
-                {Object.entries(STATUS_ITEM_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
+              {pedido.mesa_numero ? null : (
+                <select value={item.status_separacao} onChange={(e) => handleItemStatus(item.id, e.target.value)}>
+                  {Object.entries(STATUS_ITEM_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              )}
             </li>
           ))}
         </ul>
 
         <div className="modal-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
-          {(pedido.status === 'novo' || pedido.status === 'em_separacao') && (
-            <button className="btn-link-danger" onClick={() => { if (confirm('Cancelar este pedido?')) handleStatusPedido('cancelado'); }}>✖️ Cancelar pedido</button>
-          )}
-          {pedido.status === 'novo' && (
-            <button className="btn-primary" onClick={() => handleStatusPedido('em_separacao')}>📦 Começar separação</button>
-          )}
-          {pedido.status === 'em_separacao' && (
-            <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <button
-                className="btn-primary" onClick={() => handleStatusPedido('pronto')} disabled={!todosResolvidos}
-                title={!todosResolvidos ? 'Marque o status de todos os itens antes de avançar' : ''}
-              >
-                ✅ Marcar como pronto
-              </button>
-              {!todosResolvidos && (
-                <span className="screen-hint">
-                  Marque o status de cada item na lista acima (Separado / Indisponível / Substituído) — falta {itensPendentes} {itensPendentes === 1 ? 'item' : 'itens'}.
+          {pedido.mesa_numero ? (
+            <>
+              {pedido.status === 'novo' && (
+                <>
+                  <button className="btn-link-danger" onClick={() => { if (confirm('Cancelar este pedido?')) handleStatusPedido('cancelado'); }}>✖️ Cancelar pedido</button>
+                  <button className="btn-primary" disabled={lancandoMesa} onClick={handleLancarNaMesa}>
+                    {lancandoMesa ? 'Lançando...' : `🍽️ Lançar na Mesa ${pedido.mesa_numero}`}
+                  </button>
+                </>
+              )}
+              {pedido.status === 'concluido' && (
+                <span className="screen-hint">Já lançado na comanda da mesa ✅</span>
+              )}
+            </>
+          ) : (
+            <>
+              {(pedido.status === 'novo' || pedido.status === 'em_separacao') && (
+                <button className="btn-link-danger" onClick={() => { if (confirm('Cancelar este pedido?')) handleStatusPedido('cancelado'); }}>✖️ Cancelar pedido</button>
+              )}
+              {pedido.status === 'novo' && (
+                <button className="btn-primary" onClick={() => handleStatusPedido('em_separacao')}>📦 Começar separação</button>
+              )}
+              {pedido.status === 'em_separacao' && (
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <button
+                    className="btn-primary" onClick={() => handleStatusPedido('pronto')} disabled={!todosResolvidos}
+                    title={!todosResolvidos ? 'Marque o status de todos os itens antes de avançar' : ''}
+                  >
+                    ✅ Marcar como pronto
+                  </button>
+                  {!todosResolvidos && (
+                    <span className="screen-hint">
+                      Marque o status de cada item na lista acima (Separado / Indisponível / Substituído) — falta {itensPendentes} {itensPendentes === 1 ? 'item' : 'itens'}.
+                    </span>
+                  )}
                 </span>
               )}
-            </span>
-          )}
-          {pedido.status === 'pronto' && (
-            <button className="btn-primary" onClick={() => handleStatusPedido('concluido')}>
-              ✅ Concluir ({pedido.tipo_entrega === 'entrega' ? 'saiu pra entrega' : 'retirado pelo cliente'})
-            </button>
+              {pedido.status === 'pronto' && (
+                <button className="btn-primary" onClick={() => handleStatusPedido('concluido')}>
+                  ✅ Concluir ({pedido.tipo_entrega === 'entrega' ? 'saiu pra entrega' : 'retirado pelo cliente'})
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -321,7 +361,7 @@ export function BotOrdersScreen() {
             {pedidos.map((p) => (
               <tr key={p.id} className={STATUS_CLASSE[p.status]}>
                 <td>{p.cliente_nome}<br /><span className="screen-hint">{p.cliente_telefone}</span></td>
-                <td>{p.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</td>
+                <td>{p.mesa_numero ? `🍽️ Mesa ${p.mesa_numero}` : (p.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada')}</td>
                 <td>{p.itensSeparados || 0}/{p.totalItens}</td>
                 <td>{formatarPreco(p.valorTotal)}</td>
                 <td>{p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual'}</td>

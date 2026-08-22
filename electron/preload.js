@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('pdv', {
     transfer: invoke('table:transfer'),
     updatePeople: invoke('table:updatePeople'),
     desocupar: invoke('table:desocupar'),
+    montarLinkPedido: invoke('table:montarLinkPedido'),
   },
   ingredient: {
     list: invoke('ingredient:list'),
@@ -170,6 +171,7 @@ contextBridge.exposeInMainWorld('pdv', {
     extractAttachment: invoke('ai:extractAttachment'),
     summarizeSales: invoke('ai:summarizeSales'),
     askTutor: invoke('ai:askTutor'),
+    pickAndIdentifyProduct: invoke('ai:pickAndIdentifyProduct'),
   },
   cash: {
     getOpenSession: invoke('cash:getOpenSession'),
@@ -185,6 +187,9 @@ contextBridge.exposeInMainWorld('pdv', {
     emitirNFCe: invoke('fiscal:emitirNFCe'),
     reenviarNFCe: invoke('fiscal:reenviarNFCe'),
     listNfceForSale: invoke('fiscal:listNfceForSale'),
+    cancelarNFCe: invoke('fiscal:cancelarNFCe'),
+    inutilizarNumeracao: invoke('fiscal:inutilizarNumeracao'),
+    listInutilizacoes: invoke('fiscal:listInutilizacoes'),
     livroDeControlados: invoke('fiscal:livroDeControlados'),
     selectCertificado: invoke('fiscal:selectCertificado'),
   },
@@ -260,6 +265,7 @@ contextBridge.exposeInMainWorld('pdv', {
     updateStatus: invoke('botOrders:updateStatus'),
     updateItemStatus: invoke('botOrders:updateItemStatus'),
     listInStockByCategory: invoke('botOrders:listInStockByCategory'),
+    lancarNaMesa: invoke('botOrders:lancarNaMesa'),
   },
   whatsapp: {
     getStatus: invoke('whatsapp:getStatus'),
@@ -303,6 +309,14 @@ contextBridge.exposeInMainWorld('pdv', {
   loyalty: {
     getConfig: invoke('loyalty:getConfig'),
     updateConfig: invoke('loyalty:updateConfig'),
+  },
+  whatsappAutomation: {
+    getConfig: invoke('whatsappAutomation:getConfig'),
+    updateConfig: invoke('whatsappAutomation:updateConfig'),
+  },
+  kitchen: {
+    listActiveItems: invoke('kitchen:listActiveItems'),
+    updateItemStatus: invoke('kitchen:updateItemStatus'),
   },
   productSync: {
     buscarNoGrupo: invoke('productSync:buscarNoGrupo'),

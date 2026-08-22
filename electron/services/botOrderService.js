@@ -32,20 +32,25 @@ function updateConfig({ ativo }) {
  * pedido fechado com o cliente (`origem: 'whatsapp_bot'`). Não mexe
  * em estoque nem em caixa — isso só acontece quando o pedido é de
  * fato separado e vira uma venda/entrega na conclusão. */
-function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tipoEntrega, endereco, observacoes, origem, itens, operadorId }) {
+function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tipoEntrega, endereco, observacoes, origem, itens, operadorId, mesaNumero }) {
   if (!locationId) return { ok: false, error: 'Local é obrigatório.' };
   if (!clienteNome?.trim()) return { ok: false, error: 'Informe o nome do cliente.' };
   if (!clienteTelefone?.trim()) return { ok: false, error: 'Informe o telefone do cliente.' };
-  const tipo = tipoEntrega === 'entrega' ? 'entrega' : 'retirada';
-  if (tipo === 'entrega' && !endereco?.trim()) return { ok: false, error: 'Informe o endereço de entrega.' };
+  // Pedido de mesa (cliente já sentado, pediu via QR code — ver
+  // whatsappBotHandler.js) não tem retirada/entrega de verdade; usa
+  // 'retirada' só como preenchimento do CHECK do schema (ver comentário
+  // de mesa_numero em schema.sql) -- o que de fato distingue esse tipo
+  // de pedido é mesaNumero estar preenchido.
+  const tipo = mesaNumero ? 'retirada' : (tipoEntrega === 'entrega' ? 'entrega' : 'retirada');
+  if (!mesaNumero && tipo === 'entrega' && !endereco?.trim()) return { ok: false, error: 'Informe o endereço de entrega.' };
   const itensValidos = (Array.isArray(itens) ? itens : []).filter((it) => it.productId || it.descricaoLivre?.trim());
   if (itensValidos.length === 0) return { ok: false, error: 'O pedido precisa de pelo menos um item.' };
 
   const db = getDb();
   const id = randomUUID();
   const inserirPedido = db.prepare(
-    `INSERT INTO bot_orders (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, observacoes, origem, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo')`
+    `INSERT INTO bot_orders (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, observacoes, origem, status, mesa_numero)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?)`
   );
   const inserirItem = db.prepare(
     `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, observacao, preco_unitario)
@@ -57,7 +62,8 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
     inserirPedido.run(
       id, locationId, customerId || null, clienteNome.trim(), clienteTelefone.trim(),
       tipo, tipo === 'entrega' ? endereco.trim() : null, observacoes || null,
-      origem === 'whatsapp_bot' ? 'whatsapp_bot' : 'manual'
+      origem === 'whatsapp_bot' ? 'whatsapp_bot' : 'manual',
+      mesaNumero ? String(mesaNumero).trim() : null
     );
     for (const item of itensValidos) {
       // Congela o preço que foi mostrado ao cliente agora, na criação
@@ -154,6 +160,63 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
   });
   transacao();
   return saleId;
+}
+
+/**
+ * "Conclui" um pedido de mesa (mesa_numero preenchido) lançando os
+ * itens DIRETO na comanda real da mesa, em vez de virar uma venda
+ * avulsa nova como acontece com pedidos de retirada/entrega (ver
+ * converterEmVendaSeAplicavel) — o cliente já está sentado ali, então
+ * o pedido feito pelo QR code precisa somar na MESMA conta que o
+ * garçom eventualmente fecha, não gerar uma venda paralela.
+ *
+ * Se a mesa ainda estiver livre (cliente sentou e já pediu pelo QR
+ * antes de qualquer atendente abrir a mesa manualmente), abre ela
+ * sozinha aqui. Idempotente como converterEmVendaSeAplicavel: se o
+ * pedido já tem sale_id, não faz nada de novo.
+ *
+ * Limitação conhecida (mesma de converterEmVendaSeAplicavel): item sem
+ * product_id (descrição livre) não entra na comanda — sale_items exige
+ * um produto de verdade.
+ */
+function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
+  if (!pedido.mesa_numero) return { ok: false, error: 'Esse pedido não é de mesa.' };
+  if (pedido.sale_id) return { ok: true, saleId: pedido.sale_id }; // já lançado antes -- não duplica
+
+  const table = db.prepare('SELECT * FROM restaurant_tables WHERE location_id = ? AND numero = ?')
+    .get(pedido.location_id, pedido.mesa_numero);
+  if (!table) return { ok: false, error: `Mesa ${pedido.mesa_numero} não existe mais.` };
+
+  const tableService = require('./tableService');
+  const saleService = require('./saleService');
+  const { ok: abriuOk, saleId, error: erroAbrir } = tableService.openTable({
+    tableId: table.id, locationId: pedido.location_id, operadorId, pessoas: table.pessoas,
+  });
+  if (!abriuOk) return { ok: false, error: erroAbrir };
+
+  const itens = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').all(orderId);
+  const itensComProduto = itens.filter((i) => i.product_id);
+  for (const item of itensComProduto) {
+    const resultado = saleService.addItem({
+      saleId, productId: item.product_id, locationId: pedido.location_id,
+      quantidade: item.quantidade, operadorId, deviceId,
+    });
+    // Não interrompe o lançamento dos outros itens por causa de um só
+    // sem estoque -- melhor a mesa receber o que dá e o atendente ver o
+    // que faltou, do que travar a comanda inteira num item.
+    if (!resultado.ok) {
+      console.error('[botOrderService] item do pedido de mesa não entrou na comanda', item.id, resultado.error);
+    }
+  }
+
+  db.prepare(
+    `UPDATE bot_orders SET status = 'concluido', sale_id = ?, separado_por = COALESCE(separado_por, ?), concluido_em = COALESCE(concluido_em, NOW_SYNCED()) WHERE id = ?`
+  ).run(saleId, operadorId, orderId);
+
+  return { ok: true, saleId };
 }
 
 /** Fila de pedidos — já vem com a contagem de itens/itens separados
@@ -326,5 +389,5 @@ function listarAtivosParaBusca({ locationId }) {
 module.exports = {
   getConfig, updateConfig,
   createOrder, listOrders, listActiveOrders, getOrderWithItems, updateOrderStatus, updateItemStatus,
-  listCategoriasComEstoque, listInStockByCategory, listarAtivosParaBusca,
+  listCategoriasComEstoque, listInStockByCategory, listarAtivosParaBusca, lancarPedidoNaMesa,
 };

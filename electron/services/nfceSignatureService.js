@@ -1,22 +1,27 @@
 const { SignedXml } = require('xml-crypto');
 
 /**
- * Assina digitalmente o XML da NFC-e — sem isso, a SEFAZ rejeita a
- * nota de cara (assinatura é obrigatória, não é opcional). Segue
- * exatamente o padrão exigido pelo Manual de Orientação do
- * Contribuinte (MOC) da NFe/NFCe:
+ * Assina digitalmente um XML de NFC-e — sem isso, a SEFAZ rejeita
+ * qualquer documento (NFe, evento ou inutilização) de cara, assinatura
+ * é obrigatória em todos os três, não só na emissão. Segue exatamente
+ * o padrão exigido pelo Manual de Orientação do Contribuinte (MOC) da
+ * NFe/NFCe, igual pros três tipos de documento:
  * - Canonicalização C14N "clássica" (não a exclusiva — é um erro
  *   comum usar a errada e a SEFAZ recusar sem dizer claramente por quê)
  * - SHA-1 pro digest e RSA-SHA1 pra assinatura (sim, ainda é SHA-1 —
  *   é o que o padrão exige, mesmo sendo datado)
- * - Referencia o elemento <infNFe> pelo atributo Id dele
- * - <Signature> fica dentro de <NFe>, depois de </infNFe>, como irmão
+ * - Referencia o elemento identificado pelo atributo Id dele
+ *   (infNFe pra emissão, infEvento pra cancelamento, infInut pra
+ *   inutilização — só isso muda entre os três)
+ * - <Signature> fica como irmão do elemento referenciado, logo depois
+ *   dele
  *
- * @param {string} xmlNFe XML já montado (gerarXmlNFCe), sem assinatura
+ * @param {string} xmlOriginal XML já montado, sem assinatura
  * @param {{ chavePrivadaPem: string, certificadoPem: string }} certificado
+ * @param {string} elementoLocalName nome do elemento com o Id a assinar
  * @returns {string} o mesmo XML, com o bloco <Signature> adicionado
  */
-function assinarXmlNFCe(xmlNFe, { chavePrivadaPem, certificadoPem }) {
+function assinarXmlGenerico(xmlOriginal, { chavePrivadaPem, certificadoPem }, elementoLocalName) {
   const sig = new SignedXml({
     privateKey: chavePrivadaPem,
     publicCert: certificadoPem,
@@ -26,7 +31,7 @@ function assinarXmlNFCe(xmlNFe, { chavePrivadaPem, certificadoPem }) {
   });
 
   sig.addReference({
-    xpath: "//*[local-name(.)='infNFe']",
+    xpath: `//*[local-name(.)='${elementoLocalName}']`,
     digestAlgorithm: 'http://www.w3.org/2000/09/xmldsig#sha1',
     transforms: [
       'http://www.w3.org/2000/09/xmldsig#enveloped-signature',
@@ -34,13 +39,25 @@ function assinarXmlNFCe(xmlNFe, { chavePrivadaPem, certificadoPem }) {
     ],
   });
 
-  sig.computeSignature(xmlNFe, {
-    // A assinatura vai dentro de <NFe>, logo depois de </infNFe> —
-    // não no fim do documento inteiro (que ficaria fora de <NFe>).
-    location: { reference: "//*[local-name(.)='infNFe']", action: 'after' },
+  sig.computeSignature(xmlOriginal, {
+    location: { reference: `//*[local-name(.)='${elementoLocalName}']`, action: 'after' },
   });
 
   return sig.getSignedXml();
 }
 
-module.exports = { assinarXmlNFCe };
+function assinarXmlNFCe(xmlNFe, certificado) {
+  return assinarXmlGenerico(xmlNFe, certificado, 'infNFe');
+}
+
+/** Assina o evento de cancelamento (110111) — referencia <infEvento>. */
+function assinarXmlEvento(xmlEvento, certificado) {
+  return assinarXmlGenerico(xmlEvento, certificado, 'infEvento');
+}
+
+/** Assina o pedido de inutilização de numeração — referencia <infInut>. */
+function assinarXmlInutilizacao(xmlInut, certificado) {
+  return assinarXmlGenerico(xmlInut, certificado, 'infInut');
+}
+
+module.exports = { assinarXmlNFCe, assinarXmlEvento, assinarXmlInutilizacao };

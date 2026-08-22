@@ -200,7 +200,53 @@ function desocuparMesa({ tableId, locationId, currentOperatorId, candidateManage
   return { ok: true, statusFinal: 'aguardando_limpeza', autorizadoPor: result.autorizadoPor };
 }
 
+/** Existe uma mesa com esse número nesse local? Usado pelo chatbot
+ * (whatsappBotHandler) pra validar o "Mesa N" que chega pré-preenchido
+ * no link do QR code antes de aceitar o pedido — sem isso, um número
+ * digitado errado (ou o QR de uma mesa que já foi excluída) criaria um
+ * pedido "fantasma" sem mesa nenhuma pra receber. */
+function existeMesa(locationId, numero) {
+  const db = getDb();
+  const numeroLimpo = String(numero ?? '').trim();
+  if (!numeroLimpo) return false;
+  return !!db.prepare('SELECT id FROM restaurant_tables WHERE location_id = ? AND numero = ?').get(locationId, numeroLimpo);
+}
+
+/** Monta o link de WhatsApp (e o QR code pronto pra imprimir e colar na
+ * mesa) que já abre a conversa com "Mesa N" preenchido — assim que o
+ * cliente manda a mensagem sem editar nada, o bot já sabe de qual mesa
+ * veio o pedido (ver fluxo "Mesa N" em whatsappBotHandler.js). Precisa
+ * do número da loja conectado (mesma conexão do chatbot normal — não é
+ * um canal separado), senão não tem pra onde o QR apontar. Assíncrona
+ * só por causa da geração da imagem do QR (mesma lib `qrcode` já usada
+ * pro QR de conexão do WhatsApp em whatsappBotService.js). */
+async function montarLinkPedidoMesa({ tableId }) {
+  const db = getDb();
+  const table = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(tableId);
+  if (!table) return { ok: false, error: 'Mesa não encontrada.' };
+
+  const whatsappBotService = require('./whatsappBotService');
+  const status = whatsappBotService.getStatus();
+  if (status.status !== 'conectado' || !status.numero) {
+    return { ok: false, error: 'Conecte o WhatsApp em Configurações antes de gerar o link/QR code da mesa.' };
+  }
+
+  const mensagem = `Mesa ${table.numero}`;
+  const url = `https://wa.me/${status.numero}?text=${encodeURIComponent(mensagem)}`;
+
+  let qrCodeDataUrl = null;
+  try {
+    const QRCode = require('qrcode');
+    qrCodeDataUrl = await QRCode.toDataURL(url);
+  } catch (err) {
+    console.error('[tableService] falha ao gerar QR code da mesa', err);
+  }
+
+  return { ok: true, url, mensagem, qrCodeDataUrl };
+}
+
 module.exports = {
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable,
   markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,
+  existeMesa, montarLinkPedidoMesa,
 };

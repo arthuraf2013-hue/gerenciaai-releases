@@ -346,7 +346,15 @@ CREATE TABLE IF NOT EXISTS sale_items (
   -- personalizado compartilha o mesmo product_id "âncora" (oculto do
   -- catálogo), então o nome de verdade fica aqui. Ver customItemService.js.
   nome_personalizado    TEXT,
-  eh_personalizado      INTEGER NOT NULL DEFAULT 0
+  eh_personalizado      INTEGER NOT NULL DEFAULT 0,
+  -- Status de preparo na cozinha (Painel de Cozinha / KDS) -- separado
+  -- de `enviado_cozinha` (que só controla o que já saiu na comanda
+  -- impressa): um item pode estar enviado_cozinha=1 e ainda "pendente"
+  -- aqui até a cozinha começar a preparar. Fica 'pendente' de novo,
+  -- naturalmente (é o DEFAULT), se mais itens forem lançados na mesma
+  -- mesa depois do primeiro "pronto" -- não precisa de lógica especial
+  -- pra isso. Ver kitchenService.js.
+  status_preparo        TEXT NOT NULL DEFAULT 'pendente' CHECK (status_preparo IN ('pendente','preparando','pronto'))
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
@@ -676,9 +684,46 @@ CREATE TABLE IF NOT EXISTS nfce_emitidas (
   ambiente              TEXT,
   xml_path              TEXT,
   qr_code_conteudo      TEXT, -- "chave|3|tpAmb" (ver nfceQrCodeService.js) — só preenchido quando autorizada
+  -- Cancelamento (evento 110111) -- só possível numa NFC-e 'autorizada',
+  -- dentro do prazo legal (24h da autorização, ver nfceEventoService.js).
+  -- Vira uma NOVA transmissão (evento assinado à parte, não reemite o
+  -- XML original) -- por isso protocolo/justificativa ficam em campos
+  -- próprios, sem sobrescrever protocolo_autorizacao.
+  cancelamento_justificativa TEXT,
+  cancelamento_protocolo     TEXT,
+  cancelada_em               TEXT,
+  -- Contingência offline (tpEmis=9, ver fiscalService.emitirNFCe) --
+  -- preenchido quando a transmissão original falhou por COMUNICAÇÃO
+  -- (SEFAZ fora do ar / sem internet) e a venda não podia esperar: o
+  -- XML já sai assinado com o DOCUMENTO marcado como contingência,
+  -- entregue ao cliente (recibo avisa que é provisório), e fica na fila
+  -- pra ser transmitido de verdade assim que a conexão voltar (ver o
+  -- job periódico reenviarPendentesEContingencia em main.js).
+  transmitida_em_contingencia INTEGER NOT NULL DEFAULT 0,
   criado_em             TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE INDEX IF NOT EXISTS idx_nfce_sale ON nfce_emitidas(sale_id);
+
+-- Inutilização de numeração (faixa de números de NFC-e que nunca foi
+-- usada — ex: pulou um número por erro no app, ou uma venda foi
+-- cancelada antes da NFC-e sair e o número não pode ser reaproveitado)
+-- -- a SEFAZ exige declarar isso formalmente pra fechar a sequência
+-- numérica, senão o "buraco" na numeração fica sem explicação oficial.
+-- Ver nfceInutilizacaoService.js.
+CREATE TABLE IF NOT EXISTS nfce_inutilizacoes (
+  id                TEXT PRIMARY KEY,
+  ano               INTEGER NOT NULL,
+  serie             TEXT NOT NULL,
+  numero_inicial    INTEGER NOT NULL,
+  numero_final      INTEGER NOT NULL,
+  justificativa     TEXT NOT NULL,
+  ambiente          TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','homologada','rejeitada')),
+  protocolo         TEXT,
+  motivo_rejeicao   TEXT,
+  requerente_id     TEXT REFERENCES users(id),
+  criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
 
 -- ============================================================
 -- Clientes, fiado e fidelidade
@@ -691,6 +736,18 @@ CREATE TABLE IF NOT EXISTS customers (
   cnpj          TEXT, -- cliente pessoa jurídica (opcional, além ou no lugar do CPF)
   pontos        INTEGER NOT NULL DEFAULT 0,
   ativo         INTEGER DEFAULT 1,
+  -- Data de nascimento (AAAA-MM-DD), opcional -- usada só pelo cupom
+  -- automático de aniversário (ver loyalty_config.ativar_cupom_aniversario
+  -- e whatsappAutomationService.js). ano_ultimo_cupom_aniversario evita
+  -- mandar o cupom mais de uma vez no mesmo ano se a checagem periódica
+  -- rodar de novo no mesmo dia.
+  data_nascimento TEXT,
+  ano_ultimo_cupom_aniversario INTEGER,
+  -- Última vez que a reconquista automática mandou mensagem pra esse
+  -- cliente (ver whatsappAutomationService.executarReconquistaAutomatica)
+  -- -- evita mandar de novo toda vez que a checagem periódica rodar
+  -- enquanto o cliente continuar "sumido".
+  reconquista_automatica_enviada_em TEXT,
   criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 
@@ -798,6 +855,16 @@ CREATE TABLE IF NOT EXISTS bot_orders (
   status            TEXT NOT NULL DEFAULT 'novo' CHECK (status IN ('novo','em_separacao','pronto','concluido','cancelado')),
   origem            TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual')),
   observacoes       TEXT,
+  -- Preenchido quando o pedido veio do fluxo "Mesa N" do chatbot (ver
+  -- whatsappBotHandler.js) -- pedido de cliente JÁ sentado numa mesa,
+  -- diferente de retirada/entrega. `tipo_entrega` continua obrigatório
+  -- pelo schema mas não tem sentido nesse caso (fica 'retirada' como
+  -- valor de preenchimento); o que de fato distingue um pedido de mesa
+  -- é este campo estar preenchido. Ver botOrderService.lancarPedidoNaMesa
+  -- -- ao "concluir", os itens entram direto na comanda REAL da mesa
+  -- (sale_items via saleService.addItem) em vez de virar uma venda
+  -- avulsa nova como os pedidos de retirada/entrega.
+  mesa_numero       TEXT,
   separado_por      TEXT REFERENCES users(id),
   delivery_id       TEXT REFERENCES deliveries(id), -- preenchido se virou uma entrega de verdade
   sale_id           TEXT REFERENCES sales(id), -- preenchido quando convertido em venda na conclusão
@@ -959,7 +1026,31 @@ CREATE TABLE IF NOT EXISTS loyalty_config (
   id                  TEXT PRIMARY KEY DEFAULT 'default',
   ativado             INTEGER NOT NULL DEFAULT 0,
   reais_por_ponto     REAL NOT NULL DEFAULT 10, -- 1 ponto a cada X reais gastos
-  valor_resgate_ponto REAL NOT NULL DEFAULT 0.05 -- quanto vale 1 ponto em desconto (R$)
+  valor_resgate_ponto REAL NOT NULL DEFAULT 0.05, -- quanto vale 1 ponto em desconto (R$)
+  -- Cupom automático de aniversário -- manda uma mensagem pelo WhatsApp
+  -- (bot precisa estar conectado) no dia do aniversário do cliente,
+  -- com pontos de bônus de presente. Ver whatsappAutomationService.js.
+  ativar_cupom_aniversario INTEGER NOT NULL DEFAULT 0,
+  pontos_bonus_aniversario INTEGER NOT NULL DEFAULT 20
+);
+
+-- ============================================================
+-- Automações proativas do WhatsApp (fora do fluxo de conversa do bot --
+-- essas são mensagens que o PRÓPRIO sistema inicia sozinho, sem o
+-- cliente/dono ter mandado nada primeiro). Ver whatsappAutomationService.js
+-- e o poller em main.js. Cada "ultimo_envio_*" guarda a data (AAAA-MM-DD,
+-- horário de Brasília) da última vez que aquela automação rodou de fato --
+-- evita mandar de novo toda vez que o poller passar no mesmo dia.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS whatsapp_automation_config (
+  id                              TEXT PRIMARY KEY DEFAULT 'default',
+  telefone_dono                   TEXT, -- recebe os alertas de estoque baixo e o resumo diário
+  reconquista_automatica_ativa    INTEGER NOT NULL DEFAULT 0,
+  alerta_estoque_baixo_ativo      INTEGER NOT NULL DEFAULT 0,
+  resumo_diario_ativo             INTEGER NOT NULL DEFAULT 0,
+  resumo_diario_hora              TEXT NOT NULL DEFAULT '20:00', -- HH:MM, horário de Brasília
+  ultimo_envio_estoque_baixo      TEXT,
+  ultimo_envio_resumo_diario      TEXT
 );
 
 -- ============================================================

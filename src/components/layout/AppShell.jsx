@@ -17,6 +17,7 @@ import { Dashboard } from '../pos/Dashboard';
 import { CustomerList } from '../pos/CustomerList';
 import { DeliveryScreen } from '../pos/DeliveryScreen';
 import { BotOrdersScreen } from '../pos/BotOrdersScreen';
+import { KitchenDisplayScreen } from '../pos/KitchenDisplayScreen';
 import { QuotesScreen } from '../pos/QuotesScreen';
 import { AgendaScreen } from '../pos/AgendaScreen';
 import { ReservasScreen } from '../pos/ReservasScreen';
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
   { id: 'pos', label: '🛒 PDV', roles: ['operador', 'gerente', 'admin'] },
   { id: 'restaurant', label: '🍽️ Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'kitchen', label: '👨‍🍳 Cozinha', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
 
   { id: 'history', label: '🧾 Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
   { id: 'returns', label: '↩️ Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
@@ -374,6 +376,7 @@ export function AppShell() {
         {screen === 'settings' && <SettingsScreen />}
         {screen === 'users' && <UserManagement />}
         {screen === 'botOrders' && <BotOrdersScreen />}
+        {screen === 'kitchen' && <KitchenDisplayScreen />}
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
       {keyboardHelp.open && <KeyboardHelpModal onClose={keyboardHelp.close} />}

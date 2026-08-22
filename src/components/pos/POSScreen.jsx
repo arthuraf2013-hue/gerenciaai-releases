@@ -19,6 +19,7 @@ import { Clock } from '../layout/Clock';
 import { PosTour } from './PosTour';
 import { TrainingPresentationModal } from './TrainingPresentationModal';
 import { HomeMessageBanner } from './HomeMessageBanner';
+import { NovoProdutoPorFotoModal } from './NovoProdutoPorFotoModal';
 
 function playErrorBeep() {
   try {
@@ -57,6 +58,9 @@ export function POSScreen() {
   useEscToClose(() => setShowPayment(false), showPayment);
   const [showAttachments, setShowAttachments] = useState(false);
   const [showCustomItemBuilder, setShowCustomItemBuilder] = useState(false);
+  const [codigoNaoEncontrado, setCodigoNaoEncontrado] = useState(null); // último código bipado sem produto correspondente
+  const [showNovoProdutoPorFoto, setShowNovoProdutoPorFoto] = useState(false);
+  useEscToClose(() => setShowNovoProdutoPorFoto(false), showNovoProdutoPorFoto);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [recentRefreshKey, setRecentRefreshKey] = useState(0);
   const [vendasHoje, setVendasHoje] = useState(null);
@@ -284,6 +288,7 @@ export function POSScreen() {
 
   const handleScan = useCallback(async (codigoBarras) => {
     if (!saleId) return;
+    setCodigoNaoEncontrado(null); // cada nova leitura começa sem o botão "cadastrar por foto" da leitura anterior
 
     // Antes de tratar como código de barras comum, confere se é uma
     // etiqueta de peso variável impressa pela balança (formato
@@ -325,10 +330,21 @@ export function POSScreen() {
     }
 
     setFeedback({ message: `Código não encontrado: ${codigoBarras}`, type: 'error' });
+    setCodigoNaoEncontrado(codigoBarras);
     playErrorBeep();
   }, [saleId, addProductToCart]);
 
-  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !showAttachments && !showCustomItemBuilder });
+  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !showAttachments && !showCustomItemBuilder && !showNovoProdutoPorFoto });
+
+  async function handleProdutoCadastradoPorFoto(product) {
+    setShowNovoProdutoPorFoto(false);
+    setCodigoNaoEncontrado(null);
+    if (product.temEstoque) {
+      await addProductToCart(product);
+    } else {
+      setFeedback({ message: `${product.nome} cadastrado — sem estoque ainda, não foi adicionado à venda.`, type: 'info' });
+    }
+  }
 
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
@@ -497,7 +513,14 @@ export function POSScreen() {
         </button>
       </div>
 
-      <p className={`scan-feedback scan-feedback-${feedback.type}`}>{feedback.message}</p>
+      <p className={`scan-feedback scan-feedback-${feedback.type}`}>
+        {feedback.message}
+        {codigoNaoEncontrado && (
+          <button type="button" className="btn-link" style={{ marginLeft: 8 }} onClick={() => setShowNovoProdutoPorFoto(true)}>
+            📷 Cadastrar por foto
+          </button>
+        )}
+      </p>
 
       <div className="pos-main-scroll">
         <CategoryProductBrowser onSelectProduct={handleSelectProduct} />
@@ -661,6 +684,14 @@ export function POSScreen() {
           operadorId={currentUser.id}
           onClose={() => setShowAttachments(false)}
           onExtracted={addProductsFromPrescription}
+        />
+      )}
+
+      {showNovoProdutoPorFoto && (
+        <NovoProdutoPorFotoModal
+          codigoBarras={codigoNaoEncontrado}
+          onClose={() => setShowNovoProdutoPorFoto(false)}
+          onCriado={handleProdutoCadastradoPorFoto}
         />
       )}
 

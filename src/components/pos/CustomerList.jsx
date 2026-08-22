@@ -15,7 +15,7 @@ export function CustomerList() {
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
   const [editing, setEditing] = useState(null); // { id, nome, telefone, cpf } | 'new' | null
-  const [form, setForm] = useState({ nome: '', telefone: '', cpf: '', cnpj: '' });
+  const [form, setForm] = useState({ nome: '', telefone: '', cpf: '', cnpj: '', dataNascimento: '' });
   const [selected, setSelected] = useState(null); // cliente com histórico aberto
   useEscToClose(() => setSelected(null), !!selected);
   const [history, setHistory] = useState([]);
@@ -49,12 +49,15 @@ export function CustomerList() {
     : customers;
 
   function startNew() {
-    setForm({ nome: '', telefone: '', cpf: '', cnpj: '' });
+    setForm({ nome: '', telefone: '', cpf: '', cnpj: '', dataNascimento: '' });
     setEditing('new');
   }
 
   function startEdit(c) {
-    setForm({ id: c.id, nome: c.nome, telefone: c.telefone || '', cpf: c.cpf || '', cnpj: c.cnpj || '' });
+    setForm({
+      id: c.id, nome: c.nome, telefone: c.telefone || '', cpf: c.cpf || '', cnpj: c.cnpj || '',
+      dataNascimento: c.dataNascimento || c.data_nascimento || '',
+    });
     setEditing(c.id);
   }
 
@@ -119,7 +122,14 @@ export function CustomerList() {
             <label>Telefone<input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></label>
             <label>CPF<input value={form.cpf} onChange={(e) => setForm({ ...form, cpf: e.target.value })} /></label>
             <label>CNPJ (cliente pessoa jurídica)<input value={form.cnpj} onChange={(e) => setForm({ ...form, cnpj: e.target.value })} /></label>
+            <label>
+              Data de nascimento
+              <input type="date" value={form.dataNascimento} onChange={(e) => setForm({ ...form, dataNascimento: e.target.value })} />
+            </label>
           </div>
+          <p className="screen-hint" style={{ marginTop: -8, marginBottom: 12 }}>
+            Opcional — se preenchida e o cupom de aniversário estiver ativo (Configurações → Fidelidade), o cliente recebe uma mensagem automática no WhatsApp no dia.
+          </p>
           {saveError && <p className="modal-error">{saveError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn-primary" type="submit">💾 Salvar</button>

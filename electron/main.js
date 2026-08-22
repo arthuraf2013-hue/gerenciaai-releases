@@ -184,6 +184,23 @@ app.whenReady().then(() => {
   // ficaram "aguardando confirmação" por tempo demais sem resposta.
   setInterval(() => checarLembretesDeReserva().catch((err) => console.error('[reserva]', err)), 5 * 60 * 1000);
 
+  // Automações proativas do WhatsApp (reconquista, alerta de estoque,
+  // resumo diário) + cupom automático de aniversário — ver
+  // whatsappAutomationService.js. Roda a cada 10 min; cada função
+  // internamente decide se já é "hoje" o suficiente pra agir de novo
+  // (cooldown por cliente ou guarda de uma vez por dia), então rodar
+  // com essa frequência só deixa o efeito mais perto de imediato assim
+  // que a condição vira verdadeira (ex: acabou de bater o horário do
+  // resumo diário) sem mandar nada duplicado.
+  setInterval(() => checarAutomacoesWhatsapp().catch((err) => console.error('[automacaoWhatsapp]', err)), 10 * 60 * 1000);
+
+  // NFC-e que ficaram 'pendente' (falha de rede na hora de emitir) ou
+  // 'contingencia' (emitida offline, tpEmis=9, esperando a SEFAZ
+  // voltar) — tenta reenviar a cada 5 min. reenviarNFCe é idempotente
+  // o bastante pro caso comum (SEFAZ ainda fora do ar: só volta a
+  // falhar e tenta de novo no próximo ciclo, sem duplicar nada).
+  setInterval(() => reenviarPendentesEContingencia().catch((err) => console.error('[fiscalReenvio]', err)), 5 * 60 * 1000);
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -227,6 +244,38 @@ async function checarLembretesDeReserva() {
     }
   }
   reservationService.marcarNaoConfirmadasVencidas(agora);
+}
+
+/** Dispara as automações do WhatsApp de dono/loja (não são conversa com
+ * cliente, então não passam pelo whatsappBotHandler) — mesmo local
+ * único usado pelos outros pontos do app que precisam de um locationId
+ * "padrão" fora do contexto de uma tela (ver whatsappBotHandler.js). */
+async function checarAutomacoesWhatsapp() {
+  const whatsappAutomationService = require('./services/whatsappAutomationService');
+  const locationId = getDb().prepare('SELECT id FROM locations LIMIT 1').get()?.id || null;
+  await whatsappAutomationService.executarCupomAniversario();
+  await whatsappAutomationService.executarReconquistaAutomatica();
+  if (locationId) {
+    await whatsappAutomationService.executarAlertaEstoqueBaixo({ locationId });
+    await whatsappAutomationService.executarResumoDiario({ locationId });
+  }
+}
+
+/** Roda por cima de toda NFC-e ainda 'pendente' ou 'contingencia' e
+ * tenta transmitir de novo — a maior parte do tempo isso não vai
+ * fazer nada (a lista vem vazia, ou a SEFAZ ainda está fora), mas é
+ * assim que uma venda feita em contingência acaba virando 'autorizada'
+ * de verdade sem exigir que alguém entre na tela e clique em
+ * "reenviar" manualmente pra cada uma. */
+async function reenviarPendentesEContingencia() {
+  const fiscalService = require('./services/fiscalService');
+  const pendentes = fiscalService.listNfcePendentesOuContingencia();
+  for (const nfce of pendentes) {
+    const resultado = await fiscalService.reenviarNFCe(nfce.id);
+    if (!resultado.ok) {
+      console.error('[fiscalReenvio] falha ao reenviar', nfce.id, resultado.error);
+    }
+  }
 }
 
 app.on('window-all-closed', () => {

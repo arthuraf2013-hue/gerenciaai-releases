@@ -25,6 +25,7 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   const [finalizando, setFinalizando] = useState(false);
   const [finalizada, setFinalizada] = useState(false);
   const [nfceStatus, setNfceStatus] = useState(null);
+  const [showCancelarNfceAuth, setShowCancelarNfceAuth] = useState(false);
   const [printMsg, setPrintMsg] = useState('');
   const [taxaServico, setTaxaServico] = useState(taxaInicial);
 
@@ -234,11 +235,14 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
 
   function resumoNfce(result) {
     if (!result.ok) return { mensagem: result.error, sucesso: false, pendente: false };
+    if (result.contingencia) {
+      return { mensagem: result.aviso, sucesso: true, pendente: true, nfceId: result.id };
+    }
     if (result.aviso) return { mensagem: result.aviso, sucesso: true, pendente: true, nfceId: result.id };
     if (result.autorizada) {
       return {
         mensagem: `NFC-e nº ${result.numero} autorizada (protocolo ${result.protocoloAutorizacao}).`,
-        sucesso: true, pendente: false,
+        sucesso: true, pendente: false, autorizada: true, nfceId: result.id,
       };
     }
     return {
@@ -263,6 +267,20 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
       return;
     }
     setNfceStatus({ emitindo: false, ...resumoNfce(result) });
+  }
+
+  async function confirmarCancelamentoNFCe(candidateId, pin, motivo) {
+    if (!motivo || motivo.trim().length < 15) {
+      return { ok: false, error: 'Informe uma justificativa com pelo menos 15 caracteres (exigência da SEFAZ).' };
+    }
+    const result = await window.pdv.fiscal.cancelarNFCe({
+      nfceId: nfceStatus.nfceId, justificativa: motivo,
+      currentOperatorId: currentUser.id, candidateManagerId: candidateId, pin,
+    });
+    if (result.ok) {
+      setNfceStatus((prev) => ({ ...prev, mensagem: `NFC-e cancelada (protocolo ${result.protocolo}).`, sucesso: true, autorizada: false, pendente: false }));
+    }
+    return result;
   }
 
   async function handleImprimir() {
@@ -302,6 +320,11 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
               {nfceStatus?.emitindo ? 'Reenviando...' : '🔄 Tentar transmitir de novo'}
             </button>
           )}
+          {nfceStatus?.autorizada && (
+            <button className="btn-danger" onClick={() => setShowCancelarNfceAuth(true)} style={{ marginLeft: 8 }}>
+              🚫 Cancelar NFC-e
+            </button>
+          )}
           {nfceStatus?.mensagem && (
             <p className={nfceStatus.sucesso ? 'io-message' : 'modal-error'} style={{ marginTop: 8 }}>
               {nfceStatus.mensagem}
@@ -309,6 +332,14 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
           )}
         </div>
         <button className="btn-primary" onClick={onFinalized}>✅ Concluir</button>
+
+        {showCancelarNfceAuth && (
+          <ManagerAuthModal
+            title="🔑 Autorizar cancelamento da NFC-e"
+            onConfirm={confirmarCancelamentoNFCe}
+            onClose={() => setShowCancelarNfceAuth(false)}
+          />
+        )}
       </div>
     );
   }

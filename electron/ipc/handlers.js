@@ -45,6 +45,8 @@ const dashboardService = require('../services/dashboardService');
 const supplyService = require('../services/supplyService');
 const batchService = require('../services/batchService');
 const reservationService = require('../services/reservationService');
+const whatsappAutomationService = require('../services/whatsappAutomationService');
+const kitchenService = require('../services/kitchenService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -193,6 +195,7 @@ function registerIpcHandlers() {
   safeHandle('table:transfer', (_e, { fromTableId, toTableId }) => tableService.transferTable({ fromTableId, toTableId }));
   safeHandle('table:updatePeople', (_e, { tableId, pessoas }) => tableService.updateTablePeople({ tableId, pessoas }));
   safeHandle('table:desocupar', (_e, payload) => tableService.desocuparMesa(payload));
+  safeHandle('table:montarLinkPedido', (_e, payload) => tableService.montarLinkPedidoMesa(payload));
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));
@@ -303,6 +306,9 @@ function registerIpcHandlers() {
   safeHandle('fiscal:emitirNFCe', (_e, { saleId }) => fiscalService.emitirNFCe(saleId));
   safeHandle('fiscal:reenviarNFCe', (_e, { nfceId }) => fiscalService.reenviarNFCe(nfceId));
   safeHandle('fiscal:listNfceForSale', (_e, { saleId }) => fiscalService.listNfceForSale(saleId));
+  safeHandle('fiscal:cancelarNFCe', (_e, { nfceId, ...payload }) => fiscalService.cancelarNFCe(nfceId, payload));
+  safeHandle('fiscal:inutilizarNumeracao', (_e, payload) => fiscalService.inutilizarNumeracao(payload));
+  safeHandle('fiscal:listInutilizacoes', () => fiscalService.listInutilizacoes());
   safeHandle('fiscal:livroDeControlados', (_e, payload) => fiscalService.livroDeControlados(payload));
   safeHandle('fiscal:selectCertificado', async () => {
     const win = BrowserWindow.getFocusedWindow();
@@ -432,6 +438,10 @@ function registerIpcHandlers() {
   });
   safeHandle('botOrders:updateItemStatus', (_e, payload) => botOrderService.updateItemStatus(payload));
   safeHandle('botOrders:listInStockByCategory', (_e, payload) => botOrderService.listInStockByCategory(payload));
+  // Pedido de mesa (mesa_numero preenchido, veio do QR code) não usa
+  // updateStatus/converterEmVendaSeAplicavel como retirada/entrega --
+  // entra direto na comanda real da mesa (ver botOrderService.lancarPedidoNaMesa).
+  safeHandle('botOrders:lancarNaMesa', (_e, payload) => botOrderService.lancarPedidoNaMesa(payload));
 
   // --- Canal de WhatsApp (conexão Baileys que alimenta o bot acima) ---
   safeHandle('whatsapp:getStatus', () => whatsappBotService.getStatus());
@@ -470,6 +480,14 @@ function registerIpcHandlers() {
 
   safeHandle('loyalty:getConfig', () => customerService.getLoyaltyConfig());
   safeHandle('loyalty:updateConfig', (_e, payload) => customerService.updateLoyaltyConfig(payload));
+
+  // --- Automações proativas do WhatsApp (reconquista, estoque, resumo diário) ---
+  safeHandle('whatsappAutomation:getConfig', () => whatsappAutomationService.getConfig());
+  safeHandle('whatsappAutomation:updateConfig', (_e, payload) => whatsappAutomationService.updateConfig(payload));
+
+  // --- Painel de Cozinha (KDS) ---
+  safeHandle('kitchen:listActiveItems', (_e, { locationId }) => kitchenService.listActiveItems(locationId));
+  safeHandle('kitchen:updateItemStatus', (_e, payload) => kitchenService.updateItemStatus(payload));
 
   // --- Fornecedores e sugestão de compra ---
   safeHandle('supplier:list', (_e, opts) => supplierService.list(opts));
@@ -569,6 +587,18 @@ function registerIpcHandlers() {
   // --- Resumo de vendas por IA ---
   safeHandle('ai:summarizeSales', (_e, payload) => aiService.summarizeSales(payload));
   safeHandle('ai:askTutor', (_e, payload) => aiService.askTutor(payload));
+  // Cadastro de produto por foto -- fluxo de "código de barras não
+  // encontrado" no PDV (ver POSScreen.jsx).
+  safeHandle('ai:pickAndIdentifyProduct', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Selecionar foto do produto',
+      properties: ['openFile'],
+      filters: [{ name: 'Foto do produto', extensions: ['jpg', 'jpeg', 'png', 'webp'] }],
+    });
+    if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
+    return aiService.identificarProdutoPorFoto(filePaths[0]);
+  });
 
   // --- Backup automático do banco ---
   safeHandle('backup:getStatus', () => backupService.getStatus());
