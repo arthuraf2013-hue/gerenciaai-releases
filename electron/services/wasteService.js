@@ -1,6 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 const ingredientService = require('./ingredientService');
+const timeService = require('./timeService');
 
 /** Sugestão de custo pra pré-preencher o formulário — só um ponto de
  * partida, o valor final sempre pode ser digitado/ajustado na hora. */
@@ -43,34 +44,42 @@ function registerWaste({ locationId, tipo, productId, ingredientId, quantidade, 
 
 function listWaste({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  // Sargable -- ver o mesmo comentário em dashboardService.js.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT w.*, p.nome as prato_nome, i.nome as insumo_nome, u.nome as operador_nome
      FROM waste_log w
      LEFT JOIN products p ON p.id = w.product_id
      LEFT JOIN ingredients i ON i.id = w.ingredient_id
      LEFT JOIN users u ON u.id = w.operador_id
-     WHERE w.location_id = ? AND date(w.criado_em, '-3 hours') BETWEEN date(?) AND date(?)
+     WHERE w.location_id = ? AND w.criado_em >= ? AND w.criado_em < ?
      ORDER BY w.criado_em DESC`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 }
 
 function getWasteSummary({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  // Sargable -- ver o mesmo comentário em dashboardService.js.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   const row = db.prepare(
     `SELECT COALESCE(SUM(custo_estimado), 0) as total, COUNT(*) as eventos
-     FROM waste_log WHERE location_id = ? AND date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)`
-  ).get(locationId, dataInicio, dataFim);
+     FROM waste_log WHERE location_id = ? AND criado_em >= ? AND criado_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo);
   return row;
 }
 
 /** Total perdido por dia num período — pro gráfico do Painel. */
 function getWasteByDay({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  // O WHERE fica sargable (mesmo comentário de dashboardService.js); o
+  // GROUP BY continua usando date(criado_em,'-3 hours') de propósito --
+  // aqui é só o rótulo do dia local pro gráfico, não um filtro.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT date(criado_em, '-3 hours') as dia, COALESCE(SUM(custo_estimado), 0) as total
-     FROM waste_log WHERE location_id = ? AND date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)
+     FROM waste_log WHERE location_id = ? AND criado_em >= ? AND criado_em < ?
      GROUP BY date(criado_em, '-3 hours') ORDER BY dia`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 }
 
 module.exports = { suggestCost, registerWaste, listWaste, getWasteSummary, getWasteByDay };

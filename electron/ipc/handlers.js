@@ -604,8 +604,8 @@ function registerIpcHandlers() {
   safeHandle('backup:getStatus', () => backupService.getStatus());
   safeHandle('backup:runNow', () => backupService.runBackup());
   safeHandle('backup:list', () => backupService.listBackups());
-  safeHandle('backup:restore', (_e, { requestingUserId, nomeArquivo }) => {
-    const result = backupService.restoreBackup(requestingUserId, nomeArquivo);
+  safeHandle('backup:restore', async (_e, { requestingUserId, nomeArquivo }) => {
+    const result = await backupService.restoreBackup(requestingUserId, nomeArquivo);
     if (result.ok) {
       // Reinicia o app pra reabrir o banco já restaurado — nunca reusa a
       // conexão antiga no mesmo processo depois de trocar o arquivo.

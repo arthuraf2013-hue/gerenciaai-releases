@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MINUTOS = 10;
@@ -150,12 +151,17 @@ function authorizeManagerOverride({ candidateUserId, pin, currentOperatorId, tip
  */
 function listAuditLog({ dataInicio, dataFim }) {
   const db = getDb();
+  // Sargable -- ver o mesmo comentário em dashboardService.js. Aqui
+  // rende ainda mais porque tem ORDER BY criado_em DESC LIMIT 500 logo
+  // em seguida: com o filtro sargable, o índice idx_audit_log_criado
+  // cobre filtro E ordenação de uma vez, sem sort separado.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT a.*, u1.nome as solicitante_nome, u2.nome as autorizado_por_nome
      FROM audit_log a
      LEFT JOIN users u1 ON u1.id = a.solicitante_id
      LEFT JOIN users u2 ON u2.id = a.autorizado_por_id
-     WHERE date(a.criado_em, '-3 hours') BETWEEN date(?) AND date(?)
+     WHERE a.criado_em >= ? AND a.criado_em < ?
        -- A Auditoria é pra mostrar o que precisou de aprovação — um
        -- cancelamento antes do pagamento (ajuste normal de carrinho) ou
        -- com a exigência de senha desligada nas configurações nunca tem
@@ -170,7 +176,7 @@ function listAuditLog({ dataInicio, dataFim }) {
        )
      ORDER BY a.criado_em DESC
      LIMIT 500`
-  ).all(dataInicio, dataFim);
+  ).all(inicioUtc, fimUtcExclusivo);
 }
 
 function getSecurityConfig() {

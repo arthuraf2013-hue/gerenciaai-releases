@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 const { getCurrentStock, computeProductAlert } = require('./stockService');
 const { authorizeManagerOverride, getSecurityConfig } = require('./authService');
 const customerService = require('./customerService');
@@ -67,17 +68,24 @@ function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
   // o mesmo product_id âncora (sem sentido clicar de novo pra "repetir"
   // um combo que foi montado na hora), e si.eh_personalizado já marca isso.
   if (modo === 'frequente') {
+    // Sargable: compara direto com o limite UTC de "30 dias atrás" em
+    // vez de embrulhar a coluna em date(...) -- deixa o índice de
+    // expressão idx_sales_location_data_efetiva fazer o trabalho, em
+    // vez de escanear o histórico inteiro de vendas toda vez que o PDV
+    // abre (esta é a query dos atalhos rápidos, chamada com frequência).
+    const trintaDiasAtrasUtc = new Date(timeService.nowMs() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 19).replace('T', ' ');
     return db.prepare(
       `SELECT p.*, SUM(si.quantidade) as total_vendido
        FROM sale_items si
        JOIN sales s ON s.id = si.sale_id
        JOIN products p ON p.id = si.product_id
        WHERE s.location_id = ? AND si.cancelado = 0 AND si.eh_personalizado = 0
-         AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') >= date('now', '-30 days')
+         AND COALESCE(s.finalizada_em, s.criado_em) >= ?
        GROUP BY p.id
        ORDER BY total_vendido DESC, p.nome
        LIMIT ?`
-    ).all(locationId, limit);
+    ).all(locationId, trintaDiasAtrasUtc, limit);
   }
   return db.prepare(
     `SELECT p.*, MAX(si.criado_em) as ultima_venda_em
@@ -98,6 +106,14 @@ function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
  */
 function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = false }) {
   const db = getDb();
+  // Sargable: compara direto com os limites UTC do intervalo local pedido
+  // em vez de embrulhar a coluna em date(col, '-3 hours') — isso deixava
+  // o SQLite escanear TODO o histórico de vendas do local toda vez que a
+  // tela de Histórico abria, porque nenhum índice consegue ser usado
+  // quando a coluna some dentro de uma função. Com o filtro sargable,
+  // idx_sales_location_data_efetiva (índice de expressão sobre
+  // COALESCE(finalizada_em, criado_em)) resolve isso direto.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT s.*, u.nome as operador_nome,
        COALESCE(s.finalizada_em, s.criado_em) as data_efetiva,
@@ -109,13 +125,7 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
        -- Usa a data de FINALIZAÇÃO como referência, não a de abertura do
        -- carrinho — um carrinho pode ficar aberto de um dia pro outro
        -- (retomar venda) e só virar venda de verdade quando finalizado.
-       --
-       -- O '-3 hours' converte de UTC (como é guardado) pra Brasília
-       -- ANTES de extrair o dia — sem isso, uma venda das 21h+ (que já
-       -- virou o dia seguinte em UTC) contava como sendo do dia errado.
-       -- Brasil não usa horário de verão desde 2019, então -3h fixo
-       -- está correto o ano inteiro.
-       AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') BETWEEN date(?) AND date(?)
+       AND COALESCE(s.finalizada_em, s.criado_em) >= ? AND COALESCE(s.finalizada_em, s.criado_em) < ?
        -- Não mostra carrinho aberto que nunca teve nenhum item — é só o
        -- rascunho que o sistema cria sozinho ao entrar no PDV, nunca foi
        -- uma venda de verdade. Carrinho aberto COM item ainda aparece
@@ -123,7 +133,7 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
        AND NOT (s.status = 'aberta' AND (SELECT COUNT(*) FROM sale_items si2 WHERE si2.sale_id = s.id AND si2.cancelado = 0) = 0)
        ${incluirOcultas ? '' : 'AND s.oculta_historico = 0'}
      ORDER BY data_efetiva DESC`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 }
 
 /**

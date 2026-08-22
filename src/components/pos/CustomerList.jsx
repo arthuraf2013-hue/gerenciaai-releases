@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useProfile } from '../../context/ProfileContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -44,9 +44,16 @@ export function CustomerList() {
     setCustomers(Array.isArray(list) ? list : []);
   }
 
-  const customersExibidos = soQuemDeve
-    ? [...customers].filter((c) => c.saldoFiado > 0).sort((a, b) => b.saldoFiado - a.saldoFiado)
-    : customers;
+  // useMemo -- sem isso, filtrar+ordenar rodava de novo em TODO re-render
+  // do componente (ex: cada tecla digitada no campo de pagamento do
+  // modal de fiado, ou abrir/fechar qualquer outro modal), mesmo sem
+  // `customers`/`soQuemDeve` terem mudado. Numa base com muitos clientes,
+  // isso é refeito sem necessidade a cada digitação.
+  const customersExibidos = useMemo(() => (
+    soQuemDeve
+      ? [...customers].filter((c) => c.saldoFiado > 0).sort((a, b) => b.saldoFiado - a.saldoFiado)
+      : customers
+  ), [customers, soQuemDeve]);
 
   function startNew() {
     setForm({ nome: '', telefone: '', cpf: '', cnpj: '', dataNascimento: '' });

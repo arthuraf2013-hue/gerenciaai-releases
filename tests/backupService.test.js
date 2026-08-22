@@ -18,23 +18,23 @@ const DATA_DIR = path.join(__dirname, '../.data');
 // backend precisa recusar qualquer outro papel, mesmo se alguém chamar o
 // canal IPC diretamente sem passar pela tela.
 
-test('restoreBackup recusa quem não é admin, antes mesmo de checar se o arquivo existe', () => {
+test('restoreBackup recusa quem não é admin, antes mesmo de checar se o arquivo existe', async () => {
   const { gerenteId } = freshTestDb();
-  const result = backupService.restoreBackup(gerenteId, 'nao-importa.sqlite3');
+  const result = await backupService.restoreBackup(gerenteId, 'nao-importa.sqlite3');
   assert.equal(result.ok, false);
   assert.match(result.error, /permissão/i);
 });
 
-test('restoreBackup recusa operador', () => {
+test('restoreBackup recusa operador', async () => {
   const { operadorId } = freshTestDb();
-  const result = backupService.restoreBackup(operadorId, 'nao-importa.sqlite3');
+  const result = await backupService.restoreBackup(operadorId, 'nao-importa.sqlite3');
   assert.equal(result.ok, false);
   assert.match(result.error, /permissão/i);
 });
 
-test('restoreBackup passa da checagem de permissão pra admin (e só falha depois por arquivo inexistente, não por permissão)', () => {
+test('restoreBackup passa da checagem de permissão pra admin (e só falha depois por arquivo inexistente, não por permissão)', async () => {
   const { adminId } = freshTestDb();
-  const result = backupService.restoreBackup(adminId, 'arquivo-que-nao-existe-de-verdade.sqlite3');
+  const result = await backupService.restoreBackup(adminId, 'arquivo-que-nao-existe-de-verdade.sqlite3');
   assert.equal(result.ok, false);
   assert.match(result.error, /não encontrado/i);
 });
@@ -119,7 +119,7 @@ test('restoreBackup devolve fotos/anexos/NFC-e do espelho pras pastas ao vivo', 
   assert.equal(fs.existsSync(path.join(fotosAoVivo, 'produto-1.jpg')), false);
 
   const { adminId } = freshTestDb(); // freshTestDb troca o banco -- pega um admin novo pro restore
-  const resultado = backupService.restoreBackup(adminId, nomeArquivo);
+  const resultado = await backupService.restoreBackup(adminId, nomeArquivo);
   assert.equal(resultado.ok, true);
   assert.equal(fs.readFileSync(path.join(fotosAoVivo, 'produto-1.jpg'), 'utf-8'), 'foto-original');
 });

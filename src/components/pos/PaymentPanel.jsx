@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import QRCode from 'qrcode';
 import { useSession } from '../../context/SessionContext';
 import { ManagerAuthModal } from './ManagerAuthModal';
 
@@ -203,6 +202,11 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
       return setError(result.error);
     }
 
+    // qrcode só é usado nesse fluxo (gerar Pix) -- import dinâmico em vez
+    // de estático no topo do arquivo, pra não fazer o PDV (montado o
+    // tempo inteiro, ver AppShell.jsx) baixar essa biblioteca antes de
+    // alguém realmente escolher pagar via Pix.
+    const { default: QRCode } = await import('qrcode');
     const qrDataUrl = await QRCode.toDataURL(result.payload, { width: 260, margin: 1 });
     setPix({ valor: numeric, payload: result.payload, qrDataUrl });
     setPixGerando(false);

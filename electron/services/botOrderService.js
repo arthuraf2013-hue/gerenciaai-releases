@@ -199,18 +199,26 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
 
   const itens = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').all(orderId);
   const itensComProduto = itens.filter((i) => i.product_id);
-  for (const item of itensComProduto) {
-    const resultado = saleService.addItem({
-      saleId, productId: item.product_id, locationId: pedido.location_id,
-      quantidade: item.quantidade, operadorId, deviceId,
-    });
-    // Não interrompe o lançamento dos outros itens por causa de um só
-    // sem estoque -- melhor a mesa receber o que dá e o atendente ver o
-    // que faltou, do que travar a comanda inteira num item.
-    if (!resultado.ok) {
-      console.error('[botOrderService] item do pedido de mesa não entrou na comanda', item.id, resultado.error);
+  // Agrupa o lançamento de todos os itens numa única transação --
+  // saleService.addItem já é transacional por si só (vira um SAVEPOINT
+  // aninhado aqui dentro, o better-sqlite3 suporta isso naturalmente),
+  // mas sem esse agrupamento cada item era um commit separado no WAL; um
+  // pedido de mesa com vários itens fazia a comanda demorar bem mais pra
+  // lançar do que precisava. Mesmo comportamento de antes: um item sem
+  // estoque só loga o erro e não interrompe os demais (nada aqui lança
+  // exceção, então a transação sempre chega ao fim e comita normalmente).
+  const lancarItens = db.transaction(() => {
+    for (const item of itensComProduto) {
+      const resultado = saleService.addItem({
+        saleId, productId: item.product_id, locationId: pedido.location_id,
+        quantidade: item.quantidade, operadorId, deviceId,
+      });
+      if (!resultado.ok) {
+        console.error('[botOrderService] item do pedido de mesa não entrou na comanda', item.id, resultado.error);
+      }
     }
-  }
+  });
+  lancarItens();
 
   db.prepare(
     `UPDATE bot_orders SET status = 'concluido', sale_id = ?, separado_por = COALESCE(separado_por, ?), concluido_em = COALESCE(concluido_em, NOW_SYNCED()) WHERE id = ?`

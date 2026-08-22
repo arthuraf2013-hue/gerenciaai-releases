@@ -1,5 +1,9 @@
 const fs = require('fs');
-const forge = require('node-forge');
+// node-forge só é usado por instalações que emitem NFC-e (certificado
+// A1 configurado) -- carregado sob demanda dentro de carregarCertificado,
+// não no topo do arquivo, pra não pagar esse custo de startup em toda
+// instalação que não usa o módulo fiscal (mesma convenção de firebase/
+// baileys, ver comentário equivalente em licenseService.js).
 
 /**
  * Carrega um certificado A1 (.pfx/.p12) e devolve a chave privada e o
@@ -12,6 +16,7 @@ const forge = require('node-forge');
  * aqui — a grande maioria dos pequenos negócios usa A1 mesmo.
  */
 function carregarCertificado(caminhoPfx, senha) {
+  const forge = require('node-forge');
   const bufferPfx = fs.readFileSync(caminhoPfx);
   const p12Asn1 = forge.asn1.fromDer(bufferPfx.toString('binary'));
   const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, false, senha);

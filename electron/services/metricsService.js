@@ -14,8 +14,13 @@ function getMetricasAgregadas() {
     `SELECT COUNT(*) as c FROM sales WHERE status = 'finalizada'`
   ).get().c;
 
+  // Sargable -- ver o mesmo comentário em timeService.js/dashboardService.js.
+  // Equivalente exato de `date(finalizada_em,'-3h') >= date('now','-30 days')`:
+  // em vez de embrulhar a COLUNA numa função (o que impede o uso de índice),
+  // desloca o LIMITE (uma constante, calculada uma vez) +3h pro fuso UTC em
+  // que finalizada_em é gravado, e compara a coluna crua com ele.
   const vendasUltimos30Dias = db.prepare(
-    `SELECT COUNT(*) as c FROM sales WHERE status = 'finalizada' AND date(finalizada_em, '-3 hours') >= date('now', '-30 days')`
+    `SELECT COUNT(*) as c FROM sales WHERE status = 'finalizada' AND finalizada_em >= (date('now', '-30 days') || ' 03:00:00')`
   ).get().c;
 
   const perfilAtivo = db.prepare(`SELECT perfil_ativo FROM business_profile WHERE id = ?`).get('default');

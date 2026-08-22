@@ -1,4 +1,6 @@
-const { SignedXml } = require('xml-crypto');
+// xml-crypto só é usado por instalações que emitem NFC-e -- carregado sob
+// demanda dentro de assinarXmlGenerico, não no topo do arquivo, mesma
+// convenção de node-forge em nfceCertificateService.js.
 
 /**
  * Assina digitalmente um XML de NFC-e — sem isso, a SEFAZ rejeita
@@ -22,6 +24,7 @@ const { SignedXml } = require('xml-crypto');
  * @returns {string} o mesmo XML, com o bloco <Signature> adicionado
  */
 function assinarXmlGenerico(xmlOriginal, { chavePrivadaPem, certificadoPem }, elementoLocalName) {
+  const { SignedXml } = require('xml-crypto');
   const sig = new SignedXml({
     privateKey: chavePrivadaPem,
     publicCert: certificadoPem,

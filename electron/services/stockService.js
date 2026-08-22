@@ -147,16 +147,29 @@ function previsaoDeRuptura(locationId, { diasLimiar = 7 } = {}) {
      HAVING estoque_atual > 0`
   ).all(locationId);
 
+  if (produtos.length === 0) return [];
+
+  // Uma única consulta agregada com o total vendido por produto nos
+  // últimos 30 dias, em vez de uma consulta POR PRODUTO dentro do loop
+  // abaixo (N+1) -- numa loja com centenas de produtos em estoque, isso
+  // era centenas de consultas extras toda vez que a tela de Alertas (ou
+  // o alerta automático de estoque baixo do WhatsApp) rodava.
+  const vendasPorProduto = new Map();
+  for (const linha of db.prepare(
+    `SELECT product_id, COALESCE(SUM(-quantidade), 0) as total FROM stock_movements
+     WHERE location_id = ? AND tipo = 'venda' AND criado_em >= datetime(NOW_SYNCED(), '-30 days')
+     GROUP BY product_id`
+  ).all(locationId)) {
+    vendasPorProduto.set(linha.product_id, linha.total);
+  }
+
   const resultado = [];
   for (const p of produtos) {
     // Já está no alerta reativo (bateu ou passou do mínimo)? Não
     // duplica o aviso aqui — a pessoa já vê ele na lista de cima.
     if (p.estoque_atual <= p.estoque_minimo) continue;
 
-    const vendidoUltimos30Dias = db.prepare(
-      `SELECT COALESCE(SUM(-quantidade), 0) as total FROM stock_movements
-       WHERE product_id = ? AND location_id = ? AND tipo = 'venda' AND criado_em >= datetime(NOW_SYNCED(), '-30 days')`
-    ).get(p.id, locationId).total;
+    const vendidoUltimos30Dias = vendasPorProduto.get(p.id) || 0;
 
     if (vendidoUltimos30Dias <= 0) continue; // sem venda recente, não dá pra prever nada
 

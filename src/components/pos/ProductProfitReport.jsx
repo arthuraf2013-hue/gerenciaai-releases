@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toISODate } from '../../utils/date';
 
 
@@ -43,17 +43,26 @@ export function ProductProfitReport() {
     });
   }, [dataInicio, dataFim]);
 
-  const totalReceita = relatorio?.produtos.reduce((acc, p) => acc + p.receita, 0) || 0;
-  const totalLucro = relatorio?.produtos.reduce((acc, p) => acc + p.lucro, 0) || 0;
-  const maiorQtdHora = relatorio ? Math.max(1, ...relatorio.horariosPorMovimento.map((h) => h.quantidade)) : 1;
+  // useMemo -- sem isso, a soma e a ordenação (potencialmente centenas de
+  // produtos) rodavam de novo em todo re-render deste componente, mesmo
+  // sem `relatorio`/`ordenacao` terem mudado (ex: qualquer state de um
+  // componente pai acima re-renderizando).
+  const totalReceita = useMemo(() => relatorio?.produtos.reduce((acc, p) => acc + p.receita, 0) || 0, [relatorio]);
+  const totalLucro = useMemo(() => relatorio?.produtos.reduce((acc, p) => acc + p.lucro, 0) || 0, [relatorio]);
+  const maiorQtdHora = useMemo(
+    () => (relatorio ? Math.max(1, ...relatorio.horariosPorMovimento.map((h) => h.quantidade)) : 1),
+    [relatorio]
+  );
 
-  const produtosOrdenados = relatorio ? [...relatorio.produtos].sort((a, b) => {
-    if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR');
-    if (ordenacao === 'quantidade') return b.quantidade - a.quantidade;
-    if (ordenacao === 'receita') return b.receita - a.receita;
-    if (ordenacao === 'recente') return new Date(b.ultima_venda) - new Date(a.ultima_venda);
-    return b.lucro - a.lucro; // 'lucro', padrão
-  }) : [];
+  const produtosOrdenados = useMemo(() => (
+    relatorio ? [...relatorio.produtos].sort((a, b) => {
+      if (ordenacao === 'nome') return a.nome.localeCompare(b.nome, 'pt-BR');
+      if (ordenacao === 'quantidade') return b.quantidade - a.quantidade;
+      if (ordenacao === 'receita') return b.receita - a.receita;
+      if (ordenacao === 'recente') return new Date(b.ultima_venda) - new Date(a.ultima_venda);
+      return b.lucro - a.lucro; // 'lucro', padrão
+    }) : []
+  ), [relatorio, ordenacao]);
 
   return (
     <div>

@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { randomUUID } = require('crypto');
 const { freshTestDb, createProduct, addStock } = require('./helpers/testDb');
 const saleService = require('../electron/services/saleService');
 const returnService = require('../electron/services/returnService');
@@ -77,4 +78,32 @@ test('devolução autorizada devolve o estoque corretamente', () => {
 
   const depois = stockService.getCurrentStock(ctx.productId, ctx.locationId);
   assert.equal(depois, antes + 1);
+});
+
+/**
+ * listReturns foi reescrito para um filtro sargable (comparação direta de
+ * timestamp UTC em vez de `date(criado_em, '-3 hours') BETWEEN ...`). Este
+ * teste confere que as fronteiras do dia local (UTC-3, sem horário de
+ * verão) continuam corretas: pedindo o período local 31/07 a 31/08, só as
+ * devoluções cujo instante UTC cai dentro desse intervalo local devem
+ * aparecer.
+ */
+test('listReturns respeita as fronteiras do dia local (UTC-3) no filtro de data', () => {
+  const ctx = vendaFinalizadaComItem(freshTestDb(), { quantidadeVenda: 4 });
+
+  const inserirReturn = (criadoEmUtc) => {
+    ctx.db.prepare(
+      `INSERT INTO returns (id, sale_id, location_id, operador_id, autorizado_por_id, motivo, valor_devolvido, criado_em)
+       VALUES (?, ?, ?, ?, ?, 'teste', 0, ?)`
+    ).run(randomUUID(), ctx.saleId, ctx.locationId, ctx.operadorId, ctx.gerenteId, criadoEmUtc);
+  };
+
+  inserirReturn('2026-07-31 02:59:59'); // 30/07 local — fora
+  inserirReturn('2026-07-31 03:00:00'); // 31/07 00:00 local — dentro (início)
+  inserirReturn('2026-09-01 02:59:59'); // 31/08 23:59:59 local — dentro (fim)
+  inserirReturn('2026-09-01 03:00:00'); // 01/09 local — fora
+
+  const resultado = returnService.listReturns({ locationId: ctx.locationId, dataInicio: '2026-07-31', dataFim: '2026-08-31' });
+  assert.equal(resultado.length, 2);
+  assert.ok(resultado.every((r) => r.criado_em === '2026-07-31 03:00:00' || r.criado_em === '2026-09-01 02:59:59'));
 });

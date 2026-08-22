@@ -1,29 +1,41 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { useProfile } from '../../context/ProfileContext';
+// PDV e Restaurante ficam com import estático de propósito -- ver o
+// comentário mais abaixo ("sempre montados"): eles entram na árvore desde
+// o primeiro render (só escondidos com CSS), então carregá-los sob
+// demanda não adiaria nada, só acrescentaria uma espera de Suspense sem
+// necessidade na tela que abre primeiro.
 import { POSScreen } from '../pos/POSScreen';
 import { RestaurantScreen } from '../pos/RestaurantScreen';
-import { HistoryScreen } from '../pos/HistoryScreen';
 import { CommandPalette } from './CommandPalette';
 import { KeyboardHelpModal, useKeyboardHelpShortcut } from './KeyboardHelpModal';
-import { ProductsScreen } from '../inventory/ProductsScreen';
-import { SupplyAndSuppliersScreen } from '../inventory/SupplyAndSuppliersScreen';
-import { FinanceiroScreen } from '../inventory/FinanceiroScreen';
-import { StockAlerts } from '../inventory/StockAlerts';
-import { SettingsScreen } from '../settings/SettingsScreen';
-import { UserManagement } from '../users/UserManagement';
-import { Dashboard } from '../pos/Dashboard';
-import { CustomerList } from '../pos/CustomerList';
-import { DeliveryScreen } from '../pos/DeliveryScreen';
-import { BotOrdersScreen } from '../pos/BotOrdersScreen';
-import { KitchenDisplayScreen } from '../pos/KitchenDisplayScreen';
-import { QuotesScreen } from '../pos/QuotesScreen';
-import { AgendaScreen } from '../pos/AgendaScreen';
-import { ReservasScreen } from '../pos/ReservasScreen';
-import { ReturnFlow } from '../pos/ReturnFlow';
 import { Clock } from './Clock';
 import { SwitchUserModal } from '../auth/SwitchUserModal';
+
+// Todas as telas abaixo só entram na árvore quando `screen` vira o id
+// correspondente (ver o <main> mais abaixo) -- carregadas sob demanda com
+// React.lazy() em vez de import estático, pra não fazer todo mundo baixar
+// e parsear o código de ~16 telas (Painel, Configurações, Financeiro,
+// Cozinha, NFC-e...) só pra abrir o PDV, que é a tela que 100% dos
+// usuários veem primeiro. Cada uma vira um chunk separado do Vite.
+const HistoryScreen = lazy(() => import('../pos/HistoryScreen').then((m) => ({ default: m.HistoryScreen })));
+const ProductsScreen = lazy(() => import('../inventory/ProductsScreen').then((m) => ({ default: m.ProductsScreen })));
+const SupplyAndSuppliersScreen = lazy(() => import('../inventory/SupplyAndSuppliersScreen').then((m) => ({ default: m.SupplyAndSuppliersScreen })));
+const FinanceiroScreen = lazy(() => import('../inventory/FinanceiroScreen').then((m) => ({ default: m.FinanceiroScreen })));
+const StockAlerts = lazy(() => import('../inventory/StockAlerts').then((m) => ({ default: m.StockAlerts })));
+const SettingsScreen = lazy(() => import('../settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const UserManagement = lazy(() => import('../users/UserManagement').then((m) => ({ default: m.UserManagement })));
+const Dashboard = lazy(() => import('../pos/Dashboard').then((m) => ({ default: m.Dashboard })));
+const CustomerList = lazy(() => import('../pos/CustomerList').then((m) => ({ default: m.CustomerList })));
+const DeliveryScreen = lazy(() => import('../pos/DeliveryScreen').then((m) => ({ default: m.DeliveryScreen })));
+const BotOrdersScreen = lazy(() => import('../pos/BotOrdersScreen').then((m) => ({ default: m.BotOrdersScreen })));
+const KitchenDisplayScreen = lazy(() => import('../pos/KitchenDisplayScreen').then((m) => ({ default: m.KitchenDisplayScreen })));
+const QuotesScreen = lazy(() => import('../pos/QuotesScreen').then((m) => ({ default: m.QuotesScreen })));
+const AgendaScreen = lazy(() => import('../pos/AgendaScreen').then((m) => ({ default: m.AgendaScreen })));
+const ReservasScreen = lazy(() => import('../pos/ReservasScreen').then((m) => ({ default: m.ReservasScreen })));
+const ReturnFlow = lazy(() => import('../pos/ReturnFlow').then((m) => ({ default: m.ReturnFlow })));
 
 // Seções que já vêm fechadas (em "gaveta") na primeira vez que o app
 // abre — depois disso, a escolha do usuário (aberta/fechada) fica
@@ -357,26 +369,34 @@ export function AppShell() {
         <div style={{ display: screen === 'restaurant' ? 'block' : 'none', height: '100%' }}>
           <RestaurantScreen key={currentUser.id} />
         </div>
-        {screen === 'dashboard' && <Dashboard />}
-        {screen === 'history' && (
-          <HistoryScreen onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
-        )}
-        {screen === 'products' && <ProductsScreen />}
-        {screen === 'supply' && <SupplyAndSuppliersScreen />}
-        {screen === 'financeiro' && <FinanceiroScreen />}
-        {screen === 'customers' && <CustomerList />}
-        {screen === 'delivery' && <DeliveryScreen />}
-        {screen === 'quotes' && <QuotesScreen />}
-        {screen === 'agenda' && <AgendaScreen />}
-        {screen === 'reservations' && <ReservasScreen />}
-        {screen === 'returns' && (
-          <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
-        )}
-        {screen === 'alerts' && <StockAlerts />}
-        {screen === 'settings' && <SettingsScreen />}
-        {screen === 'users' && <UserManagement />}
-        {screen === 'botOrders' && <BotOrdersScreen />}
-        {screen === 'kitchen' && <KitchenDisplayScreen />}
+        {/* Suspense só cobre as telas carregadas sob demanda (ver os
+            React.lazy() no topo do arquivo) -- PDV/Restaurante ficam de
+            fora de propósito, seu import é estático. Fallback bem
+            simples: a troca de aba já é rápida (chunk pequeno, geralmente
+            cacheado pelo navegador depois da primeira vez), não precisa
+            de um spinner elaborado pra um piscar de tela tão curto. */}
+        <Suspense fallback={<div className="screen-hint" style={{ padding: 24 }}>Carregando…</div>}>
+          {screen === 'dashboard' && <Dashboard />}
+          {screen === 'history' && (
+            <HistoryScreen onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
+          )}
+          {screen === 'products' && <ProductsScreen />}
+          {screen === 'supply' && <SupplyAndSuppliersScreen />}
+          {screen === 'financeiro' && <FinanceiroScreen />}
+          {screen === 'customers' && <CustomerList />}
+          {screen === 'delivery' && <DeliveryScreen />}
+          {screen === 'quotes' && <QuotesScreen />}
+          {screen === 'agenda' && <AgendaScreen />}
+          {screen === 'reservations' && <ReservasScreen />}
+          {screen === 'returns' && (
+            <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />
+          )}
+          {screen === 'alerts' && <StockAlerts />}
+          {screen === 'settings' && <SettingsScreen />}
+          {screen === 'users' && <UserManagement />}
+          {screen === 'botOrders' && <BotOrdersScreen />}
+          {screen === 'kitchen' && <KitchenDisplayScreen />}
+        </Suspense>
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
       {keyboardHelp.open && <KeyboardHelpModal onClose={keyboardHelp.close} />}

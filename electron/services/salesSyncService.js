@@ -1,5 +1,6 @@
 const pdvRegistryService = require('./pdvRegistryService');
 const syncStateService = require('./syncStateService');
+const timeService = require('./timeService');
 
 /**
  * `finalizada_em` é gravado em UTC (NOW_SYNCED()) — cortar a string
@@ -76,12 +77,26 @@ async function pushTodoOHistorico({ diasRecentes } = {}) {
 
     const { getDb } = require('../db/database');
     const db = getDb();
+    // Sargable: em vez de embrulhar a coluna em date(s.finalizada_em,
+    // '-3 hours') e compará-la com date('now', ?) (o que forçava
+    // escanear TODA a tabela sales, de todos os locais, em toda
+    // passada do ciclo automático de 15 em 15 min), calcula o corte
+    // como um limite UTC fixo e compara direto -- usa
+    // idx_sales_location_status_finalizada (e, sem filtro de local
+    // aqui, cai pelo menos no idx_sales_finalizada_em). A troca de
+    // "corte baseado no UTC de agora" pra "corte baseado no dia local
+    // de hoje" é inofensiva aqui -- é só uma janela de segurança pra
+    // recuperar sync que falhou há pouco, não um relatório fiscal.
     const vendas = diasRecentes
-      ? db.prepare(
-          `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
-           FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-           WHERE s.status = 'finalizada' AND date(s.finalizada_em, '-3 hours') >= date('now', ?)`
-        ).all(`-${diasRecentes} days`)
+      ? (() => {
+          const dataCorte = timeService.diasAPartirDeHojeLocalISO(-diasRecentes);
+          const { inicioUtc } = timeService.localDateRangeToUtcBounds(dataCorte, dataCorte);
+          return db.prepare(
+            `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
+             FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
+             WHERE s.status = 'finalizada' AND s.finalizada_em >= ?`
+          ).all(inicioUtc);
+        })()
       : db.prepare(
           `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
            FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
@@ -94,17 +109,24 @@ async function pushTodoOHistorico({ diasRecentes } = {}) {
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const { doc, writeBatch } = require('firebase/firestore');
 
+    // Preparadas UMA VEZ fora do loop -- antes, cada uma era recompilada
+    // a cada venda do lote (centenas/milhares de vezes por ciclo), sem
+    // necessidade: better-sqlite3 já cacheia o plano da consulta em
+    // .prepare(), só falta parametrizar com .all(v.id) por venda.
+    const stmtItens = db.prepare(
+      `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
+       JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+    );
+    const stmtMetodos = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?');
+
     // Em lotes de 400 (limite de 500 operações por batch do Firestore,
     // com folga) — um histórico grande não pode estourar isso.
     for (let i = 0; i < vendas.length; i += 400) {
       const lote = vendas.slice(i, i + 400);
       const batch = writeBatch(firestore);
       for (const v of lote) {
-        const itensDetalhados = db.prepare(
-          `SELECT p.nome, si.quantidade, si.preco_unitario FROM sale_items si
-           JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
-        ).all(v.id);
-        const metodosPagamento = db.prepare('SELECT DISTINCT metodo FROM payments WHERE sale_id = ?').all(v.id).map((p) => p.metodo);
+        const itensDetalhados = stmtItens.all(v.id);
+        const metodosPagamento = stmtMetodos.all(v.id).map((p) => p.metodo);
         const diaISO = calcularDiaISO(v.finalizada_em);
         const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', v.id);
         batch.set(ref, {

@@ -3,6 +3,13 @@ const { listSalesByRange } = require('./saleService');
 const authService = require('./authService');
 const supplierService = require('./supplierService');
 const wasteService = require('./wasteService');
+const timeService = require('./timeService');
+// getCustomerPurchaseReport (mais abaixo) usa getDb diretamente -- faltava
+// esse require (bug pré-existente: a função quebrava com "getDb is not
+// defined" toda vez que alguém tentava ver o relatório de compras de um
+// cliente). Corrigido de passagem aqui porque a função já estava sendo
+// editada por causa da otimização do filtro de data logo abaixo.
+const { getDb } = require('../db/database');
 
 const STATUS_LABEL = { aberta: 'Em aberto', finalizada: 'Finalizada', cancelada: 'Cancelada' };
 const TIPO_EVENTO_LABEL = {
@@ -108,10 +115,12 @@ function getCustomerPurchaseReport({ customerId, dataInicio, dataFim }) {
   const cliente = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
   if (!cliente) return { ok: false, error: 'Cliente não encontrado.' };
 
+  // Sargable -- ver o mesmo comentário em dashboardService.js.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   const vendas = db.prepare(
     `SELECT * FROM sales WHERE customer_id = ? AND status = 'finalizada'
-     AND date(finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)`
-  ).all(customerId, dataInicio, dataFim);
+     AND finalizada_em >= ? AND finalizada_em < ?`
+  ).all(customerId, inicioUtc, fimUtcExclusivo);
 
   const totalPedidos = vendas.length;
   const totalGasto = vendas.reduce((acc, v) => acc + v.total, 0);

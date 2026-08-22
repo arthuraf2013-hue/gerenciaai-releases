@@ -1,5 +1,9 @@
 const path = require('path');
-const ExcelJS = require('exceljs');
+// exceljs é uma dependência pesada (só usada nas telas de import/export de
+// planilha) -- carregada sob demanda aqui dentro, não no topo do arquivo,
+// pra não pagar esse custo de startup em todo boot do app quando ninguém
+// usou essa tela ainda (mesma convenção já usada em firebase/baileys, ver
+// comentário equivalente em licenseService.js/whatsappBotService.js).
 
 /**
  * Lê a planilha de um arquivo .xlsx ou .csv como array de objetos —
@@ -11,6 +15,7 @@ const ExcelJS = require('exceljs');
  * como 1535.
  */
 async function readSheetAsRows(filePath, preferSheetName) {
+  const ExcelJS = require('exceljs');
   const workbook = new ExcelJS.Workbook();
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.csv') {
@@ -58,6 +63,7 @@ async function readSheetAsRows(filePath, preferSheetName) {
  * XLSX.utils.json_to_sheet + writeFile.
  */
 async function writeRowsAsSheet(filePath, rows, columns, sheetName = 'Modelo') {
+  const ExcelJS = require('exceljs');
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet(sheetName);
   worksheet.addRow(columns);

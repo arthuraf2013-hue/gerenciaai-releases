@@ -274,6 +274,11 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   sincronizado_em   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_stock_mov_product_loc ON stock_movements(product_id, location_id);
+-- Cobre a previsão de ruptura (stockService.previsaoDeRuptura) e
+-- qualquer outra consulta que soma saídas de venda por local num
+-- intervalo de tempo -- sem isso, esse tipo de consulta teria que
+-- escanear o ledger inteiro (que só cresce, nunca é editado/apagado).
+CREATE INDEX IF NOT EXISTS idx_stock_mov_loc_tipo_criado ON stock_movements(location_id, tipo, criado_em);
 
 CREATE TABLE IF NOT EXISTS sales (
   id            TEXT PRIMARY KEY,
@@ -312,6 +317,21 @@ CREATE TABLE IF NOT EXISTS sales (
 
 CREATE INDEX IF NOT EXISTS idx_sales_location_status_criado ON sales(location_id, status, criado_em);
 CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id);
+-- Cobre o relatório de compras por cliente (reportService.getCustomerPurchaseReport).
+CREATE INDEX IF NOT EXISTS idx_sales_customer_status_finalizada ON sales(customer_id, status, finalizada_em);
+-- Cobre dashboard/relatórios: filtram por local + status='finalizada' +
+-- intervalo de finalizada_em (não criado_em, que o índice acima já cobre).
+CREATE INDEX IF NOT EXISTS idx_sales_location_status_finalizada ON sales(location_id, status, finalizada_em);
+-- Índice de expressão -- cobre os relatórios/histórico que filtram por
+-- "data efetiva da venda" (finalizada_em quando existe, senão criado_em
+-- pra carrinho ainda aberto). Ver timeService.localDateRangeToUtcBounds:
+-- o filtro precisa comparar essa mesma expressão com limites literais
+-- (>=/<), sem embrulhar em date(...), pra poder usar este índice.
+CREATE INDEX IF NOT EXISTS idx_sales_location_data_efetiva ON sales(location_id, COALESCE(finalizada_em, criado_em));
+-- Mesma ideia, só por finalizada_em puro -- cobre consultas (dashboard,
+-- sync, NFC-e) que já sabem que só olham vendas finalizadas e não
+-- precisam do COALESCE com carrinho aberto.
+CREATE INDEX IF NOT EXISTS idx_sales_finalizada_em ON sales(finalizada_em);
 
 CREATE TABLE IF NOT EXISTS sale_items (
   id              TEXT PRIMARY KEY,
@@ -750,6 +770,13 @@ CREATE TABLE IF NOT EXISTS customers (
   reconquista_automatica_enviada_em TEXT,
   criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
+-- Busca exata por telefone (bot do WhatsApp resolve cliente por telefone
+-- a cada mensagem recebida) e por CPF/CNPJ (fiado, nota fiscal) --
+-- não ajuda a busca com LIKE '%...%' da tela de clientes (isso
+-- precisaria de FTS5), mas cobre os lookups exatos, muito mais frequentes.
+CREATE INDEX IF NOT EXISTS idx_customers_telefone ON customers(telefone);
+CREATE INDEX IF NOT EXISTS idx_customers_cpf ON customers(cpf);
+CREATE INDEX IF NOT EXISTS idx_customers_cnpj ON customers(cnpj);
 
 -- Ledger de fiado — mesmo princípio do estoque: nunca edita, só lança
 -- movimento novo. Saldo devedor = SUM(valor) dos movimentos do cliente.
@@ -1050,7 +1077,8 @@ CREATE TABLE IF NOT EXISTS whatsapp_automation_config (
   resumo_diario_ativo             INTEGER NOT NULL DEFAULT 0,
   resumo_diario_hora              TEXT NOT NULL DEFAULT '20:00', -- HH:MM, horário de Brasília
   ultimo_envio_estoque_baixo      TEXT,
-  ultimo_envio_resumo_diario      TEXT
+  ultimo_envio_resumo_diario      TEXT,
+  ultimo_envio_reconquista        TEXT
 );
 
 -- ============================================================
@@ -1085,6 +1113,7 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_vencimento ON expenses(data_vencimento);
 CREATE INDEX IF NOT EXISTS idx_expenses_pagamento ON expenses(data_pagamento);
+CREATE INDEX IF NOT EXISTS idx_expenses_location_criado ON expenses(location_id, criado_em);
 
 -- ============================================================
 -- Devoluções pós-venda — separado do cancelamento (que só existe durante
@@ -1100,6 +1129,7 @@ CREATE TABLE IF NOT EXISTS returns (
   valor_devolvido   REAL NOT NULL DEFAULT 0,
   criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
+CREATE INDEX IF NOT EXISTS idx_returns_location_criado ON returns(location_id, criado_em);
 
 CREATE TABLE IF NOT EXISTS return_items (
   id            TEXT PRIMARY KEY,

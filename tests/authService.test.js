@@ -134,3 +134,23 @@ test('updateSecurityConfig funciona pra admin e o valor realmente muda no banco'
   assert.equal(result.ok, true);
   assert.equal(authService.getSecurityConfig().exigir_autorizacao_cancelamento, 0);
 });
+
+/**
+ * listAuditLog foi reescrita pra usar um filtro sargable em vez de
+ * `date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)` -- trava o
+ * comportamento nas fronteiras do dia local (UTC-3).
+ */
+test('listAuditLog inclui só entradas dentro do intervalo local pedido', () => {
+  const { db, operadorId } = freshTestDb();
+  const inserir = (criadoEm) => db.prepare(
+    `INSERT INTO audit_log (id, tipo_evento, solicitante_id, sucesso, criado_em) VALUES (lower(hex(randomblob(16))), 'cancelamento_venda', ?, 1, ?)`
+  ).run(operadorId, criadoEm);
+
+  inserir('2026-07-31 02:59:59'); // fora (30/07 local)
+  inserir('2026-07-31 03:00:00'); // dentro (31/07 00:00 local)
+  inserir('2026-09-01 02:59:59'); // dentro (31/08 23:59:59 local)
+  inserir('2026-09-01 03:00:00'); // fora (01/09 local)
+
+  const resultado = authService.listAuditLog({ dataInicio: '2026-07-31', dataFim: '2026-08-31' });
+  assert.equal(resultado.length, 2);
+});

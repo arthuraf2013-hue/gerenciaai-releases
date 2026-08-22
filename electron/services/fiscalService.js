@@ -2,6 +2,7 @@ const { randomUUID } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 const secrets = require('./secretsService');
 const { gerarXmlNFCe } = require('./nfceXmlService');
 const { carregarCertificado } = require('./nfceCertificateService');
@@ -516,6 +517,11 @@ function getQrCodeUrlParaNfce(nfce) {
  */
 function livroDeControlados({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  // Sargable -- ver o mesmo comentário em dashboardService.js. O
+  // json_extract continua varrendo linha por linha (não dá pra indexar
+  // sem uma coluna gerada dedicada), mas pelo menos não escaneia mais
+  // TAMBÉM o histórico inteiro de vendas por causa da data.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT s.finalizada_em, si.quantidade, p.nome as produtoNome, p.custom_fields,
        c.nome as clienteNome, c.cpf as clienteCpf, u.nome as operadorNome
@@ -526,9 +532,9 @@ function livroDeControlados({ locationId, dataInicio, dataFim }) {
      LEFT JOIN users u ON u.id = s.operador_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
        AND json_extract(p.custom_fields, '$.controlado') = 1
-       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
+       AND s.finalizada_em >= ? AND s.finalizada_em < ?
      ORDER BY s.finalizada_em`
-  ).all(locationId, dataInicio, dataFim).map((r) => {
+  ).all(locationId, inicioUtc, fimUtcExclusivo).map((r) => {
     const custom = JSON.parse(r.custom_fields || '{}');
     return {
       dataHora: r.finalizada_em, quantidade: r.quantidade, produtoNome: r.produtoNome,

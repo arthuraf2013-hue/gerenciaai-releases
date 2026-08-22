@@ -182,7 +182,7 @@ app.whenReady().then(() => {
   // reserva só é marcada como "lembrete enviado" se o envio realmente
   // funcionar). Também aproveita o mesmo ciclo pra limpar reservas que
   // ficaram "aguardando confirmação" por tempo demais sem resposta.
-  setInterval(() => checarLembretesDeReserva().catch((err) => console.error('[reserva]', err)), 5 * 60 * 1000);
+  setInterval(() => executarSeNaoEstiverRodando('lembretesDeReserva', checarLembretesDeReserva), 5 * 60 * 1000);
 
   // Automações proativas do WhatsApp (reconquista, alerta de estoque,
   // resumo diário) + cupom automático de aniversário — ver
@@ -192,14 +192,14 @@ app.whenReady().then(() => {
   // com essa frequência só deixa o efeito mais perto de imediato assim
   // que a condição vira verdadeira (ex: acabou de bater o horário do
   // resumo diário) sem mandar nada duplicado.
-  setInterval(() => checarAutomacoesWhatsapp().catch((err) => console.error('[automacaoWhatsapp]', err)), 10 * 60 * 1000);
+  setInterval(() => executarSeNaoEstiverRodando('automacoesWhatsapp', checarAutomacoesWhatsapp), 10 * 60 * 1000);
 
   // NFC-e que ficaram 'pendente' (falha de rede na hora de emitir) ou
   // 'contingencia' (emitida offline, tpEmis=9, esperando a SEFAZ
   // voltar) — tenta reenviar a cada 5 min. reenviarNFCe é idempotente
   // o bastante pro caso comum (SEFAZ ainda fora do ar: só volta a
   // falhar e tenta de novo no próximo ciclo, sem duplicar nada).
-  setInterval(() => reenviarPendentesEContingencia().catch((err) => console.error('[fiscalReenvio]', err)), 5 * 60 * 1000);
+  setInterval(() => executarSeNaoEstiverRodando('fiscalReenvio', reenviarPendentesEContingencia), 5 * 60 * 1000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -218,6 +218,24 @@ app.whenReady().then(() => {
   );
   app.quit();
 });
+
+// Cada um desses 3 jobs periódicos faz uma ou mais chamadas assíncronas
+// (rede/WhatsApp, SEFAZ) que podem demorar mais que o próprio intervalo
+// do setInterval em uma máquina lenta ou com internet ruim -- sem essa
+// guarda, uma passada que ainda não terminou se sobrepõe com a próxima,
+// podendo mandar a mesma mensagem duas vezes ou reenviar a mesma NFC-e
+// em paralelo. `jobsEmExecucao` garante que só uma execução de cada job
+// roda por vez; se a anterior ainda não terminou, a nova chamada é
+// simplesmente pulada (a próxima passada do setInterval tenta de novo).
+const jobsEmExecucao = new Set();
+function executarSeNaoEstiverRodando(nomeJob, fn) {
+  if (jobsEmExecucao.has(nomeJob)) return;
+  jobsEmExecucao.add(nomeJob);
+  Promise.resolve()
+    .then(fn)
+    .catch((err) => console.error(`[${nomeJob}]`, err))
+    .finally(() => jobsEmExecucao.delete(nomeJob));
+}
 
 /** Manda o "confirma sua reserva?" pra quem está a ~1h do horário
  * marcado, e limpa reservas que ficaram esperando resposta por tempo

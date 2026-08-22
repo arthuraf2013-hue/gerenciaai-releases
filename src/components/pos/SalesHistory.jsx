@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { usePromptModal } from '../../hooks/usePromptModal';
@@ -232,13 +232,29 @@ export function SalesHistory({ onDevolver }) {
       : result.error);
   }
 
-  const salesFiltradas = clienteSelecionado ? sales.filter((s) => s.customer_id === clienteSelecionado.id) : sales;
-  const pdvsDisponiveis = vendasDoGrupo ? [...new Set(vendasDoGrupo.map((v) => v.locationNome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : [];
-  const vendasDoGrupoFiltradas = !vendasDoGrupo ? [] : filtroPdv === 'todos' ? vendasDoGrupo : vendasDoGrupo.filter((v) => v.locationNome === filtroPdv);
+  // useMemo nos quatro -- sem isso, filtro/Set/sort/reduce rodavam de novo
+  // em TODO re-render desta tela (que é frequente aqui: expandir/recolher
+  // uma linha de venda, o cache de itens/NFC-e chegando, cada tecla no
+  // filtro de cliente...), mesmo quando `sales`/`vendasDoGrupo` não
+  // mudaram nem um pouco.
+  const salesFiltradas = useMemo(
+    () => (clienteSelecionado ? sales.filter((s) => s.customer_id === clienteSelecionado.id) : sales),
+    [sales, clienteSelecionado]
+  );
+  const pdvsDisponiveis = useMemo(
+    () => (vendasDoGrupo ? [...new Set(vendasDoGrupo.map((v) => v.locationNome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : []),
+    [vendasDoGrupo]
+  );
+  const vendasDoGrupoFiltradas = useMemo(
+    () => (!vendasDoGrupo ? [] : filtroPdv === 'todos' ? vendasDoGrupo : vendasDoGrupo.filter((v) => v.locationNome === filtroPdv)),
+    [vendasDoGrupo, filtroPdv]
+  );
 
-  const totalDia = sincronizacaoAtiva
-    ? vendasDoGrupoFiltradas.reduce((acc, v) => acc + (v.total || 0), 0)
-    : salesFiltradas.filter((s) => s.status === 'finalizada').reduce((acc, s) => acc + s.total, 0);
+  const totalDia = useMemo(() => (
+    sincronizacaoAtiva
+      ? vendasDoGrupoFiltradas.reduce((acc, v) => acc + (v.total || 0), 0)
+      : salesFiltradas.filter((s) => s.status === 'finalizada').reduce((acc, s) => acc + s.total, 0)
+  ), [sincronizacaoAtiva, vendasDoGrupoFiltradas, salesFiltradas]);
 
   return (
     <div className="screen">

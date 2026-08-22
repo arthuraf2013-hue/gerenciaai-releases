@@ -205,14 +205,18 @@ function pastasParaEspelhar() {
  * é a parte crítica. NÃO é versionado por backup como o .sqlite3 é
  * (ficaria enorme com fotos repetidas a cada backup diário) -- é
  * sempre um espelho do estado ATUAL, sobrescrito a cada backup novo. */
-function espelharArquivosAdicionais(destinoBase) {
+async function espelharArquivosAdicionais(destinoBase) {
   const avisos = [];
   for (const { nome, origem } of pastasParaEspelhar()) {
     if (!fs.existsSync(origem)) continue; // instalação que nunca usou essa pasta -- normal, não é erro
     try {
       const destino = path.join(destinoBase, nome);
-      fs.rmSync(destino, { recursive: true, force: true });
-      fs.cpSync(origem, destino, { recursive: true });
+      // fs.promises em vez de *Sync -- essas pastas (fotos de produto,
+      // anexos, XMLs de NFC-e) podem crescer bastante, e a versão síncrona
+      // travava a thread principal (e com ela toda a UI do Electron) pelo
+      // tempo inteiro da cópia, toda vez que um backup rodava.
+      await fs.promises.rm(destino, { recursive: true, force: true });
+      await fs.promises.cp(origem, destino, { recursive: true });
     } catch (err) {
       avisos.push(`${nome}: ${err.message}`);
     }
@@ -241,7 +245,7 @@ async function runBackup() {
 
   rotacionarBackupsAntigos();
 
-  const avisosArquivos = espelharArquivosAdicionais(path.join(backupsDir(), 'arquivos'));
+  const avisosArquivos = await espelharArquivosAdicionais(path.join(backupsDir(), 'arquivos'));
 
   // Pasta secundária (opcional) — melhor esforço só. Se não existir, se
   // for um pendrive desconectado, etc., não trava nem marca falha geral.
@@ -251,7 +255,7 @@ async function runBackup() {
     try {
       fs.mkdirSync(config.pasta_secundaria, { recursive: true });
       fs.copyFileSync(destinoPrincipal, path.join(config.pasta_secundaria, nomeArquivo));
-      avisosArquivos.push(...espelharArquivosAdicionais(path.join(config.pasta_secundaria, 'arquivos')));
+      avisosArquivos.push(...(await espelharArquivosAdicionais(path.join(config.pasta_secundaria, 'arquivos'))));
     } catch (err) {
       avisoSecundaria = `Backup local OK, mas falhou copiar para a pasta secundária: ${err.message}`;
     }
@@ -477,7 +481,7 @@ function listBackups() {
  * O app precisa reiniciar depois — quem chama isso é responsável por
  * disparar o reinício (ver handlers.js).
  */
-function restoreBackup(requestingUserId, nomeArquivo) {
+async function restoreBackup(requestingUserId, nomeArquivo) {
   // Restaurar apaga os dados atuais sem volta — mesmo nível de acesso da
   // tela de Configurações que expõe este botão (só admin). Ver
   // authService.requireRole.
@@ -498,7 +502,7 @@ function restoreBackup(requestingUserId, nomeArquivo) {
 
   fs.copyFileSync(backupPath, dbPath);
 
-  const avisosArquivos = restaurarArquivosAdicionaisSeHouver();
+  const avisosArquivos = await restaurarArquivosAdicionaisSeHouver();
   return avisosArquivos.length > 0
     ? { ok: true, avisoArquivos: `Banco restaurado, mas alguns arquivos não: ${avisosArquivos.join('; ')}` }
     : { ok: true };
@@ -511,7 +515,7 @@ function restoreBackup(requestingUserId, nomeArquivo) {
  * simplesmente não têm nada pra restaurar aqui -- não é erro). Melhor
  * esforço, igual o resto do backup: nunca impede a restauração do
  * banco (a parte crítica), que já aconteceu antes desta função rodar. */
-function restaurarArquivosAdicionaisSeHouver() {
+async function restaurarArquivosAdicionaisSeHouver() {
   const origemEspelho = path.join(backupsDir(), 'arquivos');
   if (!fs.existsSync(origemEspelho)) return [];
   const avisos = [];
@@ -519,8 +523,9 @@ function restaurarArquivosAdicionaisSeHouver() {
     const espelhoDaPasta = path.join(origemEspelho, nome);
     if (!fs.existsSync(espelhoDaPasta)) continue;
     try {
-      fs.rmSync(destinoReal, { recursive: true, force: true });
-      fs.cpSync(espelhoDaPasta, destinoReal, { recursive: true });
+      // fs.promises -- ver o mesmo comentário em espelharArquivosAdicionais.
+      await fs.promises.rm(destinoReal, { recursive: true, force: true });
+      await fs.promises.cp(espelhoDaPasta, destinoReal, { recursive: true });
     } catch (err) {
       avisos.push(`${nome}: ${err.message}`);
     }

@@ -1,6 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 const { authorizeManagerOverride } = require('./authService');
+const timeService = require('./timeService');
 
 /** Vendas finalizadas recentes (últimos 60 dias) — para localizar a venda a devolver. */
 function findFinalizedSales({ locationId, query }) {
@@ -111,14 +112,16 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
 
 function listReturns({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  // Sargable -- ver o mesmo comentário em dashboardService.js.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT r.*, u1.nome as operador_nome, u2.nome as autorizado_por_nome
      FROM returns r
      JOIN users u1 ON u1.id = r.operador_id
      JOIN users u2 ON u2.id = r.autorizado_por_id
-     WHERE r.location_id = ? AND date(r.criado_em, '-3 hours') BETWEEN date(?) AND date(?)
+     WHERE r.location_id = ? AND r.criado_em >= ? AND r.criado_em < ?
      ORDER BY r.criado_em DESC`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 }
 
 module.exports = { findFinalizedSales, getSaleItemsForReturn, createReturn, listReturns };

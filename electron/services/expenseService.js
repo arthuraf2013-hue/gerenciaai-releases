@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 
 /** Lança uma despesa nova. Sem data_vencimento, considera já paga na
  * hora (data_pagamento = agora). Com data_vencimento, fica pendente
@@ -37,11 +38,13 @@ function markAsPaid({ expenseId, operadorId }) {
 /** Lista despesas de um período, com filtro opcional por status. */
 function list({ locationId, dataInicio, dataFim, apenasPendentes }) {
   const db = getDb();
+  // Sargable -- ver o mesmo comentário em dashboardService.js.
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   let sql = `
     SELECT e.*, s.nome as fornecedor_nome
     FROM expenses e LEFT JOIN suppliers s ON s.id = e.fornecedor_id
-    WHERE e.location_id = ? AND date(e.criado_em, '-3 hours') >= date(?) AND date(e.criado_em, '-3 hours') <= date(?)`;
-  const params = [locationId, dataInicio, dataFim];
+    WHERE e.location_id = ? AND e.criado_em >= ? AND e.criado_em < ?`;
+  const params = [locationId, inicioUtc, fimUtcExclusivo];
   if (apenasPendentes) sql += ' AND e.data_pagamento IS NULL';
   sql += ' ORDER BY COALESCE(e.data_vencimento, e.criado_em)';
   return db.prepare(sql).all(...params);

@@ -1,18 +1,36 @@
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 
+/**
+ * Todas as consultas deste arquivo filtram por um intervalo de datas
+ * LOCAIS (Brasil). Antes, cada uma embrulhava a coluna em
+ * `date(col, '-3 hours')` pra comparar com o intervalo pedido — o que
+ * IMPEDE o SQLite de usar qualquer índice na coluna (a função esconde a
+ * coluna original), forçando escanear TODA a tabela de vendas do local
+ * toda vez que o Dashboard abre. Convertendo o INTERVALO pedido pros
+ * limites UTC equivalentes (uma vez, em JS) em vez de converter a
+ * coluna (linha por linha, no SQLite), o filtro fica sargable — ver
+ * timeService.localDateRangeToUtcBounds pra mais detalhes e os índices
+ * idx_sales_location_status_finalizada / idx_sales_location_data_efetiva
+ * em schema.sql.
+ */
 function getSummary({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
 
   const totais = db.prepare(
     `SELECT COUNT(*) as totalVendas, COALESCE(SUM(total - desconto - desconto_gerente), 0) as totalFaturado
-     FROM sales WHERE location_id = ? AND status = 'finalizada' AND date(finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)`
-  ).get(locationId, dataInicio, dataFim);
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo);
 
+  // O GROUP BY continua precisando do `date(finalizada_em, '-3 hours')`
+  // como RÓTULO de cada dia (isso é exibição, não filtro) — só o WHERE
+  // que precisava ficar sargable.
   const vendasPorDia = db.prepare(
     `SELECT date(finalizada_em, '-3 hours') as dia, COALESCE(SUM(total - desconto - desconto_gerente), 0) as total
-     FROM sales WHERE location_id = ? AND status = 'finalizada' AND date(finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?
      GROUP BY dia ORDER BY dia`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   const topProdutos = db.prepare(
     `SELECT p.nome, SUM(si.quantidade) as quantidade, SUM(si.quantidade * si.preco_unitario) as valorTotal
@@ -20,16 +38,16 @@ function getSummary({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
+       AND s.finalizada_em >= ? AND s.finalizada_em < ?
      GROUP BY si.product_id
      ORDER BY quantidade DESC
      LIMIT 8`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   const devolucoes = db.prepare(
     `SELECT COUNT(*) as total, COALESCE(SUM(valor_devolvido), 0) as valor
-     FROM returns WHERE location_id = ? AND date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)`
-  ).get(locationId, dataInicio, dataFim);
+     FROM returns WHERE location_id = ? AND criado_em >= ? AND criado_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo);
 
   // Lucro estimado — usa o CUSTO ATUAL do produto (products.custo), não
   // o custo histórico de quando a venda aconteceu (o sistema não guarda
@@ -43,8 +61,8 @@ function getSummary({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)`
-  ).get(locationId, dataInicio, dataFim);
+       AND s.finalizada_em >= ? AND s.finalizada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo);
 
   const margemPorProduto = db.prepare(
     `SELECT p.nome,
@@ -55,12 +73,12 @@ function getSummary({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em, '-3 hours') BETWEEN date(?) AND date(?)
+       AND s.finalizada_em >= ? AND s.finalizada_em < ?
      GROUP BY si.product_id
      HAVING valorVendido > 0
      ORDER BY (valorVendido - custoEstimado) DESC
      LIMIT 8`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   return {
     totalVendas: totais.totalVendas,
@@ -102,13 +120,14 @@ function listStaleProducts({ locationId, dias = 30 }) {
  * gorjeta. Só conta vendas finalizadas (não abertas nem canceladas). */
 function getSalesByOperator({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   return db.prepare(
     `SELECT u.nome as operador, COUNT(*) as total_vendas, COALESCE(SUM(s.total), 0) as total_vendido
      FROM sales s JOIN users u ON u.id = s.operador_id
      WHERE s.location_id = ? AND s.status = 'finalizada'
-       AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') BETWEEN date(?) AND date(?)
+       AND COALESCE(s.finalizada_em, s.criado_em) >= ? AND COALESCE(s.finalizada_em, s.criado_em) < ?
      GROUP BY s.operador_id ORDER BY total_vendido DESC`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 }
 
 /**
@@ -119,6 +138,7 @@ function getSalesByOperator({ locationId, dataInicio, dataFim }) {
  */
 function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
 
   const produtos = db.prepare(
     `SELECT p.nome, p.categoria,
@@ -131,10 +151,10 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(COALESCE(s.finalizada_em, s.criado_em), '-3 hours') BETWEEN date(?) AND date(?)
+       AND COALESCE(s.finalizada_em, s.criado_em) >= ? AND COALESCE(s.finalizada_em, s.criado_em) < ?
      GROUP BY p.id
      ORDER BY lucro DESC`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   // Horário de maior movimento — calculado no fuso de São Paulo
   // (mesmo padrão usado em todo o resto do app pra exibir horário),
@@ -142,8 +162,8 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
   const timestampsBrutos = db.prepare(
     `SELECT COALESCE(finalizada_em, criado_em) as quando FROM sales
      WHERE location_id = ? AND status = 'finalizada'
-       AND date(COALESCE(finalizada_em, criado_em), '-3 hours') BETWEEN date(?) AND date(?)`
-  ).all(locationId, dataInicio, dataFim);
+       AND COALESCE(finalizada_em, criado_em) >= ? AND COALESCE(finalizada_em, criado_em) < ?`
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   const contagemPorHora = new Array(24).fill(0);
   const formatador = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hour: '2-digit', hour12: false });
@@ -175,12 +195,13 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
  */
 function getResultadoSimples({ locationId, dataInicio, dataFim }) {
   const db = getDb();
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
 
   const receita = db.prepare(
     `SELECT COALESCE(SUM(total - desconto - desconto_gerente), 0) as total
      FROM sales WHERE location_id = ? AND status = 'finalizada'
-       AND date(finalizada_em, '-3 hours') >= date(?) AND date(finalizada_em, '-3 hours') <= date(?)`
-  ).get(locationId, dataInicio, dataFim).total;
+       AND finalizada_em >= ? AND finalizada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).total;
 
   const custoProdutos = db.prepare(
     `SELECT COALESCE(SUM(si.quantidade * COALESCE(p.custo, 0)), 0) as total
@@ -188,19 +209,19 @@ function getResultadoSimples({ locationId, dataInicio, dataFim }) {
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
-       AND date(s.finalizada_em, '-3 hours') >= date(?) AND date(s.finalizada_em, '-3 hours') <= date(?)`
-  ).get(locationId, dataInicio, dataFim).total;
+       AND s.finalizada_em >= ? AND s.finalizada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).total;
 
   const despesas = db.prepare(
     `SELECT COALESCE(SUM(valor), 0) as total FROM expenses
-     WHERE location_id = ? AND date(criado_em, '-3 hours') >= date(?) AND date(criado_em, '-3 hours') <= date(?)`
-  ).get(locationId, dataInicio, dataFim).total;
+     WHERE location_id = ? AND criado_em >= ? AND criado_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).total;
 
   const despesasPorCategoria = db.prepare(
     `SELECT categoria, COALESCE(SUM(valor), 0) as total FROM expenses
-     WHERE location_id = ? AND date(criado_em, '-3 hours') >= date(?) AND date(criado_em, '-3 hours') <= date(?)
+     WHERE location_id = ? AND criado_em >= ? AND criado_em < ?
      GROUP BY categoria ORDER BY total DESC`
-  ).all(locationId, dataInicio, dataFim);
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   return {
     receita, custoProdutos, despesas,

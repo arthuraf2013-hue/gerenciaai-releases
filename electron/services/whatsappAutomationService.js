@@ -78,7 +78,15 @@ async function executarCupomAniversario() {
 /** Reconquista automática — mesma lista de "clientes que sumiram" já
  * usada pela tela manual, com cooldown por cliente pra não repetir a
  * mensagem toda vez que o poller passar (ver
- * customerService.listClientesQueSumiramParaAutomacao). */
+ * customerService.listClientesQueSumiramParaAutomacao).
+ *
+ * Roda no máximo uma vez por dia (ver ultimo_envio_reconquista), mesma
+ * guarda das outras duas automações abaixo -- antes disso, a consulta de
+ * "quem sumiu" (que varre customers/sales inteiro) rodava do zero a cada
+ * 10 minutos, o dia inteiro, sem necessidade: o cooldown por cliente já
+ * impedia mensagem duplicada, mas não evitava o CUSTO de recalcular a
+ * lista sem parar. Cliente que "sumiu" (semanas sem comprar) não perde
+ * nada relevante esperando até 24h a mais pra receber o aviso. */
 async function executarReconquistaAutomatica() {
   const customerService = require('./customerService');
   const whatsappBotService = require('./whatsappBotService');
@@ -86,6 +94,9 @@ async function executarReconquistaAutomatica() {
   const config = getConfig();
   if (!config.reconquista_automatica_ativa) return;
   if (whatsappBotService.getStatus().status !== 'conectado') return;
+
+  const hoje = timeService.hojeLocalISO();
+  if (config.ultimo_envio_reconquista === hoje) return;
 
   const sumidos = customerService.listClientesQueSumiramParaAutomacao();
   for (const cliente of sumidos) {
@@ -97,6 +108,7 @@ async function executarReconquistaAutomatica() {
       console.error('[whatsappAutomationService] falha ao mandar reconquista automática', cliente.id, resultado.error);
     }
   }
+  marcarEnvioHoje('ultimo_envio_reconquista', hoje);
 }
 
 /** Alerta de estoque baixo pro telefone do dono — roda no máximo uma

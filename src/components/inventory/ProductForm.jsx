@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import JsBarcode from 'jsbarcode';
 import { useProfile } from '../../context/ProfileContext';
 import { useSession } from '../../context/SessionContext';
 
@@ -39,8 +38,14 @@ export function ProductForm({ product, onSaved, onCancel }) {
     setField('codigoBarras', result.codigoBarras);
   }
 
-  function handleImprimirEtiqueta() {
+  async function handleImprimirEtiqueta() {
     if (!barcodeCanvasRef.current || !form.codigoBarras) return;
+    // jsbarcode só é usado aqui, num clique explícito de "imprimir
+    // etiqueta" -- import dinâmico em vez de estático no topo do arquivo,
+    // pra não fazer TODO formulário de produto (aberto o tempo inteiro,
+    // é a tela mais usada do catálogo) baixar essa biblioteca antes de
+    // alguém realmente clicar em imprimir etiqueta.
+    const { default: JsBarcode } = await import('jsbarcode');
     JsBarcode(barcodeCanvasRef.current, form.codigoBarras, { format: 'CODE128', displayValue: false, margin: 0, height: 60 });
     const dataUrl = barcodeCanvasRef.current.toDataURL('image/png');
     window.pdv.print.label({

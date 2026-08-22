@@ -37,6 +37,18 @@ function getDb() {
 
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL'); // melhor para escrita concorrente PDV + sync em background
+  // Com WAL, 'NORMAL' já garante durabilidade contra crash do processo
+  // (o cenário real que importa aqui) -- só uma queda de energia no
+  // meio de um checkpoint poderia perder as últimas transações, o que
+  // 'FULL' evitaria ao custo de um fsync extra em toda transação. Troca
+  // que vale a pena: escrita bem mais rápida (cada venda, cada
+  // movimento de estoque) num app de PDV que já não é single-user.
+  db.pragma('synchronous = NORMAL');
+  // Cache maior e mmap ajudam consultas de relatório/dashboard que
+  // varrem tabelas grandes (sales, audit_log) -- padrão do SQLite é
+  // conservador demais pro tamanho que esse banco cresce com o tempo.
+  db.pragma('cache_size = -20000'); // ~20MB de cache de páginas (negativo = KB)
+  db.pragma('mmap_size = 268435456'); // 256MB
   db.pragma('foreign_keys = ON');
 
   // Toda vez que o schema usa NOW_SYNCED() (no lugar de datetime('now')),
@@ -125,6 +137,12 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'backup_config', 'conta_google_email', 'TEXT');
   adicionarColunaSeFaltando(database, 'forced_update_state', 'versao_minima_override', 'TEXT');
   adicionarColunaSeFaltando(database, 'forced_update_state', 'override_ativo', 'INTEGER NOT NULL DEFAULT 0');
+  // Guarda diária da reconquista automática (ver whatsappAutomationService.js)
+  // -- antes disso, a lista de "clientes que sumiram" era recalculada do
+  // zero a cada 10 minutos, o dia inteiro, mesmo sabendo que o cooldown por
+  // cliente já impedia reenviar mensagem duplicada. Uma vez por dia é mais
+  // que suficiente pra esse tipo de aviso (cliente sumido há semanas).
+  adicionarColunaSeFaltando(database, 'whatsapp_automation_config', 'ultimo_envio_reconquista', 'TEXT');
 
   // Cupom automático de aniversário (ver customerService.js / loyalty_config).
   adicionarColunaSeFaltando(database, 'customers', 'data_nascimento', 'TEXT');
@@ -149,9 +167,21 @@ function migrateColumnsIfNeeded(database) {
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
   // o código pra sempre, invisíveis na busca mas bloqueando qualquer
   // outro produto de usar o mesmo código. Libera de uma vez só.
-  database.prepare(
-    `UPDATE products SET codigo_barras = NULL, sku = NULL WHERE ativo = 0 AND (codigo_barras IS NOT NULL OR sku IS NOT NULL)`
-  ).run();
+  //
+  // Marcado como já aplicada via PRAGMA user_version (bit 1) -- sem
+  // isso, essa UPDATE varria a tabela products inteira TODA VEZ que o
+  // app abria, pra sempre, mesmo já não tendo mais nenhum produto pra
+  // corrigir há muito tempo (a causa raiz -- exclusão não liberava o
+  // código -- já foi corrigida no fluxo normal). Nenhum outro lugar do
+  // app usa user_version, então o bit 1 fica livre pra essa marcação.
+  const CORRECAO_CODIGO_BARRAS_APLICADA = 1;
+  const versaoAtual = database.pragma('user_version', { simple: true });
+  if ((versaoAtual & CORRECAO_CODIGO_BARRAS_APLICADA) === 0) {
+    database.prepare(
+      `UPDATE products SET codigo_barras = NULL, sku = NULL WHERE ativo = 0 AND (codigo_barras IS NOT NULL OR sku IS NOT NULL)`
+    ).run();
+    database.pragma(`user_version = ${versaoAtual | CORRECAO_CODIGO_BARRAS_APLICADA}`);
+  }
 }
 
 function seedIfEmpty(database) {
