@@ -159,6 +159,7 @@
       <a href="?tela=sincronizacao" data-tela="sincronizacao" class="setor-link">🔗 Sincronização</a>
       <a href="?tela=backups" data-tela="backups" class="setor-link">🗄 Backups</a>
       <a href="?tela=cofre" data-tela="cofre" class="setor-link">🔒 Cofre</a>
+      <a href="?tela=auditoria" data-tela="auditoria" class="setor-link">🕐 Auditoria</a>
     </nav>
     <p class="cliente-resumo" style="margin: -6px 0 18px;">
       Clique num setor pra trocar de tela aqui mesmo. Ctrl+clique (⌘+clique no Mac) ou clique com o
@@ -372,6 +373,18 @@
         </div>
       </div>
     </div>
+
+    <div id="secao-auditoria" style="display:none;">
+      <div id="auditoria-card" class="card" style="margin-bottom: 20px;">
+        <h2>Últimas ações</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Registro automático das ações que afetam máquinas de cliente na hora (congelar, bloquear,
+          restaurar backup, publicar/desativar atualização obrigatória) — pra saber depois o que foi
+          feito e quando, caso algo pareça errado. Mostra as 50 mais recentes.
+        </p>
+        <div id="auditoria-conteudo"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -455,8 +468,8 @@
     getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
   import {
-    getFirestore, collection, onSnapshot, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc,
-    writeBatch, query, orderBy, serverTimestamp,
+    getFirestore, collection, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
+    writeBatch, query, orderBy, where, limit, serverTimestamp,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
 
   const app = initializeApp(firebaseConfig);
@@ -497,7 +510,14 @@
   // sessão do Firebase Auth fica salva no navegador); Ctrl+clique/
   // clique do meio abre numa aba nova, com o comportamento nativo do
   // navegador, sem eu precisar simular nada com window.open.
-  const SETORES_VALIDOS = ['painel', 'metricas', 'erros', 'mensagem', 'atualizacao', 'sincronizacao', 'backups', 'cofre'];
+  const SETORES_VALIDOS = ['painel', 'metricas', 'erros', 'mensagem', 'atualizacao', 'sincronizacao', 'backups', 'cofre', 'auditoria'];
+  // Telas que não precisam de 'installations'/'clientes' pra nada — evita
+  // abrir esses dois listeners (e baixar as coleções inteiras) em telas
+  // que não usam essa informação. Como cada tela já é uma página própria
+  // (recarrega tudo ao trocar, ver comentário da navegação acima), não
+  // existe custo de "trocar de tela sem esses dados" -- a página recarrega
+  // e busca de novo se for pra uma tela que precisa.
+  const TELAS_SEM_INSTALACOES_E_CLIENTES = ['mensagem', 'atualizacao'];
   const TELA_ATUAL = (() => {
     const pedida = new URLSearchParams(location.search).get('tela');
     return SETORES_VALIDOS.includes(pedida) ? pedida : 'painel';
@@ -544,6 +564,7 @@
   let mensagemConfig = null;
   let errosReportados = [];
   let gruposSincronizacao = [];
+  let acoesLog = [];
   const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
   let instalacaoParaVincular = null;
 
@@ -602,65 +623,138 @@
   }
 
   function escutarDados() {
-    onSnapshot(
-      query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
-      (snap) => {
-        const novasInstalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        const precisaCompleto = precisaRenderCompleto(instalacoes, novasInstalacoes);
-        instalacoes = novasInstalacoes;
-        if (precisaCompleto) {
+    // 'installations' e 'clientes' alimentam quase toda tela (painel,
+    // métricas, erros, sincronização, backups, cofre) -- só mensagem e
+    // atualização não usam nada disso. Não abrir esses dois listeners
+    // (nem baixar as coleções inteiras) nessas duas telas economiza
+    // leitura/banda à toa, especialmente conforme a base de clientes cresce.
+    if (!TELAS_SEM_INSTALACOES_E_CLIENTES.includes(TELA_ATUAL)) {
+      onSnapshot(
+        query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
+        (snap) => {
+          const novasInstalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          const precisaCompleto = precisaRenderCompleto(instalacoes, novasInstalacoes);
+          instalacoes = novasInstalacoes;
+          if (precisaCompleto) {
+            render();
+          } else {
+            // Só presença mudou — atualiza os pontos/resumos sem tocar
+            // no resto do DOM, preservando o que alguém esteja digitando.
+            renderMetricas();
+            renderAlertaSumidas();
+            atualizarSinaisOnline();
+          }
+          atualizarSecaoBackupsSeAtiva();
+        },
+        (err) => mostrarErro(err, 'carregar as instalações')
+      );
+      onSnapshot(
+        query(collection(db, 'clientes'), orderBy('nome')),
+        (snap) => {
+          clientes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
           render();
-        } else {
-          // Só presença mudou — atualiza os pontos/resumos sem tocar
-          // no resto do DOM, preservando o que alguém esteja digitando.
-          renderMetricas();
-          renderAlertaSumidas();
-          atualizarSinaisOnline();
-        }
-        atualizarSecaoBackupsSeAtiva();
-      },
-      (err) => mostrarErro(err, 'carregar as instalações')
-    );
-    onSnapshot(
-      query(collection(db, 'clientes'), orderBy('nome')),
-      (snap) => {
-        clientes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        render();
-      },
-      (err) => mostrarErro(err, 'carregar os clientes')
-    );
-    onSnapshot(
-      doc(db, 'config', 'atualizacao'),
-      (snap) => {
-        atualizacaoConfig = snap.exists() ? snap.data() : null;
-        renderStatusAtualizacao();
-      },
-      (err) => mostrarErro(err, 'carregar a config de atualização')
-    );
-    onSnapshot(
-      doc(db, 'config', 'mensagem'),
-      (snap) => {
-        mensagemConfig = snap.exists() ? snap.data() : null;
-        renderStatusMensagem();
-      },
-      (err) => mostrarErro(err, 'carregar a mensagem publicada')
-    );
-    onSnapshot(
-      query(collection(db, 'erros_reportados'), orderBy('criadoEm', 'desc')),
-      (snap) => {
-        errosReportados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        renderErros();
-      },
-      (err) => mostrarErro(err, 'carregar os erros reportados')
-    );
-    onSnapshot(
-      query(collection(db, 'grupos_sincronizacao'), orderBy('nome')),
-      (snap) => {
-        gruposSincronizacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        renderGrupos();
-      },
-      (err) => mostrarErro(err, 'carregar os grupos de sincronização')
-    );
+        },
+        (err) => mostrarErro(err, 'carregar os clientes')
+      );
+    }
+    if (TELA_ATUAL === 'atualizacao') {
+      onSnapshot(
+        doc(db, 'config', 'atualizacao'),
+        (snap) => {
+          atualizacaoConfig = snap.exists() ? snap.data() : null;
+          renderStatusAtualizacao();
+        },
+        (err) => mostrarErro(err, 'carregar a config de atualização')
+      );
+    }
+    if (TELA_ATUAL === 'mensagem') {
+      onSnapshot(
+        doc(db, 'config', 'mensagem'),
+        (snap) => {
+          mensagemConfig = snap.exists() ? snap.data() : null;
+          renderStatusMensagem();
+        },
+        (err) => mostrarErro(err, 'carregar a mensagem publicada')
+      );
+    }
+    if (TELA_ATUAL === 'erros') {
+      // limit(50) porque a tela só mostra as 50 mais recentes -- sem
+      // isso, TODO o histórico de erros já registrado é baixado (e fica
+      // em escuta em tempo real) só pra exibir 50. Some com a purga
+      // abaixo pra também não crescer pra sempre no Firestore.
+      onSnapshot(
+        query(collection(db, 'erros_reportados'), orderBy('criadoEm', 'desc'), limit(50)),
+        (snap) => {
+          errosReportados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          renderErros();
+        },
+        (err) => mostrarErro(err, 'carregar os erros reportados')
+      );
+      purgarErrosAntigos();
+    }
+    if (TELA_ATUAL === 'sincronizacao') {
+      onSnapshot(
+        query(collection(db, 'grupos_sincronizacao'), orderBy('nome')),
+        (snap) => {
+          gruposSincronizacao = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          renderGrupos();
+        },
+        (err) => mostrarErro(err, 'carregar os grupos de sincronização')
+      );
+    }
+    if (TELA_ATUAL === 'auditoria') {
+      onSnapshot(
+        query(collection(db, 'acoes_log'), orderBy('criadoEm', 'desc'), limit(50)),
+        (snap) => {
+          acoesLog = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          renderAuditoria();
+        },
+        (err) => mostrarErro(err, 'carregar o registro de ações')
+      );
+    }
+  }
+
+  /**
+   * Registro de auditoria — grava quem fez o quê e quando pras ações que
+   * afetam máquinas de cliente na hora (bloquear, congelar, restaurar
+   * backup remoto, atualização obrigatória). Não existia nenhum rastro
+   * dessas ações antes; se uma delas for feita sem querer (ex: restaurar
+   * o backup errado), não tinha como saber depois o que aconteceu.
+   * Nunca deve travar a ação principal — se o log falhar, só avisa no
+   * console e segue o fluxo normalmente.
+   */
+  async function registrarAcao(acao, detalhes) {
+    try {
+      await addDoc(collection(db, 'acoes_log'), {
+        acao,
+        detalhes: detalhes || null,
+        autorEmail: auth.currentUser?.email || null,
+        criadoEm: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('[auditoria] falha ao registrar ação', err);
+    }
+  }
+
+  const DIAS_RETENCAO_ERROS = 30;
+
+  /**
+   * Apaga erros reportados com mais de 30 dias -- roda uma vez sempre que
+   * a tela de Erros é aberta (não a cada atualização em tempo real).
+   * Antes, erros além dos 50 mais recentes exibidos ficavam acumulados
+   * pra sempre no Firestore, sem nenhuma forma de revisar ou limpar.
+   */
+  async function purgarErrosAntigos() {
+    try {
+      const limiteData = new Date(Date.now() - DIAS_RETENCAO_ERROS * 86400000);
+      const snap = await getDocs(query(collection(db, 'erros_reportados'), where('criadoEm', '<', limiteData)));
+      if (snap.empty) return;
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    } catch (err) {
+      console.error('[erros] falha ao limpar erros antigos', err);
+    }
   }
 
   function diasAtras(timestamp) {
@@ -671,6 +765,24 @@
   function minutosAtras(timestamp) {
     if (!timestamp) return null;
     return (Date.now() - timestamp.toDate().getTime()) / 60000;
+  }
+
+  /**
+   * Sinal mais recente entre o ping de presença (ultimoPing, a cada
+   * 2min) e o contato de sincronização de dados (ultimoContato) --
+   * antes, o pontinho online (que prioriza ultimoPing) e o texto "sem
+   * contato há Xd"/banner de sumidas (que olhavam só ultimoContato)
+   * podiam discordar: uma máquina mandando ping normalmente mas sem
+   * sincronizar dados há dias aparecia com bolinha verde "online" E ao
+   * mesmo tempo como "sumida". Usar o mais recente dos dois sinais nos
+   * cálculos de dias-sem-contato resolve essa contradição.
+   */
+  function ultimoSinalTimestamp(inst) {
+    const ping = inst.ultimoPing;
+    const contato = inst.ultimoContato;
+    if (!ping) return contato || null;
+    if (!contato) return ping;
+    return ping.toMillis() >= contato.toMillis() ? ping : contato;
   }
 
   // Considera "online" se o ping de presença chegou nos últimos 3min
@@ -719,7 +831,7 @@
   }
 
   function statusDaInstalacao(inst) {
-    const dias = diasAtras(inst.ultimoContato);
+    const dias = diasAtras(ultimoSinalTimestamp(inst));
     const semContatoHaTempo = dias !== null && dias >= 2;
     if (inst.bloqueioImediato) return { texto: 'Bloqueada', classe: 'status-bloqueio-imediato' };
     if (!inst.ativo) return { texto: 'Congelada', classe: 'status-inativa' };
@@ -739,7 +851,7 @@
     const div = document.getElementById('alerta-sumidas');
     const sumidas = instalacoes
       .filter((i) => !i.bloqueioImediato && i.ativo !== false)
-      .map((i) => ({ inst: i, dias: diasAtras(i.ultimoContato) }))
+      .map((i) => ({ inst: i, dias: diasAtras(ultimoSinalTimestamp(i)) }))
       .filter((x) => x.dias !== null && x.dias >= 2)
       .sort((a, b) => b.dias - a.dias);
 
@@ -762,6 +874,7 @@
     limparErro();
     try {
       await updateDoc(doc(db, 'installations', id), { ativo: !ativoAtual });
+      registrarAcao(ativoAtual ? 'congelar' : 'reativar', { installationId: id });
     } catch (err) {
       mostrarErro(err, acao);
     }
@@ -784,6 +897,7 @@
       if (!bloqueadoAtual) dados.motivoBloqueio = motivoBloqueio;
       else dados.motivoBloqueio = null; // limpa o motivo ao desbloquear
       await updateDoc(doc(db, 'installations', id), dados);
+      registrarAcao(bloqueadoAtual ? 'desbloquear' : 'bloquear', { installationId: id, motivoBloqueio: dados.motivoBloqueio || null });
     } catch (err) {
       mostrarErro(err, bloqueadoAtual ? 'desbloquear' : 'bloquear');
     }
@@ -904,6 +1018,7 @@
         batch.update(doc(db, 'installations', m.id), { bloqueioImediato: true, motivoBloqueio });
       }
       await batch.commit();
+      registrarAcao('bloquear_cliente_inteiro', { clienteId, qtdMaquinas: qtd, motivoBloqueio });
     } catch (err) {
       mostrarErro(err, 'bloquear as máquinas desse cliente');
     }
@@ -918,6 +1033,7 @@
         batch.update(doc(db, 'installations', m.id), { bloqueioImediato: false, ativo: true, motivoBloqueio: null });
       }
       await batch.commit();
+      registrarAcao('reativar_cliente_inteiro', { clienteId, qtdMaquinas: maquinasDoCliente.length });
     } catch (err) {
       mostrarErro(err, 'reativar as máquinas desse cliente');
     }
@@ -1013,6 +1129,47 @@
     div.querySelectorAll('[data-apagar-erro]').forEach((btn) => {
       btn.addEventListener('click', () => apagarErro(btn.dataset.apagarErro));
     });
+  }
+
+  // --- Auditoria (registro de ações destrutivas) ---
+
+  const ROTULOS_ACAO = {
+    congelar: 'Congelou instalação',
+    reativar: 'Reativou instalação',
+    bloquear: 'Bloqueou instalação (imediato)',
+    desbloquear: 'Desbloqueou instalação',
+    bloquear_cliente_inteiro: 'Bloqueou TODAS as máquinas de um cliente',
+    reativar_cliente_inteiro: 'Reativou TODAS as máquinas de um cliente',
+    restaurar_backup_remoto: 'Pediu restauração remota de backup',
+    publicar_atualizacao_obrigatoria: 'Publicou atualização obrigatória',
+    desativar_atualizacao_obrigatoria: 'Desativou atualização obrigatória',
+  };
+
+  function renderAuditoria() {
+    const div = document.getElementById('auditoria-conteudo');
+    if (acoesLog.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhuma ação registrada ainda.</p>';
+      return;
+    }
+    div.innerHTML = acoesLog.map((a) => {
+      const detalhesTexto = a.detalhes
+        ? Object.entries(a.detalhes)
+          .filter(([, v]) => v !== null && v !== undefined && v !== '')
+          .map(([k, v]) => {
+            if (k === 'installationId') return nomeDoCliente(v);
+            if (k === 'clienteId') return clientes.find((c) => c.id === v)?.nome || v;
+            return `${k}: ${v}`;
+          })
+          .join(' · ')
+        : '';
+      return `
+        <div class="erro-row" style="border-left-color: var(--primary);">
+          <div class="erro-meta">${formatarData(a.criadoEm)} ${a.autorEmail ? `· ${escapeHtml(a.autorEmail)}` : ''}</div>
+          <div class="erro-mensagem">${escapeHtml(ROTULOS_ACAO[a.acao] || a.acao)}</div>
+          ${detalhesTexto ? `<div class="erro-stack" style="font-family:inherit;">${escapeHtml(detalhesTexto)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
   }
 
   // --- Mensagem global (feriados/avisos) ---
@@ -1293,6 +1450,7 @@
           solicitadoEmMs: Date.now(),
         },
       });
+      registrarAcao('restaurar_backup_remoto', { installationId: instalacaoId, nomeArquivo: backup.nomeArquivo });
     } catch (err) {
       mostrarErro(err, 'pedir a restauração remota');
     }
@@ -1893,6 +2051,7 @@
       await setDoc(doc(db, 'config', 'atualizacao'), {
         versaoMinimaExigida: versao, obrigatoria: true, publicadoEm: serverTimestamp(),
       });
+      registrarAcao('publicar_atualizacao_obrigatoria', { versao });
       document.getElementById('atualizacao-versao-input').value = '';
     } catch (err) {
       mostrarErro(err, 'publicar a atualização');
@@ -1904,6 +2063,7 @@
     limparErro();
     try {
       await setDoc(doc(db, 'config', 'atualizacao'), { obrigatoria: false }, { merge: true });
+      registrarAcao('desativar_atualizacao_obrigatoria', null);
     } catch (err) {
       mostrarErro(err, 'desativar a atualização obrigatória');
     }
