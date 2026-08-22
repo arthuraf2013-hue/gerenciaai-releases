@@ -1,5 +1,18 @@
-const { autoUpdater } = require('electron-updater');
+const fs = require('fs');
+const path = require('path');
 const { getDb } = require('../db/database');
+
+// electron-updater é carregado sob demanda (dentro de cada função que
+// precisa dele), não no topo do arquivo -- fora do Electron de verdade
+// (rodando os testes com `node --test`, por exemplo), o getter interno
+// do autoUpdater tenta construir um updater específico da plataforma
+// (ex: AppImageUpdater no Linux) que já lê `app.getVersion()` direto no
+// construtor, e derruba o `require` do módulo inteiro nesse ambiente.
+// Isso também é o que permite testar o marcador de atualização pendente
+// (ver mais abaixo) sem precisar simular o Electron inteiro.
+function obterAutoUpdater() {
+  return require('electron-updater').autoUpdater;
+}
 
 let status = {
   checking: false,
@@ -23,6 +36,7 @@ function setupAutoUpdater() {
   // o progresso e tem um botão "instalar agora" pra quem não quiser
   // esperar o próximo fechamento natural, mas isso é opcional, não
   // obrigatório.
+  const autoUpdater = obterAutoUpdater();
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   status.versaoAtual = require('electron').app.getVersion();
@@ -43,6 +57,11 @@ function setupAutoUpdater() {
   autoUpdater.on('update-downloaded', () => {
     status = { ...status, baixando: false, baixado: true, progresso: 100 };
     reportarProgressoNoFirestore().catch(() => {});
+    // Grava o marcador AQUI (não só no clique de "instalar agora") porque
+    // é o ponto que cobre os dois jeitos da atualização ser aplicada: o
+    // clique manual e o automático via autoInstallOnAppQuit (que roda
+    // sozinho quando o app fecha, sem passar por quitAndInstall() daqui).
+    marcarAtualizacaoPendente(status.versaoDisponivel);
   });
   autoUpdater.on('error', (err) => {
     // Erro mais comum aqui: o publish do package.json ainda não foi
@@ -55,7 +74,7 @@ function setupAutoUpdater() {
 
 function checkForUpdates() {
   status = { ...status, erro: null };
-  autoUpdater.checkForUpdates().catch((err) => {
+  obterAutoUpdater().checkForUpdates().catch((err) => {
     status = { ...status, checking: false, erro: err.message };
   });
   return { ok: true };
@@ -63,7 +82,7 @@ function checkForUpdates() {
 
 function downloadUpdate() {
   if (!status.disponivel) return { ok: false, error: 'Nenhuma atualização disponível pra baixar.' };
-  autoUpdater.downloadUpdate().catch((err) => {
+  obterAutoUpdater().downloadUpdate().catch((err) => {
     status = { ...status, baixando: false, erro: err.message };
   });
   return { ok: true };
@@ -71,12 +90,113 @@ function downloadUpdate() {
 
 function quitAndInstall() {
   if (!status.baixado) return { ok: false, error: 'A atualização ainda não terminou de baixar.' };
-  autoUpdater.quitAndInstall();
+  obterAutoUpdater().quitAndInstall();
   return { ok: true };
 }
 
 function getStatus() {
   return status;
+}
+
+// ============================================================
+// Verificação pós-atualização — detecta uma atualização que baixou
+// certinho mas não terminou de se aplicar direito (instalador
+// silencioso interrompido por antivírus, queda de energia, Windows
+// Update forçando reinício bem no meio da troca de arquivos). O
+// sintoma real, quando acontece, é o app parecer "desinstalado" pro
+// cliente. O marcador fica em userData (fora da pasta de instalação),
+// então sobrevive mesmo que a atualização mexa/apague arquivos dentro
+// da pasta do app.
+//
+// Importante: isso só ajuda quando o app CONSEGUE abrir de novo (fica
+// preso na versão antiga, por exemplo). Se a pasta de instalação
+// inteira sumir, não sobra processo nenhum pra rodar essa checagem —
+// pra esse caso mais extremo (o que o Arthur descreveu) só um
+// mecanismo fora do processo do app (ex: um atalho/launcher próprio,
+// ou uma tarefa agendada do Windows) consegue detectar e reparar
+// sozinho, e isso precisa de teste numa máquina Windows de verdade
+// antes de valer a pena arriscar em produção.
+// ============================================================
+
+function caminhoMarcadorAtualizacao() {
+  // Mesmo truque do resto do código (ver backupService.js) pra
+  // funcionar tanto dentro do Electron de verdade quanto rodando com
+  // `node --test` fora dele: fora do Electron, require('electron')
+  // devolve só o caminho do binário (uma string) -- desestruturar
+  // `app` dela dá `undefined` sem lançar erro, então cai no fallback.
+  const { app } = require('electron');
+  const base = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+  return path.join(base, 'atualizacao-pendente.json');
+}
+
+function marcarAtualizacaoPendente(versaoEsperada) {
+  if (!versaoEsperada) return;
+  try {
+    fs.writeFileSync(caminhoMarcadorAtualizacao(), JSON.stringify({ versaoEsperada, iniciadoEm: Date.now() }));
+  } catch (err) {
+    console.error('[updateService] não conseguiu gravar o marcador de atualização pendente:', err.message);
+  }
+}
+
+/**
+ * Chamada uma vez, logo depois do app subir. Se existir um marcador de
+ * atualização pendente: apaga ele (já não precisa mais checar de novo)
+ * e confere se a versão atual bate com a esperada. Se não bater,
+ * reporta pra Central (mesmo mecanismo de erro automático já existente,
+ * contexto dedicado 'atualizacao_falhou' — aparece na aba Erros) e
+ * tenta buscar a atualização de novo sozinho, sem esperar o próximo
+ * ciclo periódico de 4h.
+ */
+function verificarAtualizacaoFoiAplicada() {
+  const caminho = caminhoMarcadorAtualizacao();
+  if (!fs.existsSync(caminho)) return;
+
+  let conteudo;
+  try {
+    conteudo = fs.readFileSync(caminho, 'utf-8');
+  } catch (err) {
+    console.error('[updateService] não conseguiu ler o marcador de atualização pendente:', err.message);
+    return;
+  }
+  try {
+    // Apaga assim que consegue ler, mesmo se o conteúdo estiver
+    // corrompido -- não precisa conferir de novo nas próximas
+    // aberturas, e um marcador corrompido não deveria ficar tentando
+    // (e falhando) pra sempre.
+    fs.unlinkSync(caminho);
+  } catch (err) {
+    console.error('[updateService] não conseguiu apagar o marcador de atualização pendente:', err.message);
+  }
+
+  let marcador;
+  try {
+    marcador = JSON.parse(conteudo);
+  } catch (err) {
+    console.error('[updateService] marcador de atualização pendente corrompido, ignorando:', err.message);
+    return;
+  }
+  if (!marcador?.versaoEsperada) return;
+
+  // Mesmo truque de app-ou-fallback do resto do arquivo -- fora do
+  // Electron de verdade (ex: rodando os testes), não dá pra saber a
+  // versão atual, então não dá pra concluir nada: melhor não fazer
+  // nada do que reportar um falso positivo.
+  const { app } = require('electron');
+  const versaoAtual = app?.getVersion ? app.getVersion() : null;
+  if (!versaoAtual || versaoAtual === marcador.versaoEsperada) return; // aplicou certinho (ou não dá pra checar)
+
+  const minutosDesde = Math.round((Date.now() - (marcador.iniciadoEm || Date.now())) / 60000);
+  require('./errorReportService').reportarErro({
+    mensagem: `Atualização pra ${marcador.versaoEsperada} não foi aplicada -- app reabriu ainda na ${versaoAtual} (${minutosDesde}min depois de baixar)`,
+    stack: null,
+    contexto: 'atualizacao_falhou',
+  });
+
+  // O app conseguiu abrir (só ficou na versão errada) -- tenta de novo
+  // sozinho em vez de esperar o cliente notar ou o próximo ciclo de 4h.
+  setTimeout(() => {
+    try { checkForUpdates(); } catch (err) { console.error('[update]', err); }
+  }, 5000);
 }
 
 // ============================================================
@@ -204,4 +324,5 @@ module.exports = {
   setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall, getStatus,
   verificarAtualizacaoObrigatoria, iniciarEscutaAtualizacaoObrigatoria, versaoMenorQue,
   reportarProgressoNoFirestore, aplicarOverrideDaInstalacao,
+  marcarAtualizacaoPendente, verificarAtualizacaoFoiAplicada, caminhoMarcadorAtualizacao,
 };

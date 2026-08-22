@@ -140,6 +140,11 @@ app.whenReady().then(() => {
   // sempre (o status só era escrito DURANTE o download, nunca
   // "zerado" depois que o reinício de verdade acontecia).
   updateService.reportarProgressoNoFirestore().catch((err) => console.error('[update]', err));
+  // Confere se uma atualização que tinha ficado marcada como "baixada,
+  // esperando reiniciar" realmente foi aplicada -- se o app reabriu
+  // ainda na versão antiga, reporta pra Central (aba Erros, contexto
+  // 'atualizacao_falhou') e tenta buscar a atualização de novo sozinho.
+  updateService.verificarAtualizacaoFoiAplicada();
   updateService.iniciarEscutaAtualizacaoObrigatoria();
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);
