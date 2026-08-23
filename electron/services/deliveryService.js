@@ -66,14 +66,18 @@ function deactivatePerson(id) {
 /** Cria uma entrega — vinculada a uma venda quando já existir (o caso
  * mais comum), mas não é obrigatório (pedido por telefone antes de
  * virar venda registrada, por exemplo). */
-function createDelivery({ locationId, saleId, customerId, endereco, taxaEntrega, observacoes, operadorId }) {
+function createDelivery({ locationId, saleId, customerId, endereco, clienteNome, clienteTelefone, taxaEntrega, observacoes, operadorId }) {
   if (!locationId) return { ok: false, error: 'Local é obrigatório.' };
   const db = getDb();
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, taxa_entrega, observacoes, operador_id, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente')`
-  ).run(id, locationId, saleId || null, customerId || null, endereco || null, taxaEntrega || 0, observacoes || null, operadorId || null);
+    `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, cliente_nome, cliente_telefone, taxa_entrega, observacoes, operador_id, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente')`
+  ).run(
+    id, locationId, saleId || null, customerId || null, endereco || null,
+    clienteNome || null, clienteTelefone || null,
+    taxaEntrega || 0, observacoes || null, operadorId || null,
+  );
   return { ok: true, id };
 }
 
@@ -116,7 +120,16 @@ function updateDeliveryStatus({ deliveryId, status }) {
 function listDeliveries({ locationId, status } = {}) {
   const db = getDb();
   let sql = `
-    SELECT d.*, c.nome as clienteNome, c.telefone as clienteTelefone,
+    SELECT d.*,
+      -- Prefere o nome/telefone do cadastro (customer_id) quando o
+      -- cliente já está vinculado a um -- fica sempre atualizado se o
+      -- cadastro mudar. Cai pro "instantâneo" gravado na própria
+      -- entrega (d.cliente_nome/telefone, copiado do pedido do
+      -- WhatsApp ou digitado na hora) quando não tem cadastro -- é o
+      -- caso mais comum de pedido pelo chatbot. Ver comentário na
+      -- coluna em schema.sql.
+      COALESCE(c.nome, d.cliente_nome) as clienteNome,
+      COALESCE(c.telefone, d.cliente_telefone) as clienteTelefone,
       r.nome as rotaNome, p.nome as entregadorNome, p.telefone as entregadorTelefone,
       v.modelo as veiculoModelo, v.placa as veiculoPlaca
     FROM deliveries d
@@ -140,7 +153,7 @@ function listDeliveries({ locationId, status } = {}) {
 function montarLinkStatusEntrega(deliveryId) {
   const db = getDb();
   const entrega = db.prepare(
-    `SELECT d.*, c.nome as clienteNome, c.telefone as clienteTelefone
+    `SELECT d.*, COALESCE(c.nome, d.cliente_nome) as clienteNome, COALESCE(c.telefone, d.cliente_telefone) as clienteTelefone
      FROM deliveries d LEFT JOIN customers c ON c.id = d.customer_id WHERE d.id = ?`
   ).get(deliveryId);
   if (!entrega) return { ok: false, error: 'Entrega não encontrada.' };

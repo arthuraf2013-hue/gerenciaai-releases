@@ -16,12 +16,21 @@ function DeliveryQueue() {
   const [filtroStatus, setFiltroStatus] = useState('');
   const [showNova, setShowNova] = useState(false);
   useEscToClose(() => setShowNova(false), showNova);
-  const [novaForm, setNovaForm] = useState({ enderecoManual: '', taxaEntrega: '', observacoes: '' });
+  const [novaForm, setNovaForm] = useState({ clienteNome: '', clienteTelefone: '', enderecoManual: '', taxaEntrega: '', observacoes: '' });
 
   function carregar() {
     window.pdv.delivery.list({ locationId: window.APP_LOCATION_ID, status: filtroStatus || undefined }).then((list) => setEntregas(Array.isArray(list) ? list : []));
   }
-  useEffect(carregar, [filtroStatus]);
+  useEffect(() => {
+    carregar();
+    // Uma entrega pode chegar a qualquer momento (pedido de Separação
+    // concluído, inclusive vindo do chatbot do WhatsApp) enquanto esta
+    // tela já está aberta -- sem isso, só reaparecia quando o filtro de
+    // status mudava, o que parecia a lista não ter atualizado sozinha
+    // (mesmo problema já corrigido em BotOrdersScreen/Separação).
+    const id = setInterval(carregar, 20000);
+    return () => clearInterval(id);
+  }, [filtroStatus]);
   useEffect(() => {
     window.pdv.delivery.listRoutes().then((list) => setRotas(Array.isArray(list) ? list : []));
     window.pdv.delivery.listVehicles().then((list) => setVeiculos(Array.isArray(list) ? list : []));
@@ -32,11 +41,12 @@ function DeliveryQueue() {
     e.preventDefault();
     await window.pdv.delivery.create({
       locationId: window.APP_LOCATION_ID, endereco: novaForm.enderecoManual,
+      clienteNome: novaForm.clienteNome, clienteTelefone: novaForm.clienteTelefone,
       taxaEntrega: Number(novaForm.taxaEntrega) || 0, observacoes: novaForm.observacoes,
       operadorId: currentUser.id,
     });
     setShowNova(false);
-    setNovaForm({ enderecoManual: '', taxaEntrega: '', observacoes: '' });
+    setNovaForm({ clienteNome: '', clienteTelefone: '', enderecoManual: '', taxaEntrega: '', observacoes: '' });
     carregar();
   }
 
@@ -126,6 +136,8 @@ function DeliveryQueue() {
                 Pra criar uma entrega vinculada a uma venda já finalizada, use o botão de entrega
                 direto na tela de Histórico. Aqui é pra pedido avulso (por telefone, por exemplo).
               </p>
+              <label>Nome do cliente<input value={novaForm.clienteNome} onChange={(e) => setNovaForm({ ...novaForm, clienteNome: e.target.value })} /></label>
+              <label>Telefone (WhatsApp)<input value={novaForm.clienteTelefone} onChange={(e) => setNovaForm({ ...novaForm, clienteTelefone: e.target.value })} /></label>
               <label>Endereço<input value={novaForm.enderecoManual} onChange={(e) => setNovaForm({ ...novaForm, enderecoManual: e.target.value })} required /></label>
               <label>Taxa de entrega<input type="number" step="0.01" value={novaForm.taxaEntrega} onChange={(e) => setNovaForm({ ...novaForm, taxaEntrega: e.target.value })} /></label>
               <label>Observações<input value={novaForm.observacoes} onChange={(e) => setNovaForm({ ...novaForm, observacoes: e.target.value })} /></label>

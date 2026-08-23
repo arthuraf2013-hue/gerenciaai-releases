@@ -847,6 +847,15 @@ CREATE TABLE IF NOT EXISTS deliveries (
   sale_id             TEXT REFERENCES sales(id), -- opcional: pedido por telefone pode não ter venda registrada ainda
   customer_id         TEXT REFERENCES customers(id),
   endereco            TEXT,
+  -- Nome/telefone "de instantâneo", copiados de bot_orders (ou digitados
+  -- direto na tela) na hora da criação -- igual já acontecia com
+  -- `endereco` acima. Sem isso, uma entrega vinda do chatbot de WhatsApp
+  -- (que quase nunca tem customer_id, cliente não cadastrado) ficava sem
+  -- nome nenhum pra mostrar, porque o nome só vinha do JOIN com
+  -- customers. Ver deliveryService.listDeliveries: prefere o nome do
+  -- cadastro (customer_id) quando existir, cai pra este aqui senão.
+  cliente_nome        TEXT,
+  cliente_telefone    TEXT,
   route_id            TEXT REFERENCES delivery_routes(id),
   delivery_person_id  TEXT REFERENCES delivery_persons(id),
   vehicle_id          TEXT REFERENCES delivery_vehicles(id),

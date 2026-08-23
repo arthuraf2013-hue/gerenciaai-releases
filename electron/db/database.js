@@ -157,6 +157,15 @@ function migrateColumnsIfNeeded(database) {
   // Pedido de mesa pelo chatbot do WhatsApp (ver whatsappBotHandler.js / botOrderService.lancarPedidoNaMesa).
   adicionarColunaSeFaltando(database, 'bot_orders', 'mesa_numero', 'TEXT');
 
+  // Nome/telefone do cliente "de instantâneo" em deliveries, copiado de
+  // bot_orders (pedido do WhatsApp) ou digitado na hora -- antes disso o
+  // nome só vinha do JOIN com customers, então uma entrega de cliente
+  // ainda não cadastrado (o caso mais comum vindo do chatbot) aparecia
+  // sem nome nenhum na tela de Delivery, só com o endereço. Ver
+  // deliveryService.js.
+  adicionarColunaSeFaltando(database, 'deliveries', 'cliente_nome', 'TEXT');
+  adicionarColunaSeFaltando(database, 'deliveries', 'cliente_telefone', 'TEXT');
+
   // Cancelamento e contingência de NFC-e (ver nfceEventoService.js / fiscalService.js).
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_justificativa', 'TEXT');
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_protocolo', 'TEXT');

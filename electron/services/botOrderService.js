@@ -152,9 +152,17 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
     if (pedido.tipo_entrega === 'entrega') {
       const deliveryId = randomUUID();
       db.prepare(
-        `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, operador_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'pendente')`
-      ).run(deliveryId, pedido.location_id, saleId, pedido.customer_id || null, pedido.endereco, operadorVenda);
+        `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, cliente_nome, cliente_telefone, operador_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente')`
+      ).run(
+        deliveryId, pedido.location_id, saleId, pedido.customer_id || null, pedido.endereco,
+        // Nome/telefone digitados (ou vindos do WhatsApp) no próprio
+        // pedido -- copiados pra entrega igual o endereço, já que a
+        // grande maioria desses clientes ainda não tem customer_id
+        // (cadastro formal) nesse momento. Ver comentário na coluna em
+        // schema.sql.
+        pedido.cliente_nome, pedido.cliente_telefone, operadorVenda,
+      );
       db.prepare('UPDATE bot_orders SET delivery_id = ? WHERE id = ?').run(deliveryId, orderId);
     }
   });

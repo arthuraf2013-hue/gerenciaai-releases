@@ -336,7 +336,16 @@ export function BotOrdersScreen() {
   function carregar() {
     window.pdv.botOrders.list({ locationId: window.APP_LOCATION_ID, status: filtroStatus || undefined }).then((list) => setPedidos(Array.isArray(list) ? list : []));
   }
-  useEffect(carregar, [filtroStatus]);
+  useEffect(() => {
+    carregar();
+    // Um pedido pode cair na fila a qualquer momento (chatbot do
+    // WhatsApp, ou alguém digitando em outro PDV) enquanto esta tela já
+    // está aberta -- sem isso, só reaparecia quando o filtro de status
+    // mudava (ex: clicar em "Novo" e voltar pra "Todos"), o que parecia
+    // a lista não ter atualizado sozinha.
+    const id = setInterval(carregar, 20000);
+    return () => clearInterval(id);
+  }, [filtroStatus]);
 
   return (
     <div className="screen">
