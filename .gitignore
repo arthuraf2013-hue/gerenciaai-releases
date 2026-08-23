@@ -5,3 +5,6 @@ release/
 .env
 .DS_Store
 Thumbs.db
+
+# pasta usada só durante manutenção via bridge -- nunca deve ser versionada
+_to_delete/
