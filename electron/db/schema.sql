@@ -913,6 +913,15 @@ CREATE TABLE IF NOT EXISTS bot_orders (
   separado_por      TEXT REFERENCES users(id),
   delivery_id       TEXT REFERENCES deliveries(id), -- preenchido se virou uma entrega de verdade
   sale_id           TEXT REFERENCES sales(id), -- preenchido quando convertido em venda na conclusão
+  -- Pesquisa de satisfação pós-pedido (ver botOrderService.
+  -- solicitarPesquisaSatisfacao/registrarNotaSatisfacao): disparada
+  -- quando um pedido de RETIRADA é concluído, ou quando a ENTREGA
+  -- vinculada chega em 'entregue' (ver deliveryService.
+  -- updateDeliveryStatus). Nunca disparada pra pedido de mesa (cliente
+  -- ainda está no local, não faz sentido pedir avaliação por chat).
+  satisfacao_solicitada_em TEXT, -- NULL até a pergunta ser mandada -- evita perguntar de novo
+  nota_satisfacao          INTEGER CHECK (nota_satisfacao IS NULL OR nota_satisfacao BETWEEN 1 AND 5),
+  comentario_satisfacao    TEXT,
   criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED()),
   separado_em       TEXT,
   concluido_em      TEXT
@@ -966,6 +975,13 @@ CREATE TABLE IF NOT EXISTS quotes (
   id            TEXT PRIMARY KEY,
   location_id   TEXT NOT NULL REFERENCES locations(id),
   customer_id   TEXT REFERENCES customers(id),
+  -- Orçamento pedido pelo chatbot antes de ter cadastro (mesmo padrão de
+  -- appointments.cliente_nome_avulso/cliente_telefone_avulso) -- sem
+  -- isso, um orçamento vindo do WhatsApp de um telefone não cadastrado
+  -- ficava sem NENHUM jeito de saber quem pediu na tela de Orçamentos.
+  cliente_nome_avulso     TEXT,
+  cliente_telefone_avulso TEXT,
+  origem        TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual')),
   status        TEXT NOT NULL DEFAULT 'aberto' CHECK (status IN ('aberto','convertido','cancelado')),
   observacoes   TEXT,
   operador_id   TEXT REFERENCES users(id),
@@ -1036,6 +1052,17 @@ CREATE TABLE IF NOT EXISTS appointments (
   status                TEXT NOT NULL DEFAULT 'agendado' CHECK (status IN ('agendado','confirmado','concluido','cancelado','faltou')),
   observacoes           TEXT,
   operador_id           TEXT REFERENCES users(id),
+  -- Marca quando o lembrete de "1h antes" foi mandado pelo chatbot --
+  -- mesma ideia de reservations.lembrete_enviado_em, mas SEM mudar
+  -- `status` pra sinalizar "aguardando confirmação" (evitaria alterar o
+  -- CHECK acima numa tabela que já existe em produção). Em vez disso,
+  -- appointmentService.findAguardandoConfirmacaoByTelefone considera
+  -- "aguardando resposta" um agendamento com status ainda 'agendado' E
+  -- lembrete_enviado_em preenchido há pouco tempo (ver comentário na
+  -- função) -- passada essa janela, simplesmente para de ser
+  -- interpretado como resposta ao lembrete, sem precisar de um job de
+  -- limpeza separado.
+  lembrete_enviado_em   TEXT,
   criado_em             TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE INDEX IF NOT EXISTS idx_appointments_professional ON appointments(professional_id);

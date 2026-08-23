@@ -3,10 +3,17 @@ const botOrderService = require('./botOrderService');
 const reservationService = require('./reservationService');
 const profileService = require('./profileService');
 const tableService = require('./tableService');
+const appointmentService = require('./appointmentService');
+const quoteService = require('./quoteService');
 
 // Perfis que fazem sentido oferecer "reservar mesa" pelo chatbot --
 // mesmo critério do frontend (ver PERFIS_RESTAURANTE em AppShell.jsx).
 const PERFIS_ACEITAM_RESERVA = ['restaurante', 'padaria'];
+
+// Perfis que fazem sentido oferecer "agendar horário" pelo chatbot --
+// mesmo critério do frontend (ver o item "agenda" em AppShell.jsx, que
+// só aparece pro perfil 'salao_beleza').
+const PERFIS_ACEITAM_AGENDAMENTO = ['salao_beleza'];
 
 /**
  * Motor da conversa do chatbot de WhatsApp — sabe processar UMA
@@ -307,6 +314,48 @@ function finalizarAdicaoItens({ orderId, conversa, telefone, estadoConversas }) 
   return { resposta: `Prontinho! Adicionei ao seu pedido:${resumoCarrinho(conversa.itens)}\n\nQualquer coisa, é só chamar por aqui! 😊` };
 }
 
+/**
+ * Fecha um ORÇAMENTO em vez de um pedido de verdade -- fluxo "orçamento"
+ * (ver processarMensagem), reaproveita o mesmo carrinho (categoria/
+ * produto) do pedido normal, mas grava em quotes/quote_items
+ * (quoteService) em vez de bot_orders: não mexe em estoque, e a equipe
+ * decide depois se converte em venda de verdade (tela de Orçamentos).
+ * Cliente ainda não cadastrado vira cliente_nome_avulso/
+ * cliente_telefone_avulso, mesmo padrão de appointments/reservations --
+ * sem tentar casar com um customer_id existente (fica pra uma eventual
+ * automação de cadastro automático, não pedida agora).
+ */
+function finalizarOrcamento({ telefone, nomeExibicao, conversa, locationId, estadoConversas }) {
+  const criado = quoteService.createQuote({
+    locationId,
+    clienteNomeAvulso: (nomeExibicao || '').trim() || 'Cliente WhatsApp',
+    clienteTelefoneAvulso: telefone,
+    origem: 'whatsapp_bot',
+  });
+  estadoConversas.delete(telefone);
+  if (!criado.ok) {
+    return { resposta: `Ih, não consegui registrar seu orçamento agora (${criado.error}) 😕 Pode mandar uma mensagem pra gente tentar de novo?` };
+  }
+  for (const item of conversa.itens) {
+    if (!item.productId) continue; // fluxo de carrinho sempre gera productId, mas por segurança
+    quoteService.addQuoteItem({ quoteId: criado.id, productId: item.productId, quantidade: item.quantidade });
+  }
+  const quote = quoteService.getQuote(criado.id);
+
+  try {
+    require('./notificationService').notifyNewQuoteFromBot({ ...quote, clienteNome: quote?.clienteNome });
+  } catch (err) {
+    console.error('[whatsappBotHandler] falha ao notificar novo orçamento', err);
+  }
+
+  const total = quote ? formatarPreco(quote.total) : null;
+  return {
+    resposta: `Orçamento registrado! ✅📝${resumoCarrinho(conversa.itens)}${total ? `\n\nTotal: ${total}` : ''}\n\nEsse valor não é uma compra ainda -- nossa equipe vai te chamar por aqui pra confirmar. Se preferir já fechar o pedido agora, é só digitar *pedido*! 😊`,
+    orcamentoCriado: true,
+    quoteId: criado.id,
+  };
+}
+
 /** Menu mostrado quando o cliente manda mensagem de novo já tendo um
  * pedido em andamento (ver buscarPedidoEmAndamento) -- reaproveitado
  * tanto na primeira mensagem da conversa quanto sempre que a resposta
@@ -444,6 +493,96 @@ function responderConfirmacaoReserva({ reserva, textoLimpo }) {
   };
 }
 
+// ---------- Fluxo de agendamento de horário (perfil Salão/Beleza) ----------
+
+/** Cria o agendamento de verdade (appointmentService.createAppointment)
+ * a partir do que foi coletado em conversa.agendamento, checando
+ * conflito de horário do profissional escolhido antes de confirmar --
+ * se já tiver algo marcado nesse intervalo, NÃO finaliza: só avisa e
+ * mantém a conversa esperando um horário diferente (ver estado
+ * 'aguardando_horario_agendamento'). */
+function finalizarAgendamento({ telefone, conversa, locationId, estadoConversas }) {
+  const { profissionalId, profissionalNome, servico, dataHora } = conversa.agendamento;
+  const DURACAO_PADRAO_MINUTOS = 60;
+
+  const conflitos = appointmentService.checkConflito({
+    professionalId: profissionalId, dataHoraInicio: dataHora, duracaoMinutos: DURACAO_PADRAO_MINUTOS,
+  });
+  if (conflitos.length > 0) {
+    return { resposta: `Poxa, ${profissionalNome} já tem outro horário marcado nesse intervalo 😕 Pode escolher outro dia/horário? (ex: "amanhã 15h")` };
+  }
+
+  const resultado = appointmentService.createAppointment({
+    locationId, professionalId: profissionalId,
+    clienteNomeAvulso: conversa.agendamento.nome, clienteTelefoneAvulso: telefone,
+    servico, dataHoraInicio: dataHora, duracaoMinutos: DURACAO_PADRAO_MINUTOS,
+  });
+  estadoConversas.delete(telefone);
+  if (!resultado.ok) {
+    return { resposta: `Ih, não consegui marcar seu horário agora (${resultado.error}) 😕 Pode mandar uma mensagem pra gente tentar de novo?` };
+  }
+
+  try {
+    require('./notificationService').notifyNewAppointmentFromBot({
+      clienteNomeAvulso: conversa.agendamento.nome, servico, profissionalNome,
+    });
+  } catch (err) {
+    console.error('[whatsappBotHandler] falha ao notificar novo agendamento', err);
+  }
+
+  const quando = formatarDataHoraReserva(dataHora);
+  return {
+    resposta: `Agendamento confirmado! ✅💇 ${conversa.agendamento.nome}, ${servico} com ${profissionalNome}, ${quando}.\n\nVamos te chamar por aqui perto da hora pra confirmar. Até lá! 😊`,
+    agendamentoCriado: true,
+    appointmentId: resultado.id,
+  };
+}
+
+/** Interpreta a resposta do cliente ao lembrete de "seu horário é daqui
+ * a 1h, confirma?" -- mesmo padrão de responderConfirmacaoReserva
+ * (sim/não em várias formas comuns, qualquer outra coisa repete a
+ * pergunta sem arriscar interpretar errado). */
+function responderConfirmacaoAgendamento({ agendamento, textoLimpo }) {
+  const quando = formatarDataHoraReserva(agendamento.data_hora_inicio);
+  const nome = agendamento.clienteNome || 'tudo bem';
+  if (/^(sim|s|confirmo|confirmar|isso|ok|pode ser|claro|1)\b/i.test(textoLimpo)) {
+    appointmentService.updateAppointmentStatus({ appointmentId: agendamento.id, status: 'confirmado' });
+    return {
+      resposta: `Show, ${nome}! ✅ Seu horário de ${agendamento.servico} com ${agendamento.profissionalNome} ${quando} está confirmado. Te esperamos! 💇`,
+      agendamentoConfirmado: { ...agendamento, quando },
+    };
+  }
+  if (/^(n[aã]o|nao|cancelar|cancela|desmarcar|2)\b/i.test(textoLimpo)) {
+    appointmentService.updateAppointmentStatus({ appointmentId: agendamento.id, status: 'cancelado' });
+    return { resposta: 'Tudo bem, agendamento cancelado 👍 Quando quiser marcar de novo, é só chamar por aqui!' };
+  }
+  return {
+    resposta: `Oi! Só confirmando: seu horário de ${agendamento.servico} é ${quando} 🙂 Pode confirmar? Responda *sim* ou *não*.`,
+  };
+}
+
+// ---------- Pesquisa de satisfação pós-pedido ----------
+
+/** Interpreta a resposta do cliente à pesquisa de satisfação ("de 1 a
+ * 5, como foi?"). Aceita a nota sozinha ("4") ou seguida de um
+ * comentário livre ("4 demorou um pouco mas valeu"). Qualquer coisa sem
+ * um número de 1 a 5 no início repete a pergunta, sem tentar adivinhar
+ * -- mesmo cuidado das outras respostas de sim/não deste arquivo, pra
+ * não gravar uma nota errada por má interpretação. */
+function responderPesquisaSatisfacao({ orderId, textoLimpo }) {
+  const match = textoLimpo.match(/^([1-5])\b\s*(.*)$/);
+  if (!match) {
+    return { resposta: 'Não entendi 🤔 De 1 a 5, que nota você daria pro seu pedido? (só o número, ou o número seguido de um comentário)' };
+  }
+  const nota = parseInt(match[1], 10);
+  const comentario = match[2]?.trim() || null;
+  botOrderService.registrarNotaSatisfacao({ orderId, nota, comentario });
+
+  if (nota >= 4) return { resposta: 'Que ótimo! 🎉 Muito obrigado pela avaliação, te esperamos numa próxima! 😊' };
+  if (nota === 3) return { resposta: 'Obrigado pela avaliação! Vamos trabalhar pra melhorar ainda mais 🙏' };
+  return { resposta: 'Poxa, sentimos muito 😕 Sua avaliação foi registrada e um atendente vai dar uma olhada nisso. Obrigado por nos contar!' };
+}
+
 /**
  * Processa uma mensagem de um cliente e devolve `{ resposta, pedidoCriado?, pedidoId? }`.
  * `estadoConversas` é injetável só para os testes (cada teste começa
@@ -471,6 +610,14 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
   const reservaAguardandoResposta = reservationService.findAguardandoConfirmacaoByTelefone(telefone);
   if (reservaAguardandoResposta) {
     return responderConfirmacaoReserva({ reserva: reservaAguardandoResposta, textoLimpo });
+  }
+
+  // Mesma prioridade e mesmo raciocínio do lembrete de reserva acima,
+  // agora pro lembrete de agendamento de horário (ver
+  // appointmentService.findAguardandoConfirmacaoByTelefone).
+  const agendamentoAguardandoResposta = appointmentService.findAguardandoConfirmacaoByTelefone(telefone);
+  if (agendamentoAguardandoResposta) {
+    return responderConfirmacaoAgendamento({ agendamento: agendamentoAguardandoResposta, textoLimpo });
   }
 
   if (/^(cancelar|sair)$/i.test(textoLimpo)) {
@@ -514,6 +661,40 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
     }
   }
 
+  // "Orçamento" -- mesma ideia de "reservar mesa" (interrompe e começa
+  // do zero), mas disponível pra QUALQUER perfil: reaproveita o mesmo
+  // carrinho de categoria/produto do pedido normal (ver conversa.
+  // modoOrcamento, checado em "finalizar" no estado 'aguardando_produto'
+  // abaixo), só muda o que acontece ao finalizar (vira orçamento em vez
+  // de pedido de verdade -- ver finalizarOrcamento).
+  if (/^(or[çc]amento|fazer\s+or[çc]amento)$/i.test(textoLimpo)) {
+    const menu = montarMenuCategorias(location);
+    const novaConversaOrcamento = {
+      estado: menu.categorias.length ? 'aguardando_categoria' : 'inicio',
+      categorias: menu.categorias, produtos: [], categoriaAtual: null, itens: [], modoOrcamento: true,
+    };
+    if (nomeExibicao) novaConversaOrcamento.nomeExibicao = nomeExibicao;
+    estadoConversas.set(telefone, novaConversaOrcamento);
+    return { resposta: `Vamos montar seu orçamento! 📝 ${menu.texto}` };
+  }
+
+  // "Agendar horário" -- mesmo padrão de "reservar mesa": interrompe e
+  // começa do zero. Só oferecido pra perfil Salão/Beleza E com pelo
+  // menos 1 profissional cadastrado (sem isso não tem quem agendar).
+  if (/^(agendar|agendamento|marcar\s+hor[áa]rio)$/i.test(textoLimpo)) {
+    const profile = profileService.getActiveProfile();
+    const profissionais = (profile && PERFIS_ACEITAM_AGENDAMENTO.includes(profile.id))
+      ? appointmentService.listProfessionals() : [];
+    if (profissionais.length > 0) {
+      const novaConversaAgendamento = {
+        estado: 'aguardando_nome_agendamento', categorias: [], produtos: [], categoriaAtual: null, itens: [],
+        agendamento: { profissionaisDisponiveis: profissionais },
+      };
+      estadoConversas.set(telefone, novaConversaAgendamento);
+      return { resposta: 'Vamos marcar seu horário! 💇 Qual seu nome?' };
+    }
+  }
+
   let conversa = estadoConversas.get(telefone);
   if (!conversa) {
     conversa = novaConversa();
@@ -526,6 +707,21 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
     if (pedidoAtivo) {
       conversa.estado = 'pedido_ativo_menu';
       conversa.pedidoAtivoId = pedidoAtivo.id;
+    } else {
+      // Só checa pesquisa de satisfação pendente quando NÃO tem pedido
+      // em andamento (são mutuamente exclusivos na prática -- ver
+      // comentário em botOrderService.solicitarPesquisaSatisfacao --
+      // mas por segurança prioriza o pedido ativo de verdade se algum
+      // dia os dois coincidirem). De propósito colocado aqui, dentro do
+      // "conversa nova" -- e não como checagem de topo tipo a de
+      // reserva/agendamento -- porque a resposta esperada é só um
+      // dígito de 1 a 5, que colidiria demais com seleção de menu se
+      // interrompesse uma conversa já em andamento.
+      const pedidoAguardandoSatisfacao = botOrderService.buscarPedidoAguardandoSatisfacao(telefone);
+      if (pedidoAguardandoSatisfacao) {
+        conversa.estado = 'aguardando_nota_satisfacao';
+        conversa.pedidoSatisfacaoId = pedidoAguardandoSatisfacao.id;
+      }
     }
     estadoConversas.set(telefone, conversa);
   }
@@ -542,6 +738,9 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
   if (
     conversa.estado !== 'aguardando_endereco' &&
     conversa.estado !== 'aguardando_texto_alteracao' &&
+    conversa.estado !== 'aguardando_nota_satisfacao' &&
+    conversa.estado !== 'aguardando_nome_agendamento' &&
+    conversa.estado !== 'aguardando_servico_agendamento' &&
     ehPerguntaSobreProduto(textoLimpo)
   ) {
     const respostaPergunta = responderPerguntaProduto({ locationId: location, textoLimpo, conversa });
@@ -557,7 +756,11 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
       const dicaReserva = profile && PERFIS_ACEITAM_RESERVA.includes(profile.id)
         ? '\n\nOu digite *reservar* pra marcar uma mesa 🍽️'
         : '';
-      return { resposta: `Oi${conversa.nomeExibicao ? ', ' + conversa.nomeExibicao : ''}! 👋😊 Seja bem-vindo(a)! ${menu.texto}${dicaReserva}` };
+      const temProfissional = profile && PERFIS_ACEITAM_AGENDAMENTO.includes(profile.id)
+        && appointmentService.listProfessionals().length > 0;
+      const dicaAgendamento = temProfissional ? '\n\nOu digite *agendar* pra marcar um horário 💇' : '';
+      const dicaOrcamento = '\n\nOu digite *orçamento* se quiser uma cotação sem compromisso 📝';
+      return { resposta: `Oi${conversa.nomeExibicao ? ', ' + conversa.nomeExibicao : ''}! 👋😊 Seja bem-vindo(a)! ${menu.texto}${dicaReserva}${dicaAgendamento}${dicaOrcamento}` };
     }
 
     case 'aguardando_nome_reserva': {
@@ -585,6 +788,64 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
       }
       conversa.reserva.dataHora = dataHora;
       return finalizarReserva({ telefone, conversa, locationId: location, estadoConversas });
+    }
+
+    case 'aguardando_nome_agendamento': {
+      const nome = textoLimpo.trim();
+      if (nome.length < 2) return { resposta: 'Não entendi 🤔 Qual seu nome?' };
+      conversa.agendamento.nome = nome;
+      const profissionais = conversa.agendamento.profissionaisDisponiveis || [];
+      if (profissionais.length === 1) {
+        // Só 1 profissional -- pula a pergunta de qual escolher, não faz
+        // sentido perguntar quando não tem opção de verdade.
+        conversa.agendamento.profissionalId = profissionais[0].id;
+        conversa.agendamento.profissionalNome = profissionais[0].nome;
+        conversa.estado = 'aguardando_servico_agendamento';
+        return { resposta: `Perfeito, ${nome}! O que você gostaria de agendar? (ex: "corte de cabelo") 💇` };
+      }
+      conversa.estado = 'aguardando_profissional_agendamento';
+      const lista = profissionais.map((p, i) => `${i + 1} - ${p.nome}${p.especialidade ? ` (${p.especialidade})` : ''}`).join('\n');
+      return { resposta: `Perfeito, ${nome}! Com quem você quer agendar? 👇\n${lista}` };
+    }
+
+    case 'aguardando_profissional_agendamento': {
+      const profissionais = conversa.agendamento.profissionaisDisponiveis || [];
+      const n = parseInt(textoLimpo, 10);
+      if (!n || n < 1 || n > profissionais.length) {
+        const lista = profissionais.map((p, i) => `${i + 1} - ${p.nome}`).join('\n');
+        return { resposta: `Não entendi 🤔 Digite o número de um profissional:\n${lista}` };
+      }
+      const escolhido = profissionais[n - 1];
+      conversa.agendamento.profissionalId = escolhido.id;
+      conversa.agendamento.profissionalNome = escolhido.nome;
+      conversa.estado = 'aguardando_servico_agendamento';
+      return { resposta: 'O que você gostaria de agendar? (ex: "corte de cabelo") 💇' };
+    }
+
+    case 'aguardando_servico_agendamento': {
+      const servico = textoLimpo.trim();
+      if (servico.length < 2) return { resposta: 'Não entendi 🤔 O que você gostaria de agendar?' };
+      conversa.agendamento.servico = servico;
+      conversa.estado = 'aguardando_horario_agendamento';
+      return { resposta: 'E qual dia e horário? 📅 (ex: "hoje 15h", "amanhã 14h30", ou "15/03 10h")' };
+    }
+
+    case 'aguardando_horario_agendamento': {
+      const dataHora = parseHorarioReserva(textoLimpo);
+      if (!dataHora) {
+        return { resposta: 'Não entendi o horário 🤔 Tenta assim: "hoje 15h", "amanhã 14h30" ou "15/03 10h".' };
+      }
+      conversa.agendamento.dataHora = dataHora;
+      return finalizarAgendamento({ telefone, conversa, locationId: location, estadoConversas });
+    }
+
+    case 'aguardando_nota_satisfacao': {
+      const resultado = responderPesquisaSatisfacao({ orderId: conversa.pedidoSatisfacaoId, textoLimpo });
+      // Só encerra a conversa quando a nota foi de fato entendida e
+      // gravada -- resposta inválida ("oi"?) mantém aguardando, mesma
+      // ideia de responderConfirmacaoReserva pra sim/não ambíguo.
+      if (/^([1-5])\b/.test(textoLimpo)) estadoConversas.delete(telefone);
+      return resultado;
     }
 
     case 'aguardando_categoria': {
@@ -618,6 +879,13 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
         // existe, em vez de criar um pedido novo do zero.
         if (conversa.modoAdicaoPedidoId) {
           return finalizarAdicaoItens({ orderId: conversa.modoAdicaoPedidoId, conversa, telefone, estadoConversas });
+        }
+        // Veio do fluxo "orçamento" (ver interceptor no topo de
+        // processarMensagem) -- vira uma cotação (quoteService), não um
+        // pedido de verdade, e não pergunta retirada/entrega (não faz
+        // sentido pra algo que ainda pode nem virar pedido).
+        if (conversa.modoOrcamento) {
+          return finalizarOrcamento({ telefone, nomeExibicao: conversa.nomeExibicao, conversa, locationId: location, estadoConversas });
         }
         // Pedido de mesa não pergunta retirada/entrega -- o cliente já
         // está sentado ali, então fecha direto (ver fluxo "Mesa N" acima).

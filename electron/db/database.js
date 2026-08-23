@@ -173,6 +173,24 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'delivery_bot_config', 'taxa_entrega_fixa', 'REAL NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'bot_orders', 'taxa_entrega', 'REAL');
 
+  // Pesquisa de satisfação pós-pedido pelo chatbot (ver
+  // botOrderService.solicitarPesquisaSatisfacao/registrarNotaSatisfacao).
+  adicionarColunaSeFaltando(database, 'bot_orders', 'satisfacao_solicitada_em', 'TEXT');
+  adicionarColunaSeFaltando(database, 'bot_orders', 'nota_satisfacao', 'INTEGER CHECK (nota_satisfacao IS NULL OR nota_satisfacao BETWEEN 1 AND 5)');
+  adicionarColunaSeFaltando(database, 'bot_orders', 'comentario_satisfacao', 'TEXT');
+
+  // Orçamento pedido pelo chatbot (ver quoteService.createQuote) --
+  // mesmo padrão de cliente_nome_avulso/cliente_telefone_avulso de
+  // appointments, pra um orçamento de telefone ainda não cadastrado não
+  // ficar "sem dono" na tela de Orçamentos.
+  adicionarColunaSeFaltando(database, 'quotes', 'cliente_nome_avulso', 'TEXT');
+  adicionarColunaSeFaltando(database, 'quotes', 'cliente_telefone_avulso', 'TEXT');
+  adicionarColunaSeFaltando(database, 'quotes', 'origem', "TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual'))");
+
+  // Lembrete automático de agendamento "1h antes" pelo chatbot -- ver
+  // comentário da coluna em schema.sql e appointmentService.findPendingLembrete.
+  adicionarColunaSeFaltando(database, 'appointments', 'lembrete_enviado_em', 'TEXT');
+
   // Cancelamento e contingência de NFC-e (ver nfceEventoService.js / fiscalService.js).
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_justificativa', 'TEXT');
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_protocolo', 'TEXT');

@@ -130,6 +130,26 @@ function updateDeliveryStatus({ deliveryId, status }) {
     });
   }
 
+  if (status === 'entregue') {
+    // Pesquisa de satisfação do PEDIDO vinculado (se essa entrega veio
+    // do chatbot, ver botOrderService.solicitarPesquisaSatisfacao) --
+    // só agora que a entrega de fato chegou, não já na conclusão do
+    // pedido (que só vira venda/entrega, ver
+    // botOrderService.updateOrderStatus). require() aqui dentro (não no
+    // topo do arquivo) porque botOrderService também referencia esta
+    // função indiretamente via tableService/saleService em outros
+    // pontos -- mesmo cuidado de dependência tardia usado no resto do
+    // projeto (ver comentário em botOrderService.lancarPedidoNaMesa).
+    const db = getDb();
+    const pedido = db.prepare('SELECT * FROM bot_orders WHERE delivery_id = ?').get(deliveryId);
+    if (pedido) {
+      const botOrderService = require('./botOrderService');
+      botOrderService.solicitarPesquisaSatisfacao(pedido).catch((err) => {
+        console.error('[deliveryService] falha ao solicitar pesquisa de satisfação', deliveryId, err);
+      });
+    }
+  }
+
   return { ok: true };
 }
 

@@ -305,3 +305,76 @@ test('createOrder congela o preço atual do produto quando não vem precoUnitari
   const item = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').get(criado.id);
   assert.equal(item.preco_unitario, 9.9);
 });
+
+// ---------- Pesquisa de satisfação pós-pedido ----------
+
+test('registrarNotaSatisfacao grava nota e comentário, e recusa nota fora de 1-5', () => {
+  const { locationId } = freshTestDb();
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Fábio', clienteTelefone: '5511900001111',
+    itens: [{ descricaoLivre: 'Item qualquer' }],
+  });
+
+  assert.equal(botOrderService.registrarNotaSatisfacao({ orderId: criado.id, nota: 0 }).ok, false, 'nota 0 deveria ser recusada');
+  assert.equal(botOrderService.registrarNotaSatisfacao({ orderId: criado.id, nota: 6 }).ok, false, 'nota 6 deveria ser recusada');
+  assert.equal(botOrderService.registrarNotaSatisfacao({ orderId: criado.id, nota: 2.5 }).ok, false, 'nota não-inteira deveria ser recusada');
+  assert.equal(botOrderService.registrarNotaSatisfacao({ orderId: 'nao-existe', nota: 5 }).ok, false);
+
+  const r = botOrderService.registrarNotaSatisfacao({ orderId: criado.id, nota: 4, comentario: 'Muito bom!' });
+  assert.equal(r.ok, true);
+
+  const pedido = botOrderService.getOrderWithItems(criado.id).pedido;
+  assert.equal(pedido.nota_satisfacao, 4);
+  assert.equal(pedido.comentario_satisfacao, 'Muito bom!');
+});
+
+test('buscarPedidoAguardandoSatisfacao só acha pedido com pesquisa pendente (solicitada, sem nota ainda)', () => {
+  const { db, locationId } = freshTestDb();
+  const telefone = '5511900002222';
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Gustavo', clienteTelefone: telefone, itens: [{ descricaoLivre: 'Item' }],
+  });
+
+  assert.equal(botOrderService.buscarPedidoAguardandoSatisfacao(telefone), undefined, 'ainda não foi solicitada nenhuma pesquisa');
+
+  // Simula a pesquisa já ter sido mandada (sem depender do WhatsApp
+  // estar conectado, ver solicitarPesquisaSatisfacao) -- mesmo padrão
+  // de reservationService.marcarLembreteEnviado nos testes de reserva.
+  db.prepare('UPDATE bot_orders SET satisfacao_solicitada_em = NOW_SYNCED() WHERE id = ?').run(criado.id);
+  const pendente = botOrderService.buscarPedidoAguardandoSatisfacao(telefone);
+  assert.ok(pendente, 'deveria achar o pedido aguardando resposta da pesquisa');
+  assert.equal(pendente.id, criado.id);
+
+  botOrderService.registrarNotaSatisfacao({ orderId: criado.id, nota: 5 });
+  assert.equal(botOrderService.buscarPedidoAguardandoSatisfacao(telefone), undefined, 'depois de respondida, não deveria mais aparecer como pendente');
+});
+
+test('solicitarPesquisaSatisfacao não faz nada (nem marca como solicitada) sem telefone ou sem pedido', async () => {
+  await botOrderService.solicitarPesquisaSatisfacao(null); // não deveria lançar
+  await botOrderService.solicitarPesquisaSatisfacao({ id: 'x', mesa_numero: '5', cliente_telefone: '123' }); // pedido de mesa -- nunca pergunta
+});
+
+test('solicitarPesquisaSatisfacao não marca como solicitada se o WhatsApp não está conectado (sandbox de teste)', async () => {
+  const { db, locationId } = freshTestDb();
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Igor', clienteTelefone: '5511900004444', itens: [{ descricaoLivre: 'Item' }],
+  });
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(criado.id);
+  await botOrderService.solicitarPesquisaSatisfacao(pedido);
+
+  const depois = db.prepare('SELECT satisfacao_solicitada_em FROM bot_orders WHERE id = ?').get(criado.id);
+  assert.equal(depois.satisfacao_solicitada_em, null, 'sem WhatsApp conectado, não deveria marcar como solicitada (só marca se o envio realmente funcionar)');
+});
+
+test('updateOrderStatus concluído (retirada) tenta solicitar a pesquisa de satisfação sem quebrar o fluxo mesmo sem WhatsApp conectado', () => {
+  const { locationId, adminId } = freshTestDb();
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Helena', clienteTelefone: '5511900003333', itens: [{ descricaoLivre: 'Item' }],
+  });
+  // Não deveria lançar mesmo com o bot desconectado (fogo-e-esquece) --
+  // e o pedido tem que continuar sendo marcado 'concluido' normalmente.
+  const r = botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+  assert.equal(r.ok, true);
+  const pedido = botOrderService.getOrderWithItems(criado.id).pedido;
+  assert.equal(pedido.status, 'concluido');
+});

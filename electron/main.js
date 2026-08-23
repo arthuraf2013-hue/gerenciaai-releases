@@ -9,6 +9,7 @@ const updateService = require('./services/updateService');
 const licenseService = require('./services/licenseService');
 const errorReportService = require('./services/errorReportService');
 const reservationService = require('./services/reservationService');
+const appointmentService = require('./services/appointmentService');
 
 const isDev = !app.isPackaged;
 
@@ -189,6 +190,14 @@ app.whenReady().then(() => {
   // ficaram "aguardando confirmação" por tempo demais sem resposta.
   setInterval(() => executarSeNaoEstiverRodando('lembretesDeReserva', checarLembretesDeReserva), 5 * 60 * 1000);
 
+  // Lembrete de agendamento "1h antes" -- mesmo padrão e mesma janela
+  // do lembrete de reserva acima, ver appointmentService.
+  // findPendingLembrete. Não precisa de um job separado de "limpeza" de
+  // agendamento vencido sem resposta (diferente da reserva): a janela
+  // de 3h em appointmentService.findAguardandoConfirmacaoByTelefone já
+  // resolve isso sozinha (ver comentário lá).
+  setInterval(() => executarSeNaoEstiverRodando('lembretesDeAgendamento', checarLembretesDeAgendamento), 5 * 60 * 1000);
+
   // Automações proativas do WhatsApp (reconquista, alerta de estoque,
   // resumo diário) + cupom automático de aniversário — ver
   // whatsappAutomationService.js. Roda a cada 10 min; cada função
@@ -267,6 +276,33 @@ async function checarLembretesDeReserva() {
     }
   }
   reservationService.marcarNaoConfirmadasVencidas(agora);
+}
+
+/** Mesma ideia de checarLembretesDeReserva, agora pro agendamento de
+ * horário (salão/beleza) -- ver appointmentService.findPendingLembrete.
+ * Sem "marcar vencidas" no final (diferente da reserva): não muda
+ * status nenhum, então não tem nada pra limpar -- ver comentário na
+ * coluna lembrete_enviado_em em schema.sql. */
+async function checarLembretesDeAgendamento() {
+  const agora = timeService.agoraLocalString();
+  const pendentes = appointmentService.findPendingLembrete(agora);
+  if (!pendentes.length) return;
+
+  const whatsappBotHandler = require('./services/whatsappBotHandler');
+  const whatsappBotService = require('./services/whatsappBotService');
+  for (const agendamento of pendentes) {
+    if (!agendamento.clienteTelefone) continue; // agendamento manual sem telefone -- não tem pra onde mandar
+    const quando = whatsappBotHandler.formatarDataHoraReserva(agendamento.data_hora_inicio);
+    const nome = agendamento.clienteNome || 'tudo bem';
+    const texto = `Oi, ${nome}! Passando pra confirmar: seu horário de ${agendamento.servico} com ${agendamento.profissionalNome} é ${quando} 🙂 Pode confirmar? Responda *sim* ou *não*.`;
+    const resultado = await whatsappBotService.enviarMensagem({ telefone: agendamento.clienteTelefone, texto });
+    if (resultado.ok) {
+      appointmentService.marcarLembreteEnviado(agendamento.id);
+    } else {
+      // Não marca como enviado -- mesma lógica de checarLembretesDeReserva.
+      console.error('[agendamento] falha ao mandar lembrete', agendamento.id, resultado.error);
+    }
+  }
 }
 
 /** Dispara as automações do WhatsApp de dono/loja (não são conversa com

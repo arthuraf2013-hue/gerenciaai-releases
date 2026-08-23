@@ -4,14 +4,29 @@ const saleService = require('./saleService');
 const { precoEfetivo } = require('./productService');
 const timeService = require('./timeService');
 
-function createQuote({ locationId, customerId, operadorId, validadeDias }) {
+/**
+ * `clienteNomeAvulso`/`clienteTelefoneAvulso` cobrem o orçamento pedido
+ * pelo chatbot antes do telefone ter um `customer_id` cadastrado --
+ * mesmo padrão de appointments.cliente_nome_avulso (ver
+ * whatsappBotHandler.finalizarOrcamento). Sem cliente cadastrado NEM
+ * nome avulso, o orçamento fica "sem dono" na tela de Orçamentos, então
+ * pelo menos um dos dois é exigido (customerId OU clienteNomeAvulso) --
+ * mas só quando vier de fora (orçamento manual sem cliente nenhum
+ * continua permitido, comportamento de antes dessa mudança, pra não
+ * quebrar quem já usava assim na tela).
+ */
+function createQuote({ locationId, customerId, clienteNomeAvulso, clienteTelefoneAvulso, origem, operadorId, validadeDias }) {
   if (!locationId) return { ok: false, error: 'Local é obrigatório.' };
   const db = getDb();
   const id = randomUUID();
   const validadeAte = validadeDias ? timeService.diasAPartirDeHojeLocalISO(validadeDias) : null;
   db.prepare(
-    `INSERT INTO quotes (id, location_id, customer_id, operador_id, validade_ate) VALUES (?, ?, ?, ?, ?)`
-  ).run(id, locationId, customerId || null, operadorId || null, validadeAte);
+    `INSERT INTO quotes (id, location_id, customer_id, cliente_nome_avulso, cliente_telefone_avulso, origem, operador_id, validade_ate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id, locationId, customerId || null, clienteNomeAvulso?.trim() || null, clienteTelefoneAvulso?.trim() || null,
+    origem === 'whatsapp_bot' ? 'whatsapp_bot' : 'manual', operadorId || null, validadeAte,
+  );
   return { ok: true, id };
 }
 
@@ -48,7 +63,8 @@ function removeQuoteItem(itemId) {
 function getQuote(quoteId) {
   const db = getDb();
   const quote = db.prepare(
-    `SELECT q.*, c.nome as clienteNome FROM quotes q LEFT JOIN customers c ON c.id = q.customer_id WHERE q.id = ?`
+    `SELECT q.*, COALESCE(c.nome, q.cliente_nome_avulso) as clienteNome, COALESCE(c.telefone, q.cliente_telefone_avulso) as clienteTelefone
+     FROM quotes q LEFT JOIN customers c ON c.id = q.customer_id WHERE q.id = ?`
   ).get(quoteId);
   if (!quote) return null;
   const items = db.prepare(
@@ -61,7 +77,7 @@ function getQuote(quoteId) {
 function listQuotes({ locationId, status } = {}) {
   const db = getDb();
   let sql = `
-    SELECT q.*, c.nome as clienteNome,
+    SELECT q.*, COALESCE(c.nome, q.cliente_nome_avulso) as clienteNome,
       (SELECT COALESCE(SUM(qi.quantidade * qi.preco_unitario), 0) FROM quote_items qi WHERE qi.quote_id = q.id) as total
     FROM quotes q LEFT JOIN customers c ON c.id = q.customer_id
     WHERE q.location_id = ?`;

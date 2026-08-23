@@ -125,3 +125,91 @@ test('montarLinkConfirmacao recusa sem telefone de contato', () => {
   const link = appointmentService.montarLinkConfirmacao(r.id);
   assert.equal(link.ok, false);
 });
+
+// ---------- Lembrete automático "1h antes" pelo chatbot ----------
+
+test('findPendingLembrete só pega agendamentos entre 55 e 65 minutos no futuro, agendados e sem lembrete já mandado', () => {
+  const { locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+  const agora = '2026-08-15 09:00:00';
+
+  const dentroDaJanela = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'A', clienteTelefoneAvulso: '111', servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', operadorId: adminId,
+  }).id; // +60min
+  const cedoDemais = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'B', clienteTelefoneAvulso: '222', servico: 'Corte', dataHoraInicio: '2026-08-15 12:00:00', operadorId: adminId,
+  }).id; // +180min
+  const tardeDemais = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'C', clienteTelefoneAvulso: '333', servico: 'Corte', dataHoraInicio: '2026-08-15 09:10:00', operadorId: adminId,
+  }).id; // +10min
+  const jaMandado = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'D', clienteTelefoneAvulso: '444', servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', operadorId: adminId,
+  }).id;
+  appointmentService.marcarLembreteEnviado(jaMandado);
+
+  const pendentes = appointmentService.findPendingLembrete(agora).map((a) => a.id);
+  assert.deepEqual(pendentes, [dentroDaJanela]);
+  assert.equal(pendentes.includes(cedoDemais), false);
+  assert.equal(pendentes.includes(tardeDemais), false);
+  assert.equal(pendentes.includes(jaMandado), false);
+});
+
+test('marcarLembreteEnviado marca a data sem mudar o status do agendamento', () => {
+  const { locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+  const { id } = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'A', clienteTelefoneAvulso: '111', servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', operadorId: adminId,
+  });
+  appointmentService.marcarLembreteEnviado(id);
+
+  const [agendamento] = appointmentService.listAppointments({ locationId });
+  assert.equal(agendamento.status, 'agendado', 'não deve mudar o status, só marcar quando o lembrete saiu');
+  assert.notEqual(agendamento.lembrete_enviado_em, null);
+});
+
+test('findAguardandoConfirmacaoByTelefone acha agendamento avulso e o de cliente cadastrado, casando telefone normalizado', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+
+  const avulso = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Zeca', clienteTelefoneAvulso: '(11) 98888-7777',
+    servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', operadorId: adminId,
+  });
+  appointmentService.marcarLembreteEnviado(avulso.id);
+
+  // Telefone digitado com formatação -- mas createAppointment normaliza
+  // pra só dígitos (ver comentário na função), então bate com o telefone
+  // "cru" que chega do WhatsApp (só dígitos) na busca abaixo.
+  const encontrado = appointmentService.findAguardandoConfirmacaoByTelefone('11988887777');
+  assert.ok(encontrado);
+  assert.equal(encontrado.id, avulso.id);
+  assert.equal(encontrado.clienteNome, 'Zeca');
+
+  // Cliente CADASTRADO (customer_id, sem avulso) -- mesma busca também
+  // deve funcionar via COALESCE(customer.telefone, ...).
+  const clienteId = randomUUID();
+  db.prepare('INSERT INTO customers (id, nome, telefone) VALUES (?, ?, ?)').run(clienteId, 'Marina', '11977776666');
+  const cadastrado = appointmentService.createAppointment({
+    locationId, professionalId: profId, customerId: clienteId, servico: 'Escova', dataHoraInicio: '2026-08-15 11:00:00', operadorId: adminId,
+  });
+  appointmentService.marcarLembreteEnviado(cadastrado.id);
+  const encontradoCadastrado = appointmentService.findAguardandoConfirmacaoByTelefone('11977776666');
+  assert.ok(encontradoCadastrado);
+  assert.equal(encontradoCadastrado.id, cadastrado.id);
+  assert.equal(encontradoCadastrado.clienteNome, 'Marina');
+});
+
+test('findAguardandoConfirmacaoByTelefone não acha nada sem lembrete mandado, e nada pra outro telefone', () => {
+  const { locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+  const { id } = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'A', clienteTelefoneAvulso: '5511900009999',
+    servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', operadorId: adminId,
+  });
+
+  assert.equal(appointmentService.findAguardandoConfirmacaoByTelefone('5511900009999'), null, 'lembrete ainda não foi mandado');
+
+  appointmentService.marcarLembreteEnviado(id);
+  assert.equal(appointmentService.findAguardandoConfirmacaoByTelefone('5511900001234'), null, 'telefone diferente não deveria achar nada');
+  assert.equal(appointmentService.findAguardandoConfirmacaoByTelefone(''), null);
+});

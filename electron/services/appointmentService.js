@@ -1,6 +1,10 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 
+function normalizarTelefone(telefone) {
+  return (telefone || '').replace(/\D/g, '');
+}
+
 // ---------- Profissionais ----------
 function listProfessionals() {
   const db = getDb();
@@ -67,7 +71,15 @@ function createAppointment({ locationId, professionalId, customerId, clienteNome
   db.prepare(
     `INSERT INTO appointments (id, location_id, professional_id, customer_id, cliente_nome_avulso, cliente_telefone_avulso, servico, data_hora_inicio, duracao_minutos, observacoes, operador_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, locationId, professionalId, customerId || null, clienteNomeAvulso || null, clienteTelefoneAvulso || null, servico.trim(), dataHoraInicio, duracao, observacoes || null, operadorId || null);
+  ).run(
+    id, locationId, professionalId, customerId || null, clienteNomeAvulso || null,
+    // Normalizado (só dígitos) -- mesmo padrão de reservationService.
+    // normalizarTelefone, necessário pra findAguardandoConfirmacaoByTelefone
+    // conseguir comparar com o telefone que chega do WhatsApp (que já
+    // vem só com dígitos) sem se importar com como foi digitado aqui.
+    normalizarTelefone(clienteTelefoneAvulso) || null,
+    servico.trim(), dataHoraInicio, duracao, observacoes || null, operadorId || null,
+  );
   return { ok: true, id };
 }
 
@@ -160,7 +172,65 @@ function montarLinkConfirmacao(appointmentId) {
   return { ok: true, url, mensagem };
 }
 
+/**
+ * Agendamentos que precisam do lembrete de "1h antes" mandado agora --
+ * mesma ideia (e mesma janela de 55-65 min) de reservationService.
+ * findPendingLembrete, mas aqui não muda `status` nenhum (ver comentário
+ * da coluna lembrete_enviado_em em schema.sql) -- só evita perguntar de
+ * novo enquanto ainda não tiver resposta.
+ */
+function findPendingLembrete(agoraLocalStr) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT a.*, p.nome as profissionalNome, COALESCE(c.nome, a.cliente_nome_avulso) as clienteNome,
+       COALESCE(c.telefone, a.cliente_telefone_avulso) as clienteTelefone
+     FROM appointments a
+     JOIN appointment_professionals p ON p.id = a.professional_id
+     LEFT JOIN customers c ON c.id = a.customer_id
+     WHERE a.status = 'agendado' AND a.lembrete_enviado_em IS NULL
+       AND a.data_hora_inicio BETWEEN datetime(?, '+55 minutes') AND datetime(?, '+65 minutes')`
+  ).all(agoraLocalStr, agoraLocalStr);
+}
+
+function marcarLembreteEnviado(appointmentId) {
+  const db = getDb();
+  db.prepare(`UPDATE appointments SET lembrete_enviado_em = NOW_SYNCED() WHERE id = ?`).run(appointmentId);
+  return { ok: true };
+}
+
+/**
+ * Agendamento mais próximo esperando resposta ao lembrete de "1h antes"
+ * pra esse telefone -- usado pelo chatbot (ver whatsappBotHandler.js)
+ * pra saber se a próxima mensagem desse número é confirmação/recusa em
+ * vez de um pedido novo. Considera "aguardando resposta" um agendamento
+ * ainda 'agendado' cujo lembrete foi mandado há no máximo 3h -- passada
+ * essa janela, simplesmente para de contar (evita interpretar como
+ * resposta ao lembrete uma mensagem que chega dias depois, sem precisar
+ * de nenhum job de limpeza separado, ver comentário em schema.sql).
+ * Comparação de telefone feita em JS (normalizado, só dígitos) porque
+ * cliente_telefone_avulso pode ter sido digitado manualmente com
+ * formatação variada -- não dá pra comparar direto em SQL sem uma
+ * função customizada.
+ */
+function findAguardandoConfirmacaoByTelefone(telefone) {
+  const numero = normalizarTelefone(telefone);
+  if (!numero) return null;
+  const db = getDb();
+  const candidatos = db.prepare(
+    `SELECT a.*, p.nome as profissionalNome, COALESCE(c.nome, a.cliente_nome_avulso) as clienteNome,
+       COALESCE(c.telefone, a.cliente_telefone_avulso) as clienteTelefone
+     FROM appointments a
+     JOIN appointment_professionals p ON p.id = a.professional_id
+     LEFT JOIN customers c ON c.id = a.customer_id
+     WHERE a.status = 'agendado' AND a.lembrete_enviado_em IS NOT NULL
+       AND datetime(a.lembrete_enviado_em) > datetime('now', '-3 hours')
+     ORDER BY a.data_hora_inicio`
+  ).all();
+  return candidatos.find((a) => normalizarTelefone(a.clienteTelefone) === numero) || null;
+}
+
 module.exports = {
   listProfessionals, upsertProfessional, deactivateProfessional,
   checkConflito, createAppointment, rescheduleAppointment, updateAppointmentStatus, listAppointments, montarLinkConfirmacao,
+  findPendingLembrete, marcarLembreteEnviado, findAguardandoConfirmacaoByTelefone, normalizarTelefone,
 };

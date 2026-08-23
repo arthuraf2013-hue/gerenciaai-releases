@@ -81,7 +81,9 @@ async function tratarMensagemRecebida(msg) {
   const texto = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
   const telefone = jid.split('@')[0];
 
-  const { resposta, reservaConfirmada } = whatsappBotHandler.processarMensagem({ telefone, texto, nomeExibicao: msg.pushName });
+  const {
+    resposta, reservaConfirmada, agendamentoConfirmado, orcamentoCriado, quoteId, agendamentoCriado, appointmentId,
+  } = whatsappBotHandler.processarMensagem({ telefone, texto, nomeExibicao: msg.pushName });
   if (resposta && sock) {
     try { await sock.sendMessage(jid, { text: resposta }); } catch (err) { console.error('[whatsappBot] falha ao responder', err); }
   }
@@ -90,6 +92,26 @@ async function tratarMensagemRecebida(msg) {
   // conexão de verdade, que a notificação nativa pro balcão é disparada.
   if (reservaConfirmada) {
     try { require('./notificationService').notifyReservationConfirmed(reservaConfirmada); } catch (err) { console.error('[whatsappBot] falha ao notificar reserva confirmada', err); }
+  }
+  if (agendamentoConfirmado) {
+    try { require('./notificationService').notifyAppointmentConfirmed(agendamentoConfirmado); } catch (err) { console.error('[whatsappBot] falha ao notificar agendamento confirmado', err); }
+  }
+  if (orcamentoCriado && quoteId) {
+    try {
+      const quoteService = require('./quoteService');
+      require('./notificationService').notifyNewQuoteFromBot(quoteService.getQuote(quoteId));
+    } catch (err) { console.error('[whatsappBot] falha ao notificar novo orçamento', err); }
+  }
+  if (agendamentoCriado && appointmentId) {
+    try {
+      const db = require('../db/database').getDb();
+      const ag = db.prepare(
+        `SELECT a.*, p.nome as profissionalNome, COALESCE(c.nome, a.cliente_nome_avulso) as clienteNomeAvulso
+         FROM appointments a JOIN appointment_professionals p ON p.id = a.professional_id
+         LEFT JOIN customers c ON c.id = a.customer_id WHERE a.id = ?`
+      ).get(appointmentId);
+      if (ag) require('./notificationService').notifyNewAppointmentFromBot(ag);
+    } catch (err) { console.error('[whatsappBot] falha ao notificar novo agendamento', err); }
   }
 }
 

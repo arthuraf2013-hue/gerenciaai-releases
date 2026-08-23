@@ -121,3 +121,43 @@ test('listQuotes filtra por status quando pedido', () => {
   assert.equal(abertos.length, 1);
   assert.equal(abertos[0].id, quote1.id);
 });
+
+// ---------- Orçamento pedido pelo chatbot (cliente ainda sem cadastro) ----------
+
+test('createQuote grava cliente avulso (nome/telefone) e origem, mesmo sem customer_id', () => {
+  const { locationId } = freshTestDb();
+  const quote = quoteService.createQuote({
+    locationId, clienteNomeAvulso: 'Roberto WhatsApp', clienteTelefoneAvulso: '5511900007777', origem: 'whatsapp_bot',
+  });
+  assert.equal(quote.ok, true);
+
+  const cheio = quoteService.getQuote(quote.id);
+  assert.equal(cheio.origem, 'whatsapp_bot');
+  assert.equal(cheio.clienteNome, 'Roberto WhatsApp', 'clienteNome deveria cair pro avulso quando não tem customer_id');
+  assert.equal(cheio.clienteTelefone, '5511900007777');
+
+  const [naLista] = quoteService.listQuotes({ locationId });
+  assert.equal(naLista.clienteNome, 'Roberto WhatsApp');
+});
+
+test('createQuote sem customer_id, sem avulso, e sem origem continua funcionando como orçamento manual de antes', () => {
+  const { locationId, adminId } = freshTestDb();
+  const quote = quoteService.createQuote({ locationId, operadorId: adminId });
+  assert.equal(quote.ok, true);
+
+  const cheio = quoteService.getQuote(quote.id);
+  assert.equal(cheio.origem, 'manual', 'origem deveria cair pro padrão manual quando não especificada');
+  assert.equal(cheio.clienteNome, null);
+});
+
+test('createQuote prefere o nome do cliente CADASTRADO quando tem customer_id, mesmo com avulso preenchido', () => {
+  const { db, locationId } = freshTestDb();
+  const clienteId = require('crypto').randomUUID();
+  db.prepare('INSERT INTO customers (id, nome, telefone) VALUES (?, ?, ?)').run(clienteId, 'Cliente Cadastrado', '5511900008888');
+
+  const quote = quoteService.createQuote({
+    locationId, customerId: clienteId, clienteNomeAvulso: 'Nome Que Não Deveria Aparecer',
+  });
+  const cheio = quoteService.getQuote(quote.id);
+  assert.equal(cheio.clienteNome, 'Cliente Cadastrado');
+});

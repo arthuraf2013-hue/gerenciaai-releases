@@ -371,6 +371,81 @@ async function notificarTaxaEntregaDefinida(pedido) {
   }
 }
 
+/**
+ * Manda a pergunta de satisfação ("de 1 a 5, como foi seu pedido?")
+ * pro cliente -- disparada quando um pedido de RETIRADA é concluído
+ * (ver updateOrderStatus) ou quando a ENTREGA vinculada a um pedido
+ * chega em 'entregue' (ver deliveryService.updateDeliveryStatus, que
+ * chama esta função por fora depois de achar o bot_order pelo
+ * delivery_id). Nunca chamada pra pedido de mesa. Idempotente: só
+ * manda se `satisfacao_solicitada_em` ainda não tiver sido marcado,
+ * pra não perguntar de novo se o status mudar mais de uma vez (ex:
+ * alguém reabre e fecha a entrega de novo por engano). Fogo-e-esquece,
+ * mesmo padrão das outras notificações deste arquivo.
+ */
+async function solicitarPesquisaSatisfacao(pedido) {
+  if (!pedido || pedido.mesa_numero || pedido.satisfacao_solicitada_em) return;
+  if (!pedido.cliente_telefone) return;
+
+  const db = getDb();
+  const whatsappBotService = require('./whatsappBotService');
+  if (whatsappBotService.getStatus().status !== 'conectado') return;
+
+  const primeiroNome = (pedido.cliente_nome || '').trim().split(' ')[0] || 'tudo bem';
+  const texto = `Oi, ${primeiroNome}! Já recebeu tudo certinho? De 1 a 5, que nota você daria pro seu pedido? ⭐ (pode mandar só o número, ou o número e um comentário)`;
+
+  const resultado = await whatsappBotService.enviarMensagem({ telefone: pedido.cliente_telefone, texto });
+  if (!resultado.ok) {
+    console.error('[botOrderService] falha ao enviar pesquisa de satisfação', pedido.id, resultado.error);
+    return;
+  }
+  // Só marca como "solicitada" se o envio realmente funcionou -- senão
+  // fica pra sempre sem pedir a avaliação desse pedido (mesmo raciocínio
+  // de reservationService.findPendingLembrete só marcar lembrete_enviado_em
+  // depois do envio confirmado).
+  db.prepare('UPDATE bot_orders SET satisfacao_solicitada_em = NOW_SYNCED() WHERE id = ?').run(pedido.id);
+}
+
+/** Pedido mais recente desse telefone ainda esperando resposta da
+ * pesquisa de satisfação (pergunta já mandada, nota ainda não veio) --
+ * usado pelo chatbot (ver whatsappBotHandler.js) pra saber se a
+ * próxima mensagem desse número é a nota, em vez de um pedido novo. */
+function buscarPedidoAguardandoSatisfacao(telefone) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT * FROM bot_orders
+     WHERE cliente_telefone = ? AND satisfacao_solicitada_em IS NOT NULL AND nota_satisfacao IS NULL
+     ORDER BY satisfacao_solicitada_em DESC LIMIT 1`
+  ).get(telefone);
+}
+
+/** Grava a nota (e comentário opcional) que o cliente respondeu pela
+ * pesquisa de satisfação. Notifica o balcão nativamente quando a nota
+ * é baixa (1 ou 2) -- uma avaliação ruim é o tipo de coisa que vale a
+ * pena alguém ver na hora, não só quando for olhar relatório depois. */
+function registrarNotaSatisfacao({ orderId, nota, comentario }) {
+  const notaNum = Number(nota);
+  if (!(notaNum >= 1 && notaNum <= 5) || !Number.isInteger(notaNum)) {
+    return { ok: false, error: 'Nota inválida.' };
+  }
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
+
+  db.prepare('UPDATE bot_orders SET nota_satisfacao = ?, comentario_satisfacao = ? WHERE id = ?')
+    .run(notaNum, comentario?.trim() || null, orderId);
+
+  if (notaNum <= 2) {
+    try {
+      require('./notificationService').notifyLowSatisfactionRating({ ...pedido, nota_satisfacao: notaNum, comentario_satisfacao: comentario?.trim() || null });
+    } catch (err) {
+      console.error('[botOrderService] falha ao notificar avaliação baixa', orderId, err);
+    }
+  }
+
+  return { ok: true };
+}
+
 /** Define (ou corrige) a taxa de entrega de um pedido -- usado no modo
  * "personalizada" (ver getConfig), onde não existe um valor padrão e o
  * atendente decide o valor de cada pedido na tela de Separação. Assim
@@ -573,6 +648,18 @@ function updateOrderStatus({ orderId, status, operadorId }) {
       // precisa ficar visível em algum lugar pra alguém investigar.
       console.error('[botOrderService] falha ao converter pedido em venda', orderId, err);
     }
+
+    // Pesquisa de satisfação -- só aqui pra pedido de RETIRADA (já foi
+    // buscado, encerra o assunto). Pedido de ENTREGA só é perguntado
+    // quando a entrega em si chega em 'entregue' (ver
+    // deliveryService.updateDeliveryStatus), não já na conclusão do
+    // pedido (que só significa "virou venda/entrega de verdade", o
+    // entregador ainda nem saiu -- ver podeReceberModificacao).
+    if (!pedido.mesa_numero && pedido.tipo_entrega !== 'entrega') {
+      solicitarPesquisaSatisfacao(pedido).catch((err) => {
+        console.error('[botOrderService] falha ao solicitar pesquisa de satisfação', orderId, err);
+      });
+    }
   }
 
   return { ok: true };
@@ -659,4 +746,5 @@ module.exports = {
   listCategoriasComEstoque, listInStockByCategory, listarAtivosParaBusca, lancarPedidoNaMesa,
   setTaxaEntrega, buscarPedidoEmAndamento, podeReceberModificacao, descreverStatusPedido,
   adicionarItensAoPedido, registrarSolicitacaoAlteracao,
+  solicitarPesquisaSatisfacao, buscarPedidoAguardandoSatisfacao, registrarNotaSatisfacao,
 };

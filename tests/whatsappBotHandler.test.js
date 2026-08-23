@@ -484,3 +484,352 @@ test('resposta ao lembrete tem prioridade sobre "cancelar" genérico', () => {
   const [reserva] = reservationService.list({ locationId });
   assert.equal(reserva.status, 'cancelada');
 });
+
+// ---------- Orçamento pelo chat ----------
+
+test('conversa completa de orçamento: orçamento -> categoria -> produto -> finalizar -> orçamento criado (não mexe em estoque)', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const quoteService = require('../electron/services/quoteService');
+  const produtoId = createProduct(db, { nome: 'Cimento', preco: 35, categoria: 'Construção' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 10, operadorId: adminId });
+
+  const conversas = new Map();
+  const telefone = '5511900001111';
+
+  let r = whatsappBotHandler.processarMensagem({ telefone, texto: 'orçamento', nomeExibicao: 'Roberto', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /orçamento/i);
+  assert.match(r.resposta, /Construção/);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /Cimento/);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: '1x3', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /Adicionado: Cimento x3/);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  assert.equal(r.orcamentoCriado, true);
+  assert.ok(r.quoteId);
+  assert.match(r.resposta, /orçamento registrado/i);
+  assert.doesNotMatch(r.resposta, /retirada/i); // orçamento não pergunta tipo de entrega
+
+  const quote = quoteService.getQuote(r.quoteId);
+  assert.equal(quote.origem, 'whatsapp_bot');
+  assert.equal(quote.clienteNome, 'Roberto');
+  assert.equal(quote.clienteTelefone, telefone);
+  assert.equal(quote.status, 'aberto'); // orçamento fica aberto pra equipe decidir depois
+  assert.equal(quote.items.length, 1);
+  assert.equal(quote.items[0].quantidade, 3);
+
+  const estoque = db.prepare('SELECT COALESCE(SUM(quantidade),0) as t FROM stock_movements WHERE product_id = ?').get(produtoId).t;
+  assert.equal(estoque, 10, 'orçamento não deveria mexer em estoque');
+
+  // conversa foi encerrada
+  assert.equal(conversas.has(telefone), false);
+});
+
+test('"orçamento" interrompe um pedido normal em andamento e começa do zero, sem perder o modo orçamento até o fim', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Produto C', preco: 8, categoria: 'Diversos' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+
+  const conversas = new Map();
+  const telefone = '5511900002222';
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // categoria (pedido normal)
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'orçamento', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /orçamento/i);
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // categoria (agora em modo orçamento)
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // produto
+  const final = whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  assert.equal(final.orcamentoCriado, true, 'deveria continuar em modo orçamento mesmo depois de reiniciar a conversa');
+});
+
+// ---------- Agendamento de horário (perfil Salão/Beleza) ----------
+
+function ativarPerfilSalaoBeleza(db) {
+  db.prepare(`UPDATE business_profile SET perfil_ativo = 'salao_beleza' WHERE id = 'default'`).run();
+}
+
+test('"agendar" não é oferecido fora do perfil salão/beleza, nem sem profissional cadastrado', () => {
+  const { locationId } = freshTestDb(); // perfil padrão seedado é 'farmacia'
+  const conversas = new Map();
+  const r = whatsappBotHandler.processarMensagem({ telefone: '5511900003333', texto: 'agendar', locationId, estadoConversas: conversas });
+  assert.doesNotMatch(r.resposta, /qual seu nome/i);
+
+  // Mesmo com o perfil certo, sem profissional cadastrado não oferece.
+  const { db: db2, locationId: locationId2 } = freshTestDb();
+  ativarPerfilSalaoBeleza(db2);
+  const r2 = whatsappBotHandler.processarMensagem({ telefone: '5511900004444', texto: 'agendar', locationId: locationId2, estadoConversas: new Map() });
+  assert.doesNotMatch(r2.resposta, /qual seu nome/i);
+});
+
+test('conversa completa de agendamento com 1 só profissional: agendar -> nome -> (pula escolha) -> serviço -> horário -> agendamento criado', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilSalaoBeleza(db);
+  const appointmentService = require('../electron/services/appointmentService');
+  appointmentService.upsertProfessional({ nome: 'Juliana', especialidade: 'Cabelo' });
+
+  const conversas = new Map();
+  const telefone = '5511900005555';
+
+  let r = whatsappBotHandler.processarMensagem({ telefone, texto: 'agendar', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /qual seu nome/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: 'Fernanda', locationId, estadoConversas: conversas });
+  // só 1 profissional -- pula direto pra pergunta de serviço, não pergunta "com quem"
+  assert.doesNotMatch(r.resposta, /com quem/i);
+  assert.match(r.resposta, /gostaria de agendar/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: 'corte de cabelo', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /dia e hor[áa]rio/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: 'amanhã 15h', locationId, estadoConversas: conversas });
+  assert.equal(r.agendamentoCriado, true);
+  assert.ok(r.appointmentId);
+  assert.match(r.resposta, /Fernanda/);
+  assert.match(r.resposta, /Juliana/);
+
+  const [agendamento] = appointmentService.listAppointments({ locationId });
+  assert.equal(agendamento.clienteNome, 'Fernanda');
+  assert.equal(agendamento.clienteTelefone, telefone);
+  assert.equal(agendamento.servico, 'corte de cabelo');
+  assert.equal(agendamento.status, 'agendado');
+
+  // conversa foi encerrada
+  assert.equal(conversas.has(telefone), false);
+});
+
+test('conversa de agendamento com vários profissionais pergunta com quem, e número inválido pede de novo', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilSalaoBeleza(db);
+  const appointmentService = require('../electron/services/appointmentService');
+  appointmentService.upsertProfessional({ nome: 'Ana', especialidade: 'Cabelo' });
+  appointmentService.upsertProfessional({ nome: 'Bruno', especialidade: 'Barba' });
+
+  const conversas = new Map();
+  const telefone = '5511900006666';
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'agendar', locationId, estadoConversas: conversas });
+  let r = whatsappBotHandler.processarMensagem({ telefone, texto: 'Marcos', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /com quem/i);
+  assert.match(r.resposta, /Ana/);
+  assert.match(r.resposta, /Bruno/);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: '9', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /não entendi/i);
+
+  r = whatsappBotHandler.processarMensagem({ telefone, texto: '2', locationId, estadoConversas: conversas });
+  assert.match(r.resposta, /gostaria de agendar/i);
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'barba', locationId, estadoConversas: conversas });
+  const final = whatsappBotHandler.processarMensagem({ telefone, texto: 'amanhã 10h', locationId, estadoConversas: conversas });
+  assert.equal(final.agendamentoCriado, true);
+
+  const [agendamento] = appointmentService.listAppointments({ locationId, professionalId: undefined });
+  const criado = appointmentService.listAppointments({ locationId }).find((a) => a.clienteNome === 'Marcos');
+  assert.equal(criado.profissionalNome, 'Bruno');
+});
+
+test('horário com conflito no agendamento não finaliza e pede outro horário, sem perder nome/serviço já informados', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilSalaoBeleza(db);
+  const appointmentService = require('../electron/services/appointmentService');
+  const { id: profId } = appointmentService.upsertProfessional({ nome: 'Carla' });
+
+  // "amanhã" no chat resolve pra data relativa ao momento em que o
+  // teste roda (ver parseHorarioReserva) -- por isso o agendamento
+  // conflitante pré-existente precisa ser criado com a MESMA data
+  // calculada dinamicamente, em vez de uma data fixa que pode cair no
+  // passado dependendo de quando os testes rodarem.
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  const amanhaStr = `${amanha.getFullYear()}-${String(amanha.getMonth() + 1).padStart(2, '0')}-${String(amanha.getDate()).padStart(2, '0')}`;
+
+  appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Outra Cliente', servico: 'manicure', dataHoraInicio: `${amanhaStr} 15:00:00`, duracaoMinutos: 60,
+  });
+
+  const conversas = new Map();
+  const telefone = '5511900007777';
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'agendar', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'Patrícia', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'escova', locationId, estadoConversas: conversas });
+
+  const tentativaConflito = whatsappBotHandler.processarMensagem({ telefone, texto: 'amanhã 15h', locationId, estadoConversas: conversas });
+  assert.match(tentativaConflito.resposta, /já tem outro horário/i);
+  assert.equal(tentativaConflito.agendamentoCriado, undefined);
+
+  // A conversa continua esperando um horário -- consegue tentar de novo com sucesso.
+  const tentativaBoa = whatsappBotHandler.processarMensagem({ telefone, texto: 'amanhã 17h', locationId, estadoConversas: conversas });
+  assert.equal(tentativaBoa.agendamentoCriado, true);
+
+  const criado = appointmentService.listAppointments({ locationId }).find((a) => a.clienteNome === 'Patrícia');
+  assert.equal(criado.servico, 'escova');
+});
+
+test('cliente confirma o agendamento quando o lembrete de 1h antes já foi mandado', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilSalaoBeleza(db);
+  const appointmentService = require('../electron/services/appointmentService');
+  const { id: profId } = appointmentService.upsertProfessional({ nome: 'Vanessa' });
+  const telefone = '5511900008888';
+
+  const { id } = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Gustavo', clienteTelefoneAvulso: telefone,
+    servico: 'corte', dataHoraInicio: '2026-01-01 20:00:00', duracaoMinutos: 60,
+  });
+  appointmentService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'sim', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /confirmado/i);
+  assert.ok(r.agendamentoConfirmado);
+  assert.equal(r.agendamentoConfirmado.id, id);
+
+  const [agendamento] = appointmentService.listAppointments({ locationId });
+  assert.equal(agendamento.status, 'confirmado');
+});
+
+test('cliente recusa o agendamento quando o lembrete de 1h antes já foi mandado', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilSalaoBeleza(db);
+  const appointmentService = require('../electron/services/appointmentService');
+  const { id: profId } = appointmentService.upsertProfessional({ nome: 'Rafael' });
+  const telefone = '5511900009999';
+
+  const { id } = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Sandra', clienteTelefoneAvulso: telefone,
+    servico: 'manicure', dataHoraInicio: '2026-01-01 20:00:00', duracaoMinutos: 60,
+  });
+  appointmentService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'não posso ir', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /cancelado/i);
+
+  const [agendamento] = appointmentService.listAppointments({ locationId });
+  assert.equal(agendamento.status, 'cancelado');
+});
+
+test('resposta ao lembrete de agendamento tem prioridade sobre "cancelar" genérico', () => {
+  const { db, locationId } = freshTestDb();
+  ativarPerfilSalaoBeleza(db);
+  const appointmentService = require('../electron/services/appointmentService');
+  const { id: profId } = appointmentService.upsertProfessional({ nome: 'Tatiane' });
+  const telefone = '5511900010000';
+
+  const { id } = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Igor', clienteTelefoneAvulso: telefone,
+    servico: 'corte', dataHoraInicio: '2026-01-01 20:00:00', duracaoMinutos: 60,
+  });
+  appointmentService.marcarLembreteEnviado(id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'cancelar', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /agendamento cancelado/i);
+
+  const [agendamento] = appointmentService.listAppointments({ locationId });
+  assert.equal(agendamento.status, 'cancelado');
+});
+
+// ---------- Pesquisa de satisfação pós-pedido ----------
+
+test('cliente sem conversa em andamento recebe a pergunta de satisfação e uma nota sozinha é registrada', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Produto D', preco: 5, categoria: 'Diversos' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+  const telefone = '5511900011111';
+
+  const pedido = botOrderService.createOrder({
+    locationId, clienteNome: 'Helena', clienteTelefone: telefone, tipoEntrega: 'retirada', origem: 'whatsapp_bot',
+    itens: [{ productId: p, quantidade: 1, precoUnitario: 5 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'pronto' });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'concluido' }); // dispara a tentativa, mas sem WhatsApp conectado não marca sozinho (ver botOrderService.test.js)
+
+  // Simula a pesquisa já ter sido mandada, sem depender do WhatsApp
+  // estar conectado no sandbox de teste -- mesmo padrão de
+  // reservationService.marcarLembreteEnviado usado nos testes de reserva.
+  db.prepare('UPDATE bot_orders SET satisfacao_solicitada_em = NOW_SYNCED() WHERE id = ?').run(pedido.id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: '5', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /obrigado/i);
+
+  const depois = botOrderService.getOrderWithItems(pedido.id);
+  assert.equal(depois.pedido.nota_satisfacao, 5);
+  assert.equal(depois.pedido.comentario_satisfacao, null);
+});
+
+test('nota de satisfação seguida de comentário grava os dois, e nota baixa não trava a conversa', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Produto E', preco: 5, categoria: 'Diversos' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+  const telefone = '5511900012222';
+
+  const pedido = botOrderService.createOrder({
+    locationId, clienteNome: 'Igor', clienteTelefone: telefone, tipoEntrega: 'retirada', origem: 'whatsapp_bot',
+    itens: [{ productId: p, quantidade: 1, precoUnitario: 5 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'pronto' });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'concluido' });
+  db.prepare('UPDATE bot_orders SET satisfacao_solicitada_em = NOW_SYNCED() WHERE id = ?').run(pedido.id);
+
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: '2 demorou bastante', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /sentimos muito/i);
+
+  const depois = botOrderService.getOrderWithItems(pedido.id);
+  assert.equal(depois.pedido.nota_satisfacao, 2);
+  assert.equal(depois.pedido.comentario_satisfacao, 'demorou bastante');
+});
+
+test('resposta inválida à pesquisa de satisfação pede de novo sem gravar nada, até vir uma nota válida', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Produto F', preco: 5, categoria: 'Diversos' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+  const telefone = '5511900013333';
+
+  const pedido = botOrderService.createOrder({
+    locationId, clienteNome: 'Julia', clienteTelefone: telefone, tipoEntrega: 'retirada', origem: 'whatsapp_bot',
+    itens: [{ productId: p, quantidade: 1, precoUnitario: 5 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'pronto' });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'concluido' });
+  db.prepare('UPDATE bot_orders SET satisfacao_solicitada_em = NOW_SYNCED() WHERE id = ?').run(pedido.id);
+
+  const conversas = new Map();
+  const tentativaRuim = whatsappBotHandler.processarMensagem({ telefone, texto: 'oi tudo bem?', locationId, estadoConversas: conversas });
+  assert.match(tentativaRuim.resposta, /não entendi/i);
+  assert.equal(conversas.has(telefone), true, 'não deveria encerrar a conversa com resposta inválida');
+
+  let semNota = botOrderService.getOrderWithItems(pedido.id);
+  assert.equal(semNota.pedido.nota_satisfacao, null);
+
+  const tentativaBoa = whatsappBotHandler.processarMensagem({ telefone, texto: '4', locationId, estadoConversas: conversas });
+  assert.match(tentativaBoa.resposta, /obrigado/i);
+  assert.equal(conversas.has(telefone), false);
+
+  const comNota = botOrderService.getOrderWithItems(pedido.id);
+  assert.equal(comNota.pedido.nota_satisfacao, 4);
+});
+
+test('pedido de mesa concluído não dispara pesquisa de satisfação (só retirada)', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Produto G', preco: 5, categoria: 'Diversos' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+  const telefone = '5511900014444';
+
+  const pedido = botOrderService.createOrder({
+    locationId, clienteNome: 'Karina', clienteTelefone: telefone, tipoEntrega: 'retirada', mesaNumero: '7', origem: 'whatsapp_bot',
+    itens: [{ productId: p, quantidade: 1, precoUnitario: 5 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'pronto' });
+  botOrderService.updateOrderStatus({ orderId: pedido.id, status: 'concluido' });
+
+  const detalhe = botOrderService.getOrderWithItems(pedido.id);
+  assert.equal(detalhe.pedido.satisfacao_solicitada_em, null);
+
+  // Sem pesquisa pendente, mensagem nova cai no fluxo normal (menu de boas-vindas).
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: new Map() });
+  assert.match(r.resposta, /bem-vindo/i);
+});
