@@ -8,20 +8,37 @@ const STATUS_ITEM_VALIDOS = ['pendente', 'separado', 'indisponivel', 'substituid
 // cancelado já saíram da fila, não contam mais.
 const STATUS_ATIVOS = ['novo', 'em_separacao', 'pronto'];
 
-// ---------- Configuração (liga/desliga a aba "Separação") ----------
+// ---------- Configuração (liga/desliga a aba "Separação" + taxa de entrega) ----------
 function getConfig() {
   const db = getDb();
   const row = db.prepare('SELECT * FROM delivery_bot_config WHERE id = ?').get('default');
-  return { ativo: !!(row?.ativo) };
+  return {
+    ativo: !!(row?.ativo),
+    // 'fixa': todo pedido de entrega já sai com esse valor, informado
+    // ao cliente na hora (ver whatsappBotHandler.finalizarPedido).
+    // 'personalizada': sem valor padrão -- o atendente define em cada
+    // pedido (ver setTaxaEntrega) e o cliente é avisado quando isso
+    // acontecer.
+    taxaEntregaModo: row?.taxa_entrega_modo === 'personalizada' ? 'personalizada' : 'fixa',
+    taxaEntregaFixa: Number(row?.taxa_entrega_fixa) || 0,
+  };
 }
 
-function updateConfig({ ativo }) {
+function updateConfig({ ativo, taxaEntregaModo, taxaEntregaFixa } = {}) {
   const db = getDb();
+  const atual = getConfig();
+  const novoAtivo = ativo !== undefined ? !!ativo : atual.ativo;
+  const modo = taxaEntregaModo === 'personalizada' ? 'personalizada' : (taxaEntregaModo === 'fixa' ? 'fixa' : atual.taxaEntregaModo);
+  const fixa = taxaEntregaFixa != null && taxaEntregaFixa !== '' ? (Number(taxaEntregaFixa) || 0) : atual.taxaEntregaFixa;
   db.prepare(
-    `INSERT INTO delivery_bot_config (id, ativo) VALUES ('default', ?)
-     ON CONFLICT(id) DO UPDATE SET ativo = excluded.ativo`
-  ).run(ativo ? 1 : 0);
+    `INSERT INTO delivery_bot_config (id, ativo, taxa_entrega_modo, taxa_entrega_fixa) VALUES ('default', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET ativo = excluded.ativo, taxa_entrega_modo = excluded.taxa_entrega_modo, taxa_entrega_fixa = excluded.taxa_entrega_fixa`
+  ).run(novoAtivo ? 1 : 0, modo, fixa);
   return { ok: true };
+}
+
+function formatarPrecoServico(valor) {
+  return `R$ ${Number(valor || 0).toFixed(2).replace('.', ',')}`;
 }
 
 // ---------- Pedidos ----------
@@ -32,7 +49,7 @@ function updateConfig({ ativo }) {
  * pedido fechado com o cliente (`origem: 'whatsapp_bot'`). Não mexe
  * em estoque nem em caixa — isso só acontece quando o pedido é de
  * fato separado e vira uma venda/entrega na conclusão. */
-function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tipoEntrega, endereco, observacoes, origem, itens, operadorId, mesaNumero }) {
+function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tipoEntrega, endereco, observacoes, origem, itens, operadorId, mesaNumero, taxaEntrega }) {
   if (!locationId) return { ok: false, error: 'Local é obrigatório.' };
   if (!clienteNome?.trim()) return { ok: false, error: 'Informe o nome do cliente.' };
   if (!clienteTelefone?.trim()) return { ok: false, error: 'Informe o telefone do cliente.' };
@@ -46,11 +63,24 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
   const itensValidos = (Array.isArray(itens) ? itens : []).filter((it) => it.productId || it.descricaoLivre?.trim());
   if (itensValidos.length === 0) return { ok: false, error: 'O pedido precisa de pelo menos um item.' };
 
+  // Taxa de entrega: no modo 'fixa' o valor configurado manda sempre
+  // (ignora qualquer coisa que tenha vindo por parâmetro); no modo
+  // 'personalizada' usa o que foi passado (digitado na hora por quem
+  // lançou manualmente) ou fica em branco pro atendente definir depois
+  // (ver setTaxaEntrega) -- só se aplica a pedido de entrega de verdade.
+  let taxaFinal = null;
+  if (tipo === 'entrega' && !mesaNumero) {
+    const config = getConfig();
+    taxaFinal = config.taxaEntregaModo === 'fixa'
+      ? config.taxaEntregaFixa
+      : (taxaEntrega != null && taxaEntrega !== '' ? Number(taxaEntrega) : null);
+  }
+
   const db = getDb();
   const id = randomUUID();
   const inserirPedido = db.prepare(
-    `INSERT INTO bot_orders (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, observacoes, origem, status, mesa_numero)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?)`
+    `INSERT INTO bot_orders (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, observacoes, origem, status, mesa_numero, taxa_entrega)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?)`
   );
   const inserirItem = db.prepare(
     `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, observacao, preco_unitario)
@@ -63,7 +93,8 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
       id, locationId, customerId || null, clienteNome.trim(), clienteTelefone.trim(),
       tipo, tipo === 'entrega' ? endereco.trim() : null, observacoes || null,
       origem === 'whatsapp_bot' ? 'whatsapp_bot' : 'manual',
-      mesaNumero ? String(mesaNumero).trim() : null
+      mesaNumero ? String(mesaNumero).trim() : null,
+      taxaFinal
     );
     for (const item of itensValidos) {
       // Congela o preço que foi mostrado ao cliente agora, na criação
@@ -85,7 +116,7 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
     }
   });
   transacao();
-  return { ok: true, id, operadorId };
+  return { ok: true, id, operadorId, taxaEntrega: taxaFinal };
 }
 
 /** Converte um pedido em venda de verdade (entra no Histórico, debita
@@ -152,8 +183,8 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
     if (pedido.tipo_entrega === 'entrega') {
       const deliveryId = randomUUID();
       db.prepare(
-        `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, cliente_nome, cliente_telefone, operador_id, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente')`
+        `INSERT INTO deliveries (id, location_id, sale_id, customer_id, endereco, cliente_nome, cliente_telefone, taxa_entrega, operador_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente')`
       ).run(
         deliveryId, pedido.location_id, saleId, pedido.customer_id || null, pedido.endereco,
         // Nome/telefone digitados (ou vindos do WhatsApp) no próprio
@@ -161,7 +192,12 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
         // grande maioria desses clientes ainda não tem customer_id
         // (cadastro formal) nesse momento. Ver comentário na coluna em
         // schema.sql.
-        pedido.cliente_nome, pedido.cliente_telefone, operadorVenda,
+        pedido.cliente_nome, pedido.cliente_telefone,
+        // Taxa definida na criação (modo fixo) ou depois pelo atendente
+        // (modo personalizado, ver setTaxaEntrega) -- antes essa coluna
+        // nunca era preenchida aqui e toda entrega vinda do bot ficava
+        // com taxa_entrega = 0 mesmo quando o pedido já tinha um valor.
+        pedido.taxa_entrega || 0, operadorVenda,
       );
       db.prepare('UPDATE bot_orders SET delivery_id = ? WHERE id = ?').run(deliveryId, orderId);
     }
@@ -316,6 +352,188 @@ async function notificarPedidoPronto(pedido) {
   }
 }
 
+/** Avisa o cliente pelo WhatsApp assim que a taxa de entrega do pedido
+ * é definida -- só acontece de fato no modo "personalizada" (ver
+ * getConfig), já que no modo "fixa" o valor já foi informado na hora
+ * que o pedido foi fechado (ver whatsappBotHandler.finalizarPedido).
+ * Fogo-e-esquece, mesmo padrão das outras notificações deste arquivo. */
+async function notificarTaxaEntregaDefinida(pedido) {
+  const whatsappBotService = require('./whatsappBotService');
+  if (whatsappBotService.getStatus().status !== 'conectado') return;
+  if (!pedido.cliente_telefone) return;
+
+  const primeiroNome = (pedido.cliente_nome || '').trim().split(' ')[0] || 'tudo bem';
+  const texto = `Oi, ${primeiroNome}! A taxa de entrega do seu pedido ficou em ${formatarPrecoServico(pedido.taxa_entrega)}. 🛵`;
+
+  const resultado = await whatsappBotService.enviarMensagem({ telefone: pedido.cliente_telefone, texto });
+  if (!resultado.ok) {
+    console.error('[botOrderService] falha ao enviar aviso de taxa de entrega', pedido.id, resultado.error);
+  }
+}
+
+/** Define (ou corrige) a taxa de entrega de um pedido -- usado no modo
+ * "personalizada" (ver getConfig), onde não existe um valor padrão e o
+ * atendente decide o valor de cada pedido na tela de Separação. Assim
+ * que definida, avisa o cliente pelo WhatsApp automaticamente (ver
+ * notificarTaxaEntregaDefinida) -- fogo-e-esquece, nunca deixa a
+ * definição da taxa em si falhar por causa do aviso. */
+function setTaxaEntrega({ orderId, taxaEntrega }) {
+  const valor = Number(taxaEntrega);
+  if (!(valor >= 0)) return { ok: false, error: 'Informe um valor válido para a taxa de entrega.' };
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
+  if (pedido.tipo_entrega !== 'entrega') return { ok: false, error: 'Esse pedido não é de entrega.' };
+
+  db.prepare('UPDATE bot_orders SET taxa_entrega = ? WHERE id = ?').run(valor, orderId);
+  // Se o pedido já virou uma entrega de verdade (bot_orders.status já
+  // "concluído"), mantém o valor igual nos dois lugares -- ver
+  // comentário da coluna deliveries.taxa_entrega em schema.sql.
+  if (pedido.delivery_id) {
+    db.prepare('UPDATE deliveries SET taxa_entrega = ? WHERE id = ?').run(valor, pedido.delivery_id);
+  }
+
+  notificarTaxaEntregaDefinida({ ...pedido, taxa_entrega: valor }).catch((err) => {
+    console.error('[botOrderService] falha ao notificar taxa de entrega definida', orderId, err);
+  });
+
+  return { ok: true };
+}
+
+/** Pedido "em andamento" mais recente desse telefone -- usado pelo
+ * chatbot (ver whatsappBotHandler.js) pra saber se quem está mandando
+ * mensagem já tem um pedido rolando, sem precisar entender SQL. "Em
+ * andamento" cobre desde a criação até a entrega ainda não ter chegado
+ * ao cliente (ou, pra retirada, até ainda não ter sido marcado
+ * concluído) -- depois disso, considera-se o assunto encerrado e quem
+ * mandar mensagem de novo começa um pedido do zero. Pedido de mesa
+ * nunca entra aqui -- esse fluxo é resolvido na hora, sentado na mesa,
+ * não faz sentido "retomar" depois. */
+function buscarPedidoEmAndamento({ telefone, locationId }) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT * FROM bot_orders
+     WHERE cliente_telefone = ? AND location_id = ? AND mesa_numero IS NULL
+       AND status != 'cancelado'
+       AND (
+         status IN ('novo','em_separacao','pronto')
+         OR (status = 'concluido' AND delivery_id IS NOT NULL AND EXISTS (
+           SELECT 1 FROM deliveries d WHERE d.id = bot_orders.delivery_id AND d.status NOT IN ('entregue','cancelada')
+         ))
+       )
+     ORDER BY criado_em DESC LIMIT 1`
+  ).get(telefone, locationId);
+}
+
+/** Se ainda dá pra pedir mudança (adicionar item ou solicitar
+ * alteração) nesse pedido pelo chat -- retirada: só antes de ficar
+ * "pronto" (depois disso já foi separado fisicamente, mexer exigiria
+ * desmontar o que já foi preparado). Entrega: até sair de fato pra
+ * entrega (a ENTREGA virar "em_rota"), mesmo que o pedido em si já
+ * esteja "concluído" -- isso só quer dizer que já virou venda/entrega
+ * (ver converterEmVendaSeAplicavel), não que o entregador já saiu. */
+function podeReceberModificacao(pedido) {
+  if (!pedido || pedido.mesa_numero) return false;
+  if (pedido.tipo_entrega !== 'entrega') {
+    return pedido.status === 'novo' || pedido.status === 'em_separacao';
+  }
+  if (pedido.status === 'novo' || pedido.status === 'em_separacao' || pedido.status === 'pronto') return true;
+  if (pedido.status === 'concluido' && pedido.delivery_id) {
+    const db = getDb();
+    const entrega = db.prepare('SELECT status FROM deliveries WHERE id = ?').get(pedido.delivery_id);
+    return entrega?.status === 'pendente';
+  }
+  return false;
+}
+
+/** Descrição curta do status atual pro cliente entender pelo chat ("qual
+ * o status do meu pedido?") -- olha tanto bot_orders.status quanto,
+ * quando já virou entrega de verdade, o status da entrega em si. */
+function descreverStatusPedido(pedido) {
+  if (pedido.status === 'novo') return 'Seu pedido está na fila, ainda vamos começar a separar 📋';
+  if (pedido.status === 'em_separacao') return 'Seu pedido já está sendo separado! 📦';
+  if (pedido.status === 'pronto') {
+    return pedido.tipo_entrega === 'entrega'
+      ? 'Seu pedido está pronto e logo sai pra entrega! 🛵'
+      : 'Seu pedido está pronto pra retirada! Pode vir buscar quando quiser 😊';
+  }
+  if (pedido.status === 'concluido') {
+    if (pedido.tipo_entrega !== 'entrega') return 'Esse pedido já foi retirado. Obrigado pela preferência! 😊';
+    const db = getDb();
+    const entrega = pedido.delivery_id ? db.prepare('SELECT status FROM deliveries WHERE id = ?').get(pedido.delivery_id) : null;
+    if (!entrega || entrega.status === 'pendente') return 'Seu pedido está pronto e logo sai pra entrega! 🛵';
+    if (entrega.status === 'em_rota') return 'Seu pedido já saiu pra entrega! Deve chegar em breve 🛵💨';
+    if (entrega.status === 'entregue') return 'Esse pedido já foi entregue. Obrigado pela preferência! 😊';
+    if (entrega.status === 'cancelada') return 'Essa entrega foi cancelada.';
+  }
+  return 'Não consegui encontrar o status desse pedido agora 😕';
+}
+
+/** Acrescenta itens a um pedido JÁ criado -- só permitido enquanto ele
+ * ainda não começou a virar venda de verdade (novo/em_separacao),
+ * porque depois disso mexer direto no pedido pelo chat sem ninguém
+ * perceber poderia bagunçar separação/estoque/venda já em andamento
+ * (ver podeReceberModificacao -- pedido além desse ponto usa
+ * registrarSolicitacaoAlteracao em vez disso). Reaproveita o mesmo
+ * congelamento de preço de createOrder. */
+function adicionarItensAoPedido({ orderId, itens }) {
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
+  if (pedido.status !== 'novo' && pedido.status !== 'em_separacao') {
+    return { ok: false, error: 'Esse pedido já não pode mais receber itens novos direto por aqui.' };
+  }
+  const itensValidos = (Array.isArray(itens) ? itens : []).filter((it) => it.productId || it.descricaoLivre?.trim());
+  if (itensValidos.length === 0) return { ok: false, error: 'Nenhum item pra adicionar.' };
+
+  const inserirItem = db.prepare(
+    `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, observacao, preco_unitario)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  const buscarProduto = db.prepare('SELECT * FROM products WHERE id = ?');
+  const transacao = db.transaction(() => {
+    for (const item of itensValidos) {
+      let preco = item.precoUnitario != null ? Number(item.precoUnitario) : null;
+      if (preco == null && item.productId) {
+        const produto = buscarProduto.get(item.productId);
+        if (produto) preco = precoEfetivo(produto);
+      }
+      inserirItem.run(
+        randomUUID(), orderId, item.productId || null, item.descricaoLivre || null,
+        Number(item.quantidade) > 0 ? Number(item.quantidade) : 1, item.observacao || null, preco
+      );
+    }
+  });
+  transacao();
+  return { ok: true };
+}
+
+/** Registra um pedido de alteração/cancelamento de item que o cliente
+ * fez pelo chat DEPOIS do pedido já criado -- o bot não tenta
+ * interpretar/aplicar isso sozinho (não é uma IA de verdade, ver
+ * comentário no topo de whatsappBotHandler.js — arriscado demais pra
+ * um pedido que já tem itens e preço confirmados), só anota pro
+ * atendente ver e decidir na tela de Separação. Também dispara uma
+ * notificação nativa pro balcão perceber rápido (ver
+ * notificationService.notifyOrderChangeRequested). */
+function registrarSolicitacaoAlteracao({ orderId, texto }) {
+  const textoLimpo = (texto || '').trim();
+  if (!textoLimpo) return { ok: false, error: 'Mensagem vazia.' };
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
+
+  const nota = `\n[Cliente pediu alteração pelo WhatsApp] ${textoLimpo}`;
+  db.prepare(`UPDATE bot_orders SET observacoes = COALESCE(observacoes, '') || ? WHERE id = ?`).run(nota, orderId);
+
+  try {
+    require('./notificationService').notifyOrderChangeRequested(pedido);
+  } catch (err) {
+    console.error('[botOrderService] falha ao notificar atendente sobre alteração pedida', orderId, err);
+  }
+  return { ok: true };
+}
+
 /** Muda o status do pedido — carimba automaticamente quando começou a
  * separação e quando foi concluído (mesma ideia do `saiu_em`/
  * `entregue_em` em deliveries). */
@@ -439,4 +657,6 @@ module.exports = {
   getConfig, updateConfig,
   createOrder, listOrders, listActiveOrders, getOrderWithItems, updateOrderStatus, updateItemStatus,
   listCategoriasComEstoque, listInStockByCategory, listarAtivosParaBusca, lancarPedidoNaMesa,
+  setTaxaEntrega, buscarPedidoEmAndamento, podeReceberModificacao, descreverStatusPedido,
+  adicionarItensAoPedido, registrarSolicitacaoAlteracao,
 };

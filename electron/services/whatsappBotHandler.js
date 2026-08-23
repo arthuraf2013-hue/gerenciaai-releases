@@ -267,16 +267,52 @@ function finalizarPedido({ telefone, nomeExibicao, tipoEntrega, endereco, mesaNu
   if (!resultado.ok) {
     return { resposta: `Ih, não consegui registrar seu pedido agora (${resultado.error}) 😕 Pode mandar uma mensagem pra gente tentar de novo?` };
   }
-  const mensagemFinal = mesaNumero
-    ? `Já mandei pra cozinha 👨‍🍳🔥 Assim que estiver pronto, alguém leva até a Mesa ${mesaNumero}.`
-    : tipoEntrega === 'entrega'
-      ? 'Assim que estiver pronto pra entrega, alguém te avisa por aqui mesmo 🛵💨'
-      : 'Assim que estiver pronto pra retirada, alguém te avisa por aqui mesmo 🏬😊';
+  let mensagemFinal;
+  if (mesaNumero) {
+    mensagemFinal = `Já mandei pra cozinha 👨‍🍳🔥 Assim que estiver pronto, alguém leva até a Mesa ${mesaNumero}.`;
+  } else if (tipoEntrega === 'entrega') {
+    // Informa a taxa de entrega já aqui, na confirmação -- no modo
+    // "fixa" o valor já é conhecido (foi ele mesmo que decidiu o
+    // pedido); no modo "personalizada" ainda não tem valor (ver
+    // botOrderService.createOrder/getConfig), então avisa que o
+    // atendente vai definir e o cliente é avisado automaticamente
+    // assim que isso acontecer (ver setTaxaEntrega).
+    const taxaTexto = resultado.taxaEntrega != null
+      ? `Taxa de entrega: ${formatarPreco(resultado.taxaEntrega)}.`
+      : 'A taxa de entrega vai ser confirmada em breve por um atendente — te aviso assim que tiver o valor! 💬';
+    mensagemFinal = `Assim que estiver pronto pra entrega, alguém te avisa por aqui mesmo 🛵💨\n${taxaTexto}`;
+  } else {
+    mensagemFinal = 'Assim que estiver pronto pra retirada, alguém te avisa por aqui mesmo 🏬😊';
+  }
   return {
     resposta: `Pedido confirmado! ✅🎉${resumoCarrinho(conversa.itens)}\n\n${mensagemFinal}`,
     pedidoCriado: true,
     pedidoId: resultado.id,
   };
+}
+
+/** Acrescenta os itens escolhidos pelo cliente (num pedido em
+ * andamento, ver estado "pedido_ativo_menu" abaixo) a um pedido que já
+ * existe, em vez de criar um pedido novo -- ver
+ * botOrderService.adicionarItensAoPedido. */
+function finalizarAdicaoItens({ orderId, conversa, telefone, estadoConversas }) {
+  const resultado = botOrderService.adicionarItensAoPedido({
+    orderId,
+    itens: conversa.itens.map((i) => ({ productId: i.productId, quantidade: i.quantidade, precoUnitario: i.precoUnitario })),
+  });
+  estadoConversas.delete(telefone);
+  if (!resultado.ok) {
+    return { resposta: `Ih, não consegui adicionar os itens agora (${resultado.error}) 😕 Pode mandar uma mensagem pra gente ver o que houve?` };
+  }
+  return { resposta: `Prontinho! Adicionei ao seu pedido:${resumoCarrinho(conversa.itens)}\n\nQualquer coisa, é só chamar por aqui! 😊` };
+}
+
+/** Menu mostrado quando o cliente manda mensagem de novo já tendo um
+ * pedido em andamento (ver buscarPedidoEmAndamento) -- reaproveitado
+ * tanto na primeira mensagem da conversa quanto sempre que a resposta
+ * não bate com nenhuma das opções. */
+function menuPedidoAtivo(nomeExibicao) {
+  return `Oi${nomeExibicao ? ', ' + nomeExibicao : ''}! 👋 Você já tem um pedido em andamento. O que deseja fazer?\n1 - Consultar status do meu pedido\n2 - Adicionar itens ao pedido\n3 - Pedir uma alteração (trocar/remover item)\n4 - Fazer um novo pedido`;
 }
 
 // ---------- Fluxo de reserva de mesa (perfil Restaurante/Padaria) ----------
@@ -481,6 +517,16 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
   let conversa = estadoConversas.get(telefone);
   if (!conversa) {
     conversa = novaConversa();
+    // Antes de jogar direto no cardápio, checa se esse telefone já tem
+    // um pedido em andamento (ver buscarPedidoEmAndamento) -- sem isso,
+    // quem voltasse a mandar mensagem pra saber do pedido caía sempre
+    // no fluxo de pedido novo, sem jeito nenhum de só consultar status
+    // ou pedir uma alteração no que já foi feito.
+    const pedidoAtivo = botOrderService.buscarPedidoEmAndamento({ telefone, locationId: location });
+    if (pedidoAtivo) {
+      conversa.estado = 'pedido_ativo_menu';
+      conversa.pedidoAtivoId = pedidoAtivo.id;
+    }
     estadoConversas.set(telefone, conversa);
   }
   // Guarda o nome assim que aparecer pela primeira vez -- o WhatsApp
@@ -490,9 +536,14 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
 
   // Perguntas soltas sobre disponibilidade/preço podem acontecer a
   // qualquer momento -- exceto enquanto a pessoa está no meio de
-  // digitar o endereço de entrega, onde qualquer texto livre É o
-  // endereço, não uma pergunta.
-  if (conversa.estado !== 'aguardando_endereco' && ehPerguntaSobreProduto(textoLimpo)) {
+  // digitar o endereço de entrega ou o texto de uma solicitação de
+  // alteração, onde qualquer texto livre é o próprio dado esperado,
+  // não uma pergunta.
+  if (
+    conversa.estado !== 'aguardando_endereco' &&
+    conversa.estado !== 'aguardando_texto_alteracao' &&
+    ehPerguntaSobreProduto(textoLimpo)
+  ) {
     const respostaPergunta = responderPerguntaProduto({ locationId: location, textoLimpo, conversa });
     if (respostaPergunta) return respostaPergunta;
   }
@@ -562,6 +613,12 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
         if (conversa.itens.length === 0) {
           return { resposta: 'Você ainda não adicionou nenhum item 🛒 Digite o número de um produto da lista pra adicionar.' };
         }
+        // Veio do menu "Adicionar itens ao pedido" (ver
+        // 'pedido_ativo_menu' abaixo) -- acrescenta ao pedido que já
+        // existe, em vez de criar um pedido novo do zero.
+        if (conversa.modoAdicaoPedidoId) {
+          return finalizarAdicaoItens({ orderId: conversa.modoAdicaoPedidoId, conversa, telefone, estadoConversas });
+        }
         // Pedido de mesa não pergunta retirada/entrega -- o cliente já
         // está sentado ali, então fecha direto (ver fluxo "Mesa N" acima).
         if (conversa.mesaNumero) {
@@ -607,6 +664,64 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
 
     case 'aguardando_endereco': {
       return finalizarPedido({ telefone, nomeExibicao: conversa.nomeExibicao, tipoEntrega: 'entrega', endereco: textoLimpo, conversa, locationId: location, estadoConversas });
+    }
+
+    // Cliente que já tem um pedido em andamento manda mensagem de novo
+    // (ver buscarPedidoEmAndamento, que decide se entra aqui). Sempre
+    // busca o pedido de novo em vez de confiar só no que foi checado na
+    // criação da conversa -- pode ter avançado de status entre uma
+    // mensagem e outra.
+    case 'pedido_ativo_menu': {
+      const detalhe = botOrderService.getOrderWithItems(conversa.pedidoAtivoId);
+      const pedido = detalhe.ok ? detalhe.pedido : null;
+      if (!pedido) {
+        conversa.estado = 'inicio';
+        return processarMensagem({ telefone, texto, nomeExibicao, locationId: location, estadoConversas });
+      }
+
+      if (/^1$/.test(textoLimpo) || /status/i.test(textoLimpo)) {
+        return { resposta: `${botOrderService.descreverStatusPedido(pedido)}\n\nDigite *2* pra adicionar itens, *3* pra pedir uma alteração, ou *4* pra fazer um novo pedido.` };
+      }
+
+      if (/^2$/.test(textoLimpo) || /adicionar/i.test(textoLimpo)) {
+        if (!botOrderService.podeReceberModificacao(pedido)) {
+          return { resposta: 'Esse pedido já está numa etapa que não dá mais pra adicionar item por aqui 😕 Quer fazer um *novo pedido*? Digite *4*.' };
+        }
+        const menu = montarMenuCategorias(location);
+        conversa.categorias = menu.categorias;
+        conversa.produtos = [];
+        conversa.itens = [];
+        conversa.modoAdicaoPedidoId = pedido.id;
+        conversa.estado = menu.categorias.length ? 'aguardando_categoria' : 'inicio';
+        return { resposta: `Show! O que mais você quer adicionar ao seu pedido? 😊\n\n${menu.texto}` };
+      }
+
+      if (/^3$/.test(textoLimpo) || /altera|troca|remov|cancelar\s*item/i.test(textoLimpo)) {
+        if (!botOrderService.podeReceberModificacao(pedido)) {
+          return { resposta: 'Esse pedido já está numa etapa que não dá mais pra alterar por aqui 😕 Quer fazer um *novo pedido*? Digite *4*.' };
+        }
+        conversa.estado = 'aguardando_texto_alteracao';
+        conversa.pedidoAlteracaoId = pedido.id;
+        return { resposta: 'Sem problema! Me conta o que você quer mudar (trocar item, quantidade, remover algo...) que um atendente já vai revisar e confirmar com você por aqui. ✍️' };
+      }
+
+      if (/^4$/.test(textoLimpo) || /novo\s*pedido/i.test(textoLimpo)) {
+        const menu = montarMenuCategorias(location);
+        conversa.categorias = menu.categorias;
+        conversa.produtos = [];
+        conversa.itens = [];
+        conversa.modoAdicaoPedidoId = null;
+        conversa.estado = menu.categorias.length ? 'aguardando_categoria' : 'inicio';
+        return { resposta: `Beleza, vamos começar um novo pedido! 🛒\n\n${menu.texto}` };
+      }
+
+      return { resposta: menuPedidoAtivo(conversa.nomeExibicao) };
+    }
+
+    case 'aguardando_texto_alteracao': {
+      botOrderService.registrarSolicitacaoAlteracao({ orderId: conversa.pedidoAlteracaoId, texto: textoLimpo });
+      estadoConversas.delete(telefone);
+      return { resposta: 'Anotado! ✅ Um atendente vai revisar seu pedido e confirmar com você por aqui em breve. Obrigado! 😊' };
     }
 
     default: {

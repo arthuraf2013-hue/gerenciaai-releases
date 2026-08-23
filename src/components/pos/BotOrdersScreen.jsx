@@ -160,6 +160,8 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
   const [erro, setErro] = useState('');
   const [clienteCadastrado, setClienteCadastrado] = useState(null); // null = ainda não checou, true/false = resultado
   const [cadastrando, setCadastrando] = useState(false);
+  const [taxaInput, setTaxaInput] = useState('');
+  const [definindoTaxa, setDefinindoTaxa] = useState(false);
 
   function carregar() {
     window.pdv.botOrders.getWithItems({ orderId }).then((r) => {
@@ -211,6 +213,20 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
     onClose();
   }
 
+  // Só usado no modo "personalizada" (ver Configurações > Separação de
+  // pedidos) -- no modo "fixa" o pedido já sai com o valor configurado
+  // e não há nada pra definir aqui. Avisa o cliente automaticamente por
+  // WhatsApp assim que confirmado (ver botOrderService.setTaxaEntrega).
+  async function handleDefinirTaxa() {
+    setErro('');
+    setDefinindoTaxa(true);
+    const resultado = await window.pdv.botOrders.setTaxaEntrega({ orderId, taxaEntrega: Number(taxaInput.replace(',', '.')) });
+    setDefinindoTaxa(false);
+    if (!resultado?.ok) { setErro(resultado?.error || 'Não consegui definir a taxa de entrega.'); return; }
+    setTaxaInput('');
+    carregar();
+  }
+
   async function handleCadastrarCliente() {
     setErro('');
     setCadastrando(true);
@@ -238,6 +254,25 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
             : pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}
           {pedido.observacoes && <> · {pedido.observacoes}</>}
         </p>
+
+        {pedido.tipo_entrega === 'entrega' && !pedido.mesa_numero && (
+          pedido.taxa_entrega != null ? (
+            <p className="screen-hint" style={{ margin: '0 0 10px' }}>
+              Taxa de entrega: <strong>{formatarPreco(pedido.taxa_entrega)}</strong>
+            </p>
+          ) : (
+            <p className="screen-hint" style={{ margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              Taxa de entrega ainda não definida (modo personalizado).
+              <input
+                type="number" min="0" step="0.01" placeholder="R$" value={taxaInput}
+                onChange={(e) => setTaxaInput(e.target.value)} style={{ width: 80 }}
+              />
+              <button type="button" className="btn-link" disabled={definindoTaxa || !taxaInput} onClick={handleDefinirTaxa}>
+                {definindoTaxa ? 'Definindo...' : 'Definir e avisar cliente'}
+              </button>
+            </p>
+          )
+        )}
 
         {clienteCadastrado === false && (
           <p className="screen-hint" style={{ margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>

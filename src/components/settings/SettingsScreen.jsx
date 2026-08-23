@@ -75,6 +75,10 @@ export function SettingsScreen() {
   const [loyaltySaved, setLoyaltySaved] = useState(false);
   const [botOrdersAtivo, setBotOrdersAtivo] = useState(false);
   const [botOrdersSaving, setBotOrdersSaving] = useState(false);
+  const [taxaEntregaModo, setTaxaEntregaModo] = useState('fixa');
+  const [taxaEntregaFixa, setTaxaEntregaFixa] = useState('0');
+  const [taxaEntregaSaving, setTaxaEntregaSaving] = useState(false);
+  const [taxaEntregaSaved, setTaxaEntregaSaved] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappBusy, setWhatsappBusy] = useState(false);
   const [whatsappAtualizadoEm, setWhatsappAtualizadoEm] = useState(null);
@@ -156,7 +160,11 @@ export function SettingsScreen() {
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
       ativarCupomAniversario: !!l.ativar_cupom_aniversario, pontosBonusAniversario: l.pontos_bonus_aniversario ?? 20,
     }));
-    window.pdv.botOrders.getConfig().then((c) => setBotOrdersAtivo(!!c.ativo));
+    window.pdv.botOrders.getConfig().then((c) => {
+      setBotOrdersAtivo(!!c.ativo);
+      setTaxaEntregaModo(c.taxaEntregaModo === 'personalizada' ? 'personalizada' : 'fixa');
+      setTaxaEntregaFixa(String(c.taxaEntregaFixa ?? 0));
+    });
     window.pdv.whatsappAutomation.getConfig().then((w) => setWhatsappAutomationForm({
       telefoneDono: w.telefone_dono || '',
       reconquistaAutomaticaAtiva: !!w.reconquista_automatica_ativa,
@@ -315,6 +323,15 @@ export function SettingsScreen() {
     await window.pdv.botOrders.updateConfig({ ativo });
     setBotOrdersAtivo(ativo);
     setBotOrdersSaving(false);
+  }
+
+  async function handleTaxaEntregaSave(e) {
+    e.preventDefault();
+    setTaxaEntregaSaving(true);
+    await window.pdv.botOrders.updateConfig({ taxaEntregaModo, taxaEntregaFixa: Number(String(taxaEntregaFixa).replace(',', '.')) || 0 });
+    setTaxaEntregaSaving(false);
+    setTaxaEntregaSaved(true);
+    setTimeout(() => setTaxaEntregaSaved(false), 2000);
   }
 
   async function handleWhatsappConnect() {
@@ -1400,6 +1417,49 @@ export function SettingsScreen() {
           />
           Ativar aba "Separação"
         </label>
+      </section>
+
+      <section className="settings-section">
+        <h2><Icon name="truck" size={16} /> Taxa de entrega</h2>
+        <p className="screen-hint">
+          Vale tanto pra pedido recebido pelo chatbot quanto digitado manualmente. No modo
+          <strong> fixa</strong>, todo pedido de entrega já sai com esse valor, e o cliente já é
+          avisado do valor na hora que fecha o pedido. No modo <strong>personalizada</strong>, o
+          pedido não tem taxa nenhuma até alguém definir o valor na tela de Separação — o cliente é
+          avisado automaticamente por WhatsApp assim que isso acontecer.
+        </p>
+        <form className="inline-form" onSubmit={handleTaxaEntregaSave}>
+          <label style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="radio" name="taxaEntregaModo" style={{ width: 'auto' }}
+                checked={taxaEntregaModo === 'fixa'} onChange={() => setTaxaEntregaModo('fixa')}
+              />
+              Taxa fixa
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="radio" name="taxaEntregaModo" style={{ width: 'auto' }}
+                checked={taxaEntregaModo === 'personalizada'} onChange={() => setTaxaEntregaModo('personalizada')}
+              />
+              Personalizada (definida por pedido)
+            </span>
+          </label>
+          {taxaEntregaModo === 'fixa' && (
+            <label>Valor da taxa fixa (R$)
+              <input
+                type="number" min="0" step="0.01" value={taxaEntregaFixa}
+                onChange={(e) => setTaxaEntregaFixa(e.target.value)} style={{ maxWidth: 140 }}
+              />
+            </label>
+          )}
+          <div className="modal-actions" style={{ justifyContent: 'flex-start' }}>
+            <button type="submit" className="btn-primary" disabled={taxaEntregaSaving}>
+              {taxaEntregaSaving ? 'Salvando...' : 'Salvar'}
+            </button>
+            {taxaEntregaSaved && <span className="io-message">Salvo!</span>}
+          </div>
+        </form>
       </section>
 
       <section className="settings-section">

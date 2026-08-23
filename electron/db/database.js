@@ -166,6 +166,13 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'deliveries', 'cliente_nome', 'TEXT');
   adicionarColunaSeFaltando(database, 'deliveries', 'cliente_telefone', 'TEXT');
 
+  // Taxa de entrega configurável (fixa ou personalizada por pedido) e
+  // seu valor no próprio pedido -- ver comentário das colunas em
+  // schema.sql e botOrderService.setTaxaEntrega.
+  adicionarColunaSeFaltando(database, 'delivery_bot_config', 'taxa_entrega_modo', "TEXT NOT NULL DEFAULT 'fixa'");
+  adicionarColunaSeFaltando(database, 'delivery_bot_config', 'taxa_entrega_fixa', 'REAL NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'bot_orders', 'taxa_entrega', 'REAL');
+
   // Cancelamento e contingência de NFC-e (ver nfceEventoService.js / fiscalService.js).
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_justificativa', 'TEXT');
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_protocolo', 'TEXT');

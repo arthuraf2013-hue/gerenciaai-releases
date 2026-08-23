@@ -66,36 +66,15 @@ function safeHandle(channel, fn) {
   });
 }
 
-/** Depois que um pedido muda de status, avisa o cliente pelo WhatsApp
- * nos dois momentos em que faz sentido pra ele saber (não em todos --
- * "começou a separação" ou "cancelado" não precisam de mensagem
- * própria pra não virar spam):
- *  - retirada + "pronto" -> já pode vir buscar.
- *  - entrega + "concluído" -> esse é o status que a tela chama de
- *    "saiu pra entrega" (ver BotOrdersScreen.jsx), então é aqui que
- *    avisa que o entregador partiu.
- * Silencioso se o WhatsApp não estiver conectado ou o pedido não tiver
- * telefone -- nunca deixa a mudança de status em si falhar por causa
- * disso (updateOrderStatus já rodou com sucesso antes de chegar aqui). */
-function notificarClienteMudancaStatus(orderId, novoStatus) {
-  if (novoStatus !== 'pronto' && novoStatus !== 'concluido') return;
-  const detalhe = botOrderService.getOrderWithItems(orderId);
-  if (!detalhe.ok) return;
-  const { pedido } = detalhe;
-  if (!pedido.cliente_telefone) return;
-
-  let texto = null;
-  if (novoStatus === 'pronto' && pedido.tipo_entrega === 'retirada') {
-    texto = 'Boa notícia! 🎉 Seu pedido já está pronto e te esperando. Pode vir buscar quando quiser 😊';
-  } else if (novoStatus === 'concluido' && pedido.tipo_entrega === 'entrega') {
-    texto = 'Seu pedido saiu para entrega! 🛵💨 Já já chega até você.';
-  }
-  if (!texto) return;
-
-  whatsappBotService.enviarMensagem({ telefone: pedido.cliente_telefone, texto })
-    .then((r) => { if (!r.ok) console.error('[botOrders] não consegui notificar cliente pelo WhatsApp:', r.error); })
-    .catch((err) => console.error('[botOrders] falha ao notificar cliente pelo WhatsApp', err));
-}
+// (O aviso automático de "pedido pronto" mora em
+// botOrderService.updateOrderStatus/notificarPedidoPronto, e o de
+// "saiu pra entrega"/"entregue" em
+// deliveryService.updateDeliveryStatus/notificarMudancaStatusEntrega --
+// antes existia uma versão duplicada e desatualizada aqui
+// (notificarClienteMudancaStatus), que chegou a mandar DUAS mensagens
+// pro cliente quando o pedido ficava "pronto" e uma mensagem de "saiu
+// pra entrega" cedo demais (no momento em que o pedido só virava
+// venda/entrega, antes do entregador de fato sair). Removida.)
 
 function registerIpcHandlers() {
   // --- Auth ---
@@ -431,13 +410,10 @@ function registerIpcHandlers() {
   safeHandle('botOrders:list', (_e, payload) => botOrderService.listOrders(payload));
   safeHandle('botOrders:listActive', (_e, payload) => botOrderService.listActiveOrders(payload));
   safeHandle('botOrders:getWithItems', (_e, { orderId }) => botOrderService.getOrderWithItems(orderId));
-  safeHandle('botOrders:updateStatus', (_e, payload) => {
-    const resultado = botOrderService.updateOrderStatus(payload);
-    if (resultado.ok) notificarClienteMudancaStatus(payload.orderId, payload.status);
-    return resultado;
-  });
+  safeHandle('botOrders:updateStatus', (_e, payload) => botOrderService.updateOrderStatus(payload));
   safeHandle('botOrders:updateItemStatus', (_e, payload) => botOrderService.updateItemStatus(payload));
   safeHandle('botOrders:listInStockByCategory', (_e, payload) => botOrderService.listInStockByCategory(payload));
+  safeHandle('botOrders:setTaxaEntrega', (_e, payload) => botOrderService.setTaxaEntrega(payload));
   // Pedido de mesa (mesa_numero preenchido, veio do QR code) não usa
   // updateStatus/converterEmVendaSeAplicavel como retirada/entrega --
   // entra direto na comanda real da mesa (ver botOrderService.lancarPedidoNaMesa).

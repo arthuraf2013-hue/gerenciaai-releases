@@ -96,11 +96,12 @@ function assignDelivery({ deliveryId, routeId, deliveryPersonId, vehicleId }) {
 
 /** Muda o status — marca automaticamente quando saiu e quando chegou,
  * pra dar noção de quanto tempo cada etapa está levando. Quando o
- * status vira "em_rota" (saiu pra entrega), avisa o cliente sozinho
- * pelo WhatsApp (ver notificarSaidaParaEntrega) -- sem precisar de
- * alguém lembrar de clicar em "Avisar cliente" na tela. Esse botão
- * continua existindo pra reenviar manualmente (bot desconectado no
- * momento, cliente disse que não recebeu, etc.). */
+ * status vira "em_rota" (saiu pra entrega) OU "entregue" (concluída),
+ * avisa o cliente sozinho pelo WhatsApp (ver
+ * notificarMudancaStatusEntrega) -- sem precisar de alguém lembrar de
+ * clicar em "Avisar cliente" na tela. Esse botão continua existindo
+ * pra reenviar manualmente (bot desconectado no momento, cliente disse
+ * que não recebeu, etc.). */
 function updateDeliveryStatus({ deliveryId, status }) {
   const STATUS_VALIDOS = ['pendente', 'em_rota', 'entregue', 'cancelada'];
   if (!STATUS_VALIDOS.includes(status)) return { ok: false, error: 'Status inválido.' };
@@ -118,14 +119,14 @@ function updateDeliveryStatus({ deliveryId, status }) {
 
   db.prepare(`UPDATE deliveries SET ${sets.join(', ')} WHERE id = @deliveryId`).run({ status, deliveryId });
 
-  if (status === 'em_rota') {
+  if (status === 'em_rota' || status === 'entregue') {
     // Fogo-e-esquece -- nunca deixa a mudança de status em si falhar
     // por causa disso (mesmo princípio de converterEmVendaSeAplicavel
     // em botOrderService.js). Falha (bot desconectado, sem telefone
     // etc.) fica só no log; a tela ainda mostra "Avisar cliente" pra
     // mandar na mão.
-    notificarSaidaParaEntrega(deliveryId).catch((err) => {
-      console.error('[deliveryService] falha ao notificar saída pra entrega', deliveryId, err);
+    notificarMudancaStatusEntrega(deliveryId).catch((err) => {
+      console.error('[deliveryService] falha ao notificar mudança de status da entrega', deliveryId, err);
     });
   }
 
@@ -177,8 +178,8 @@ function buscarEntregaComCliente(deliveryId) {
 }
 
 /** Mesmo texto usado tanto no link manual (montarLinkStatusEntrega)
- * quanto no aviso automático (notificarSaidaParaEntrega) -- um lugar
- * só pra manter a mensagem igual nos dois casos. */
+ * quanto no aviso automático (notificarMudancaStatusEntrega) -- um
+ * lugar só pra manter a mensagem igual nos dois casos. */
 function montarMensagemStatusEntrega(entrega) {
   const primeiroNome = (entrega.clienteNome || '').trim().split(' ')[0] || 'tudo bem';
   return entrega.status === 'entregue'
@@ -189,10 +190,10 @@ function montarMensagemStatusEntrega(entrega) {
 /** Link de WhatsApp avisando o cliente que a entrega saiu (ou
  * chegou) — mesmo padrão wa.me já usado em recibo, reconquista de
  * cliente, e lembrete de pet. Continua existindo como reenvio manual
- * mesmo agora que "em_rota" já avisa sozinho (ver updateDeliveryStatus
- * / notificarSaidaParaEntrega) -- cobre bot desconectado no momento,
- * cliente que disse que não recebeu, ou o status "entregue" (que não
- * dispara aviso automático). */
+ * mesmo agora que "em_rota"/"entregue" já avisam sozinhos (ver
+ * updateDeliveryStatus / notificarMudancaStatusEntrega) -- cobre bot
+ * desconectado no momento, ou cliente que disse que não recebeu o
+ * aviso automático. */
 function montarLinkStatusEntrega(deliveryId) {
   const entrega = buscarEntregaComCliente(deliveryId);
   if (!entrega) return { ok: false, error: 'Entrega não encontrada.' };
@@ -206,11 +207,12 @@ function montarLinkStatusEntrega(deliveryId) {
 }
 
 /** Versão automática do aviso acima -- manda direto pelo bot conectado
- * em vez de depender de alguém clicar num link. Silenciosa de
- * propósito quando não dá pra mandar (bot desconectado, sem telefone):
- * quem chama trata como fogo-e-esquece (ver updateDeliveryStatus) e o
- * botão manual continua disponível como reserva. */
-async function notificarSaidaParaEntrega(deliveryId) {
+ * em vez de depender de alguém clicar num link. Disparada tanto na
+ * saída ("em_rota") quanto na conclusão ("entregue") da entrega -- ver
+ * updateDeliveryStatus. Silenciosa de propósito quando não dá pra
+ * mandar (bot desconectado, sem telefone): quem chama trata como
+ * fogo-e-esquece e o botão manual continua disponível como reserva. */
+async function notificarMudancaStatusEntrega(deliveryId) {
   const whatsappBotService = require('./whatsappBotService');
   if (whatsappBotService.getStatus().status !== 'conectado') return;
 
@@ -220,7 +222,7 @@ async function notificarSaidaParaEntrega(deliveryId) {
   const mensagem = montarMensagemStatusEntrega(entrega);
   const resultado = await whatsappBotService.enviarMensagem({ telefone: entrega.clienteTelefone, texto: mensagem });
   if (!resultado.ok) {
-    console.error('[deliveryService] falha ao enviar aviso automático de saída pra entrega', deliveryId, resultado.error);
+    console.error('[deliveryService] falha ao enviar aviso automático de mudança de status da entrega', deliveryId, resultado.error);
   }
 }
 

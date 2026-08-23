@@ -214,6 +214,83 @@ test('concluir um pedido de entrega também cria a entrega correspondente', () =
   assert.equal(entrega.endereco, 'Rua das Flores, 123');
 });
 
+test('taxa de entrega: modo fixa aplica sempre o valor configurado; modo personalizada fica em branco até o atendente definir', () => {
+  const { locationId } = freshTestDb();
+
+  botOrderService.updateConfig({ taxaEntregaModo: 'fixa', taxaEntregaFixa: 6 });
+  const fixa = botOrderService.createOrder({
+    locationId, clienteNome: 'Ana', clienteTelefone: '5511900000001', tipoEntrega: 'entrega', endereco: 'Rua A',
+    itens: [{ descricaoLivre: 'Item' }],
+  });
+  assert.equal(fixa.taxaEntrega, 6);
+
+  botOrderService.updateConfig({ taxaEntregaModo: 'personalizada' });
+  const personalizada = botOrderService.createOrder({
+    locationId, clienteNome: 'Bia', clienteTelefone: '5511900000002', tipoEntrega: 'entrega', endereco: 'Rua B',
+    itens: [{ descricaoLivre: 'Item' }],
+  });
+  assert.equal(personalizada.taxaEntrega, null);
+
+  const resultado = botOrderService.setTaxaEntrega({ orderId: personalizada.id, taxaEntrega: 9.9 });
+  assert.equal(resultado.ok, true);
+  const { pedido } = botOrderService.getOrderWithItems(personalizada.id);
+  assert.equal(pedido.taxa_entrega, 9.9);
+
+  assert.equal(botOrderService.setTaxaEntrega({ orderId: fixa.id, taxaEntrega: -1 }).ok, false, 'valor negativo deveria ser recusado');
+  assert.equal(botOrderService.setTaxaEntrega({ orderId: 'nao-existe', taxaEntrega: 5 }).ok, false);
+});
+
+test('taxa de entrega definida depois da conclusão também é copiada pra deliveries', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Produto Entrega', preco: 10, categoria: 'Geral' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 5, operadorId: adminId });
+  botOrderService.updateConfig({ taxaEntregaModo: 'personalizada' });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Carla', clienteTelefone: '5511900000003', tipoEntrega: 'entrega', endereco: 'Rua C',
+    operadorId: adminId, itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 10 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'em_separacao', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'pronto', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+
+  botOrderService.setTaxaEntrega({ orderId: criado.id, taxaEntrega: 8 });
+
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(criado.id);
+  const entrega = db.prepare('SELECT * FROM deliveries WHERE id = ?').get(pedido.delivery_id);
+  assert.equal(entrega.taxa_entrega, 8);
+});
+
+test('buscarPedidoEmAndamento e podeReceberModificacao seguem o pedido de entrega até ele sair pra entrega', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Produto Cutoff', preco: 10, categoria: 'Geral' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 5, operadorId: adminId });
+  const telefone = '5511900000004';
+  const deliveryService = require('../electron/services/deliveryService');
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Duda', clienteTelefone: telefone, tipoEntrega: 'entrega', endereco: 'Rua D',
+    operadorId: adminId, itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 10 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'em_separacao', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'pronto', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+
+  let pedido = botOrderService.buscarPedidoEmAndamento({ telefone, locationId });
+  assert.ok(pedido, 'ainda deveria estar "em andamento" logo após concluído (entrega pendente)');
+  assert.equal(botOrderService.podeReceberModificacao(pedido), true, 'entrega ainda não saiu -- pode alterar');
+
+  const deliveryId = pedido.delivery_id;
+  deliveryService.updateDeliveryStatus({ deliveryId, status: 'em_rota' });
+  pedido = botOrderService.buscarPedidoEmAndamento({ telefone, locationId });
+  assert.ok(pedido, 'ainda consultável depois de sair pra entrega');
+  assert.equal(botOrderService.podeReceberModificacao(pedido), false, 'já saiu pra entrega -- não pode mais alterar');
+
+  deliveryService.updateDeliveryStatus({ deliveryId, status: 'entregue' });
+  pedido = botOrderService.buscarPedidoEmAndamento({ telefone, locationId });
+  assert.equal(pedido, undefined, 'depois de entregue não deveria mais contar como "em andamento"');
+});
+
 test('createOrder congela o preço atual do produto quando não vem precoUnitario explícito', () => {
   const { db, locationId, adminId } = freshTestDb();
   const produtoId = createProduct(db, { nome: 'Produto Z', preco: 9.9, categoria: 'Geral' });

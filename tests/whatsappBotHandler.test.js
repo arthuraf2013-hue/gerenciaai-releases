@@ -40,9 +40,11 @@ test('conversa completa: categoria -> produto -> retirada -> pedido criado', () 
   assert.equal(pedido.itens.length, 1);
   assert.equal(pedido.itens[0].quantidade, 2);
 
-  // conversa foi encerrada -- próxima mensagem começa do zero de novo
+  // conversa foi encerrada, mas o pedido continua "novo" (em andamento)
+  // -- a próxima mensagem não joga direto no cardápio de novo, oferece
+  // o menu de pedido em andamento (ver buscarPedidoEmAndamento).
   const proxima = whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
-  assert.match(proxima.resposta, /bem-vindo/i);
+  assert.match(proxima.resposta, /pedido em andamento/i);
 });
 
 test('conversa com entrega pede endereço antes de criar o pedido', () => {
@@ -165,6 +167,178 @@ test('pergunta sobre produto que não existe não trava a conversa', () => {
   const conversas = new Map();
   const r = whatsappBotHandler.processarMensagem({ telefone: '5511900001111', texto: 'vocês tem insulina importada rara?', locationId, estadoConversas: conversas });
   assert.match(r.resposta, /não encontrei/i);
+});
+
+// ---------- Taxa de entrega ----------
+
+test('pedido de entrega no modo "fixa" já informa a taxa na confirmação', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const xarope = createProduct(db, { nome: 'Xarope Fixa', preco: 20, categoria: 'Gripe' });
+  addStock(db, { productId: xarope, locationId, quantidade: 5, operadorId: adminId });
+  botOrderService.updateConfig({ ativo: true, taxaEntregaModo: 'fixa', taxaEntregaFixa: 7.5 });
+
+  const conversas = new Map();
+  const telefone = '5511911119999';
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '2', locationId, estadoConversas: conversas }); // entrega
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'Rua Fixa, 1', locationId, estadoConversas: conversas });
+
+  assert.equal(r.pedidoCriado, true);
+  assert.match(r.resposta, /Taxa de entrega: R\$ 7,50/);
+
+  const { pedido } = botOrderService.getOrderWithItems(r.pedidoId);
+  assert.equal(pedido.taxa_entrega, 7.5);
+});
+
+test('pedido de entrega no modo "personalizada" avisa que o atendente vai definir, e setTaxaEntrega avisa o cliente depois', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const xarope = createProduct(db, { nome: 'Xarope Personalizada', preco: 20, categoria: 'Gripe' });
+  addStock(db, { productId: xarope, locationId, quantidade: 5, operadorId: adminId });
+  botOrderService.updateConfig({ ativo: true, taxaEntregaModo: 'personalizada' });
+
+  const conversas = new Map();
+  const telefone = '5511911118888';
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '2', locationId, estadoConversas: conversas });
+  const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'Rua Personalizada, 2', locationId, estadoConversas: conversas });
+
+  assert.equal(r.pedidoCriado, true);
+  assert.match(r.resposta, /confirmada em breve por um atendente/i);
+
+  let { pedido } = botOrderService.getOrderWithItems(r.pedidoId);
+  assert.equal(pedido.taxa_entrega, null);
+
+  const resultado = botOrderService.setTaxaEntrega({ orderId: r.pedidoId, taxaEntrega: 12 });
+  assert.equal(resultado.ok, true);
+  ({ pedido } = botOrderService.getOrderWithItems(r.pedidoId));
+  assert.equal(pedido.taxa_entrega, 12);
+});
+
+// ---------- Pedido em andamento: status, adicionar item, alteração, novo pedido ----------
+
+test('cliente com pedido em andamento vê o menu de opções em vez do cardápio, e "status" funciona', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Item Ativo', preco: 5, categoria: 'Geral' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+
+  const conversas = new Map();
+  const telefone = '5511900011122';
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // retirada -> pedido criado
+
+  const menu = whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  assert.match(menu.resposta, /pedido em andamento/i);
+  assert.match(menu.resposta, /Consultar status/i);
+
+  const status = whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  assert.match(status.resposta, /na fila/i);
+});
+
+test('cliente com pedido em andamento consegue adicionar itens ao MESMO pedido (não cria um segundo)', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Item Base', preco: 5, categoria: 'Geral' });
+  addStock(db, { productId: p, locationId, quantidade: 10, operadorId: adminId });
+
+  const conversas = new Map();
+  const telefone = '5511900022233';
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  const criado = whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  const respAdicionar = whatsappBotHandler.processarMensagem({ telefone, texto: '2', locationId, estadoConversas: conversas });
+  assert.match(respAdicionar.resposta, /o que mais você quer adicionar/i);
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // categoria
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // produto
+  const respFinal = whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  assert.match(respFinal.resposta, /adicionei ao seu pedido/i);
+
+  const { itens } = botOrderService.getOrderWithItems(criado.pedidoId);
+  assert.equal(itens.length, 2, 'deveria ter os itens do pedido original + o item adicionado, no mesmo pedido');
+
+  const todosOsPedidos = botOrderService.listOrders({ locationId });
+  assert.equal(todosOsPedidos.length, 1, 'não deveria ter criado um segundo pedido');
+});
+
+test('cliente com pedido em andamento pede uma alteração -- bot só anota, não aplica sozinho', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Item Alteração', preco: 5, categoria: 'Geral' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+
+  const conversas = new Map();
+  const telefone = '5511900033344';
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  const criado = whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  const pedeAlteracao = whatsappBotHandler.processarMensagem({ telefone, texto: '3', locationId, estadoConversas: conversas });
+  assert.match(pedeAlteracao.resposta, /me conta o que você quer mudar/i);
+
+  const confirma = whatsappBotHandler.processarMensagem({ telefone, texto: 'troca o item por outro sabor', locationId, estadoConversas: conversas });
+  assert.match(confirma.resposta, /anotado/i);
+
+  const { pedido } = botOrderService.getOrderWithItems(criado.pedidoId);
+  assert.match(pedido.observacoes, /troca o item por outro sabor/);
+  // Itens não foram mexidos automaticamente -- só o texto foi anotado.
+  const { itens } = botOrderService.getOrderWithItems(criado.pedidoId);
+  assert.equal(itens.length, 1);
+});
+
+test('cliente com pedido em andamento pode começar um novo pedido em vez de mexer no anterior', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Item Novo Pedido', preco: 5, categoria: 'Geral' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+
+  const conversas = new Map();
+  const telefone = '5511900044455';
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: conversas });
+  const respNovo = whatsappBotHandler.processarMensagem({ telefone, texto: '4', locationId, estadoConversas: conversas });
+  assert.match(respNovo.resposta, /novo pedido/i);
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // categoria
+  whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas }); // produto
+  whatsappBotHandler.processarMensagem({ telefone, texto: 'finalizar', locationId, estadoConversas: conversas });
+  const segundo = whatsappBotHandler.processarMensagem({ telefone, texto: '1', locationId, estadoConversas: conversas });
+  assert.equal(segundo.pedidoCriado, true);
+
+  const todosOsPedidos = botOrderService.listOrders({ locationId });
+  assert.equal(todosOsPedidos.length, 2, 'deveria ter dois pedidos independentes');
+});
+
+test('pedido de retirada já "pronto" não aceita mais adicionar/alterar pelo chat', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const { id } = botOrderService.createOrder({
+    locationId, clienteNome: 'Cliente Pronto', clienteTelefone: '5511900055566',
+    itens: [{ descricaoLivre: 'Item qualquer' }],
+  });
+  botOrderService.updateOrderStatus({ orderId: id, status: 'em_separacao', operadorId: adminId });
+  botOrderService.updateOrderStatus({ orderId: id, status: 'pronto', operadorId: adminId });
+
+  const conversas = new Map();
+  const menu = whatsappBotHandler.processarMensagem({ telefone: '5511900055566', texto: 'oi', locationId, estadoConversas: conversas });
+  assert.match(menu.resposta, /pedido em andamento/i);
+
+  const respAdicionar = whatsappBotHandler.processarMensagem({ telefone: '5511900055566', texto: '2', locationId, estadoConversas: conversas });
+  assert.match(respAdicionar.resposta, /não dá mais pra adicionar/i);
 });
 
 // ---------- Reserva de mesa ----------

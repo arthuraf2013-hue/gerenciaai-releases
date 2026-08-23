@@ -42,4 +42,22 @@ function notifyReservationConfirmed(reserva) {
   notif.show();
 }
 
-module.exports = { notifyLowStock, notifyReservationConfirmed };
+/** Dispara quando um cliente pede uma alteração num pedido já feito,
+ * pelo chat do WhatsApp (ver botOrderService.registrarSolicitacaoAlteracao)
+ * -- o bot não aplica a mudança sozinho, só anota nas observações do
+ * pedido; esse alerta é pra quem está no balcão perceber rápido que tem
+ * uma solicitação nova esperando, sem depender de abrir a tela de
+ * Separação por acaso pra notar. */
+function notifyOrderChangeRequested(pedido) {
+  const { Notification } = require('electron');
+  if (!Notification || !Notification.isSupported()) return;
+
+  const notif = new Notification({
+    title: 'Cliente pediu alteração — GerenciaAI',
+    body: `${pedido.cliente_nome} pediu uma alteração no pedido pelo WhatsApp. Veja em Separação.`,
+    silent: false,
+  });
+  notif.show();
+}
+
+module.exports = { notifyLowStock, notifyReservationConfirmed, notifyOrderChangeRequested };

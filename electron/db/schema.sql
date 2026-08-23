@@ -901,6 +901,15 @@ CREATE TABLE IF NOT EXISTS bot_orders (
   -- (sale_items via saleService.addItem) em vez de virar uma venda
   -- avulsa nova como os pedidos de retirada/entrega.
   mesa_numero       TEXT,
+  -- Valor da taxa de entrega desse pedido (só relevante quando
+  -- tipo_entrega = 'entrega') -- preenchido na criação quando o modo
+  -- configurado é 'fixa', ou depois pelo atendente (setTaxaEntrega)
+  -- quando o modo é 'personalizada'. NULL enquanto ainda não foi
+  -- definida no modo personalizada. Copiado pra deliveries.taxa_entrega
+  -- quando o pedido é convertido em venda/entrega de verdade (ver
+  -- converterEmVendaSeAplicavel) -- mesmo padrão de cliente_nome/
+  -- cliente_telefone em deliveries.
+  taxa_entrega      REAL,
   separado_por      TEXT REFERENCES users(id),
   delivery_id       TEXT REFERENCES deliveries(id), -- preenchido se virou uma entrega de verdade
   sale_id           TEXT REFERENCES sales(id), -- preenchido quando convertido em venda na conclusão
@@ -934,7 +943,17 @@ CREATE INDEX IF NOT EXISTS idx_bot_order_items_order ON bot_order_items(bot_orde
 -- começar a usar o WhatsApp pra pedidos.
 CREATE TABLE IF NOT EXISTS delivery_bot_config (
   id     TEXT PRIMARY KEY DEFAULT 'default',
-  ativo  INTEGER NOT NULL DEFAULT 0
+  ativo  INTEGER NOT NULL DEFAULT 0,
+  -- Taxa de entrega cobrada nos pedidos de entrega vindos do chatbot
+  -- (ou digitados manualmente): 'fixa' usa sempre taxa_entrega_fixa,
+  -- informada ao cliente na hora que ele fecha o pedido de entrega
+  -- (ver whatsappBotHandler.finalizarPedido); 'personalizada' não tem
+  -- valor padrão -- o atendente define o valor de cada pedido na tela
+  -- de Separação (ver botOrderService.setTaxaEntrega), e o cliente é
+  -- avisado automaticamente por WhatsApp assim que esse valor é
+  -- definido.
+  taxa_entrega_modo  TEXT NOT NULL DEFAULT 'fixa' CHECK (taxa_entrega_modo IN ('fixa','personalizada')),
+  taxa_entrega_fixa  REAL NOT NULL DEFAULT 0
 );
 
 -- Orçamento (Material de Construção, mas útil em qualquer perfil): uma

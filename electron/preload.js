@@ -266,6 +266,7 @@ contextBridge.exposeInMainWorld('pdv', {
     updateItemStatus: invoke('botOrders:updateItemStatus'),
     listInStockByCategory: invoke('botOrders:listInStockByCategory'),
     lancarNaMesa: invoke('botOrders:lancarNaMesa'),
+    setTaxaEntrega: invoke('botOrders:setTaxaEntrega'),
   },
   whatsapp: {
     getStatus: invoke('whatsapp:getStatus'),
