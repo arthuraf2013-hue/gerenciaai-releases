@@ -96,6 +96,36 @@ const NAV_ITEMS = [
 // visual, pra bater com o mesmo padrão usado nas abas de Configurações.
 const SECTION_ICON = { Vendas: 'cash', Separação: 'box', Cadastros: 'folder', Gestão: 'trendUp', Sistema: 'settings' };
 
+// Cor própria de cada ícone da navegação lateral -- puramente visual,
+// pra cada item ser reconhecível de relance em vez de ficar tudo no
+// mesmo tom apagado. Escolhidas pra contrastar bem tanto com o verde
+// bem escuro da sidebar (#0d2b28) quanto com o destaque do item ativo
+// (--sidebar-accent, #1d5850). Vale pros ícones dos itens de menu e
+// dos títulos de seção (que reaproveitam os mesmos nomes de ícone).
+const NAV_ICON_COLOR = {
+  cart: '#f5a623',
+  plate: '#ff8a65',
+  cooking: '#ef5350',
+  receipt: '#4fc3f7',
+  undo: '#ba68c8',
+  truck: '#4dd0e1',
+  clipboard: '#7986cb',
+  calendar: '#f06292',
+  book: '#ab47bc',
+  box: '#ffa726',
+  tag: '#ff7043',
+  users: '#26c6da',
+  chart: '#42a5f5',
+  import: '#66bb6a',
+  money: '#ffca28',
+  warning: '#f4511e',
+  briefcase: '#7e57c2',
+  settings: '#90a4ae',
+  cash: '#ffd54f',
+  folder: '#66bb6a',
+  trendUp: '#42a5f5',
+};
+
 export function AppShell() {
   const { currentUser, logout } = useSession();
   const { profile } = useProfile();
@@ -252,7 +282,14 @@ export function AppShell() {
                     aria-expanded={!fechado}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      {SECTION_ICON[grupo.titulo] && <Icon name={SECTION_ICON[grupo.titulo]} size={15} className="nav-section-icon" />}
+                      {SECTION_ICON[grupo.titulo] && (
+                        <Icon
+                          name={SECTION_ICON[grupo.titulo]}
+                          size={15}
+                          className="nav-section-icon"
+                          style={{ color: NAV_ICON_COLOR[SECTION_ICON[grupo.titulo]] }}
+                        />
+                      )}
                       {grupo.titulo}
                     </span>
                     <svg
@@ -275,7 +312,7 @@ export function AppShell() {
                             onClick={() => setScreen(item.id)}
                           >
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-                              <Icon name={item.icon} size={18} className="nav-icon" />
+                              <Icon name={item.icon} size={18} className="nav-icon" style={{ color: NAV_ICON_COLOR[item.icon] }} />
                               {item.label}
                             </span>
                             {item.id === 'products' && conflitosProdutos > 0 && (

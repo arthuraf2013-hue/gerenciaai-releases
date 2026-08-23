@@ -426,10 +426,11 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .nav-section-title:hover { color: rgba(255,255,255,0.6); }
 /* O rótulo da seção fica propositalmente apagado (rgba acima), mas o
  * ícone precisa se destacar mais que isso pra ser reconhecível de
- * relance -- por isso ganha uma cor própria, mais forte que o texto
- * ao redor, em vez de herdar o mesmo currentColor apagado. */
+ * relance -- por isso ganha uma cor própria (definida por ícone em
+ * NAV_ICON_COLOR, no AppShell.jsx, via style inline -- o valor abaixo
+ * só entra como reserva, pra qualquer ícone que fique de fora desse
+ * mapa) em vez de herdar o mesmo currentColor apagado do texto. */
 .nav-section-icon { color: rgba(255,255,255,0.62); }
-.nav-section-title:hover .nav-section-icon { color: rgba(255,255,255,0.85); }
 .nav-section-arrow { flex-shrink: 0; transition: transform 0.15s ease; }
 .nav-section-arrow-fechado { transform: rotate(-90deg); }
 .nav-item {
@@ -437,10 +438,10 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   padding: 12px 20px; border-radius: 0; font-size: 14px;
 }
 .nav-item:hover { background: rgba(255,255,255,0.06); }
-/* Mesma ideia do ícone de seção: o ícone do item de menu fica mais
- * cheio/visível que o rótulo (rgba acima), pra ser fácil de notar. */
+/* Mesma ideia do ícone de seção: cor própria vinda de NAV_ICON_COLOR
+ * (inline), mantida igual mesmo com o item ativo -- o valor abaixo é
+ * só a reserva pra ícone fora do mapa. */
 .nav-icon { color: rgba(255,255,255,0.94); }
-.nav-item-active .nav-icon { color: #fff; }
 .nav-item-active { background: var(--sidebar-accent); color: white; }
 .sidebar-footer {
   /* Antes tinha um border-top rgba(255,255,255,0.1) aqui — na área já
