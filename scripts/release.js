@@ -14,6 +14,39 @@
  *   npm run release -- "descrição curta do que mudou"
  */
 const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Remove um `.git/index.lock` (ou `HEAD.lock`) travado ANTES de rodar
+ * qualquer comando git -- sem isso, um lock deixado por uma queda de
+ * energia, um antivírus que travou no meio de uma escrita, ou um
+ * `git status`/editor mexendo no repo bem na hora, faz TODO comando
+ * seguinte falhar com "Unable to create '.../index.lock': File
+ * exists.", mesmo não tendo mais nenhum processo git de verdade rodando.
+ * Só remove se o arquivo já existir há mais de alguns segundos -- um
+ * lock criado agora mesmo pode ser de um `git` genuinamente em
+ * andamento (outra janela, outro comando disparado ao mesmo tempo), e
+ * apagar esse na certa corromperia a operação em curso. Silencioso por
+ * padrão (não é erro do usuário), só avisa quando de fato remove algo.
+ */
+function limparLockTravado() {
+  const SEGUNDOS_PARA_CONSIDERAR_TRAVADO = 10;
+  for (const nomeArquivo of ['index.lock', 'HEAD.lock']) {
+    const caminho = path.join('.git', nomeArquivo);
+    try {
+      const info = fs.statSync(caminho);
+      const idadeSegundos = (Date.now() - info.mtimeMs) / 1000;
+      if (idadeSegundos > SEGUNDOS_PARA_CONSIDERAR_TRAVADO) {
+        fs.unlinkSync(caminho);
+        console.log(`(removido ${caminho} travado há ${Math.round(idadeSegundos)}s -- provavelmente sobra de uma operação anterior interrompida)`);
+      }
+    } catch {
+      // Não existe (caso normal) ou não deu pra remover -- segue o jogo,
+      // o comando git logo abaixo vai dar o erro de verdade se for o caso.
+    }
+  }
+}
 
 const mensagem = process.argv.slice(2).join(' ').trim();
 if (!mensagem) {
@@ -23,6 +56,7 @@ if (!mensagem) {
 const commitMsg = (/^release:/i.test(mensagem) ? mensagem : `release: ${mensagem}`).replace(/"/g, '\\"');
 
 function run(cmd, { permitirFalha = false } = {}) {
+  limparLockTravado();
   console.log(`\n$ ${cmd}`);
   try {
     const saida = execSync(cmd, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] });
