@@ -71,4 +71,22 @@ async function writeRowsAsSheet(filePath, rows, columns, sheetName = 'Modelo') {
   await workbook.xlsx.writeFile(filePath);
 }
 
-module.exports = { readSheetAsRows, writeRowsAsSheet };
+/**
+ * Escreve VÁRIAS abas num único arquivo .xlsx -- usado quando a
+ * importação lida com mais de uma entidade no mesmo arquivo (produtos +
+ * insumos + ficha técnica, ver importExportService.importFromFile).
+ * Cada item de `sheets` é `{ nome, colunas, linhas }`, mesmo espírito de
+ * writeRowsAsSheet (colunas na ordem dada, célula ausente vira '').
+ */
+async function writeWorkbookWithSheets(filePath, sheets) {
+  const ExcelJS = require('exceljs');
+  const workbook = new ExcelJS.Workbook();
+  for (const { nome, colunas, linhas } of sheets) {
+    const worksheet = workbook.addWorksheet(nome);
+    worksheet.addRow(colunas);
+    (linhas || []).forEach((linha) => worksheet.addRow(colunas.map((c) => linha[c] ?? '')));
+  }
+  await workbook.xlsx.writeFile(filePath);
+}
+
+module.exports = { readSheetAsRows, writeRowsAsSheet, writeWorkbookWithSheets };

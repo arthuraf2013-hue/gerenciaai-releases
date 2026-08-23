@@ -189,9 +189,19 @@ export function ProductList() {
     if (result.canceled) return;
     if (!result.ok) return setIoMessage(result.error);
 
-    const { importados, atualizados, erros, total } = result.report;
+    const { importados, atualizados, erros, total, insumos, fichaTecnica } = result.report;
     let msg = `${total} linhas processadas: ${importados} novos produtos, ${atualizados} atualizados.`;
     if (erros.length > 0) msg += ` ${erros.length} linha(s) com erro (linha ${erros[0].linha}: ${erros[0].erro}${erros.length > 1 ? '...' : ''}).`;
+    // Abas opcionais -- só existem no relatório se a planilha importada
+    // tinha uma aba "Insumos" e/ou "Ficha Tecnica" (ver importExportService.importFromFile).
+    if (insumos) {
+      msg += ` Insumos: ${insumos.importados} novo(s), ${insumos.atualizados} atualizado(s).`;
+      if (insumos.erros.length > 0) msg += ` ${insumos.erros.length} erro(s) em Insumos (linha ${insumos.erros[0].linha}: ${insumos.erros[0].erro}).`;
+    }
+    if (fichaTecnica) {
+      msg += ` Ficha técnica: ${fichaTecnica.produtosComReceita} produto(s) com receita definida.`;
+      if (fichaTecnica.erros.length > 0) msg += ` ${fichaTecnica.erros.length} erro(s) em Ficha Tecnica (linha ${fichaTecnica.erros[0].linha}: ${fichaTecnica.erros[0].erro}).`;
+    }
     setIoMessage(msg);
     reloadRef.current();
   }
@@ -240,7 +250,9 @@ export function ProductList() {
 
       <p className="screen-hint">
         A importação segue o modelo em <code>templates/modelo_importacao_estoque.xlsx</code> —
-        baixe, preencha e importe para trazer o estoque de outro sistema.
+        baixe, preencha e importe para trazer o estoque de outro sistema. A mesma planilha aceita
+        campos extras de qualquer tipo de negócio (não só o perfil ativo agora) e, opcionalmente,
+        abas "Insumos" e "Ficha Tecnica" para já cadastrar a matéria-prima e a receita dos produtos.
       </p>
 
       {ioMessage && <p className="io-message">{ioMessage}</p>}
