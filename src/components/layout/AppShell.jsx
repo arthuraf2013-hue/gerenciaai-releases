@@ -252,7 +252,7 @@ export function AppShell() {
                     aria-expanded={!fechado}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                      {SECTION_ICON[grupo.titulo] && <Icon name={SECTION_ICON[grupo.titulo]} size={13} />}
+                      {SECTION_ICON[grupo.titulo] && <Icon name={SECTION_ICON[grupo.titulo]} size={15} className="nav-section-icon" />}
                       {grupo.titulo}
                     </span>
                     <svg
@@ -275,7 +275,7 @@ export function AppShell() {
                             onClick={() => setScreen(item.id)}
                           >
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
-                              <Icon name={item.icon} size={16} />
+                              <Icon name={item.icon} size={18} className="nav-icon" />
                               {item.label}
                             </span>
                             {item.id === 'products' && conflitosProdutos > 0 && (
@@ -311,7 +311,7 @@ export function AppShell() {
         <div className="sidebar-footer">
           {sincronizacaoAtiva && (
             <span className="sidebar-pdv-number" title="Sincronizado com outros PDVs" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="link" size={12} /> Sincronizado
+              <Icon name="link" size={14} /> Sincronizado
             </span>
           )}
 
