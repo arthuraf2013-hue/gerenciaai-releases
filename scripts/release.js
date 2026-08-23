@@ -18,22 +18,48 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Remove um `.git/index.lock` (ou `HEAD.lock`) travado ANTES de rodar
- * qualquer comando git -- sem isso, um lock deixado por uma queda de
- * energia, um antivírus que travou no meio de uma escrita, ou um
- * `git status`/editor mexendo no repo bem na hora, faz TODO comando
- * seguinte falhar com "Unable to create '.../index.lock': File
- * exists.", mesmo não tendo mais nenhum processo git de verdade rodando.
- * Só remove se o arquivo já existir há mais de alguns segundos -- um
- * lock criado agora mesmo pode ser de um `git` genuinamente em
- * andamento (outra janela, outro comando disparado ao mesmo tempo), e
- * apagar esse na certa corromperia a operação em curso. Silencioso por
- * padrão (não é erro do usuário), só avisa quando de fato remove algo.
+ * Remove qualquer `*.lock` travado dentro de `.git` (index.lock, HEAD.lock,
+ * ORIG_HEAD.lock, MERGE_HEAD.lock, refs/heads/main.lock, etc.) ANTES de
+ * rodar qualquer comando git -- sem isso, um lock deixado por uma queda de
+ * energia, um antivírus que travou no meio de uma escrita, um backup
+ * (OneDrive/Dropbox) sincronizando a pasta bem na hora, ou um editor/IDE
+ * mexendo no repo, faz o comando seguinte falhar com "Unable to create
+ * '.../xxx.lock': File exists.", mesmo não tendo mais nenhum processo git
+ * de verdade rodando. Não é só o `index.lock`/`HEAD.lock`: qualquer
+ * subcomando do git (pull, merge, fetch...) pode travar num lock
+ * diferente (já vimos ORIG_HEAD.lock, por exemplo) -- por isso a busca é
+ * genérica em vez de uma lista fixa de nomes.
+ *
+ * Só remove se o arquivo já existir há mais de alguns segundos -- um lock
+ * criado agora mesmo pode ser de um `git` genuinamente em andamento
+ * (outra janela, outro comando disparado ao mesmo tempo), e apagar esse
+ * na certa corromperia a operação em curso. Ignora `.git/objects` (só tem
+ * arquivos temporários de conteúdo, nunca locks de verdade, e pode ter
+ * milhares de arquivos -- não vale a pena varrer). Silencioso por padrão
+ * (não é erro do usuário), só avisa quando de fato remove algo.
  */
-function limparLockTravado() {
+function limparLocksTravados(dir = '.git', profundidade = 0) {
   const SEGUNDOS_PARA_CONSIDERAR_TRAVADO = 10;
-  for (const nomeArquivo of ['index.lock', 'HEAD.lock']) {
-    const caminho = path.join('.git', nomeArquivo);
+  const PROFUNDIDADE_MAXIMA = 6;
+  if (profundidade > PROFUNDIDADE_MAXIMA) return;
+
+  let entradas;
+  try {
+    entradas = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // .git não existe ou não deu pra listar -- não é problema nosso aqui.
+  }
+
+  for (const entrada of entradas) {
+    if (entrada.name === 'objects' || entrada.name === 'modules') continue;
+    const caminho = path.join(dir, entrada.name);
+
+    if (entrada.isDirectory()) {
+      limparLocksTravados(caminho, profundidade + 1);
+      continue;
+    }
+    if (!entrada.name.endsWith('.lock')) continue;
+
     try {
       const info = fs.statSync(caminho);
       const idadeSegundos = (Date.now() - info.mtimeMs) / 1000;
@@ -42,8 +68,8 @@ function limparLockTravado() {
         console.log(`(removido ${caminho} travado há ${Math.round(idadeSegundos)}s -- provavelmente sobra de uma operação anterior interrompida)`);
       }
     } catch {
-      // Não existe (caso normal) ou não deu pra remover -- segue o jogo,
-      // o comando git logo abaixo vai dar o erro de verdade se for o caso.
+      // Sumiu entre o readdir e agora, ou não deu pra remover -- segue o
+      // jogo, o comando git logo abaixo vai dar o erro de verdade se for o caso.
     }
   }
 }
@@ -56,7 +82,7 @@ if (!mensagem) {
 const commitMsg = (/^release:/i.test(mensagem) ? mensagem : `release: ${mensagem}`).replace(/"/g, '\\"');
 
 function run(cmd, { permitirFalha = false } = {}) {
-  limparLockTravado();
+  limparLocksTravados();
   console.log(`\n$ ${cmd}`);
   try {
     const saida = execSync(cmd, { encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] });
