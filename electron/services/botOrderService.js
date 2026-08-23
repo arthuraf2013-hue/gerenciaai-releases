@@ -293,13 +293,36 @@ function getOrderWithItems(orderId) {
   return { ok: true, pedido: { ...pedido, valorTotal }, itens };
 }
 
+/** Avisa o cliente pelo WhatsApp quando o pedido fica pronto -- pra
+ * retirada, que já pode vir buscar; pra entrega, que já vai sair (o
+ * aviso de "saiu de fato" é separado, ver deliveryService.
+ * notificarSaidaParaEntrega, disparado só quando a entrega em si muda
+ * pra "em_rota"). Silenciosa quando não dá pra mandar (bot
+ * desconectado, sem telefone) -- quem chama trata como
+ * fogo-e-esquece. */
+async function notificarPedidoPronto(pedido) {
+  const whatsappBotService = require('./whatsappBotService');
+  if (whatsappBotService.getStatus().status !== 'conectado') return;
+  if (!pedido.cliente_telefone) return;
+
+  const primeiroNome = (pedido.cliente_nome || '').trim().split(' ')[0] || 'tudo bem';
+  const texto = pedido.tipo_entrega === 'entrega'
+    ? `Oi, ${primeiroNome}! Seu pedido está pronto e já vai sair pra entrega. 📦`
+    : `Oi, ${primeiroNome}! Seu pedido já está pronto pra retirada. Te esperamos! 😊`;
+
+  const resultado = await whatsappBotService.enviarMensagem({ telefone: pedido.cliente_telefone, texto });
+  if (!resultado.ok) {
+    console.error('[botOrderService] falha ao enviar aviso de pedido pronto', pedido.id, resultado.error);
+  }
+}
+
 /** Muda o status do pedido — carimba automaticamente quando começou a
  * separação e quando foi concluído (mesma ideia do `saiu_em`/
  * `entregue_em` em deliveries). */
 function updateOrderStatus({ orderId, status, operadorId }) {
   if (!STATUS_PEDIDO_VALIDOS.includes(status)) return { ok: false, error: 'Status inválido.' };
   const db = getDb();
-  const pedido = db.prepare('SELECT id FROM bot_orders WHERE id = ?').get(orderId);
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
   if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
 
   const sets = ['status = @status'];
@@ -311,6 +334,16 @@ function updateOrderStatus({ orderId, status, operadorId }) {
 
   db.prepare(`UPDATE bot_orders SET ${sets.join(', ')} WHERE id = @orderId`)
     .run({ orderId, status, operadorId: operadorId || null });
+
+  if (status === 'pronto' && !pedido.mesa_numero) {
+    // Fogo-e-esquece -- mesmo princípio do bloco de conversão em venda
+    // logo abaixo: nunca deixa a mudança de status em si falhar por
+    // causa do aviso. Pedido de mesa nunca passa por "pronto" (ver
+    // SepararPedidoModal), então nem tenta.
+    notificarPedidoPronto(pedido).catch((err) => {
+      console.error('[botOrderService] falha ao notificar pedido pronto', orderId, err);
+    });
+  }
 
   if (status === 'concluido') {
     try {
