@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const TIPOS = [
   { value: 'entrada', label: 'Entrada (recebi mercadoria)', sinal: 1 },
@@ -52,7 +53,7 @@ export function StockAdjustModal({ product, onClose, onAdjusted }) {
   return (
     <div className="modal-overlay">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h2>📦 Ajustar estoque — {product.nome}</h2>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="box" size={18} /> Ajustar estoque — {product.nome}</h2>
 
         <label>Tipo
           <select value={tipo} onChange={(e) => setTipo(e.target.value)}>
@@ -72,8 +73,12 @@ export function StockAdjustModal({ product, onClose, onAdjusted }) {
         {error && <p className="modal-error">{error}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : '✅ Confirmar'}</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+          </button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? 'Salvando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Confirmar</span>}
+          </button>
         </div>
       </form>
     </div>

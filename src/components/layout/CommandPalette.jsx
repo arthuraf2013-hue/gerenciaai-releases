@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import Icon from '../common/Icon';
 
 /**
- * @param {{ items: {id: string, label: string}[], onNavigate: (id: string) => void }} props
+ * @param {{ items: {id: string, icon?: string, label: string}[], onNavigate: (id: string) => void }} props
  */
 export function CommandPalette({ items, onNavigate }) {
   const [open, setOpen] = useState(false);
@@ -67,7 +68,10 @@ export function CommandPalette({ items, onNavigate }) {
                 onMouseEnter={() => setSelecionado(i)}
                 onClick={() => ir(item)}
               >
-                {item.label}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                  {item.icon && <Icon name={item.icon} size={15} />}
+                  {item.label}
+                </span>
               </button>
             </li>
           ))}

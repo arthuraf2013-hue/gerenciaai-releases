@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductSearchBox } from './ProductSearchBox';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const STATUS_LABEL = { aberto: 'Aberto', convertido: 'Convertido', cancelado: 'Cancelado' };
 
@@ -49,7 +50,7 @@ function NovoOrcamento({ onCriado, onCancelar }) {
   return (
     <div className="modal-overlay">
       <div className="modal-card modal-card-fullscreen">
-        <h2>📋 Novo orçamento</h2>
+        <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={18} /> Novo orçamento</h2>
 
         <div className="inline-form" style={{ marginBottom: 12 }}>
           <label>Cliente (opcional)
@@ -89,8 +90,8 @@ function NovoOrcamento({ onCriado, onCancelar }) {
         {itens.length > 0 && <p style={{ textAlign: 'right', fontWeight: 'bold', margin: '12px 0' }}>Total: R$ {total.toFixed(2)}</p>}
 
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onCancelar}>✖️ Fechar</button>
-          {quoteId && itens.length > 0 && <button className="btn-primary" onClick={() => onCriado()}>✅ Concluir</button>}
+          <button className="btn-secondary" onClick={onCancelar}><Icon name="close" size={15} /> Fechar</button>
+          {quoteId && itens.length > 0 && <button className="btn-primary" onClick={() => onCriado()}><Icon name="checkCircle" size={15} /> Concluir</button>}
         </div>
       </div>
     </div>
@@ -134,8 +135,8 @@ export function QuotesScreen() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>📋 Orçamentos</h1>
-        <button className="btn-primary" onClick={() => setShowNovo(true)}>➕ Novo orçamento</button>
+        <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={20} /> Orçamentos</h1>
+        <button className="btn-primary" onClick={() => setShowNovo(true)}><Icon name="add" size={15} /> Novo orçamento</button>
       </div>
       <p className="screen-hint">
         Cotação prévia — não mexe em estoque nem em caixa até você converter em venda de verdade.
@@ -175,7 +176,7 @@ export function QuotesScreen() {
       {detalhe && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h2>📋 Orçamento — {detalhe.clienteNome || 'sem cliente'}</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={18} /> Orçamento — {detalhe.clienteNome || 'sem cliente'}</h2>
             <ul style={{ listStyle: 'none', padding: 0 }}>
               {detalhe.items.map((i) => (
                 <li key={i.id}>{i.quantidade}x {i.nome} — R$ {(i.quantidade * i.preco_unitario).toFixed(2)}</li>
@@ -183,11 +184,11 @@ export function QuotesScreen() {
             </ul>
             <p style={{ fontWeight: 'bold' }}>Total: R$ {detalhe.total.toFixed(2)}</p>
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={() => setDetalhe(null)}>✖️ Fechar</button>
+              <button className="btn-secondary" onClick={() => setDetalhe(null)}><Icon name="close" size={15} /> Fechar</button>
               {detalhe.status === 'aberto' && (
                 <>
-                  <button className="btn-link-danger" onClick={() => handleCancelar(detalhe.id)}>✖️ Cancelar orçamento</button>
-                  <button className="btn-primary" onClick={() => handleConverter(detalhe.id)}>✅ Converter em venda</button>
+                  <button className="btn-link-danger" onClick={() => handleCancelar(detalhe.id)}><Icon name="close" size={15} /> Cancelar orçamento</button>
+                  <button className="btn-primary" onClick={() => handleConverter(detalhe.id)}><Icon name="checkCircle" size={15} /> Converter em venda</button>
                 </>
               )}
             </div>

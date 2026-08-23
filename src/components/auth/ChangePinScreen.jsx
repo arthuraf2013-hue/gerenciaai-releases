@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import Icon from '../common/Icon';
 
 /**
  * Bloqueia o acesso ao resto do app até o usuário trocar um PIN
@@ -31,7 +32,7 @@ export function ChangePinScreen({ onChanged }) {
     <div className="login-screen">
       <form className="modal-card" onSubmit={handleSubmit}>
         <img src="/logo-mark.svg" alt="GerenciaAI" width="48" height="48" className="auth-logo" />
-        <h1>🔑 Troque seu PIN</h1>
+        <h1><Icon name="key" size={22} /> Troque seu PIN</h1>
         <p className="modal-subtitle">
           Este usuário ainda está com o PIN padrão. Defina um novo PIN antes de continuar.
         </p>
@@ -46,7 +47,7 @@ export function ChangePinScreen({ onChanged }) {
         </label>
         {error && <p className="modal-error">{error}</p>}
         <button className="btn-primary" type="submit" disabled={saving}>
-          {saving ? 'Salvando...' : '🔑 Trocar PIN e continuar'}
+          {saving ? 'Salvando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="key" size={15} /> Trocar PIN e continuar</span>}
         </button>
       </form>
     </div>

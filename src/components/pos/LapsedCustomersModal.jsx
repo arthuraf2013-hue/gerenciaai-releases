@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 export function LapsedCustomersModal({ onFechar }) {
   const [clientes, setClientes] = useState(null);
@@ -19,7 +20,7 @@ export function LapsedCustomersModal({ onFechar }) {
     <div className="modal-overlay">
       <div className="modal-card modal-card-fullscreen">
         <div>
-          <h2>⚠️ Clientes que sumiram{clientes && clientes.length > 0 ? ` — ${clientes.length}` : ''}</h2>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="warning" size={18} /> Clientes que sumiram{clientes && clientes.length > 0 ? ` — ${clientes.length}` : ''}</h2>
           <p className="screen-hint" style={{ margin: '4px 0 12px' }}>
             Compara o tempo desde a última compra com o ritmo normal de cada cliente — não é um número
             fixo pra todo mundo. Quem compra a cada semana e some por um mês aparece aqui; quem compra
@@ -41,7 +42,7 @@ export function LapsedCustomersModal({ onFechar }) {
                     <td>{c.diasDesdeUltimaCompra} dia(s)</td>
                     <td>
                       {c.telefone ? (
-                        <button className="btn-link" onClick={() => handleEnviar(c.id)}>💬 Enviar mensagem de reconquista</button>
+                        <button className="btn-link" onClick={() => handleEnviar(c.id)}><Icon name="chat" size={14} /> Enviar mensagem de reconquista</button>
                       ) : (
                         <span className="screen-hint">sem telefone cadastrado</span>
                       )}
@@ -54,7 +55,7 @@ export function LapsedCustomersModal({ onFechar }) {
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
+          <button type="button" className="btn-secondary" onClick={onFechar}><Icon name="close" size={16} /> Fechar</button>
         </div>
       </div>
     </div>

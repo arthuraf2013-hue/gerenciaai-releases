@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Icon from '../common/Icon';
 
 export function DailyMenu() {
   const [itens, setItens] = useState([]);
@@ -35,9 +36,9 @@ export function DailyMenu() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>🍽️ Cardápio do dia</h1>
+        <h1><Icon name="plate" size={18} /> Cardápio do dia</h1>
         <button className="btn-primary" onClick={handleImprimir} disabled={printando || itens.length === 0}>
-          {printando ? 'Imprimindo...' : '🖨️ Imprimir cardápio'}
+          {printando ? 'Imprimindo...' : <><Icon name="printer" size={16} /> Imprimir cardápio</>}
         </button>
       </div>
       <p className="screen-hint">
@@ -72,7 +73,7 @@ export function DailyMenu() {
                             }}
                             title="Previsão calculada a partir do estoque atual dos insumos da ficha técnica — não é uma estimativa de IA"
                           >
-                            📊 ≈{porcoes} porç{porcoes === 1 ? 'ão' : 'ões'}
+                            <Icon name="chart" size={13} /> ≈{porcoes} porç{porcoes === 1 ? 'ão' : 'ões'}
                           </span>
                         )}
                       </td>

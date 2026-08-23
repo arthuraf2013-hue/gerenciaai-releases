@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const UNIDADES = ['kg', 'g', 'l', 'ml', 'un'];
 
@@ -67,8 +68,8 @@ export function IngredientManager() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>🥫 Insumos</h1>
-        <button className="btn-primary" onClick={startNew}>➕ Novo insumo</button>
+        <h1><Icon name="ingredient" size={18} /> Insumos</h1>
+        <button className="btn-primary" onClick={startNew}><Icon name="add" size={16} /> Novo insumo</button>
       </div>
       <p className="screen-hint">
         Matéria-prima usada nos pratos (farinha, carne, óleo...). Cadastre o custo por unidade aqui
@@ -97,8 +98,8 @@ export function IngredientManager() {
               </td>
               <td>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button className="btn-link" onClick={() => startEdit(ing)}>✏️ Editar</button>
-                  <button className="btn-link-danger" onClick={() => handleDeactivate(ing)}>🗑️ Remover</button>
+                  <button className="btn-link" onClick={() => startEdit(ing)}><Icon name="edit" size={14} /> Editar</button>
+                  <button className="btn-link-danger" onClick={() => handleDeactivate(ing)}><Icon name="trash" size={14} /> Remover</button>
                 </div>
               </td>
             </tr>
@@ -130,8 +131,8 @@ export function IngredientManager() {
             </label>
             {saveError && <p className="modal-error">{saveError}</p>}
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : '💾 Salvar'}</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditing(null)}><Icon name="close" size={16} /> Cancelar</button>
+              <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : <><Icon name="save" size={16} /> Salvar</>}</button>
             </div>
           </form>
         </div>

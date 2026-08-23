@@ -4,6 +4,7 @@ import { toISODate } from '../../utils/date';
 import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
 import { EditHistoricoModal } from './EditHistoricoModal';
+import Icon from '../common/Icon';
 
 const STATUS_LABEL = {
   aberta: 'Em aberto',
@@ -259,7 +260,7 @@ export function SalesHistory({ onDevolver }) {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>🧾 Histórico</h1>
+        <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="receipt" size={20} /> Histórico</h1>
         <strong>Total finalizado: R$ {totalDia.toFixed(2)}</strong>
       </div>
 
@@ -299,11 +300,15 @@ export function SalesHistory({ onDevolver }) {
         )}
         {sincronizacaoAtiva && (
           <button className="btn-secondary" onClick={() => carregarHistoricoDoGrupo(true, true)} disabled={carregandoGrupo} title="Reenvia o dado desta máquina (corrige qualquer coisa desatualizada) e busca de novo na hora">
-            {carregandoGrupo ? 'Atualizando...' : '↻ Atualizar'}
+            {carregandoGrupo ? 'Atualizando...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={15} /> Atualizar</span>
+            )}
           </button>
         )}
         <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: sincronizacaoAtiva ? 0 : (podeExcluir ? 0 : 'auto') }}>
-          {exportando ? 'Exportando...' : '📊 Exportar relatório'}
+          {exportando ? 'Exportando...' : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chart" size={15} /> Exportar relatório</span>
+          )}
         </button>
       </div>
 
@@ -370,7 +375,9 @@ export function SalesHistory({ onDevolver }) {
           )}
 
           <button className="btn-secondary" onClick={handleExportCustomerReport} disabled={exportandoRelatorio} style={{ marginTop: 12 }}>
-            {exportandoRelatorio ? 'Exportando...' : '📊 Exportar esse relatório'}
+            {exportandoRelatorio ? 'Exportando...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chart" size={15} /> Exportar esse relatório</span>
+            )}
           </button>
         </div>
       )}
@@ -439,16 +446,22 @@ export function SalesHistory({ onDevolver }) {
                   <td>{STATUS_LABEL[s.status] || s.status}{s.oculta_historico ? ' (excluída)' : ''}</td>
                   <td>
                     {s.status === 'finalizada' && (
-                      <button className="btn-link" onClick={(e) => { e.stopPropagation(); onDevolver?.(s.id); }}>↩️ Devolver</button>
+                      <button className="btn-link" onClick={(e) => { e.stopPropagation(); onDevolver?.(s.id); }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="undo" size={14} /> Devolver</span>
+                      </button>
                     )}
                     {podeEditarHistorico && (
-                      <button className="btn-link" onClick={(e) => { e.stopPropagation(); setVendaEditando(s); }}>✏️ Editar</button>
+                      <button className="btn-link" onClick={(e) => { e.stopPropagation(); setVendaEditando(s); }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="edit" size={14} /> Editar</span>
+                      </button>
                     )}
                     {podeExcluir && (
                       s.oculta_historico ? (
                         <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleReexibir(s.id); }}>Reexibir</button>
                       ) : (
-                        <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); handleExcluirDoHistorico(s.id); }}>🗑️ Excluir do histórico</button>
+                        <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); handleExcluirDoHistorico(s.id); }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={14} /> Excluir do histórico</span>
+                        </button>
                       )
                     )}
                   </td>
@@ -481,7 +494,9 @@ export function SalesHistory({ onDevolver }) {
                               disabled={reenviandoNfceId === nfcePorVenda[s.id][0].id}
                               style={{ marginLeft: 6 }}
                             >
-                              {reenviandoNfceId === nfcePorVenda[s.id][0].id ? 'Reenviando...' : '🔄 Tentar transmitir de novo'}
+                              {reenviandoNfceId === nfcePorVenda[s.id][0].id ? 'Reenviando...' : (
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={14} /> Tentar transmitir de novo</span>
+                              )}
                             </button>
                           )}
                         </p>

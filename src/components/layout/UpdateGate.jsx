@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Icon from '../common/Icon';
 
 /**
  * Envolve o app inteiro, por fora do LicenseGate — se uma atualização
@@ -85,7 +86,7 @@ export function UpdateGate({ children }) {
   return (
     <div className="license-block-screen">
       <div className="license-block-card update-block-card">
-        <h1>⬆️ Atualização obrigatória</h1>
+        <h1><Icon name="update" size={22} /> Atualização obrigatória</h1>
         <p>
           Uma nova versão do sistema é obrigatória pra continuar usando — versão atual:{' '}
           <strong>{forcedStatus.versaoAtual}</strong>, versão mínima exigida:{' '}
@@ -120,13 +121,13 @@ export function UpdateGate({ children }) {
         {updateStatus?.baixado && (
           <>
             <p>Atualização baixada — instalando automaticamente, o sistema fecha e abre de novo sozinho...</p>
-            <button className="btn-primary" onClick={handleInstalar}>⬆️ Instalar agora</button>
+            <button className="btn-primary" onClick={handleInstalar}><Icon name="update" size={15} /> Instalar agora</button>
           </>
         )}
 
         {!updateStatus?.baixando && !updateStatus?.baixado && (
           <button className="btn-primary" onClick={handleAtualizarAgora} disabled={verificando}>
-            {verificando ? 'Verificando...' : (checouENaoAchouNada || updateStatus?.erro) ? 'Tentar de novo' : '🔄 Atualizar agora'}
+            {verificando ? 'Verificando...' : (checouENaoAchouNada || updateStatus?.erro) ? 'Tentar de novo' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={15} /> Atualizar agora</span>}
           </button>
         )}
 

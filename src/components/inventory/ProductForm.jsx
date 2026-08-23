@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useProfile } from '../../context/ProfileContext';
 import { useSession } from '../../context/SessionContext';
+import Icon from '../common/Icon';
 
 const emptyProduct = {
   id: null, sku: '', codigoBarras: '', nome: '', categoria: '',
@@ -248,7 +249,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
       {!form.id && (
         <div style={{ marginBottom: 12 }}>
           <button type="button" className="btn-secondary" onClick={handleIdentificarPorFoto} disabled={identificandoFoto}>
-            {identificandoFoto ? 'Analisando foto...' : '🤖 Identificar por foto (IA)'}
+            {identificandoFoto ? 'Analisando foto...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="robot" size={15} /> Identificar por foto (IA)</span>}
           </button>
           {avisoIdentificacao && <p className="screen-hint" style={{ margin: '4px 0 0' }}>{avisoIdentificacao}</p>}
         </div>
@@ -267,7 +268,9 @@ export function ProductForm({ product, onSaved, onCancel }) {
                 {fotoBusy ? 'Aguarde...' : fotoDataUrl ? 'Trocar foto' : 'Adicionar foto'}
               </button>
               {fotoDataUrl && (
-                <button type="button" className="btn-link-danger" onClick={handleFotoRemove} disabled={fotoBusy}>🗑️ Remover</button>
+                <button type="button" className="btn-link-danger" onClick={handleFotoRemove} disabled={fotoBusy}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={14} /> Remover</span>
+                </button>
               )}
             </>
           ) : (
@@ -302,11 +305,13 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', gridColumn: '1 / -1' }}>
             {!form.codigoBarras && (
               <button type="button" className="btn-secondary" onClick={handleGerarCodigoInterno} disabled={barcodeBusy}>
-                {barcodeBusy ? 'Gerando...' : '🏷️ Gerar código de barras interno'}
+                {barcodeBusy ? 'Gerando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="tag" size={15} /> Gerar código de barras interno</span>}
               </button>
             )}
             {form.codigoBarras && (
-              <button type="button" className="btn-secondary" onClick={handleImprimirEtiqueta}>🖨️ Imprimir etiqueta</button>
+              <button type="button" className="btn-secondary" onClick={handleImprimirEtiqueta}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Imprimir etiqueta</span>
+              </button>
             )}
             <canvas ref={barcodeCanvasRef} style={{ display: 'none' }} />
           </div>
@@ -368,7 +373,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         </label>
       </div>
 
-      <h3>🧾 Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
+      <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={16} /> Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
       <div className="form-grid">
         <label>NCM
           <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} placeholder="8 dígitos" maxLength={8} />
@@ -393,7 +398,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
 
       {profile?.camposExtras?.length > 0 && (
         <>
-          <h3>📋 Campos do perfil "{profile.nome}"</h3>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
           <div className="form-grid">
             {profile.camposExtras.map((campo) => (
               <label key={campo.campo}>
@@ -452,12 +457,18 @@ export function ProductForm({ product, onSaved, onCancel }) {
                     onChange={(e) => atualizarLinhaReceita(i, 'quantidade', e.target.value)}
                     style={{ flex: 1 }}
                   />
-                  <button type="button" className="btn-link-danger" onClick={() => removerLinhaReceita(i)}>🗑️ Remover</button>
+                  <button type="button" className="btn-link-danger" onClick={() => removerLinhaReceita(i)}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={14} /> Remover</span>
+                  </button>
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <button type="button" className="btn-secondary" onClick={adicionarLinhaReceita}>➕ Adicionar insumo</button>
-                <button type="button" className="btn-secondary" onClick={salvarFichaTecnica}>💾 Salvar ficha técnica</button>
+                <button type="button" className="btn-secondary" onClick={adicionarLinhaReceita}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Adicionar insumo</span>
+                </button>
+                <button type="button" className="btn-secondary" onClick={salvarFichaTecnica}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar ficha técnica</span>
+                </button>
               </div>
               {fichaSalva && <p className="io-message" style={{ marginTop: 8 }}>{fichaSalva}</p>}
             </div>
@@ -466,9 +477,11 @@ export function ProductForm({ product, onSaved, onCancel }) {
       )}
 
       <div className="modal-actions">
-        <button type="button" className="btn-secondary" onClick={onCancel}>✖️ Cancelar</button>
+        <button type="button" className="btn-secondary" onClick={onCancel}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+        </button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Salvando...' : '💾 Salvar produto'}
+          {saving ? 'Salvando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar produto</span>}
         </button>
       </div>
     </form>

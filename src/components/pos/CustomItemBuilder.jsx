@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 let proximoIdLocal = 1;
 function novoIdLocal() {
@@ -64,7 +65,7 @@ function LinhaCustomItem({ linha, onChange, onRemover, podeRemover }) {
             {linha.resultados.map((opcao) => (
               <li key={`${opcao.tipo}-${opcao.id}`}>
                 <button type="button" onClick={() => selecionar(opcao)}>
-                  <span>{opcao.tipo === 'insumo' ? '🥫' : '📦'} {opcao.nome}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name={opcao.tipo === 'insumo' ? 'ingredient' : 'box'} size={15} /> {opcao.nome}</span>
                   <span className="product-search-price">{opcao.unidade}</span>
                 </button>
               </li>
@@ -116,7 +117,7 @@ function LinhaCustomItem({ linha, onChange, onRemover, podeRemover }) {
         </>
       )}
 
-      <button type="button" className="btn-link-danger" onClick={onRemover} disabled={!podeRemover} title="Remover linha">✖</button>
+      <button type="button" className="btn-link-danger" onClick={onRemover} disabled={!podeRemover} title="Remover linha"><Icon name="close" size={14} /></button>
     </div>
   );
 }
@@ -199,7 +200,7 @@ export function CustomItemBuilder({ saleId, locationId, operadorId, deviceId, on
   return (
     <div className="modal-overlay">
       <form className="modal-card modal-card-wide" onSubmit={handleSubmit}>
-        <h2>🎨 Produto personalizado</h2>
+        <h2><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="palette" size={18} /> Produto personalizado</span></h2>
         <p className="screen-hint">
           Monte um prato/produto na hora combinando insumos e/ou produtos do catálogo — ex: pizza meio-a-meio,
           drink combinado. O preço é só sugerido pelo custo dos itens usados; ajuste como preferir.
@@ -236,15 +237,15 @@ export function CustomItemBuilder({ saleId, locationId, operadorId, deviceId, on
           ))}
         </div>
         <button type="button" className="btn-link" onClick={() => setLinhas((prev) => [...prev, linhaVazia()])}>
-          ➕ Adicionar outra linha
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Adicionar outra linha</span>
         </button>
 
         {erro && <p className="scan-feedback scan-feedback-error">{erro}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span></button>
           <button type="submit" className="btn-primary" disabled={salvando}>
-            {salvando ? 'Adicionando...' : '➕ Adicionar à venda'}
+            {salvando ? 'Adicionando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Adicionar à venda</span>}
           </button>
         </div>
       </form>

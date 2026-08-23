@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
-const TIPO_ICON = { imagem: '🖼', pdf: '📄' };
+const TIPO_ICON = { imagem: 'image', pdf: 'document' };
 const STATUS_LABEL = {
   nao_solicitada: null,
   processando: 'Lendo com IA...',
@@ -62,7 +63,7 @@ export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted 
   return (
     <div className="modal-overlay">
       <div className="modal-card modal-card-wide">
-        <h2>📎 Anexos da venda</h2>
+        <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="attachment" size={20} /> Anexos da venda</h2>
         <p className="modal-subtitle">
           Opcional — use para anexar a foto ou o PDF de uma receita, comprovante ou nota
           relacionada a esta venda. Nenhum item exige isso para ser vendido.
@@ -78,16 +79,26 @@ export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted 
               return (
                 <li key={a.id} className="attachment-item">
                   <div className="attachment-row">
-                    <span>{TIPO_ICON[a.tipo] || '📎'} {a.nome_arquivo}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name={TIPO_ICON[a.tipo] || 'attachment'} size={16} /> {a.nome_arquivo}
+                    </span>
                     <div className="attachment-actions">
                       <button
                         className="btn-link"
                         onClick={() => handleExtract(a.id)}
                         disabled={extractingId === a.id}
                       >
-                        {extractingId === a.id ? 'Lendo...' : '🔍 Extrair dados com IA'}
+                        {extractingId === a.id ? 'Lendo...' : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <Icon name="search" size={15} /> Extrair dados com IA
+                          </span>
+                        )}
                       </button>
-                      <button className="btn-link-danger" onClick={() => handleRemove(a.id)}>🗑️ Remover</button>
+                      <button className="btn-link-danger" onClick={() => handleRemove(a.id)}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <Icon name="trash" size={15} /> Remover
+                        </span>
+                      </button>
                     </div>
                   </div>
 
@@ -122,9 +133,15 @@ export function SaleAttachmentsPanel({ saleId, operadorId, onClose, onExtracted 
         {error && <p className="modal-error">{error}</p>}
 
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
+          <button className="btn-secondary" onClick={onClose}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Fechar</span>
+          </button>
           <button className="btn-primary" onClick={handleAdd} disabled={busy}>
-            {busy ? 'Abrindo...' : '📎 Anexar imagem ou PDF'}
+            {busy ? 'Abrindo...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="attachment" size={15} /> Anexar imagem ou PDF
+              </span>
+            )}
           </button>
         </div>
       </div>

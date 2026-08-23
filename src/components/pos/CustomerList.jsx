@@ -7,6 +7,7 @@ import { LapsedCustomersModal } from './LapsedCustomersModal';
 import { PetsModal } from './PetsModal';
 import { EyewearModal } from './EyewearModal';
 import { PetReminderModal } from './PetReminderModal';
+import Icon from '../common/Icon';
 
 export function CustomerList() {
   const { currentUser } = useSession();
@@ -97,11 +98,11 @@ export function CustomerList() {
       <div className="screen-header">
         <h1>Clientes</h1>
         <div className="screen-actions">
-          <button className="btn-secondary" onClick={() => setShowLapsed(true)}>⚠️ Clientes que sumiram</button>
+          <button className="btn-secondary" onClick={() => setShowLapsed(true)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={15} /> Clientes que sumiram</span></button>
           {profile?.id === 'petshop' && (
-            <button className="btn-secondary" onClick={() => setShowPetReminders(true)}>🐾 Lembretes de vacina/vermífugo</button>
+            <button className="btn-secondary" onClick={() => setShowPetReminders(true)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="paw" size={15} /> Lembretes de vacina/vermífugo</span></button>
           )}
-          <button className="btn-primary" onClick={startNew}>➕ Novo cliente</button>
+          <button className="btn-primary" onClick={startNew}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Novo cliente</span></button>
         </div>
       </div>
 
@@ -139,8 +140,8 @@ export function CustomerList() {
           </p>
           {saveError && <p className="modal-error">{saveError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn-primary" type="submit">💾 Salvar</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>✖️ Cancelar</button>
+            <button className="btn-primary" type="submit"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar</span></button>
+            <button type="button" className="btn-secondary" onClick={() => setEditing(null)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span></button>
           </div>
         </form>
       )}
@@ -161,13 +162,13 @@ export function CustomerList() {
               <td className={c.saldoFiado > 0 ? 'text-danger' : ''}>R$ {c.saldoFiado.toFixed(2)}</td>
               <td>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button className="btn-link" onClick={() => startEdit(c)}>✏️ Editar</button>
-                  <button className="btn-link" onClick={() => openHistory(c)}>🧾 Fiado</button>
+                  <button className="btn-link" onClick={() => startEdit(c)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="edit" size={15} /> Editar</span></button>
+                  <button className="btn-link" onClick={() => openHistory(c)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={15} /> Fiado</span></button>
                   {profile?.id === 'petshop' && (
-                    <button className="btn-link" onClick={() => setPetsDoCliente(c)}>🐾 Pets</button>
+                    <button className="btn-link" onClick={() => setPetsDoCliente(c)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="paw" size={15} /> Pets</span></button>
                   )}
                   {profile?.id === 'otica' && (
-                    <button className="btn-link" onClick={() => setEyewearDoCliente(c)}>👓 Receita</button>
+                    <button className="btn-link" onClick={() => setEyewearDoCliente(c)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="glasses" size={15} /> Receita</span></button>
                   )}
                 </div>
               </td>
@@ -180,14 +181,14 @@ export function CustomerList() {
       {selected && (
         <div className="modal-overlay">
           <div className="modal-card" style={{ width: 'min(480px, 94vw)' }}>
-            <h2>🧾 Fiado — {selected.nome}</h2>
+            <h2><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="receipt" size={18} /> Fiado — {selected.nome}</span></h2>
             <p>Saldo devedor: <strong>R$ {customers.find((c) => c.id === selected.id)?.saldoFiado.toFixed(2)}</strong></p>
 
             <div className="inline-form">
               <label>Registrar pagamento
                 <input type="number" step="0.01" value={pagamentoValor} onChange={(e) => setPagamentoValor(e.target.value)} />
               </label>
-              <button className="btn-primary" onClick={handlePagamento}>💰 Registrar</button>
+              <button className="btn-primary" onClick={handlePagamento}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="money" size={15} /> Registrar</span></button>
             </div>
 
             <ul className="payment-list" style={{ marginTop: 16, maxHeight: 220, overflowY: 'auto' }}>
@@ -199,7 +200,7 @@ export function CustomerList() {
               {history.length === 0 && <li>Nenhum movimento ainda.</li>}
             </ul>
 
-            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => setSelected(null)}>✖️ Fechar</button>
+            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => setSelected(null)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Fechar</span></button>
           </div>
         </div>
       )}

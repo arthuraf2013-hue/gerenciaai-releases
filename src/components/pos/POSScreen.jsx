@@ -20,6 +20,7 @@ import { PosTour } from './PosTour';
 import { TrainingPresentationModal } from './TrainingPresentationModal';
 import { HomeMessageBanner } from './HomeMessageBanner';
 import { NovoProdutoPorFotoModal } from './NovoProdutoPorFotoModal';
+import Icon from '../common/Icon';
 
 function playErrorBeep() {
   try {
@@ -470,13 +471,15 @@ export function POSScreen() {
   return (
     <div className="pos-screen">
       <header className="pos-header">
-        <h1>🛒 PDV</h1>
+        <h1><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="cart" size={20} /> PDV</span></h1>
         <div className="pos-header-right">
           <Clock compact />
           <span className="pos-operator">Operador: {currentUser?.nome}</span>
           {vendasHoje !== null && <span className="pos-operator" title="Vendas finalizadas por você hoje">{vendasHoje} venda(s) hoje</span>}
           <button className="help-btn" onClick={() => setShowTour(true)} title="Ver tutorial do PDV">?</button>
-          <button className="help-btn help-btn-training" onClick={() => setShowTraining(true)} title="Apresentação de treinamento">🎓</button>
+          <button className="help-btn help-btn-training" onClick={() => setShowTraining(true)} title="Apresentação de treinamento">
+            <Icon name="graduation" size={16} />
+          </button>
           <button className="close-cash-btn" onClick={() => setShowCloseCash(true)} title="Fechar o caixa e conferir o dinheiro do turno">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -509,7 +512,7 @@ export function POSScreen() {
         </div>
         <ProductSearchBox onSelect={handleSelectProduct} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
         <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
-          📎 Anexar receita / arquivo
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="attachment" size={15} /> Anexar receita / arquivo</span>
         </button>
       </div>
 
@@ -517,7 +520,7 @@ export function POSScreen() {
         {feedback.message}
         {codigoNaoEncontrado && (
           <button type="button" className="btn-link" style={{ marginLeft: 8 }} onClick={() => setShowNovoProdutoPorFoto(true)}>
-            📷 Cadastrar por foto
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="camera" size={14} /> Cadastrar por foto</span>
           </button>
         )}
       </p>
@@ -557,7 +560,7 @@ export function POSScreen() {
                         setOpenAlertId((prev) => (prev === item.id ? null : item.id));
                       }}
                     >
-                      ⚠
+                      <Icon name="warning" size={14} />
                     </button>
                     {openAlertId === item.id && (
                       <div className="cart-alert-popover" onClick={(e) => e.stopPropagation()}>

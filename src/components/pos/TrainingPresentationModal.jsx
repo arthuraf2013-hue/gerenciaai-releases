@@ -1,5 +1,6 @@
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useProfile } from '../../context/ProfileContext';
+import Icon from '../common/Icon';
 
 // Cada perfil de negócio tem seu próprio treinamento — mostra só o que
 // é relevante pra aquele tipo de loja, em vez de uma apresentação
@@ -29,8 +30,10 @@ export function TrainingPresentationModal({ onClose }) {
     <div className="modal-overlay">
       <div className="training-modal">
         <div className="training-modal-header">
-          <h2>🎓 Treinamento — como operar o PDV</h2>
-          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
+          <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="graduation" size={20} /> Treinamento — como operar o PDV</h2>
+          <button className="btn-secondary" onClick={onClose}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Fechar</span>
+          </button>
         </div>
         <iframe
           src={`/${arquivo}`}

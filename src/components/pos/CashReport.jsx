@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toISODate } from '../../utils/date';
+import Icon from '../common/Icon';
 
 export function CashReport() {
   const [periodo, setPeriodo] = useState('semana');
@@ -37,7 +38,7 @@ export function CashReport() {
 
   return (
     <div className="screen">
-      <h1>💰 Fechamentos de caixa</h1>
+      <h1><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="money" size={22} /> Fechamentos de caixa</span></h1>
       <p className="screen-hint">
         Relatório consolidado — todos os fechamentos do período, pra conferir diferenças ao longo
         do tempo em vez de só sessão por sessão.

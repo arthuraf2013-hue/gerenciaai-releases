@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 /**
  * @param {{ sale: object, onConfirmar: (dados: { novaDataHora: string, novoTotal: string, motivo: string }) => void, onCancelar: () => void }} props
@@ -26,7 +27,7 @@ export function EditHistoricoModal({ sale, onConfirmar, onCancelar }) {
     <div className="modal-overlay">
       <div className="modal-card">
         <form onSubmit={handleSubmit}>
-          <h2>✏️ Editar histórico da venda</h2>
+          <h2><Icon name="edit" size={18} /> Editar histórico da venda</h2>
           <p className="screen-hint" style={{ margin: '0 0 12px' }}>
             Corrige diretamente data/hora e valor de uma venda já no histórico. Fica registrado
             na auditoria com o valor antigo e o novo. Se essa venda fizer parte de um grupo de
@@ -45,8 +46,8 @@ export function EditHistoricoModal({ sale, onConfirmar, onCancelar }) {
             <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: corrigindo horário registrado errado" />
           </label>
           <div className="modal-actions" style={{ marginTop: 16 }}>
-            <button type="button" className="btn-secondary" onClick={onCancelar}>✖️ Cancelar</button>
-            <button type="submit" className="btn-primary">💾 Salvar correção</button>
+            <button type="button" className="btn-secondary" onClick={onCancelar}><Icon name="close" size={16} /> Cancelar</button>
+            <button type="submit" className="btn-primary"><Icon name="save" size={16} /> Salvar correção</button>
           </div>
         </form>
       </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 export function BarcodeRelinkModal({ onFechar, onAplicado }) {
   const [relatorio, setRelatorio] = useState(null); // null = ainda não escolheu arquivo
@@ -53,7 +54,7 @@ export function BarcodeRelinkModal({ onFechar, onAplicado }) {
     <div className="modal-overlay">
       <div className="modal-card modal-card-fullscreen">
         <div>
-          <h2>🔗 Re-vincular códigos de barras de uma planilha antiga</h2>
+          <h2><Icon name="link" size={18} /> Re-vincular códigos de barras de uma planilha antiga</h2>
           <p className="screen-hint" style={{ margin: '4px 0 12px' }}>
             Casa cada linha da planilha com o produto existente <strong>pelo nome</strong> —
             nunca cria produto novo, só preenche o código de barras de quem já existe aqui.
@@ -66,12 +67,12 @@ export function BarcodeRelinkModal({ onFechar, onAplicado }) {
         {relatorio === null && (
           <div className="modal-card-fullscreen-scroll" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <button className="btn-primary" onClick={handleBuscarViaGrupo} disabled={carregando}>
-              {carregando ? 'Consultando...' : '🔍 Buscar automaticamente no grupo sincronizado'}
+              {carregando ? 'Consultando...' : <><Icon name="search" size={16} /> Buscar automaticamente no grupo sincronizado</>}
             </button>
             <p className="screen-hint">Se essa máquina já sincronizou com outra que ainda tem os códigos certos — mais rápido, sem precisar de arquivo nenhum.</p>
             <div style={{ margin: '8px 0', color: 'var(--color-text-muted)' }}>ou</div>
             <button className="btn-secondary" onClick={handleEscolherPlanilha} disabled={carregando}>
-              {carregando ? 'Lendo planilha...' : '📎 Escolher planilha antiga'}
+              {carregando ? 'Lendo planilha...' : <><Icon name="attachment" size={16} /> Escolher planilha antiga</>}
             </button>
           </div>
         )}
@@ -120,10 +121,10 @@ export function BarcodeRelinkModal({ onFechar, onAplicado }) {
               )}
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
+              <button type="button" className="btn-secondary" onClick={onFechar}><Icon name="close" size={16} /> Fechar</button>
               {relatorio.casados.length > 0 && (
                 <button type="button" className="btn-primary" disabled={aplicando || selecionados.size === 0} onClick={handleAplicar}>
-                  {aplicando ? 'Aplicando...' : `🔗 Re-vincular ${selecionados.size} produto(s)`}
+                  {aplicando ? 'Aplicando...' : <><Icon name="link" size={16} /> Re-vincular {selecionados.size} produto(s)</>}
                 </button>
               )}
             </div>
@@ -141,7 +142,7 @@ export function BarcodeRelinkModal({ onFechar, onAplicado }) {
               )}
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn-primary" onClick={onFechar}>✖️ Fechar</button>
+              <button type="button" className="btn-primary" onClick={onFechar}><Icon name="close" size={16} /> Fechar</button>
             </div>
           </>
         )}

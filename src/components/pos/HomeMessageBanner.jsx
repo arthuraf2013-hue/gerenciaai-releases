@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Icon from '../common/Icon';
 
 const CHAVE_LOCALSTORAGE = 'gerenciaai:mensagens-fechadas';
 
@@ -50,9 +51,9 @@ export function HomeMessageBanner() {
 
   return (
     <div className="home-message-banner">
-      <button className="home-message-close" onClick={handleFechar} title="Fechar">✕</button>
+      <button className="home-message-close" onClick={handleFechar} title="Fechar"><Icon name="close" size={14} /></button>
       {mensagens.personalizada && (
-        <div className="home-message-item home-message-personalizada">⚠ {mensagens.personalizada}</div>
+        <div className="home-message-item home-message-personalizada"><Icon name="warning" size={15} /> {mensagens.personalizada}</div>
       )}
       {mensagens.global && (
         <div className="home-message-item">

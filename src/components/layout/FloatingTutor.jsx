@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import Icon from '../common/Icon';
 
 function RobotIcon() {
   return (
@@ -90,8 +91,8 @@ export function FloatingTutor() {
       {open && (
         <div className="tutor-panel">
           <div className="tutor-panel-header">
-            <span>🤖 IA tutora — dúvidas do sistema</span>
-            <button className="btn-link" style={{ color: 'white' }} onClick={() => setOpen(false)}>✖️ Fechar</button>
+            <span><Icon name="robot" size={15} /> IA tutora — dúvidas do sistema</span>
+            <button className="btn-link" style={{ color: 'white' }} onClick={() => setOpen(false)}><Icon name="close" size={15} /> Fechar</button>
           </div>
 
           <div className="tutor-messages" ref={scrollRef}>
@@ -116,7 +117,7 @@ export function FloatingTutor() {
               onChange={(e) => setInput(e.target.value)}
               disabled={enviando}
             />
-            <button className="btn-primary" type="submit" disabled={enviando || !input.trim()}>📤 Enviar</button>
+            <button className="btn-primary" type="submit" disabled={enviando || !input.trim()}><Icon name="export" size={15} /> Enviar</button>
           </form>
         </div>
       )}

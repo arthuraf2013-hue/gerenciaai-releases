@@ -13,6 +13,7 @@ import { CommandPalette } from './CommandPalette';
 import { KeyboardHelpModal, useKeyboardHelpShortcut } from './KeyboardHelpModal';
 import { Clock } from './Clock';
 import { SwitchUserModal } from '../auth/SwitchUserModal';
+import Icon from '../common/Icon';
 
 // Todas as telas abaixo só entram na árvore quando `screen` vira o id
 // correspondente (ver o <main> mais abaixo) -- carregadas sob demanda com
@@ -56,16 +57,16 @@ const STATUS_SEPARACAO_LABEL = { novo: 'Novo', em_separacao: 'Em separação', p
 
 const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
-  { id: 'pos', label: '🛒 PDV', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'restaurant', label: '🍽️ Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
-  { id: 'kitchen', label: '👨‍🍳 Cozinha', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'pos', icon: 'cart', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
+  { id: 'restaurant', icon: 'plate', label: 'Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'kitchen', icon: 'cooking', label: 'Cozinha', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
 
-  { id: 'history', label: '🧾 Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'returns', label: '↩️ Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'delivery', label: '🚚 Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'quotes', label: '📋 Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'agenda', label: '📅 Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
-  { id: 'reservations', label: '📖 Reservas', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
+  { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'returns', icon: 'undo', label: 'Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
+  { id: 'agenda', icon: 'calendar', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
+  { id: 'reservations', icon: 'book', label: 'Reservas', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
 
   // Setor à parte, fora de qualquer perfil de negócio — só aparece
   // quando o admin ativa em Configurações (é onde o pedido separado
@@ -73,27 +74,27 @@ const NAV_ITEMS = [
   // separar). `requerBotDelivery` é filtrado dinamicamente abaixo,
   // igual a `perfil` — não dá pra decidir isso na hora de montar esta
   // lista estática porque depende de uma configuração salva no banco.
-  { id: 'botOrders', label: '📦 Separação', roles: ['operador', 'gerente', 'admin'], section: 'Separação', requerBotDelivery: true },
+  { id: 'botOrders', icon: 'box', label: 'Separação', roles: ['operador', 'gerente', 'admin'], section: 'Separação', requerBotDelivery: true },
 
-  { id: 'products', label: '🏷️ Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
-  { id: 'customers', label: '👥 Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
+  { id: 'products', icon: 'tag', label: 'Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
+  { id: 'customers', icon: 'users', label: 'Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
 
-  { id: 'dashboard', label: '📊 Painel', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'supply', label: '📥 Abastecimento', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'financeiro', label: '💰 Financeiro', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'alerts', label: '⚠️ Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
-  { id: 'users', label: '🧑‍💼 Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'dashboard', icon: 'chart', label: 'Painel', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'supply', icon: 'import', label: 'Abastecimento', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'financeiro', icon: 'money', label: 'Financeiro', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'alerts', icon: 'warning', label: 'Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
+  { id: 'users', icon: 'briefcase', label: 'Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
 
   // Gerente também vê Configurações agora (pra poder conectar/gerenciar
   // o canal de WhatsApp sozinho) — seções realmente restritas a admin
   // (segurança, restaurar backup) continuam bloqueadas no backend
   // mesmo que a tela apareça (ver authService.requireRole nos handlers).
-  { id: 'settings', label: '⚙️ Configurações', roles: ['gerente', 'admin'], section: 'Sistema' },
+  { id: 'settings', icon: 'settings', label: 'Configurações', roles: ['gerente', 'admin'], section: 'Sistema' },
 ];
 
-// Emoji dos títulos de seção (gaveta) da barra lateral — puramente
+// Ícone dos títulos de seção (gaveta) da barra lateral — puramente
 // visual, pra bater com o mesmo padrão usado nas abas de Configurações.
-const SECTION_EMOJI = { Vendas: '💵', Separação: '📦', Cadastros: '🗂️', Gestão: '📈', Sistema: '⚙️' };
+const SECTION_ICON = { Vendas: 'cash', Separação: 'box', Cadastros: 'folder', Gestão: 'trendUp', Sistema: 'settings' };
 
 export function AppShell() {
   const { currentUser, logout } = useSession();
@@ -250,7 +251,10 @@ export function AppShell() {
                     onClick={() => alternarSecao(grupo.titulo)}
                     aria-expanded={!fechado}
                   >
-                    <span>{SECTION_EMOJI[grupo.titulo] ? `${SECTION_EMOJI[grupo.titulo]} ${grupo.titulo}` : grupo.titulo}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      {SECTION_ICON[grupo.titulo] && <Icon name={SECTION_ICON[grupo.titulo]} size={13} />}
+                      {grupo.titulo}
+                    </span>
                     <svg
                       className={fechado ? 'nav-section-arrow nav-section-arrow-fechado' : 'nav-section-arrow'}
                       width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -270,10 +274,13 @@ export function AppShell() {
                             style={{ flex: 1 }}
                             onClick={() => setScreen(item.id)}
                           >
-                            {item.label}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
+                              <Icon name={item.icon} size={16} />
+                              {item.label}
+                            </span>
                             {item.id === 'products' && conflitosProdutos > 0 && (
                               <span className="badge-warning" style={{ marginLeft: 8 }} title="Produtos com conflito de código de barras da sincronização, esperando resolução">
-                                ⚠ {conflitosProdutos}
+                                <Icon name="warning" size={11} /> {conflitosProdutos}
                               </span>
                             )}
                           </button>
@@ -302,7 +309,11 @@ export function AppShell() {
           })}
         </ul>
         <div className="sidebar-footer">
-          {sincronizacaoAtiva && <span className="sidebar-pdv-number" title="Sincronizado com outros PDVs">🔗 Sincronizado</span>}
+          {sincronizacaoAtiva && (
+            <span className="sidebar-pdv-number" title="Sincronizado com outros PDVs" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="link" size={12} /> Sincronizado
+            </span>
+          )}
 
           <button
             type="button"

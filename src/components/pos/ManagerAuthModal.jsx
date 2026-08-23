@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 /**
  * Usado para qualquer ação sensível (cancelar item, cancelar venda).
@@ -93,9 +94,13 @@ export function ManagerAuthModal({ title, onConfirm, onClose }) {
         {loadError && <p className="modal-error">{loadError}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+          </button>
           <button type="submit" className="btn-danger" disabled={loading || managers.length === 0}>
-            {loading ? 'Verificando...' : '🔑 Confirmar autorização'}
+            {loading ? 'Verificando...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="key" size={15} /> Confirmar autorização</span>
+            )}
           </button>
         </div>
       </form>

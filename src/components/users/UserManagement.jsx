@@ -3,6 +3,7 @@ import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
+import Icon from '../common/Icon';
 
 export function UserManagement() {
   const { currentUser } = useSession();
@@ -57,8 +58,8 @@ export function UserManagement() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>👥 Usuários</h1>
-        <button className="btn-primary" onClick={() => setShowNew(true)}>➕ Novo usuário</button>
+        <h1><Icon name="users" size={22} /> Usuários</h1>
+        <button className="btn-primary" onClick={() => setShowNew(true)}><Icon name="add" size={15} /> Novo usuário</button>
       </div>
 
       {error && <p className="modal-error">{error}</p>}
@@ -77,7 +78,7 @@ export function UserManagement() {
                 <td>{u.role}</td>
                 <td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
                 <td>
-                  {!bloqueadoPraGerente && <button className="btn-link" onClick={() => resetPin(u)}>🔑 Resetar PIN</button>}
+                  {!bloqueadoPraGerente && <button className="btn-link" onClick={() => resetPin(u)}><Icon name="key" size={14} /> Resetar PIN</button>}
                 </td>
                 <td>
                   {!bloqueadoPraGerente && (
@@ -96,7 +97,7 @@ export function UserManagement() {
       {showNew && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={handleCreate}>
-            <h2>➕ Novo usuário</h2>
+            <h2><Icon name="add" size={18} /> Novo usuário</h2>
             <label>Nome
               <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} required autoFocus />
             </label>
@@ -111,8 +112,8 @@ export function UserManagement() {
               <input type="password" inputMode="numeric" value={novoPin} onChange={(e) => setNovoPin(e.target.value)} required />
             </label>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary">➕ Criar</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}><Icon name="close" size={15} /> Cancelar</button>
+              <button type="submit" className="btn-primary"><Icon name="add" size={15} /> Criar</button>
             </div>
           </form>
         </div>

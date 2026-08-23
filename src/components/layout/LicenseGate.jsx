@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Icon from '../common/Icon';
 
 const MOTIVO_MSG_BLOQUEIO = {
   congelada: 'O acesso a este sistema foi suspenso por pendência de pagamento.',
@@ -45,7 +46,7 @@ export function LicenseGate({ children }) {
     return (
       <div className="license-block-screen">
         <div className="license-block-card">
-          <h1>🔒 Sistema bloqueado</h1>
+          <h1><Icon name="lock" size={22} /> Sistema bloqueado</h1>
           <p>{motivoCustomizado || MOTIVO_MSG_BLOQUEIO[status.motivo] || 'Não foi possível confirmar a licença deste sistema.'}</p>
           <p>Entre em contato com o suporte pra regularizar o acesso. Seus dados continuam salvos e
             intactos — assim que a situação for resolvida, o sistema volta a funcionar normalmente.</p>
@@ -58,7 +59,7 @@ export function LicenseGate({ children }) {
     <>
       {status?.status === 'aviso' && (
         <div className="license-warning-banner">
-          ⚠ {MOTIVO_MSG_AVISO[status.motivo]} O acesso será bloqueado em{' '}
+          <Icon name="warning" size={15} /> {MOTIVO_MSG_AVISO[status.motivo]} O acesso será bloqueado em{' '}
           <strong>{Math.max(1, Math.ceil(status.diasRestantes))} dia(s)</strong> caso não seja
           regularizado. Entre em contato com o suporte.
         </div>

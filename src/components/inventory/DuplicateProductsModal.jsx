@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 /**
  * @param {{ onFechar: () => void, onExcluido: () => void }} props
@@ -81,7 +82,7 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
     <div className="modal-overlay">
       <div className="modal-card modal-card-fullscreen">
         <div>
-          <h2>📑 Produtos duplicados{grupos && grupos.length > 0 ? ` — ${grupos.length} grupos, ${totalProdutos} produtos` : ''}</h2>
+          <h2><Icon name="duplicate" size={18} /> Produtos duplicados{grupos && grupos.length > 0 ? ` — ${grupos.length} grupos, ${totalProdutos} produtos` : ''}</h2>
           <p className="screen-hint" style={{ margin: '4px 0 12px' }}>
             Produtos com o mesmo nome — comum quando duas máquinas sincronizadas cadastram
             "o mesmo" produto de forma independente. Marque os que quer excluir e confirme —
@@ -91,9 +92,9 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
           {grupos && grupos.length > 0 && (
             <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}>
               <button className="btn-primary" onClick={selecionarTodosOsDuplicados}>
-                ✅ Selecionar todos ({sugestaoDeSelecao.size}) — mantém quem tem código de barras (desempate por estoque)
+                <Icon name="checkCircle" size={16} /> Selecionar todos ({sugestaoDeSelecao.size}) — mantém quem tem código de barras (desempate por estoque)
               </button>
-              <button className="btn-link" onClick={limparSelecao}>✖️ Limpar seleção</button>
+              <button className="btn-link" onClick={limparSelecao}><Icon name="close" size={16} /> Limpar seleção</button>
               <span className="screen-hint">{selecionados.size} selecionado(s)</span>
             </div>
           )}
@@ -132,10 +133,10 @@ export function DuplicateProductsModal({ onFechar, onExcluido }) {
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
+          <button type="button" className="btn-secondary" onClick={onFechar}><Icon name="close" size={16} /> Fechar</button>
           {grupos && grupos.length > 0 && (
             <button type="button" className="btn-primary" disabled={excluindo || selecionados.size === 0} onClick={handleExcluirSelecionados}>
-              {excluindo ? 'Excluindo...' : `🗑️ Excluir ${selecionados.size} selecionado(s)`}
+              {excluindo ? 'Excluindo...' : <><Icon name="trash" size={16} /> Excluir {selecionados.size} selecionado(s)</>}
             </button>
           )}
         </div>

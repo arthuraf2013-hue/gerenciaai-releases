@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toISODate } from '../../utils/date';
+import Icon from '../common/Icon';
 
 export function ControlledDrugsReport() {
   const [offsetMs, setOffsetMs] = useState(0);
@@ -63,7 +64,7 @@ export function ControlledDrugsReport() {
       )}
 
       {linhas && linhas.length > 0 && (
-        <button className="btn-secondary" style={{ marginBottom: 12 }} onClick={() => window.print()}>🖨️ Imprimir</button>
+        <button className="btn-secondary" style={{ marginBottom: 12 }} onClick={() => window.print()}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Imprimir</span></button>
       )}
 
       {carregando && <p className="empty-state">Carregando...</p>}

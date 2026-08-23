@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const ATALHOS = [
   { tecla: 'Tab', descricao: 'Move o foco pro próximo campo ou botão da tela.' },
@@ -31,7 +32,7 @@ export function KeyboardHelpModal({ onClose }) {
           ))}
         </ul>
         <div className="modal-actions">
-          <button className="btn-secondary" onClick={onClose}>✖️ Fechar</button>
+          <button className="btn-secondary" onClick={onClose}><Icon name="close" size={15} /> Fechar</button>
         </div>
       </div>
     </div>

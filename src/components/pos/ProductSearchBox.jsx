@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { ProductThumbnail } from './ProductThumbnail';
+import Icon from '../common/Icon';
 
 /**
  * @param {{ onSelect: (product: object) => void, onSelectPersonalizado?: () => void }} props
@@ -151,7 +152,7 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
       {mostrarCardPersonalizado && modoBusca === 'blocos' && (
         <div className="product-search-results product-search-results-blocks">
           <button type="button" className="product-card product-card-personalizado" onClick={handleSelectPersonalizado}>
-            <span className="product-card-personalizado-icon" aria-hidden>🎨</span>
+            <span className="product-card-personalizado-icon" aria-hidden><Icon name="palette" size={22} /></span>
             <span className="product-card-name">Produto personalizado</span>
             <span className="product-card-price">Montar agora</span>
           </button>
@@ -161,7 +162,7 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
         <ul className="product-search-results">
           <li>
             <button type="button" className="product-search-result-personalizado" onClick={handleSelectPersonalizado}>
-              <span>🎨 Produto personalizado — montar agora</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="palette" size={14} /> Produto personalizado — montar agora</span>
             </button>
           </li>
         </ul>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const CONFIANCA_LABEL = { alta: 'alta confiança', media: 'confiança média', baixa: 'baixa confiança — confira antes de salvar' };
 
@@ -87,13 +88,15 @@ export function NovoProdutoPorFotoModal({ codigoBarras, onClose, onCriado }) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <form className="modal-card" onSubmit={handleSalvar} style={{ width: 'min(440px, 94vw)' }}>
-        <h2>📷 Cadastrar produto por foto</h2>
+        <h2><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="camera" size={18} /> Cadastrar produto por foto</span></h2>
         <p className="screen-hint" style={{ margin: '0 0 10px' }}>
           Código bipado: <strong>{codigoBarras}</strong> — não encontrado no catálogo.
         </p>
 
         <button type="button" className="btn-secondary" onClick={handleSelecionarFoto} disabled={analisando} style={{ marginBottom: 10 }}>
-          {analisando ? 'Analisando foto...' : '📷 Selecionar foto do produto'}
+          {analisando ? 'Analisando foto...' : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="camera" size={15} /> Selecionar foto do produto</span>
+          )}
         </button>
         {avisoFoto && <p className="screen-hint" style={{ color: 'var(--color-danger, #c0392b)' }}>{avisoFoto}</p>}
         {sugestao && (
@@ -129,9 +132,13 @@ export function NovoProdutoPorFotoModal({ codigoBarras, onClose, onCriado }) {
         {erro && <p className="modal-error">{erro}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+          </button>
           <button type="submit" className="btn-primary" disabled={salvando}>
-            {salvando ? 'Salvando...' : '💾 Cadastrar produto'}
+            {salvando ? 'Salvando...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Cadastrar produto</span>
+            )}
           </button>
         </div>
       </form>

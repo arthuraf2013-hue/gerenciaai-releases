@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ProductThumbnail } from './ProductThumbnail';
+import Icon from '../common/Icon';
 
 /**
  * @param {{ locationId: string, refreshKey: number, onSelectProduct: (product: object) => void }} props
@@ -23,8 +24,9 @@ export function RecentlySoldStrip({ locationId, refreshKey, onSelectProduct }) {
 
   return (
     <div className="recent-strip">
-      <span className="recent-strip-label">
-        {config?.modo_vendidos_recentes === 'frequente' ? '⭐ Mais vendidos' : '⭐ Vendidos recentemente'}
+      <span className="recent-strip-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="star" size={14} />
+        {config?.modo_vendidos_recentes === 'frequente' ? 'Mais vendidos' : 'Vendidos recentemente'}
       </span>
       <div className="recent-strip-items">
         {products.map((p) => (

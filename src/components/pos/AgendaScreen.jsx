@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const STATUS_LABEL = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', cancelado: 'Cancelado', faltou: 'Faltou' };
 const STATUS_CLASSE = { agendado: 'row-warning', confirmado: '', concluido: '', cancelado: 'row-critical', faltou: 'row-critical' };
@@ -40,7 +41,7 @@ function NovoAgendamento({ profissionais, dataInicial, onCriado, onCancelar }) {
     <div className="modal-overlay">
       <div className="modal-card">
         <form onSubmit={handleSubmit}>
-          <h2>➕ Novo agendamento</h2>
+          <h2><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={18} /> Novo agendamento</span></h2>
           <div className="form-grid">
             <label>Profissional
               <select value={form.professionalId} onChange={(e) => setForm({ ...form, professionalId: e.target.value })} required>
@@ -72,8 +73,8 @@ function NovoAgendamento({ profissionais, dataInicial, onCriado, onCancelar }) {
 
           {erro && <p className="modal-error">{erro}</p>}
           <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={onCancelar}>✖️ Cancelar</button>
-            <button type="submit" className="btn-primary">📅 Agendar</button>
+            <button type="button" className="btn-secondary" onClick={onCancelar}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span></button>
+            <button type="submit" className="btn-primary"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="calendar" size={15} /> Agendar</span></button>
           </div>
         </form>
       </div>
@@ -143,7 +144,7 @@ function AgendaDoDia() {
                 </td>
                 <td>
                   {a.clienteTelefone && (
-                    <button className="btn-link" onClick={() => handleConfirmar(a.id)}>💬 Confirmar por WhatsApp</button>
+                    <button className="btn-link" onClick={() => handleConfirmar(a.id)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chat" size={15} /> Confirmar por WhatsApp</span></button>
                   )}
                 </td>
               </tr>
@@ -201,8 +202,8 @@ function Profissionais() {
                 <td>{p.nome}</td>
                 <td>{p.especialidade || '—'}</td>
                 <td>
-                  <button className="btn-link" onClick={() => setEditando({ id: p.id, nome: p.nome, especialidade: p.especialidade || '' })}>✏️ Editar</button>
-                  <button className="btn-link-danger" onClick={() => handleExcluir(p.id)}>🗑️ Remover</button>
+                  <button className="btn-link" onClick={() => setEditando({ id: p.id, nome: p.nome, especialidade: p.especialidade || '' })}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="edit" size={15} /> Editar</span></button>
+                  <button className="btn-link-danger" onClick={() => handleExcluir(p.id)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={15} /> Remover</span></button>
                 </td>
               </tr>
             ))}
@@ -218,8 +219,8 @@ function Profissionais() {
               <label>Nome<input value={editando.nome} onChange={(e) => setEditando({ ...editando, nome: e.target.value })} required autoFocus /></label>
               <label>Especialidade<input value={editando.especialidade} onChange={(e) => setEditando({ ...editando, especialidade: e.target.value })} /></label>
               <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setEditando(null)}>✖️ Cancelar</button>
-                <button type="submit" className="btn-primary">💾 Salvar</button>
+                <button type="button" className="btn-secondary" onClick={() => setEditando(null)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span></button>
+                <button type="submit" className="btn-primary"><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar</span></button>
               </div>
             </form>
           </div>
@@ -236,8 +237,8 @@ export function AgendaScreen() {
     <div className="screen">
       <h1>Agenda</h1>
       <div className="settings-tabs" style={{ marginTop: 0 }}>
-        <button className={aba === 'agenda' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('agenda')}>📅 Agenda</button>
-        <button className={aba === 'profissionais' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('profissionais')}>🧑‍💼 Profissionais</button>
+        <button className={aba === 'agenda' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('agenda')}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="calendar" size={15} /> Agenda</span></button>
+        <button className={aba === 'profissionais' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('profissionais')}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="briefcase" size={15} /> Profissionais</span></button>
       </div>
       {aba === 'agenda' && <AgendaDoDia />}
       {aba === 'profissionais' && <Profissionais />}

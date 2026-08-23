@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const STATUS_LABEL = {
   pendente: 'Pendente',
@@ -52,7 +53,7 @@ function NovaReserva({ onCriada, onCancelar }) {
     <div className="modal-overlay">
       <div className="modal-card">
         <form onSubmit={handleSubmit}>
-          <h2>➕ Nova reserva</h2>
+          <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={18} /> Nova reserva</h2>
           <div className="form-grid">
             <label>Nome do cliente<input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required autoFocus /></label>
             <label>Telefone<input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} required /></label>
@@ -66,8 +67,8 @@ function NovaReserva({ onCriada, onCancelar }) {
 
           {erro && <p className="modal-error">{erro}</p>}
           <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={onCancelar}>✖️ Cancelar</button>
-            <button type="submit" className="btn-primary">📖 Reservar</button>
+            <button type="button" className="btn-secondary" onClick={onCancelar}><Icon name="close" size={15} /> Cancelar</button>
+            <button type="submit" className="btn-primary"><Icon name="book" size={15} /> Reservar</button>
           </div>
         </form>
       </div>
@@ -134,8 +135,8 @@ export function ReservasScreen() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>📖 Reservas</h1>
-        <button className="btn-primary" onClick={() => setShowNova(true)}>➕ Nova reserva</button>
+        <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="book" size={20} /> Reservas</h1>
+        <button className="btn-primary" onClick={() => setShowNova(true)}><Icon name="add" size={15} /> Nova reserva</button>
       </div>
       <p className="screen-hint">
         Reservas feitas pelo chatbot do WhatsApp chegam aqui automaticamente, sem mesa vinculada ainda —
@@ -183,13 +184,17 @@ export function ReservasScreen() {
                     </select>
                   )}
                 </td>
-                <td>{r.origem === 'whatsapp' ? '💬 WhatsApp' : '✍️ Manual'}</td>
+                <td>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {r.origem === 'whatsapp' ? <><Icon name="chat" size={14} /> WhatsApp</> : <><Icon name="signature" size={14} /> Manual</>}
+                  </span>
+                </td>
                 <td>
                   {['pendente', 'aguardando_confirmacao'].includes(r.status) && (
-                    <button className="btn-link" onClick={() => handleConfirmar(r.id)}>✅ Confirmar</button>
+                    <button className="btn-link" onClick={() => handleConfirmar(r.id)}><Icon name="checkCircle" size={14} /> Confirmar</button>
                   )}
                   {!['cancelada', 'nao_confirmada', 'concluida'].includes(r.status) && (
-                    <button className="btn-link-danger" onClick={() => handleCancelar(r.id)}>✖️ Cancelar</button>
+                    <button className="btn-link-danger" onClick={() => handleCancelar(r.id)}><Icon name="close" size={14} /> Cancelar</button>
                   )}
                 </td>
               </tr>

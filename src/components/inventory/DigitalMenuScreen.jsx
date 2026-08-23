@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Icon from '../common/Icon';
 
 export function DigitalMenuScreen() {
   const [form, setForm] = useState({ titulo: '', subtitulo: '', corTema: '#0f6e63', mostrarPrecos: true, rodapeTexto: '' });
@@ -47,7 +48,7 @@ export function DigitalMenuScreen() {
 
   return (
     <div className="screen">
-      <h1>🍽️ Cardápio Digital</h1>
+      <h1><Icon name="plate" size={18} /> Cardápio Digital</h1>
       <p className="screen-hint">
         Personalize a aparência do cardápio digital (página própria pra exibir num tablet/TV, ou
         mandar o arquivo/link pro cliente) — mostra todos os pratos que tiverem o campo "Tipo"
@@ -57,7 +58,7 @@ export function DigitalMenuScreen() {
 
       <div className="digital-menu-layout">
         <form className="modal-card" style={{ maxWidth: 420 }} onSubmit={handleSalvar}>
-          <h2>🎨 Aparência</h2>
+          <h2><Icon name="palette" size={18} /> Aparência</h2>
           <label>Título
             <input value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ex: Nosso Cardápio" required />
           </label>
@@ -79,9 +80,9 @@ export function DigitalMenuScreen() {
             <input value={form.rodapeTexto} onChange={(e) => setForm({ ...form, rodapeTexto: e.target.value })} />
           </label>
           <div className="modal-actions" style={{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-            <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : '💾 Salvar e atualizar preview'}</button>
-            <button type="button" className="btn-secondary" onClick={handleAbrirNoNavegador}>🌐 Abrir no navegador</button>
-            <button type="button" className="btn-secondary" onClick={handleExportar}>📤 Exportar arquivo HTML</button>
+            <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Salvando...' : <><Icon name="save" size={16} /> Salvar e atualizar preview</>}</button>
+            <button type="button" className="btn-secondary" onClick={handleAbrirNoNavegador}><Icon name="globe" size={16} /> Abrir no navegador</button>
+            <button type="button" className="btn-secondary" onClick={handleExportar}><Icon name="export" size={16} /> Exportar arquivo HTML</button>
           </div>
           {saved && <p className="io-message">Salvo.</p>}
           {exportMsg && <p className={exportMsg.startsWith('Erro') ? 'modal-error' : 'io-message'}>{exportMsg}</p>}

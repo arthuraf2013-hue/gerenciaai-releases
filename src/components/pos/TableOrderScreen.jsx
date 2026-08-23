@@ -10,6 +10,7 @@ import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
 import { playBeep } from '../../utils/sound';
+import Icon from '../common/Icon';
 
 function playErrorBeep() {
   try {
@@ -311,7 +312,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
         <div className="pos-header-right">
           {pessoas ? (
             <button type="button" className="pos-operator pos-operator-editable" onClick={abrirEdicaoPessoas} title="Editar número de pessoas">
-              {pessoas} pessoa(s) ✎
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{pessoas} pessoa(s) <Icon name="edit" size={13} /></span>
             </button>
           ) : (
             <button type="button" className="pos-operator pos-operator-editable" onClick={abrirEdicaoPessoas}>
@@ -328,7 +329,9 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             </svg>
             Comanda p/ cozinha
           </button>
-          <button className="close-cash-btn" onClick={onFechar}>← Voltar às mesas</button>
+          <button className="close-cash-btn" onClick={onFechar}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="arrowLeft" size={15} /> Voltar às mesas</span>
+          </button>
         </div>
       </header>
 
@@ -367,7 +370,11 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               <span className="cart-item-mesa-nome">{item.nome} × {item.quantidade}</span>
               <span className="cart-item-mesa-preco">R$ {(item.precoUnitario * item.quantidade).toFixed(2)}</span>
             </div>
-            {item.observacao && <div className="cart-item-obs">⚠ {item.observacao}</div>}
+            {item.observacao && (
+              <div className="cart-item-obs" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <Icon name="warning" size={13} /> {item.observacao}
+              </div>
+            )}
             <div className="cart-item-mesa-controles">
               {pessoas > 1 && (
                 <select
@@ -491,7 +498,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       {editandoObs && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={salvarObs}>
-            <h2>✏️ Observação do item</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="edit" size={18} /> Observação do item</h2>
             <label>Ex: sem cebola, ponto da carne mal passado...
               <textarea
                 rows={3}
@@ -502,8 +509,12 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             </label>
             <p className="screen-hint" style={{ margin: 0 }}>Vai junto na próxima comanda impressa pra cozinha.</p>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setEditandoObs(null)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary">💾 Salvar</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditandoObs(null)}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+              </button>
+              <button type="submit" className="btn-primary">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar</span>
+              </button>
             </div>
           </form>
         </div>
@@ -511,7 +522,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       {showTransferir && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h2>🍽️ Transferir pra qual mesa?</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="plate" size={18} /> Transferir pra qual mesa?</h2>
             <p className="screen-hint" style={{ margin: '0 0 10px' }}>
               A comanda inteira (itens, pessoas) vai pra mesa escolhida — essa mesa aqui fica
               aguardando limpeza.
@@ -532,7 +543,9 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               </div>
             )}
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setShowTransferir(false)}>✖️ Cancelar</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowTransferir(false)}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+              </button>
             </div>
           </div>
         </div>

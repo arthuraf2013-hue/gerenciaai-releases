@@ -8,6 +8,7 @@ import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { DropdownMenu, DropdownMenuItem } from '../common/DropdownMenu';
+import Icon from '../common/Icon';
 
 const PAGE_SIZE = 60;
 
@@ -211,19 +212,29 @@ export function ProductList() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>🏷️ Produtos {totalProdutos !== null && <span className="screen-hint" style={{ fontWeight: 400, fontSize: 15 }}>({totalProdutos} no total)</span>}</h1>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="tag" size={20} /> Produtos {totalProdutos !== null && <span className="screen-hint" style={{ fontWeight: 400, fontSize: 15 }}>({totalProdutos} no total)</span>}</h1>
         <div className="screen-actions">
-          <DropdownMenu label="🔧 Ferramentas">
-            <DropdownMenuItem onClick={handleImport} disabled={ioBusy}>📥 Importar planilha</DropdownMenuItem>
-            <DropdownMenuItem onClick={handleExport} disabled={ioBusy}>📤 Exportar planilha</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setShowDuplicates(true)}>
-              📑 Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}
+          <DropdownMenu label={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="wrench" size={15} /> Ferramentas</span>}>
+            <DropdownMenuItem onClick={handleImport} disabled={ioBusy}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="import" size={15} /> Importar planilha</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setShowRelinkCodigos(true)}>🔗 Re-vincular códigos de barras</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExport} disabled={ioBusy}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="export" size={15} /> Exportar planilha</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowDuplicates(true)}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="duplicate" size={15} /> Ver duplicados{duplicatasCount > 0 ? ` (${duplicatasCount})` : ''}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setShowRelinkCodigos(true)}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="link" size={15} /> Re-vincular códigos de barras</span>
+            </DropdownMenuItem>
             <div className="dropdown-menu-separator" />
-            <DropdownMenuItem danger onClick={handleClearAll}>🗑️ Limpar todos os produtos</DropdownMenuItem>
+            <DropdownMenuItem danger onClick={handleClearAll}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={15} /> Limpar todos os produtos</span>
+            </DropdownMenuItem>
           </DropdownMenu>
-          <button className="btn-primary" onClick={() => setEditing({})}>➕ Novo produto</button>
+          <button className="btn-primary" onClick={() => setEditing({})}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Novo produto</span>
+          </button>
         </div>
       </div>
 
@@ -274,7 +285,7 @@ export function ProductList() {
                       style={{ marginLeft: 6, fontSize: 11 }}
                       title={`Chegou da sincronização com o código de barras "${p.conflito_codigo_barras_pendente}", mas esse código já pertence a outro produto local. Resolva manualmente: defina o código de barras certo pra esse produto (ou apague o outro, se for duplicado).`}
                     >
-                      ⚠ conflito de código de barras
+                      <Icon name="warning" size={13} /> conflito de código de barras
                     </span>
                   )}
                 </td>
@@ -285,9 +296,15 @@ export function ProductList() {
                 <td>{p.estoque_minimo}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <button className="btn-link" onClick={() => setEditing(p)}>✏️ Editar</button>
-                    <button className="btn-link" onClick={() => setAdjusting(p)}>📦 Ajustar estoque</button>
-                    <button className="btn-link-danger" onClick={() => handleDelete(p)}>🗑️ Excluir</button>
+                    <button className="btn-link" onClick={() => setEditing(p)}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="edit" size={14} /> Editar</span>
+                    </button>
+                    <button className="btn-link" onClick={() => setAdjusting(p)}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="box" size={14} /> Ajustar estoque</span>
+                    </button>
+                    <button className="btn-link-danger" onClick={() => handleDelete(p)}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Excluir</span>
+                    </button>
                   </div>
                 </td>
               </tr>

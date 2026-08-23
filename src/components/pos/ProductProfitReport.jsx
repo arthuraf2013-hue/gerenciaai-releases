@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toISODate } from '../../utils/date';
+import Icon from '../common/Icon';
 
 
 export function ProductProfitReport() {
@@ -135,7 +136,7 @@ export function ProductProfitReport() {
             </tbody>
           </table>
 
-          <h2 style={{ marginTop: 24 }}>📊 Movimento por horário do dia</h2>
+          <h2 style={{ marginTop: 24, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chart" size={18} /> Movimento por horário do dia</h2>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100, marginTop: 12 }}>
             {relatorio.horariosPorMovimento.map((h) => (
               <div

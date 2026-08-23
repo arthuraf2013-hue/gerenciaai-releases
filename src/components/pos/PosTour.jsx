@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import Icon from '../common/Icon';
 
 const TOUR_SEEN_KEY = 'gerenciaai:posTourSeen';
 
 const STEPS = [
   {
     selector: '.pos-search-row',
-    title: '🔍 Buscar produtos',
+    icon: 'search',
+    title: 'Buscar produtos',
     text: 'Digite o nome do produto aqui, ou aponte o leitor de código de barras direto pro produto — os dois funcionam ao mesmo tempo, sem precisar clicar em nada antes.',
   },
   {
@@ -20,12 +22,14 @@ const STEPS = [
   },
   {
     selector: '.pos-attach-btn',
-    title: '📎 Anexar receita',
+    icon: 'attachment',
+    title: 'Anexar receita',
     text: 'Anexe a foto ou o PDF de uma receita aqui. Se a IA estiver configurada (em Configurações), ela consegue até reconhecer os medicamentos e adicionar ao carrinho sozinha.',
   },
   {
     selector: '.pos-pay-btn',
-    title: '💰 Pagamento',
+    icon: 'money',
+    title: 'Pagamento',
     text: 'Aceita dinheiro, cartão, Pix (com QR Code de verdade) e mais — inclusive dividindo o valor entre métodos diferentes na mesma venda. Dá pra vincular um cliente (acumula pontos de fidelidade), resgatar pontos como desconto, e pedir um desconto extra autorizado por um gerente.',
   },
   {
@@ -35,12 +39,14 @@ const STEPS = [
   },
   {
     selector: '.help-btn-training',
-    title: '🎓 Apresentação de treinamento',
+    icon: 'graduation',
+    title: 'Apresentação de treinamento',
     text: 'Esse ícone de formatura abre uma apresentação completa, com todos os recursos do sistema explicados devagar — bom pra quando alguém novo começar a trabalhar aqui.',
   },
   {
     selector: '.tutor-fab',
-    title: '🤖 IA tutora',
+    icon: 'robot',
+    title: 'IA tutora',
     text: 'O robô no canto da tela tira dúvida sobre qualquer parte do sistema em texto — pode até colar uma mensagem de erro pra entender o que ela significa.',
   },
 ];
@@ -170,13 +176,23 @@ export function PosTour({ forceOpen, onClose }) {
       <div style={spotlightStyle} />
       <div ref={tooltipRef} className="tour-tooltip" style={{ top: tooltipTop, left: tooltipLeft }}>
         <span className="tour-step-count">{stepIndex + 1} / {STEPS.length}</span>
-        <h3>{step.title}</h3>
+        <h3>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {step.icon && <Icon name={step.icon} size={16} />} {step.title}
+          </span>
+        </h3>
         <p>{step.text}</p>
         <div className="tour-actions">
-          <button className="btn-link" onClick={finish}>✖️ Pular tour</button>
+          <button className="btn-link" onClick={finish}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={14} /> Pular tour</span>
+          </button>
           <div style={{ display: 'flex', gap: 8 }}>
             {stepIndex > 0 && <button className="btn-secondary" onClick={prev}>Voltar</button>}
-            <button className="btn-primary" onClick={next}>{stepIndex === STEPS.length - 1 ? '✅ Concluir' : 'Próximo'}</button>
+            <button className="btn-primary" onClick={next}>
+              {stepIndex === STEPS.length - 1 ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Concluir</span>
+              ) : 'Próximo'}
+            </button>
           </div>
         </div>
       </div>

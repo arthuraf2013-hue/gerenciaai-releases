@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ManagerAuthModal } from './ManagerAuthModal';
+import Icon from '../common/Icon';
 
 const METODOS = [
   { id: 'dinheiro', label: 'Dinheiro' },
@@ -305,8 +306,12 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
       <div className="payment-panel">
         <p className="io-message">Venda finalizada com sucesso.</p>
 
-        <button className="btn-secondary" onClick={handleImprimir}>🖨️ Imprimir recibo</button>
-        <button className="btn-secondary" onClick={handleEnviarWhatsapp} style={{ marginLeft: 8 }}>💬 Enviar por WhatsApp</button>
+        <button className="btn-secondary" onClick={handleImprimir}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Imprimir recibo</span>
+        </button>
+        <button className="btn-secondary" onClick={handleEnviarWhatsapp} style={{ marginLeft: 8 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chat" size={15} /> Enviar por WhatsApp</span>
+        </button>
         {printMsg && <p className="modal-error" style={{ marginTop: 4 }}>{printMsg}</p>}
 
         <div className="nfce-box">
@@ -316,17 +321,21 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
           </p>
           {!nfceStatus?.pendente && (
             <button className="btn-secondary" onClick={handleEmitirNFCe} disabled={nfceStatus?.emitindo}>
-              {nfceStatus?.emitindo ? 'Emitindo...' : '🧾 Emitir NFC-e'}
+              {nfceStatus?.emitindo ? 'Emitindo...' : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={15} /> Emitir NFC-e</span>
+              )}
             </button>
           )}
           {nfceStatus?.pendente && (
             <button className="btn-secondary" onClick={handleReenviarNFCe} disabled={nfceStatus?.emitindo}>
-              {nfceStatus?.emitindo ? 'Reenviando...' : '🔄 Tentar transmitir de novo'}
+              {nfceStatus?.emitindo ? 'Reenviando...' : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={15} /> Tentar transmitir de novo</span>
+              )}
             </button>
           )}
           {nfceStatus?.autorizada && (
             <button className="btn-danger" onClick={() => setShowCancelarNfceAuth(true)} style={{ marginLeft: 8 }}>
-              🚫 Cancelar NFC-e
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="blocked" size={15} /> Cancelar NFC-e</span>
             </button>
           )}
           {nfceStatus?.mensagem && (
@@ -335,11 +344,13 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
             </p>
           )}
         </div>
-        <button className="btn-primary" onClick={onFinalized}>✅ Concluir</button>
+        <button className="btn-primary" onClick={onFinalized}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Concluir</span>
+        </button>
 
         {showCancelarNfceAuth && (
           <ManagerAuthModal
-            title="🔑 Autorizar cancelamento da NFC-e"
+            title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="key" size={16} /> Autorizar cancelamento da NFC-e</span>}
             onConfirm={confirmarCancelamentoNFCe}
             onClose={() => setShowCancelarNfceAuth(false)}
           />
@@ -354,7 +365,9 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
         {customer ? (
           <div className="customer-chip">
             <span>{customer.nome} — {customer.pontos} ponto(s)</span>
-            <button className="btn-link" onClick={() => setCustomer(null)}>🗑️ Remover</button>
+            <button className="btn-link" onClick={() => setCustomer(null)}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={14} /> Remover</span>
+            </button>
           </div>
         ) : (
           <div>
@@ -475,7 +488,9 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
             // tema escuro) -- ficava quase invisível ao lado do campo de
             // valor. btn-primary chama mais atenção pra essa ação, que é
             // o passo que de fato registra o pagamento.
-            <button className="btn-primary" onClick={addPayment}>➕ Adicionar</button>
+            <button className="btn-primary" onClick={addPayment}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Adicionar</span>
+            </button>
           )}
         </div>
       )}
@@ -502,8 +517,12 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
             Peça para o cliente escanear ou colar o código. Confira o recebimento no seu banco antes de confirmar.
           </p>
           <div className="modal-actions">
-            <button className="btn-secondary" onClick={() => { setPix(null); setError(''); }}>✖️ Cancelar</button>
-            <button className="btn-primary" onClick={confirmarRecebimentoPix}>✅ Confirmar recebimento</button>
+            <button className="btn-secondary" onClick={() => { setPix(null); setError(''); }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
+            </button>
+            <button className="btn-primary" onClick={confirmarRecebimentoPix}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Confirmar recebimento</span>
+            </button>
           </div>
         </div>
       )}
@@ -522,12 +541,14 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
       {error && <p className="modal-error">{error}</p>}
 
       <button className="btn-primary" disabled={!pagamentoCompleto || finalizando} onClick={finalizar}>
-        {finalizando ? 'Finalizando...' : '✅ Finalizar venda'}
+        {finalizando ? 'Finalizando...' : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Finalizar venda</span>
+        )}
       </button>
 
       {showDescontoAuth && (
         <ManagerAuthModal
-          title="🔑 Autorizar desconto"
+          title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="key" size={16} /> Autorizar desconto</span>}
           onConfirm={confirmarDescontoGerente}
           onClose={() => setShowDescontoAuth(false)}
         />

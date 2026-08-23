@@ -3,6 +3,7 @@ import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { ProfileManager } from './ProfileManager';
 import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
+import Icon from '../common/Icon';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
@@ -539,16 +540,16 @@ export function SettingsScreen() {
       <h1>Configurações</h1>
 
       <div className="settings-tabs">
-        <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}>🏠 Geral</button>
-        <button className={aba === 'impressora' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('impressora')}>🖨️ Impressora</button>
-        <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}>⚖️ Balança</button>
-        <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}>💬 WhatsApp</button>
+        <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}><Icon name="home" size={15} /> Geral</button>
+        <button className={aba === 'impressora' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('impressora')}><Icon name="printer" size={15} /> Impressora</button>
+        <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}><Icon name="scale" size={15} /> Balança</button>
+        <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}><Icon name="chat" size={15} /> WhatsApp</button>
       </div>
 
       {aba === 'geral' && (
       <>
       <section className="settings-section">
-        <h2>💾 Backup</h2>
+        <h2><Icon name="save" size={16} /> Backup</h2>
         <p className="screen-hint">
           Cópia automática do banco de dados, uma vez por dia (usa a API nativa de backup do
           SQLite — segura mesmo com o app em uso). Guarda os últimos 30 dias localmente.
@@ -564,13 +565,13 @@ export function SettingsScreen() {
         )}
         <div className="settings-actions">
           <button className="btn-primary" onClick={handleBackupNow} disabled={backupRunning}>
-            💾 {backupRunning ? 'Fazendo backup...' : 'Fazer backup agora'}
+            <Icon name="save" size={15} /> {backupRunning ? 'Fazendo backup...' : 'Fazer backup agora'}
           </button>
           <button className="btn-secondary" onClick={handleChooseSecondaryFolder}>
-            📁 {backupStatus?.pastaSecundaria ? 'Trocar pasta secundária' : 'Escolher pasta secundária'}
+            <Icon name="folder" size={15} /> {backupStatus?.pastaSecundaria ? 'Trocar pasta secundária' : 'Escolher pasta secundária'}
           </button>
-          <button className="btn-secondary" onClick={() => window.pdv.backup.openFolder()}>🗂️ Abrir pasta de backups</button>
-          <button className="btn-secondary" onClick={handleShowRestoreList}>♻️ Restaurar backup</button>
+          <button className="btn-secondary" onClick={() => window.pdv.backup.openFolder()}><Icon name="folder" size={15} /> Abrir pasta de backups</button>
+          <button className="btn-secondary" onClick={handleShowRestoreList}><Icon name="restore" size={15} /> Restaurar backup</button>
         </div>
         {backupStatus?.pastaSecundaria && (
           <p className="screen-hint" style={{ marginBottom: 0 }}>Pasta secundária: {backupStatus.pastaSecundaria}</p>
@@ -578,7 +579,7 @@ export function SettingsScreen() {
         {backupMsg && <p className={backupMsg.includes('sucesso') ? 'io-message' : 'modal-error'}>{backupMsg}</p>}
 
         <div style={{ marginTop: 16, borderTop: '1px solid var(--color-border)', paddingTop: 16 }}>
-          <label className="field-label">🌐 Conta Google deste cliente</label>
+          <label className="field-label"><Icon name="globe" size={15} /> Conta Google deste cliente</label>
           <p className="screen-hint" style={{ marginTop: 2 }}>
             Abre o cadastro oficial do Google pra criar a conta (você preenche e confirma
             normalmente, do jeito que o Google pedir) — se o cliente já tiver uma conta, pode pular
@@ -587,7 +588,7 @@ export function SettingsScreen() {
             (fica protegida antes mesmo de sair deste computador).
           </p>
           <button type="button" className="btn-secondary" onClick={handleAbrirCriacaoContaGoogle} style={{ marginBottom: 10 }}>
-            🌐 Abrir cadastro do Google
+            <Icon name="globe" size={15} /> Abrir cadastro do Google
           </button>
           {contaGoogleEmailAtual && (
             <p className="screen-hint" style={{ marginBottom: 10 }}>Conta vinculada atualmente: <strong>{contaGoogleEmailAtual}</strong></p>
@@ -611,7 +612,7 @@ export function SettingsScreen() {
               style={{ flex: '1 1 180px' }}
             />
             <button className="btn-primary" type="submit" disabled={contaGoogleSalvando}>
-              💾 {contaGoogleSalvando ? 'Salvando...' : 'Salvar conta'}
+              <Icon name="save" size={15} /> {contaGoogleSalvando ? 'Salvando...' : 'Salvar conta'}
             </button>
           </form>
           {contaGoogleMsg && (
@@ -622,7 +623,7 @@ export function SettingsScreen() {
         {showRestoreList && (
           <div className="modal-overlay">
             <div className="modal-card modal-card-wide">
-              <h2>♻️ Restaurar backup</h2>
+              <h2><Icon name="restore" size={16} /> Restaurar backup</h2>
               <p className="screen-hint">
                 Isso substitui todos os dados atuais pelos do backup escolhido — sem volta. O app
                 reinicia sozinho depois de restaurar.
@@ -638,14 +639,14 @@ export function SettingsScreen() {
                         {' — '}{(b.tamanhoBytes / 1024).toFixed(0)} KB
                       </span>
                       <button className="btn-link-danger" onClick={() => handleRestore(b.nome)} disabled={restoring}>
-                        {restoring ? 'Restaurando...' : '♻️ Restaurar este'}
+                        {restoring ? 'Restaurando...' : <><Icon name="restore" size={15} /> Restaurar este</>}
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
               <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => setShowRestoreList(false)} disabled={restoring}>
-                ✖️ Fechar
+                <Icon name="close" size={15} /> Fechar
               </button>
             </div>
           </div>
@@ -653,7 +654,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🔒 Segurança</h2>
+        <h2><Icon name="lock" size={16} /> Segurança</h2>
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <input
             type="checkbox" style={{ width: 'auto' }}
@@ -686,7 +687,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🎨 Personalização do PDV</h2>
+        <h2><Icon name="palette" size={16} /> Personalização do PDV</h2>
         <p className="screen-hint">
           Só afeta esta máquina — cada terminal pode preferir um jeito diferente de exibir.
         </p>
@@ -733,7 +734,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🎛️ Preferências do PDV</h2>
+        <h2><Icon name="sliders" size={16} /> Preferências do PDV</h2>
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <input
             type="checkbox" style={{ width: 'auto' }}
@@ -745,7 +746,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>⬆️ Atualização do app</h2>
+        <h2><Icon name="update" size={16} /> Atualização do app</h2>
         <p className="screen-hint">
           Versão instalada: <strong>{updateStatus?.versaoAtual || '—'}</strong>
           {' — '}atualiza sozinho: baixa em segundo plano assim que sai uma versão nova (checagem automática a
@@ -754,10 +755,10 @@ export function SettingsScreen() {
         </p>
         <div className="update-actions">
           <button className="btn-secondary" onClick={handleCheckUpdate} disabled={updateBusy || updateStatus?.checking}>
-            🔄 {updateStatus?.checking ? 'Verificando...' : 'Verificar atualização agora'}
+            <Icon name="refresh" size={15} /> {updateStatus?.checking ? 'Verificando...' : 'Verificar atualização agora'}
           </button>
           {updateStatus?.baixado && (
-            <button className="btn-primary" onClick={handleInstallUpdate}>⬆️ Instalar agora (sem esperar)</button>
+            <button className="btn-primary" onClick={handleInstallUpdate}><Icon name="update" size={15} /> Instalar agora (sem esperar)</button>
           )}
         </div>
         {updateStatus?.baixando && (
@@ -793,18 +794,18 @@ export function SettingsScreen() {
       <ProfileManager />
 
       <section className="settings-section">
-        <h2>🏪 Loja / local</h2>
+        <h2><Icon name="store" size={16} /> Loja / local</h2>
         <form className="inline-form" onSubmit={handleLocationSave}>
           <label>
             Nome da loja
             <input value={locationName} onChange={(e) => setLocationName(e.target.value)} />
           </label>
-          <button className="btn-primary" type="submit">💾 Salvar</button>
+          <button className="btn-primary" type="submit"><Icon name="save" size={15} /> Salvar</button>
         </form>
       </section>
 
       <section className="settings-section">
-        <h2>🧾 Fiscal (NFC-e)</h2>
+        <h2><Icon name="receipt" size={16} /> Fiscal (NFC-e)</h2>
         <p className="screen-hint">
           Preenchendo os dados abaixo (CNPJ, endereço, certificado digital A1) e escolhendo
           "Homologação" no ambiente, você já consegue testar a emissão de NFC-e de verdade contra o
@@ -904,7 +905,7 @@ export function SettingsScreen() {
                   style={{ flex: 1 }}
                 />
                 <button type="button" className="btn-secondary" onClick={handleSelectCertificado} disabled={selecionandoCertificado}>
-                  📎 {selecionandoCertificado ? 'Abrindo...' : 'Selecionar arquivo...'}
+                  <Icon name="attachment" size={15} /> {selecionandoCertificado ? 'Abrindo...' : 'Selecionar arquivo...'}
                 </button>
               </div>
             </label>
@@ -944,7 +945,7 @@ export function SettingsScreen() {
           </p>
           <div>
             <button className="btn-primary" type="submit" disabled={fiscalSaving}>
-              💾 {fiscalSaving ? 'Salvando...' : 'Salvar configuração fiscal'}
+              <Icon name="save" size={15} /> {fiscalSaving ? 'Salvando...' : 'Salvar configuração fiscal'}
             </button>
           </div>
         </form>
@@ -952,7 +953,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🗑️ Inutilização de numeração NFC-e</h2>
+        <h2><Icon name="trash" size={16} /> Inutilização de numeração NFC-e</h2>
         <p className="screen-hint">
           Use quando um número de NFC-e nunca chegou a ser usado (ex: pulou um número por erro do
           app, ou o app fechou antes de terminar de emitir) — a SEFAZ exige declarar isso
@@ -973,7 +974,7 @@ export function SettingsScreen() {
             <input value={inutForm.justificativa} onChange={(e) => setInutForm({ ...inutForm, justificativa: e.target.value })} minLength={15} required />
           </label>
           <button className="btn-danger" type="submit" disabled={inutEnviando}>
-            {inutEnviando ? 'Enviando...' : '🗑️ Inutilizar numeração'}
+            {inutEnviando ? 'Enviando...' : <><Icon name="trash" size={15} /> Inutilizar numeração</>}
           </button>
         </form>
         {inutMensagem && (
@@ -999,7 +1000,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>💳 Pagamento (Pix)</h2>
+        <h2><Icon name="card" size={16} /> Pagamento (Pix)</h2>
         <p className="screen-hint">
           Cadastre sua chave Pix para gerar o QR Code de cobrança direto no PDV. Não há
           integração bancária — o recebimento é conferido manualmente pelo operador.
@@ -1024,14 +1025,14 @@ export function SettingsScreen() {
             <input value={pixForm.pixCidade} onChange={(e) => setPixForm({ ...pixForm, pixCidade: e.target.value })} maxLength={15} />
           </label>
           <button className="btn-primary" type="submit" disabled={pixSaving}>
-            💾 {pixSaving ? 'Salvando...' : 'Salvar chave Pix'}
+            <Icon name="save" size={15} /> {pixSaving ? 'Salvando...' : 'Salvar chave Pix'}
           </button>
         </form>
         {pixSaved && <p className="io-message">Chave Pix salva.</p>}
       </section>
 
       <section className="settings-section">
-        <h2>⭐ Programa de fidelidade</h2>
+        <h2><Icon name="star" size={16} /> Programa de fidelidade</h2>
         <p className="screen-hint">
           Clientes vinculados a uma venda acumulam pontos automaticamente. Pontos podem ser
           resgatados como desconto na hora do pagamento.
@@ -1053,7 +1054,7 @@ export function SettingsScreen() {
               checked={loyaltyForm.ativarCupomAniversario}
               onChange={(e) => setLoyaltyForm({ ...loyaltyForm, ativarCupomAniversario: e.target.checked })}
             />
-            🎂 Mandar cupom de aniversário automático pelo WhatsApp (precisa do WhatsApp conectado e da data de nascimento cadastrada em Clientes)
+            <Icon name="cake" size={15} /> Mandar cupom de aniversário automático pelo WhatsApp (precisa do WhatsApp conectado e da data de nascimento cadastrada em Clientes)
           </label>
           <label>Pontos de bônus no aniversário
             <input
@@ -1063,14 +1064,14 @@ export function SettingsScreen() {
             />
           </label>
           <button className="btn-primary" type="submit" disabled={loyaltySaving}>
-            💾 {loyaltySaving ? 'Salvando...' : 'Salvar'}
+            <Icon name="save" size={15} /> {loyaltySaving ? 'Salvando...' : 'Salvar'}
           </button>
         </form>
         {loyaltySaved && <p className="io-message">Configuração de fidelidade salva.</p>}
       </section>
 
       <section className="settings-section">
-        <h2>🔗 Sincronização entre PDVs (opcional)</h2>
+        <h2><Icon name="link" size={16} /> Sincronização entre PDVs (opcional)</h2>
         <p className="screen-hint">
           Quando ativo, esse terminal soma no relatório consolidado do Painel junto com os outros
           PDVs do mesmo negócio. É configurado centralmente pelo suporte — não precisa mexer em
@@ -1078,7 +1079,7 @@ export function SettingsScreen() {
         </p>
         <div className="pdv-number-badge">
           {sincronizacaoAtiva ? (
-            <>🔗 <strong>Sincronização ativa</strong> — este terminal está agrupado com outros PDVs.</>
+            <><Icon name="link" size={15} /> <strong>Sincronização ativa</strong> — este terminal está agrupado com outros PDVs.</>
           ) : (
             <>Sincronização não configurada para este terminal ainda.</>
           )}
@@ -1086,7 +1087,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🤖 IA (opcional)</h2>
+        <h2><Icon name="robot" size={16} /> IA (opcional)</h2>
         <p className="screen-hint">
           Usa a API Gemini para ler receitas/notas anexadas às vendas e extrair os dados
           automaticamente. Nunca é obrigatório e nunca bloqueia uma venda. Gere uma chave
@@ -1114,7 +1115,7 @@ export function SettingsScreen() {
           </label>
           <div>
             <button className="btn-primary" type="submit" disabled={aiSaving}>
-              💾 {aiSaving ? 'Salvando...' : 'Salvar configuração de IA'}
+              <Icon name="save" size={15} /> {aiSaving ? 'Salvando...' : 'Salvar configuração de IA'}
             </button>
           </div>
         </form>
@@ -1126,7 +1127,7 @@ export function SettingsScreen() {
       {aba === 'impressora' && (
       <>
       <section className="settings-section">
-        <h2>📄 Formato do recibo</h2>
+        <h2><Icon name="document" size={16} /> Formato do recibo</h2>
         <p className="screen-hint">
           Formato usado ao imprimir o recibo depois de uma venda. Escolha conforme a impressora da loja.
         </p>
@@ -1155,7 +1156,7 @@ export function SettingsScreen() {
               placeholder="Ex: (81) 3333-4444 — Seg a Sáb, 8h às 20h"
             />
           </label>
-          <button className="btn-secondary" type="submit">💾 Salvar rodapé</button>
+          <button className="btn-secondary" type="submit"><Icon name="save" size={15} /> Salvar rodapé</button>
         </form>
 
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 }}>
@@ -1169,14 +1170,14 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🖨️ Impressora padrão</h2>
+        <h2><Icon name="printer" size={16} /> Impressora padrão</h2>
         <p className="screen-hint">
           Sem uma impressora padrão escolhida, o sistema sempre pergunta qual usar (janela do
           Windows) — mais seguro, mas mais lento no dia a dia. Escolhendo uma aqui, imprime direto
           nela sem perguntar.
         </p>
         <button className="btn-secondary" onClick={handleListarImpressoras} disabled={carregandoImpressoras}>
-          🔍 {carregandoImpressoras ? 'Buscando impressoras...' : 'Buscar impressoras instaladas'}
+          <Icon name="search" size={15} /> {carregandoImpressoras ? 'Buscando impressoras...' : 'Buscar impressoras instaladas'}
         </button>
 
         {impressoras.length > 0 && (
@@ -1204,7 +1205,7 @@ export function SettingsScreen() {
 
         <div style={{ marginTop: 16 }}>
           <button className="btn-primary" onClick={handleTestarImpressao} disabled={testando}>
-            🖨️ {testando ? 'Enviando...' : 'Imprimir página de teste'}
+            <Icon name="printer" size={15} /> {testando ? 'Enviando...' : 'Imprimir página de teste'}
           </button>
           {testMsg && <p className="io-message">{testMsg}</p>}
         </div>
@@ -1215,7 +1216,7 @@ export function SettingsScreen() {
       {aba === 'balanca' && (
       <>
       <section className="settings-section">
-        <h2>⚖️ Etiqueta de peso variável</h2>
+        <h2><Icon name="scale" size={16} /> Etiqueta de peso variável</h2>
         <p className="screen-hint">
           Não existe um único formato de etiqueta — cada balança é configurada pelo fabricante/técnico
           de um jeito. Escolha o que bate com a etiqueta impressa pela sua balança (peça pra alguém
@@ -1234,7 +1235,7 @@ export function SettingsScreen() {
             <option value="preco_total">Preço total já calculado</option>
           </select>
         </label>
-        <button className="btn-secondary" onClick={handleSalvarBalancaFormato}>💾 Salvar</button>
+        <button className="btn-secondary" onClick={handleSalvarBalancaFormato}><Icon name="save" size={15} /> Salvar</button>
         {balancaFormatoSaved && <p className="io-message">Salvo.</p>}
 
         <div style={{ marginTop: 16 }}>
@@ -1245,7 +1246,7 @@ export function SettingsScreen() {
               placeholder="Escaneie ou digite os 13 dígitos de uma etiqueta"
             />
           </label>
-          <button className="btn-secondary" onClick={handleTestarEtiqueta}>🧪 Testar</button>
+          <button className="btn-secondary" onClick={handleTestarEtiqueta}><Icon name="lab" size={15} /> Testar</button>
           {testeResultado && (
             <p className={testeResultado.startsWith('Não') ? 'modal-error' : 'io-message'} style={{ marginTop: 8 }}>{testeResultado}</p>
           )}
@@ -1253,14 +1254,14 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>⚖️ Balança digital (porta serial)</h2>
+        <h2><Icon name="scale" size={16} /> Balança digital (porta serial)</h2>
         <p className="screen-hint">
           Opcional — sem isso configurado, o PDV só aceita peso digitado manualmente ou lido da
           etiqueta impressa. <strong>Essa parte não foi testada contra uma balança real</strong> — teste
           com cuidado antes de confiar no dia a dia (ver BALANCA.md).
         </p>
         <button className="btn-secondary" onClick={handleListarPortas} disabled={carregandoPortas}>
-          {carregandoPortas ? 'Buscando portas...' : '🔍 Buscar portas seriais disponíveis'}
+          {carregandoPortas ? 'Buscando portas...' : <><Icon name="search" size={15} /> Buscar portas seriais disponíveis</>}
         </button>
         {portasSeriais.length > 0 && (
           <div className="profile-cards" style={{ marginTop: 12 }}>
@@ -1297,7 +1298,7 @@ export function SettingsScreen() {
       {aba === 'whatsapp' && (
       <>
       <section className="settings-section">
-        <h2>💬 Canal do WhatsApp</h2>
+        <h2><Icon name="chat" size={16} /> Canal do WhatsApp</h2>
         <p className="screen-hint">
           Conecta este PDV a um número de WhatsApp pra receber pedidos automaticamente por
           chatbot: o cliente manda mensagem, escolhe uma categoria numerada, escolhe os produtos
@@ -1375,18 +1376,18 @@ export function SettingsScreen() {
               className="btn-primary" onClick={handleWhatsappConnect}
               disabled={whatsappBusy || whatsappStatus?.status === 'conectando'}
             >
-              {whatsappBusy || whatsappStatus?.status === 'conectando' ? 'Conectando...' : '🔗 Conectar'}
+              {whatsappBusy || whatsappStatus?.status === 'conectando' ? 'Conectando...' : <><Icon name="link" size={15} /> Conectar</>}
             </button>
           ) : (
             <button className="btn-link-danger" onClick={handleWhatsappDisconnect} disabled={whatsappBusy}>
-              {whatsappBusy ? 'Desconectando...' : '🔌 Desconectar'}
+              {whatsappBusy ? 'Desconectando...' : <><Icon name="plug" size={15} /> Desconectar</>}
             </button>
           )}
         </div>
       </section>
 
       <section className="settings-section">
-        <h2>📦 Aba "Separação"</h2>
+        <h2><Icon name="box" size={16} /> Aba "Separação"</h2>
         <p className="screen-hint">
           Ativa a aba "Separação" no menu, onde pedidos de retirada/entrega ficam na fila pra
           alguém separar — hoje digitados manualmente por um funcionário, e assim que o WhatsApp
@@ -1402,7 +1403,7 @@ export function SettingsScreen() {
       </section>
 
       <section className="settings-section">
-        <h2>🤖 Automações proativas do WhatsApp</h2>
+        <h2><Icon name="robot" size={16} /> Automações proativas do WhatsApp</h2>
         <p className="screen-hint">
           Diferente do chatbot acima (que só responde quando o cliente manda mensagem), essas
           automações fazem o número <strong>iniciar</strong> a conversa sozinho — o que aumenta um
@@ -1423,7 +1424,7 @@ export function SettingsScreen() {
               checked={whatsappAutomationForm.reconquistaAutomaticaAtiva}
               onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, reconquistaAutomaticaAtiva: e.target.checked })}
             />
-            💌 Mandar mensagem de reconquista automática pro "cliente que sumiu" (mesmo texto da tela Clientes → Clientes que sumiram, com intervalo mínimo de 30 dias por cliente)
+            <Icon name="mail" size={15} /> Mandar mensagem de reconquista automática pro "cliente que sumiu" (mesmo texto da tela Clientes → Clientes que sumiram, com intervalo mínimo de 30 dias por cliente)
           </label>
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <input
@@ -1431,7 +1432,7 @@ export function SettingsScreen() {
               checked={whatsappAutomationForm.alertaEstoqueBaixoAtivo}
               onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, alertaEstoqueBaixoAtivo: e.target.checked })}
             />
-            📉 Mandar alerta diário de estoque baixo pro telefone do dono acima
+            <Icon name="trendDown" size={15} /> Mandar alerta diário de estoque baixo pro telefone do dono acima
           </label>
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <input
@@ -1439,7 +1440,7 @@ export function SettingsScreen() {
               checked={whatsappAutomationForm.resumoDiarioAtivo}
               onChange={(e) => setWhatsappAutomationForm({ ...whatsappAutomationForm, resumoDiarioAtivo: e.target.checked })}
             />
-            📊 Mandar resumo de fechamento (vendas do dia) pro telefone do dono acima
+            <Icon name="chart" size={15} /> Mandar resumo de fechamento (vendas do dia) pro telefone do dono acima
           </label>
           <label>Horário do resumo diário
             <input
@@ -1449,7 +1450,7 @@ export function SettingsScreen() {
             />
           </label>
           <button className="btn-primary" type="submit" disabled={whatsappAutomationSaving}>
-            💾 {whatsappAutomationSaving ? 'Salvando...' : 'Salvar'}
+            <Icon name="save" size={15} /> {whatsappAutomationSaving ? 'Salvando...' : 'Salvar'}
           </button>
         </form>
         {whatsappAutomationSaved && <p className="io-message">Automações salvas.</p>}

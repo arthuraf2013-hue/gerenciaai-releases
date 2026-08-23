@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from './Icon';
 
 /**
  * @param {{ titulo: string, valorInicial: string, placeholder?: string, onConfirmar: (valor: string) => void, onCancelar: () => void }} props
@@ -30,8 +31,8 @@ export function PromptModal({ titulo, valorInicial, placeholder, onConfirmar, on
             placeholder={placeholder}
           />
           <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn-secondary" onClick={onCancelar}>✖️ Cancelar</button>
-            <button type="submit" className="btn-primary">✅ OK</button>
+            <button type="button" className="btn-secondary" onClick={onCancelar}><Icon name="close" size={15} /> Cancelar</button>
+            <button type="submit" className="btn-primary"><Icon name="checkCircle" size={15} /> OK</button>
           </div>
         </form>
       </div>

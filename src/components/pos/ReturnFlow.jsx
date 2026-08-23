@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { ManagerAuthModal } from './ManagerAuthModal';
+import Icon from '../common/Icon';
 
 export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
   const { currentUser } = useSession();
@@ -86,7 +87,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
 
   return (
     <div className="screen">
-      <h1>↩️ Devolução</h1>
+      <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="undo" size={20} /> Devolução</h1>
       {erroPreselect && <p className="modal-error">{erroPreselect}</p>}
       <p className="screen-hint">Devolução de itens de uma venda já finalizada — exige autorização de gerente, igual ao cancelamento.</p>
 
@@ -94,7 +95,9 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
         <>
           <div className="inline-form" style={{ marginBottom: 16 }}>
             <input placeholder="Buscar por código da venda ou operador..." value={query} onChange={(e) => setQuery(e.target.value)} />
-            <button className="btn-secondary" onClick={buscar}>🔍 Buscar</button>
+            <button className="btn-secondary" onClick={buscar}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="search" size={15} /> Buscar</span>
+            </button>
           </div>
 
           <table className="data-table">
@@ -140,7 +143,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
             <button className="btn-secondary" onClick={() => setSelectedSale(null)}>Voltar</button>
             <button className="btn-danger" disabled={itensParaDevolver().length === 0} onClick={() => setShowAuth(true)}>
-              ↩️ Devolver itens selecionados
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="undo" size={15} /> Devolver itens selecionados</span>
             </button>
           </div>
         </div>
@@ -152,7 +155,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
 
       {recentes.length > 0 && (
         <section className="settings-section" style={{ marginTop: 28 }}>
-          <h2>↩️ Devoluções recentes</h2>
+          <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="undo" size={18} /> Devoluções recentes</h2>
           <table className="data-table">
             <thead><tr><th>Data</th><th>Venda</th><th>Valor</th><th>Autorizado por</th></tr></thead>
             <tbody>
@@ -171,7 +174,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
 
       {showAuth && (
         <ManagerAuthModal
-          title="↩️ Autorizar devolução"
+          title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="undo" size={18} /> Autorizar devolução</span>}
           onConfirm={handleAuthConfirm}
           onClose={() => setShowAuth(false)}
         />

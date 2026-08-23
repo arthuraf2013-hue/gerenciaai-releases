@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const RECEITA_VAZIA = {
   dataReceita: '', odEsferico: '', odCilindrico: '', odEixo: '', odAdicao: '',
@@ -55,7 +56,7 @@ export function EyewearModal({ customer, onFechar }) {
   return (
     <div className="modal-overlay">
       <div className="modal-card" style={{ width: 'min(620px, 94vw)' }}>
-        <h2>👓 Receita óptica — {customer.nome}</h2>
+        <h2><Icon name="glasses" size={18} /> Receita óptica — {customer.nome}</h2>
 
         {!editando && (
           <>
@@ -68,8 +69,8 @@ export function EyewearModal({ customer, onFechar }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <strong>{r.data_receita ? new Date(r.data_receita + 'T00:00:00').toLocaleDateString('pt-BR') : 'Sem data'} — {r.tipo_lente || 'Tipo não informado'}</strong>
                       <div style={{ display: 'flex', gap: 10 }}>
-                        <button className="btn-link" onClick={() => startEdit(r)}>✏️ Editar</button>
-                        <button className="btn-link-danger" onClick={() => handleExcluir(r.id)}>🗑️ Remover</button>
+                        <button className="btn-link" onClick={() => startEdit(r)}><Icon name="edit" size={14} /> Editar</button>
+                        <button className="btn-link-danger" onClick={() => handleExcluir(r.id)}><Icon name="trash" size={14} /> Remover</button>
                       </div>
                     </div>
                     <p className="screen-hint" style={{ margin: '4px 0 0' }}>
@@ -85,7 +86,7 @@ export function EyewearModal({ customer, onFechar }) {
               </ul>
             )}
             <div className="modal-actions">
-              <button className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
+              <button className="btn-secondary" onClick={onFechar}><Icon name="close" size={16} /> Fechar</button>
               <button className="btn-primary" onClick={startNew}>+ Nova receita</button>
             </div>
           </>
@@ -118,8 +119,8 @@ export function EyewearModal({ customer, onFechar }) {
             <label>Observações<input value={editando.observacoes} onChange={(e) => setEditando({ ...editando, observacoes: e.target.value })} /></label>
 
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setEditando(null)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary">💾 Salvar</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditando(null)}><Icon name="close" size={16} /> Cancelar</button>
+              <button type="submit" className="btn-primary"><Icon name="save" size={16} /> Salvar</button>
             </div>
           </form>
         )}

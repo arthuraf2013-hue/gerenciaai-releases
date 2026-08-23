@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const METODO_LABEL = {
   dinheiro: 'Dinheiro', cartao_credito: 'Cartão crédito', cartao_debito: 'Cartão débito',
@@ -56,14 +57,14 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
     return (
       <div className="modal-overlay">
         <div className="modal-card">
-          <h2>💰 Caixa fechado</h2>
+          <h2><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="money" size={18} /> Caixa fechado</span></h2>
           <p>Valor esperado: <strong>R$ {resultado.valorEsperado.toFixed(2)}</strong></p>
           <p className={diff === 0 ? 'io-message' : 'modal-error'}>
             {diff === 0 ? 'Sem diferença — caixa bateu certinho.' :
               diff > 0 ? `Sobrou R$ ${diff.toFixed(2)} em relação ao esperado.` :
                 `Faltou R$ ${Math.abs(diff).toFixed(2)} em relação ao esperado.`}
           </p>
-          <button className="btn-primary" onClick={onClosed}>✅ Concluir</button>
+          <button className="btn-primary" onClick={onClosed}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Concluir</span></button>
         </div>
       </div>
     );
@@ -72,7 +73,7 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
   return (
     <div className="modal-overlay">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h2>💰 Fechar caixa</h2>
+        <h2><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="money" size={18} /> Fechar caixa</span></h2>
         {loadError && <p className="modal-error">{loadError}</p>}
         {summary && (
           <div className="cash-summary">
@@ -89,8 +90,10 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
         </label>
         {error && <p className="modal-error">{error}</p>}
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onCancel}>✖️ Cancelar</button>
-          <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'Fechando...' : '💰 Fechar caixa'}</button>
+          <button type="button" className="btn-secondary" onClick={onCancel}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span></button>
+          <button type="submit" className="btn-primary" disabled={saving}>
+            {saving ? 'Fechando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="money" size={15} /> Fechar caixa</span>}
+          </button>
         </div>
       </form>
     </div>

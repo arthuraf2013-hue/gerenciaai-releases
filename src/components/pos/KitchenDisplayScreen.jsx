@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Icon from '../common/Icon';
 
 // Painel de Cozinha (KDS) — mostra os itens que ainda faltam preparar,
 // agrupados por mesa/comanda, com botões grandes pra avançar o status
@@ -64,7 +65,7 @@ export function KitchenDisplayScreen() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>👨‍🍳 Painel de Cozinha</h1>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="cooking" size={20} /> Painel de Cozinha</h1>
         <p className="screen-hint" style={{ margin: 0 }}>
           {itens.length} item(ns) em preparo · atualiza sozinho a cada {INTERVALO_ATUALIZACAO_MS / 1000}s
         </p>
@@ -73,7 +74,7 @@ export function KitchenDisplayScreen() {
       {carregando ? (
         <p className="empty-state">Carregando...</p>
       ) : grupos.length === 0 ? (
-        <p className="empty-state">🎉 Nenhum item pendente — cozinha em dia!</p>
+        <p className="empty-state" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="celebrate" size={16} /> Nenhum item pendente — cozinha em dia!</p>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
           {grupos.map((grupo) => (
@@ -99,15 +100,15 @@ export function KitchenDisplayScreen() {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                       <strong style={{ fontSize: 16 }}>{item.quantidade}× {item.nome}</strong>
-                      <span style={{ fontSize: 12, color: atrasado ? 'var(--color-danger, #c0392b)' : 'var(--color-text-muted)', fontWeight: atrasado ? 700 : 400 }}>
-                        {minutos} min{atrasado ? ' ⚠' : ''}
+                      <span style={{ fontSize: 12, color: atrasado ? 'var(--color-danger, #c0392b)' : 'var(--color-text-muted)', fontWeight: atrasado ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {minutos} min{atrasado && <Icon name="warning" size={12} />}
                       </span>
                     </div>
                     {item.pessoa_numero && (
                       <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Pessoa {item.pessoa_numero}</span>
                     )}
                     {item.observacao && (
-                      <span style={{ fontSize: 13, color: 'var(--color-danger, #c0392b)' }}>⚠ {item.observacao}</span>
+                      <span style={{ fontSize: 13, color: 'var(--color-danger, #c0392b)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="warning" size={13} /> {item.observacao}</span>
                     )}
                     <button
                       className="btn-primary"
@@ -117,7 +118,9 @@ export function KitchenDisplayScreen() {
                     >
                       {atualizandoId === item.id
                         ? 'Salvando...'
-                        : item.status_preparo === 'pendente' ? '▶️ Começar a preparar' : '✅ Marcar como pronto'}
+                        : item.status_preparo === 'pendente'
+                          ? '▶️ Começar a preparar'
+                          : <><Icon name="checkCircle" size={15} /> Marcar como pronto</>}
                     </button>
                   </div>
                 );

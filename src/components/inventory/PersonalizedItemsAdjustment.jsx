@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import Icon from '../common/Icon';
 
 /**
  * Aba "Personalizados" — depois que um prato/produto personalizado foi
@@ -53,7 +54,7 @@ export function PersonalizedItemsAdjustment() {
 
   return (
     <div className="screen">
-      <h1>🎨 Personalizados</h1>
+      <h1><Icon name="palette" size={18} /> Personalizados</h1>
       <p className="screen-hint">
         Itens personalizados (montados na hora) recentes — informe aqui a quantidade FINAL de cada insumo/produto
         usado, quando ela ficou diferente do estimado no momento da venda. Só a diferença é ajustada no estoque.
@@ -84,7 +85,7 @@ export function PersonalizedItemsAdjustment() {
             <tbody>
               {item.linhas.map((linha) => (
                 <tr key={linha.id}>
-                  <td>{linha.tipo === 'insumo' ? '🥫' : '📦'} {linha.nome}</td>
+                  <td><Icon name={linha.tipo === 'insumo' ? 'ingredient' : 'box'} size={14} /> {linha.nome}</td>
                   <td>{labelQuantidadeOriginal(linha)}{linha.quantidadeAjustada !== null && linha.quantidadeAjustada !== undefined ? ' (já ajustado)' : ''}</td>
                   <td>
                     <input
@@ -108,7 +109,7 @@ export function PersonalizedItemsAdjustment() {
               onClick={() => handleSalvarItem(item)}
               disabled={salvandoItemId === item.saleItemId}
             >
-              {salvandoItemId === item.saleItemId ? 'Salvando...' : '💾 Salvar quantidade final'}
+              {salvandoItemId === item.saleItemId ? 'Salvando...' : <><Icon name="save" size={16} /> Salvar quantidade final</>}
             </button>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { TableOrderScreen } from './TableOrderScreen';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 const STATUS_LABEL = {
   livre: 'Livre',
@@ -16,9 +17,9 @@ const STATUS_LABEL = {
 // WhatsApp (ver whatsappBotHandler): pendente -> aguardando confirmação
 // (lembrete de 1h antes já mandado) -> confirmada.
 const RESERVA_BADGE = {
-  pendente: { icone: '🕐', texto: 'Reservada' },
-  aguardando_confirmacao: { icone: '📨', texto: 'Aguardando confirmação' },
-  confirmada: { icone: '✅', texto: 'Confirmada' },
+  pendente: { icon: 'clock', texto: 'Reservada' },
+  aguardando_confirmacao: { icon: 'hourglass', texto: 'Aguardando confirmação' },
+  confirmada: { icon: 'checkCircle', texto: 'Confirmada' },
 };
 
 export function RestaurantTables() {
@@ -207,8 +208,8 @@ export function RestaurantTables() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>🍽️ Mesas</h1>
-        <button className="btn-primary" onClick={() => setShowNew(true)}>➕ Nova mesa</button>
+        <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={20} /> Mesas</h1>
+        <button className="btn-primary" onClick={() => setShowNew(true)}><Icon name="add" size={15} /> Nova mesa</button>
       </div>
       <p className="screen-hint">
         Clique numa mesa livre ou reservada pra abrir uma comanda (informando quantas pessoas —
@@ -234,14 +235,15 @@ export function RestaurantTables() {
                 type="button" className="table-card-action" style={{ marginTop: 4 }}
                 onClick={(e) => abrirQrCode(t, e)}
               >
-                📱 QR do cardápio
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="mobile" size={14} /> QR do cardápio</span>
               </button>
               {reservasPorMesa[t.id] && (
                 <span
                   className={`table-reserva-badge table-reserva-badge-${reservasPorMesa[t.id].status}`}
                   title={`${reservasPorMesa[t.id].cliente_nome} — ${reservasPorMesa[t.id].pessoas} pessoa(s)`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                  {RESERVA_BADGE[reservasPorMesa[t.id].status]?.icone} {RESERVA_BADGE[reservasPorMesa[t.id].status]?.texto}
+                  <Icon name={RESERVA_BADGE[reservasPorMesa[t.id].status]?.icon} size={13} /> {RESERVA_BADGE[reservasPorMesa[t.id].status]?.texto}
                 </span>
               )}
               {t.status === 'ocupada' && (
@@ -257,7 +259,7 @@ export function RestaurantTables() {
                   <span className="table-card-status">Livre</span>
                   <div className="table-card-actions">
                     <button type="button" className="table-card-action" onClick={(e) => abrirReserva(t, e)}>Reservar</button>
-                    <button type="button" className="table-card-excluir" onClick={(e) => handleExcluirMesa(t, e)}>🗑️ Excluir</button>
+                    <button type="button" className="table-card-excluir" onClick={(e) => handleExcluirMesa(t, e)}><Icon name="trash" size={14} /> Excluir</button>
                   </div>
                 </>
               )}
@@ -285,7 +287,7 @@ export function RestaurantTables() {
       {showNew && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={handleCriarMesa}>
-            <h2>🍽️ Nova mesa</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={18} /> Nova mesa</h2>
             <label>Número
               <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} required autoFocus />
             </label>
@@ -294,8 +296,8 @@ export function RestaurantTables() {
             </label>
             {createError && <p className="modal-error">{createError}</p>}
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary">➕ Criar</button>
+              <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}><Icon name="close" size={15} /> Cancelar</button>
+              <button type="submit" className="btn-primary"><Icon name="add" size={15} /> Criar</button>
             </div>
           </form>
         </div>
@@ -304,7 +306,7 @@ export function RestaurantTables() {
       {abrindoMesa && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={confirmarAbrirMesa}>
-            <h2>🍽️ Abrir {abrindoMesa.nome || `Mesa ${abrindoMesa.numero}`}</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={18} /> Abrir {abrindoMesa.nome || `Mesa ${abrindoMesa.numero}`}</h2>
             <label>Quantas pessoas?
               <input
                 type="number" min="1" value={pessoasInput}
@@ -317,8 +319,8 @@ export function RestaurantTables() {
               os pagamentos automaticamente.
             </p>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setAbrindoMesa(null)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary">🍽️ Abrir mesa</button>
+              <button type="button" className="btn-secondary" onClick={() => setAbrindoMesa(null)}><Icon name="close" size={15} /> Cancelar</button>
+              <button type="submit" className="btn-primary"><Icon name="plate" size={15} /> Abrir mesa</button>
             </div>
           </form>
         </div>
@@ -327,7 +329,7 @@ export function RestaurantTables() {
       {reservandoMesa && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={confirmarReserva}>
-            <h2>🍽️ Reservar {reservandoMesa.nome || `Mesa ${reservandoMesa.numero}`}</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={18} /> Reservar {reservandoMesa.nome || `Mesa ${reservandoMesa.numero}`}</h2>
             <p className="screen-hint" style={{ margin: '0 0 4px' }}>Pra quando? (opcional)</p>
             <div className="form-grid">
               <label>Data
@@ -351,8 +353,8 @@ export function RestaurantTables() {
               Deixe em branco se for só uma reserva sem hora marcada.
             </p>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setReservandoMesa(null)}>✖️ Cancelar</button>
-              <button type="submit" className="btn-primary">🍽️ Reservar</button>
+              <button type="button" className="btn-secondary" onClick={() => setReservandoMesa(null)}><Icon name="close" size={15} /> Cancelar</button>
+              <button type="submit" className="btn-primary"><Icon name="plate" size={15} /> Reservar</button>
             </div>
           </form>
         </div>
@@ -360,7 +362,7 @@ export function RestaurantTables() {
       {qrMesa && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h2>📱 QR do cardápio — {qrMesa.nome || `Mesa ${qrMesa.numero}`}</h2>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="mobile" size={18} /> QR do cardápio — {qrMesa.nome || `Mesa ${qrMesa.numero}`}</h2>
             <p className="screen-hint" style={{ margin: '0 0 8px' }}>
               Imprima e cole na mesa: o cliente escaneia, o WhatsApp já abre com "Mesa {qrMesa.numero}"
               preenchido, e o pedido feito por ali cai direto nessa comanda pra alguém confirmar.
@@ -376,7 +378,7 @@ export function RestaurantTables() {
                   />
                 )}
                 <button type="button" className="btn-secondary" onClick={() => window.open(qrDados.url, '_blank')}>
-                  🔗 Abrir o link
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="link" size={14} /> Abrir o link</span>
                 </button>
                 <span style={{ fontSize: 12, color: 'var(--color-text-muted)', wordBreak: 'break-all', textAlign: 'center' }}>
                   {qrDados.url}
@@ -384,7 +386,7 @@ export function RestaurantTables() {
               </div>
             )}
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setQrMesa(null)}>✖️ Fechar</button>
+              <button type="button" className="btn-secondary" onClick={() => setQrMesa(null)}><Icon name="close" size={15} /> Fechar</button>
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { ProductThumbnail } from '../pos/ProductThumbnail';
+import Icon from '../common/Icon';
 
 function CategoryDetailModal({ nome, totalProdutos, onFechar, onEditar, onExcluir }) {
   const [produtos, setProdutos] = useState(null);
@@ -17,8 +18,8 @@ function CategoryDetailModal({ nome, totalProdutos, onFechar, onEditar, onExclui
           <div className="screen-header" style={{ marginBottom: 4 }}>
             <h2>{nome} — {totalProdutos} produto(s)</h2>
             <div className="screen-actions">
-              <button className="btn-secondary" onClick={onEditar}>✏️ Renomear categoria</button>
-              <button className="btn-link-danger" onClick={onExcluir}>🗑️ Excluir categoria</button>
+              <button className="btn-secondary" onClick={onEditar}><Icon name="edit" size={16} /> Renomear categoria</button>
+              <button className="btn-link-danger" onClick={onExcluir}><Icon name="trash" size={16} /> Excluir categoria</button>
             </div>
           </div>
         </div>
@@ -42,7 +43,7 @@ function CategoryDetailModal({ nome, totalProdutos, onFechar, onEditar, onExclui
           )}
         </div>
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onFechar}>✖️ Fechar</button>
+          <button type="button" className="btn-secondary" onClick={onFechar}><Icon name="close" size={16} /> Fechar</button>
         </div>
       </div>
     </div>
@@ -134,12 +135,12 @@ export function CategoryManager() {
   return (
     <div>
       <div className="screen-header">
-        <h1>🗂️ Categorias</h1>
+        <h1><Icon name="folder" size={18} /> Categorias</h1>
         <div className="screen-actions">
           <button className="btn-secondary" onClick={handleSugerirComIA} disabled={carregandoIA}>
-            {carregandoIA ? 'Consultando produtos...' : '✨ Categorizar produtos sem categoria com IA'}
+            {carregandoIA ? 'Consultando produtos...' : <><Icon name="sparkle" size={16} /> Categorizar produtos sem categoria com IA</>}
           </button>
-          <button className="btn-primary" onClick={() => setShowNovo(true)}>➕ Nova categoria</button>
+          <button className="btn-primary" onClick={() => setShowNovo(true)}><Icon name="add" size={16} /> Nova categoria</button>
         </div>
       </div>
       {erroIA && <p className="modal-error">{erroIA}</p>}
@@ -158,8 +159,8 @@ export function CategoryManager() {
                 <td>{c.nome}</td>
                 <td>{c.totalProdutos}</td>
                 <td>
-                  <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditando({ nome: c.nome, novoNome: c.nome }); }}>✏️ Editar</button>
-                  <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); setExcluindo({ nome: c.nome, totalProdutos: c.totalProdutos, moverPara: '' }); }}>🗑️ Excluir</button>
+                  <button className="btn-link" onClick={(e) => { e.stopPropagation(); setEditando({ nome: c.nome, novoNome: c.nome }); }}><Icon name="edit" size={14} /> Editar</button>
+                  <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); setExcluindo({ nome: c.nome, totalProdutos: c.totalProdutos, moverPara: '' }); }}><Icon name="trash" size={14} /> Excluir</button>
                 </td>
               </tr>
             ))}
@@ -171,15 +172,15 @@ export function CategoryManager() {
         <div className="modal-overlay">
           <div className="modal-card">
             <form onSubmit={handleCriar}>
-              <h2>➕ Nova categoria</h2>
+              <h2><Icon name="add" size={18} /> Nova categoria</h2>
               <label>
                 Nome
                 <input autoFocus value={novoNome} onChange={(e) => setNovoNome(e.target.value)} required />
               </label>
               {erro && <p className="modal-error">{erro}</p>}
               <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => { setShowNovo(false); setErro(''); }}>✖️ Cancelar</button>
-                <button type="submit" className="btn-primary">➕ Criar</button>
+                <button type="button" className="btn-secondary" onClick={() => { setShowNovo(false); setErro(''); }}><Icon name="close" size={16} /> Cancelar</button>
+                <button type="submit" className="btn-primary"><Icon name="add" size={16} /> Criar</button>
               </div>
             </form>
           </div>
@@ -190,7 +191,7 @@ export function CategoryManager() {
         <div className="modal-overlay">
           <div className="modal-card">
             <form onSubmit={handleRenomear}>
-              <h2>✏️ Renomear categoria</h2>
+              <h2><Icon name="edit" size={18} /> Renomear categoria</h2>
               <p className="screen-hint" style={{ margin: '0 0 8px' }}>
                 Atualiza automaticamente em todos os produtos que usam "{editando.nome}".
               </p>
@@ -200,8 +201,8 @@ export function CategoryManager() {
               </label>
               {erro && <p className="modal-error">{erro}</p>}
               <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => { setEditando(null); setErro(''); }}>✖️ Cancelar</button>
-                <button type="submit" className="btn-primary">💾 Salvar</button>
+                <button type="button" className="btn-secondary" onClick={() => { setEditando(null); setErro(''); }}><Icon name="close" size={16} /> Cancelar</button>
+                <button type="submit" className="btn-primary"><Icon name="save" size={16} /> Salvar</button>
               </div>
             </form>
           </div>
@@ -212,7 +213,7 @@ export function CategoryManager() {
         <div className="modal-overlay">
           <div className="modal-card">
             <form onSubmit={handleExcluir}>
-              <h2>🗑️ Excluir categoria "{excluindo.nome}"</h2>
+              <h2><Icon name="trash" size={18} /> Excluir categoria "{excluindo.nome}"</h2>
               {excluindo.totalProdutos > 0 ? (
                 <>
                   <p className="modal-warning">
@@ -232,8 +233,8 @@ export function CategoryManager() {
                 <p className="screen-hint">Nenhum produto usa essa categoria — pode excluir direto.</p>
               )}
               <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setExcluindo(null)}>✖️ Cancelar</button>
-                <button type="submit" className="btn-primary">🗑️ Excluir</button>
+                <button type="button" className="btn-secondary" onClick={() => setExcluindo(null)}><Icon name="close" size={16} /> Cancelar</button>
+                <button type="submit" className="btn-primary"><Icon name="trash" size={16} /> Excluir</button>
               </div>
             </form>
           </div>
@@ -244,7 +245,7 @@ export function CategoryManager() {
         <div className="modal-overlay">
           <div className="modal-card modal-card-fullscreen">
             <div>
-              <h2>✨ Revisar sugestões da IA — {sugestoesIA.length} produto(s)</h2>
+              <h2><Icon name="sparkle" size={18} /> Revisar sugestões da IA — {sugestoesIA.length} produto(s)</h2>
               <p className="screen-hint" style={{ margin: '4px 0 12px' }}>
                 Confira antes de aplicar — desmarque o que não fizer sentido, ou edite a categoria sugerida.
                 Só o que estiver marcado é salvo.
@@ -269,9 +270,9 @@ export function CategoryManager() {
               </table>
             </div>
             <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setSugestoesIA(null)}>✖️ Cancelar</button>
+              <button type="button" className="btn-secondary" onClick={() => setSugestoesIA(null)}><Icon name="close" size={16} /> Cancelar</button>
               <button type="button" className="btn-primary" disabled={aplicandoIA || selecionadosIA.size === 0} onClick={handleAplicarSugestoes}>
-                {aplicandoIA ? 'Aplicando...' : `✅ Aplicar ${selecionadosIA.size} selecionado(s)`}
+                {aplicandoIA ? 'Aplicando...' : <><Icon name="checkCircle" size={16} /> Aplicar {selecionadosIA.size} selecionado(s)</>}
               </button>
             </div>
           </div>

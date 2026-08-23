@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toISODate } from '../../utils/date';
+import Icon from '../common/Icon';
 
 const TIPO_LABEL = {
   cancelamento_item: 'Cancelamento de item',
@@ -64,9 +65,9 @@ export function AuditLog() {
   return (
     <div className="screen">
       <div className="screen-header">
-        <h1>📜 Auditoria</h1>
+        <h1><Icon name="history" size={22} /> Auditoria</h1>
         <button className="btn-secondary" onClick={handleExport} disabled={exportando || eventos.length === 0}>
-          {exportando ? 'Exportando...' : '📤 Exportar planilha'}
+          {exportando ? 'Exportando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="export" size={15} /> Exportar planilha</span>}
         </button>
       </div>
       <p className="screen-hint">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import Icon from '../common/Icon';
 
 /** Troca de operador sem precisar fechar o app e voltar pra tela de
  * login — útil pra troca de turno no meio do dia (um operador passa o
@@ -54,7 +55,7 @@ export function SwitchUserModal({ onClose, onSwitched }) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <form className="modal-card" onSubmit={handleSubmit}>
-        <h2>👤 Trocar de operador</h2>
+        <h2><Icon name="user" size={18} /> Trocar de operador</h2>
         <p className="modal-subtitle">
           Encerra a sessão de {currentUser?.nome} neste caixa e entra com outro operador.
         </p>
@@ -86,9 +87,9 @@ export function SwitchUserModal({ onClose, onSwitched }) {
         {loadError && <p className="modal-error">{loadError}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose}>✖️ Cancelar</button>
+          <button type="button" className="btn-secondary" onClick={onClose}><Icon name="close" size={15} /> Cancelar</button>
           <button type="submit" className="btn-primary" disabled={loading || users.length === 0}>
-            {loading ? 'Entrando...' : '🔄 Trocar'}
+            {loading ? 'Entrando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={15} /> Trocar</span>}
           </button>
         </div>
       </form>

@@ -5,6 +5,7 @@ import { AuditLog } from '../users/AuditLog';
 import { ProductProfitReport } from './ProductProfitReport';
 import { ControlledDrugsReport } from './ControlledDrugsReport';
 import { toISODate } from '../../utils/date';
+import Icon from '../common/Icon';
 
 
 /** Gráfico de barras simples em SVG — sem depender de nenhuma
@@ -148,13 +149,13 @@ export function Dashboard() {
       <h1>Painel</h1>
 
       <div className="settings-tabs">
-        <button className={aba === 'visaoGeral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('visaoGeral')}>📊 Visão geral</button>
-        <button className={aba === 'produtos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('produtos')}>💰 Produtos e lucro</button>
+        <button className={aba === 'visaoGeral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('visaoGeral')}><Icon name="chart" size={15} /> Visão geral</button>
+        <button className={aba === 'produtos' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('produtos')}><Icon name="money" size={15} /> Produtos e lucro</button>
         {profile?.id === 'farmacia' && (
-          <button className={aba === 'controlados' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('controlados')}>🧾 Livro de controlados</button>
+          <button className={aba === 'controlados' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('controlados')}><Icon name="receipt" size={15} /> Livro de controlados</button>
         )}
         {currentUser.role === 'admin' && (
-          <button className={aba === 'auditoria' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('auditoria')}>🔍 Auditoria</button>
+          <button className={aba === 'auditoria' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('auditoria')}><Icon name="search" size={15} /> Auditoria</button>
         )}
       </div>
 
@@ -198,7 +199,7 @@ export function Dashboard() {
           </div>
 
           <section className="settings-section">
-            <h2>💰 Margem por produto (estimada)</h2>
+            <h2><Icon name="money" size={16} /> Margem por produto (estimada)</h2>
             <p className="screen-hint">
               Usa o custo cadastrado hoje no produto, não o custo real de quando a venda aconteceu —
               se o custo mudou desde então, o número fica aproximado.
@@ -226,7 +227,7 @@ export function Dashboard() {
 
           <div className="dashboard-columns">
             <section className="settings-section">
-              <h2>📊 Vendas por dia</h2>
+              <h2><Icon name="chart" size={16} /> Vendas por dia</h2>
               {summary.vendasPorDia.length === 0 ? (
                 <p className="empty-state">Sem vendas no período.</p>
               ) : (
@@ -235,7 +236,7 @@ export function Dashboard() {
             </section>
 
             <section className="settings-section">
-              <h2>📊 Produtos mais vendidos</h2>
+              <h2><Icon name="chart" size={16} /> Produtos mais vendidos</h2>
               {summary.topProdutos.length === 0 && <p className="empty-state">Sem vendas no período.</p>}
               {summary.topProdutos.map((p) => (
                 <div key={p.nome} className="bar-row">
@@ -251,7 +252,7 @@ export function Dashboard() {
 
           {desperdicioPorDia.length > 0 && (
             <section className="settings-section">
-              <h2>📊 Desperdício por dia</h2>
+              <h2><Icon name="chart" size={16} /> Desperdício por dia</h2>
               <p className="screen-hint">
                 Valor perdido em pratos e insumos não aproveitados — registrado na tela Desperdício.
               </p>
@@ -261,7 +262,7 @@ export function Dashboard() {
 
           {vendasPorOperador.length > 0 && (
             <section className="settings-section">
-              <h2>📊 Vendas por operador</h2>
+              <h2><Icon name="chart" size={16} /> Vendas por operador</h2>
               <p className="screen-hint">Útil pra calcular comissão ou dividir gorjeta no período.</p>
               {vendasPorOperador.map((o) => (
                 <div key={o.operador} className="bar-row">
@@ -276,16 +277,20 @@ export function Dashboard() {
           )}
 
           <section className="settings-section">
-            <h2>🤖 Resumo por IA</h2>
+            <h2><Icon name="robot" size={16} /> Resumo por IA</h2>
             <button className="btn-secondary" onClick={handleResumoIA} disabled={gerandoResumo}>
-              {gerandoResumo ? 'Gerando...' : '🤖 Resumir este período com IA'}
+              {gerandoResumo ? 'Gerando...' : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="robot" size={15} /> Resumir este período com IA
+                </span>
+              )}
             </button>
             {erroResumo && <p className="modal-error">{erroResumo}</p>}
             {resumoIA && <p style={{ marginTop: 12, lineHeight: 1.6 }}>{resumoIA}</p>}
           </section>
 
           <section className="settings-section">
-            <h2>⚠️ Produtos parados</h2>
+            <h2><Icon name="warning" size={16} /> Produtos parados</h2>
             <p className="screen-hint">
               Tem estoque, mas sem nenhuma venda no período — diferente do alerta de validade,
               que só avisa quando já está perto de vencer. Ajuda a achar o que está encalhado.
@@ -324,7 +329,7 @@ export function Dashboard() {
 
           <section className="settings-section">
             <h2>
-              🔄 Consolidado entre PDVs
+              <Icon name="refresh" size={16} /> Consolidado entre PDVs
               {conexaoPdvs !== null && (
                 <span className={`connection-dot ${conexaoPdvs ? 'connection-dot-ok' : 'connection-dot-off'}`} title={conexaoPdvs ? 'Sincronização ativa' : 'Sincronização não configurada para este terminal'}>
                   {conexaoPdvs ? '● sincronizado' : '○ não configurado'}
@@ -337,7 +342,11 @@ export function Dashboard() {
               este terminal já tiver sido colocado num grupo.
             </p>
             <button className="btn-secondary" onClick={handleCarregarConsolidado} disabled={carregandoConsolidado}>
-              {carregandoConsolidado ? 'Consultando...' : '🔄 Consultar consolidado'}
+              {carregandoConsolidado ? 'Consultando...' : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="refresh" size={15} /> Consultar consolidado
+                </span>
+              )}
             </button>
             {erroConsolidado && <p className="modal-error">{erroConsolidado}</p>}
             {consolidado && (
