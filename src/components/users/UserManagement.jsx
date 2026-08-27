@@ -6,7 +6,7 @@ import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
 import Icon from '../common/Icon';
 
-const ROTULO_PAPEL = { operador: 'Operador de caixa', gerente: 'Gerente', admin: 'Administrador', garcom: 'Garçom' };
+const ROTULO_PAPEL = { operador: 'Operador de caixa', gerente: 'Gerente', admin: 'Administrador', garcom: 'Garçom', suporte: 'Suporte' };
 
 export function UserManagement() {
   const { currentUser } = useSession();
@@ -55,7 +55,7 @@ export function UserManagement() {
     if (!result.ok) setError(result.error);
   }
 
-  if (!['gerente', 'admin'].includes(currentUser.role)) {
+  if (!['gerente', 'admin', 'suporte'].includes(currentUser.role)) {
     return <div className="screen"><p className="modal-warning">Somente gerentes e administradores acessam esta tela.</p></div>;
   }
 
@@ -75,7 +75,7 @@ export function UserManagement() {
         <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th></th><th></th></tr></thead>
         <tbody>
           {users.map((u) => {
-            const bloqueadoPraGerente = currentUser.role === 'gerente' && u.role === 'admin';
+            const bloqueadoPraGerente = currentUser.role === 'gerente' && ['admin', 'suporte'].includes(u.role);
             return (
               <tr key={u.id}>
                 <td>{u.nome}</td>
@@ -110,7 +110,8 @@ export function UserManagement() {
                 <option value="operador">Operador de caixa</option>
                 {profile?.id === 'restaurante' && <option value="garcom">Garçom</option>}
                 <option value="gerente">Gerente</option>
-                {currentUser.role === 'admin' && <option value="admin">Administrador</option>}
+                {['admin', 'suporte'].includes(currentUser.role) && <option value="admin">Administrador</option>}
+                {['admin', 'suporte'].includes(currentUser.role) && <option value="suporte">Suporte</option>}
               </select>
             </label>
             <label>PIN inicial

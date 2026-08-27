@@ -154,12 +154,12 @@ export function Dashboard() {
         {profile?.id === 'farmacia' && (
           <button className={aba === 'controlados' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('controlados')}><Icon name="receipt" size={15} /> Livro de controlados</button>
         )}
-        {currentUser.role === 'admin' && (
+        {['admin', 'suporte'].includes(currentUser.role) && (
           <button className={aba === 'auditoria' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('auditoria')}><Icon name="search" size={15} /> Auditoria</button>
         )}
       </div>
 
-      {aba === 'auditoria' && currentUser.role === 'admin' ? (
+      {aba === 'auditoria' && ['admin', 'suporte'].includes(currentUser.role) ? (
         <AuditLog />
       ) : aba === 'controlados' && profile?.id === 'farmacia' ? (
         <ControlledDrugsReport />

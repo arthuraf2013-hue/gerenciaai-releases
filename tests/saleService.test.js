@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { freshTestDb, createProduct, addStock } = require('./helpers/testDb');
+const { freshTestDb, createProduct, addStock, createSuporteUser } = require('./helpers/testDb');
 const saleService = require('../electron/services/saleService');
 const stockService = require('../electron/services/stockService');
 const customerService = require('../electron/services/customerService');
@@ -391,4 +391,80 @@ test('cancelSale com item de serviço não gera estorno de estoque pra ele', () 
   const movimentosServico = ctx.db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE product_id = ?').get(servicoId).c;
   assert.equal(movimentosServico, 0, 'serviço nunca deveria ter stock_movements, nem no cancelamento da venda inteira');
   assert.equal(stockService.getCurrentStock(produtoId, ctx.locationId), 10, 'estoque do produto físico deveria voltar ao normal');
+});
+
+// ---------------------------------------------------------------------
+// setItemPrice — restrito a gerente/admin/suporte, checado no backend
+// (não só escondido no botão "Editar preço" da tela).
+// ---------------------------------------------------------------------
+
+test('setItemPrice recusa operador (não tem acesso a alterar preço)', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10 });
+  const result = saleService.setItemPrice({
+    saleId: ctx.saleId, saleItemId: ctx.addResult.itemId, novoPreco: 5, currentOperatorId: ctx.operadorId,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /gerente ou admin/i);
+});
+
+test('setItemPrice funciona pra gerente e atualiza o total da venda', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 });
+  const result = saleService.setItemPrice({
+    saleId: ctx.saleId, saleItemId: ctx.addResult.itemId, novoPreco: 8, currentOperatorId: ctx.gerenteId,
+  });
+  assert.equal(result.ok, true);
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 16); // 2 * 8
+});
+
+test('setItemPrice funciona pra suporte, igual gerente/admin', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 });
+  const suporteId = createSuporteUser(ctx.db);
+  const result = saleService.setItemPrice({
+    saleId: ctx.saleId, saleItemId: ctx.addResult.itemId, novoPreco: 8, currentOperatorId: suporteId,
+  });
+  assert.equal(result.ok, true);
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 16);
+});
+
+// ---------------------------------------------------------------------
+// editarHistoricoVenda — restrito a admin/suporte, checado no backend.
+// ---------------------------------------------------------------------
+
+function abrirVendaFinalizada(ctx, { preco = 10, quantidadeVenda = 1 } = {}) {
+  const comItem = abrirVendaComItem(ctx, { preco, quantidadeVenda });
+  saleService.addPayment({ saleId: comItem.saleId, metodo: 'dinheiro', valor: preco * quantidadeVenda, detalhes: {} });
+  saleService.finalizeSale(comItem.saleId);
+  return comItem;
+}
+
+test('editarHistoricoVenda recusa gerente (só admin/suporte pode)', async () => {
+  const ctx = abrirVendaFinalizada(freshTestDb());
+  const result = await saleService.editarHistoricoVenda({
+    saleId: ctx.saleId, novoTotal: 50, currentOperatorId: ctx.gerenteId,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /admin/i);
+});
+
+test('editarHistoricoVenda funciona pra admin e o total realmente muda', async () => {
+  const ctx = abrirVendaFinalizada(freshTestDb());
+  const result = await saleService.editarHistoricoVenda({
+    saleId: ctx.saleId, novoTotal: 50, currentOperatorId: ctx.adminId,
+  });
+  assert.equal(result.ok, true);
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 50);
+});
+
+test('editarHistoricoVenda funciona pra suporte, igual admin', async () => {
+  const ctx = abrirVendaFinalizada(freshTestDb());
+  const suporteId = createSuporteUser(ctx.db);
+  const result = await saleService.editarHistoricoVenda({
+    saleId: ctx.saleId, novoTotal: 42, currentOperatorId: suporteId,
+  });
+  assert.equal(result.ok, true);
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 42);
 });

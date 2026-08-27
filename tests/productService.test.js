@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const productService = require('../electron/services/productService');
 
 function inserirProduto(db, nome, extras = {}) {
@@ -113,6 +113,16 @@ test('clearAllProducts funciona pra gerente, mesmo nível de acesso da tela de P
   inserirProduto(db, 'Produto Qualquer');
 
   const resultado = productService.clearAllProducts(gerenteId);
+  assert.equal(resultado.ok, true);
+  assert.equal(resultado.apagados, 1);
+});
+
+test('clearAllProducts funciona pra suporte, igual admin', () => {
+  const { db } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  inserirProduto(db, 'Produto Qualquer');
+
+  const resultado = productService.clearAllProducts(suporteId);
   assert.equal(resultado.ok, true);
   assert.equal(resultado.apagados, 1);
 });

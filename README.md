@@ -5018,3 +5018,68 @@ FIRESTORE_EMULATOR_HOST=localhost:8080 node --test tests/firestoreRules.test.js
 - Notificação push pro garçom quando o pedido é recebido/dá erro (hoje
   só aparece na aba "Meus pedidos" do próprio app).
 - Editar o nome do dispositivo depois de pareado.
+
+## Papel "Suporte" — mesmas permissões de Admin, rastreável na Auditoria
+
+Pedido: dar suporte técnico de verdade a um cliente exige poder mexer em
+qualquer configuração que um admin mexeria (Fiscal, Segurança, IA,
+Backup, Usuários, WhatsApp, pareamento de celular, editar histórico de
+venda, etc.) — mas logar como o próprio admin do cliente mistura "o que
+o dono fez" com "o que o suporte fez" na Auditoria, o que é ruim tanto
+pra rastreabilidade quanto pra confiança do cliente.
+
+### Como funciona
+
+Novo valor de `users.role`: `'suporte'`. Em **toda** checagem de
+permissão do app (backend e frontend), `suporte` é tratado exatamente
+como `admin` — mesmo acesso a todas as telas do menu, mesma permissão
+pra autorizar cancelamento/desconto (`authorizeManagerOverride`), mesma
+permissão pra editar preço de item/histórico de venda, mesma permissão
+pra configurações de Fiscal/Segurança/IA/Backup/WhatsApp/pareamento.
+A única diferença de comportamento é o próprio valor do papel ficar
+gravado em `audit_log.solicitante_id`/`autorizado_por_id` e em
+`sales.*_por_id` — dá pra ver depois, na Auditoria, que uma ação foi de
+suporte e não do dono do negócio.
+
+Restrição mantida por consistência: um `gerente` não pode
+criar/ativar/desativar/resetar PIN de um usuário `suporte` — mesma
+regra que já existia pra `admin` (só outro admin ou o próprio suporte
+mexe num usuário suporte).
+
+### Onde foi mexido
+
+- `electron/db/schema.sql` — CHECK de `users.role` inclui `'suporte'`.
+- `electron/db/database.js` — `atualizarCheckRoleParaIncluirSuporte()`,
+  mesma técnica de rename-into-place de `atualizarCheckRoleParaIncluirGarcom`
+  (banco de cliente já existe sem o valor novo no CHECK — SQLite não
+  altera CHECK em place).
+- Backend: `authService.js` (`authorizeManagerOverride`,
+  `updateSecurityConfig`), `userService.js` (criar/listar/ativar/resetar
+  PIN — com a restrição de gerente acima), `productService.js`
+  (`clearAllProducts`), `fiscalService.js` (config fiscal, inutilizar
+  numeração), `backupService.js` (`restoreBackup`), `aiService.js`
+  (config de IA), `whatsappBotService.js` (conectar/desconectar),
+  `pairingService.js` (gerenciar pareamento de dispositivo, vínculo de
+  código de consulta remota), `saleService.js` (`setItemPrice`,
+  `editarHistoricoVenda`).
+- Frontend: `AppShell.jsx` (as 17 entradas de menu que checam papel),
+  `UserManagement.jsx`, `Dashboard.jsx` (aba Auditoria),
+  `HistoryScreen.jsx`, `SalesHistory.jsx`, `ManagerAuthModal.jsx`,
+  `RestaurantScreen.jsx`, `POSScreen.jsx`, `TableOrderScreen.jsx`,
+  `SettingsScreen.jsx`.
+
+### Testado
+
+`node --test` cobre a migração de banco existente
+(`tests/migracaoRoleSuporte.test.js`, mesmo molde de
+`migracaoRoleGarcom.test.js`) e paridade suporte=admin nos principais
+serviços (`authService`, `userService`, `fiscalService`, `aiService`,
+`backupService`, `productService`, `saleService` — incluindo
+`setItemPrice`/`editarHistoricoVenda`, que não tinham teste nenhum
+antes desta rodada — e `whatsappBotService.conectar`/`desconectar`,
+idem). `tests/helpers/testDb.js` ganhou `createSuporteUser(db)` — um
+helper à parte de `freshTestDb()` de propósito, pra não mudar a
+contagem/lista padrão de usuários que centenas de testes já existentes
+já contam. `pairingService.gerarCodigo`/`revogarDispositivo` continuam
+fora do escopo de teste local (exigem Firestore de verdade — mesma
+limitação já documentada no próprio `pairingService.test.js`).

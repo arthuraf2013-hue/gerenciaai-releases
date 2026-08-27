@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const authService = require('../electron/services/authService');
 
 test('login com PIN correto funciona e devolve os dados do usuário', () => {
@@ -79,6 +79,19 @@ test('authorizeManagerOverride aceita um gerente diferente do operador, com PIN 
   assert.equal(result.autorizadoPor.id, gerenteId);
 });
 
+test('authorizeManagerOverride aceita um usuário suporte diferente do operador, com PIN certo (mesma permissão de gerente/admin)', () => {
+  const { db, operadorId } = freshTestDb();
+  const suporteId = createSuporteUser(db, { pin: '9999' });
+  const result = authService.authorizeManagerOverride({
+    candidateUserId: suporteId,
+    pin: '9999',
+    currentOperatorId: operadorId,
+    tipoEvento: 'cancelamento_item',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.autorizadoPor.id, suporteId);
+});
+
 test('changeOwnPin também bloqueia após tentativas erradas (não é uma porta lateral do bloqueio)', () => {
   const { adminId } = freshTestDb();
   for (let i = 0; i < 5; i++) {
@@ -131,6 +144,14 @@ test('updateSecurityConfig recusa operador', () => {
 test('updateSecurityConfig funciona pra admin e o valor realmente muda no banco', () => {
   const { adminId } = freshTestDb();
   const result = authService.updateSecurityConfig(adminId, { exigirAutorizacaoCancelamento: false });
+  assert.equal(result.ok, true);
+  assert.equal(authService.getSecurityConfig().exigir_autorizacao_cancelamento, 0);
+});
+
+test('updateSecurityConfig funciona pra suporte, igual admin', () => {
+  const { db } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  const result = authService.updateSecurityConfig(suporteId, { exigirAutorizacaoCancelamento: false });
   assert.equal(result.ok, true);
   assert.equal(authService.getSecurityConfig().exigir_autorizacao_cancelamento, 0);
 });

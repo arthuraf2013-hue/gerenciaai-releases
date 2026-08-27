@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { webcrypto } = require('node:crypto');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const backupService = require('../electron/services/backupService');
 
 // Fora do Electron de verdade (como aqui, rodando com node --test),
@@ -35,6 +35,14 @@ test('restoreBackup recusa operador', async () => {
 test('restoreBackup passa da checagem de permissão pra admin (e só falha depois por arquivo inexistente, não por permissão)', async () => {
   const { adminId } = freshTestDb();
   const result = await backupService.restoreBackup(adminId, 'arquivo-que-nao-existe-de-verdade.sqlite3');
+  assert.equal(result.ok, false);
+  assert.match(result.error, /não encontrado/i);
+});
+
+test('restoreBackup passa da checagem de permissão pra suporte, igual admin', async () => {
+  const { db } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  const result = await backupService.restoreBackup(suporteId, 'arquivo-que-nao-existe-de-verdade.sqlite3');
   assert.equal(result.ok, false);
   assert.match(result.error, /não encontrado/i);
 });

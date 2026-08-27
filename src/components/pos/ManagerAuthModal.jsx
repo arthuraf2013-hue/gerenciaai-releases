@@ -29,7 +29,7 @@ export function ManagerAuthModal({ title, onConfirm, onClose }) {
         setLoadError(users?.error || 'Não foi possível carregar a lista de gerentes/admins.');
         return;
       }
-      setManagers(users.filter((u) => u.role === 'gerente' || u.role === 'admin'));
+      setManagers(users.filter((u) => ['gerente', 'admin', 'suporte'].includes(u.role)));
     });
   }, [currentUser]);
 

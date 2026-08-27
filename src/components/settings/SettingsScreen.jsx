@@ -241,7 +241,7 @@ export function SettingsScreen() {
   }, [aba, currentUser.id]);
 
   const pairingGarcons = pairingUsuarios.filter((u) => u.role === 'garcom');
-  const pairingGerentesAdmins = pairingUsuarios.filter((u) => ['gerente', 'admin'].includes(u.role));
+  const pairingGerentesAdmins = pairingUsuarios.filter((u) => ['gerente', 'admin', 'suporte'].includes(u.role));
 
   async function handleGerarCodigoPareamento(e) {
     e.preventDefault();

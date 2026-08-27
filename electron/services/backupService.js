@@ -485,7 +485,7 @@ async function restoreBackup(requestingUserId, nomeArquivo) {
   // Restaurar apaga os dados atuais sem volta — mesmo nível de acesso da
   // tela de Configurações que expõe este botão (só admin). Ver
   // authService.requireRole.
-  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  const guard = require('./authService').requireRole(requestingUserId, ['admin', 'suporte']);
   if (!guard.ok) return guard;
 
   const backupPath = path.join(backupsDir(), nomeArquivo);

@@ -576,7 +576,7 @@ export function POSScreen() {
                 )}
               </span>
               <span>R$ {(item.precoUnitario * item.quantidade).toFixed(2)}</span>
-              {(currentUser.role === 'gerente' || currentUser.role === 'admin') && (
+              {['gerente', 'admin', 'suporte'].includes(currentUser.role) && (
                 <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleEditarPrecoItem(item); }}>
                   Editar preço
                 </button>

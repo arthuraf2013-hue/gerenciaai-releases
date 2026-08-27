@@ -474,7 +474,7 @@ function setItemPrice({ saleId, saleItemId, novoPreco, motivo, currentOperatorId
   const db = getDb();
 
   const operador = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(currentOperatorId);
-  if (!operador || !['gerente', 'admin'].includes(operador.role)) {
+  if (!operador || !['gerente', 'admin', 'suporte'].includes(operador.role)) {
     return { ok: false, error: 'Só gerente ou admin pode alterar o preço de um item.' };
   }
 
@@ -815,7 +815,7 @@ async function editarHistoricoVenda({ saleId, novaDataHora, novoTotal, motivo, c
   const db = getDb();
 
   const operador = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(currentOperatorId);
-  if (!operador || operador.role !== 'admin') {
+  if (!operador || !['admin', 'suporte'].includes(operador.role)) {
     return { ok: false, error: 'Só admin pode editar o histórico de uma venda.' };
   }
 

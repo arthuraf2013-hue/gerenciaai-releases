@@ -1,9 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const userService = require('../electron/services/userService');
 
-test('gerente pode criar garcom, mas não admin', () => {
+test('gerente pode criar garcom, mas não admin nem suporte', () => {
   const { gerenteId } = freshTestDb();
 
   const garcom = userService.create(gerenteId, { nome: 'Garçom 1', role: 'garcom', pin: '1111' });
@@ -11,6 +11,42 @@ test('gerente pode criar garcom, mas não admin', () => {
 
   const admin = userService.create(gerenteId, { nome: 'Tentativa Admin', role: 'admin', pin: '2222' });
   assert.equal(admin.ok, false);
+
+  const suporte = userService.create(gerenteId, { nome: 'Tentativa Suporte', role: 'suporte', pin: '2223' });
+  assert.equal(suporte.ok, false);
+});
+
+test('admin pode criar suporte, e suporte tem as mesmas permissões de admin pra gerenciar usuários', () => {
+  const { adminId } = freshTestDb();
+
+  const criado = userService.create(adminId, { nome: 'Suporte 1', role: 'suporte', pin: '6666' });
+  assert.equal(criado.ok, true);
+  const suporteId = criado.id;
+
+  // Suporte consegue fazer tudo que admin faz em userService: criar,
+  // listar, ativar/desativar e resetar PIN de outros usuários.
+  const listagem = userService.listAll(suporteId);
+  assert.equal(listagem.ok, true);
+
+  const novoOperador = userService.create(suporteId, { nome: 'Operador via Suporte', role: 'operador', pin: '7777' });
+  assert.equal(novoOperador.ok, true);
+
+  const reset = userService.resetPin(suporteId, { userId: novoOperador.id, novoPin: '8888' });
+  assert.equal(reset.ok, true);
+
+  const desativar = userService.setActive(suporteId, { userId: novoOperador.id, ativo: false });
+  assert.equal(desativar.ok, true);
+});
+
+test('gerente não pode desativar nem resetar PIN de um usuário suporte', () => {
+  const { db, gerenteId } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+
+  const desativar = userService.setActive(gerenteId, { userId: suporteId, ativo: false });
+  assert.equal(desativar.ok, false);
+
+  const reset = userService.resetPin(gerenteId, { userId: suporteId, novoPin: '9999' });
+  assert.equal(reset.ok, false);
 });
 
 test('admin pode criar garcom', () => {

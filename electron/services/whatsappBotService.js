@@ -212,7 +212,7 @@ async function iniciarConexao() {
  * Configurações quando alguém clica em "Conectar". Tanto admin quanto
  * gerente podem fazer isso. */
 function conectar(requestingUserId) {
-  const guard = authService.requireRole(requestingUserId, ['admin', 'gerente']);
+  const guard = authService.requireRole(requestingUserId, ['admin', 'gerente', 'suporte']);
   if (!guard.ok) return guard;
   iniciarConexao().catch((err) => { ultimoErro = err.message; statusAtual = 'erro'; });
   return { ok: true };
@@ -244,7 +244,7 @@ async function enviarMensagem({ telefone, texto }) {
  * um QR Code novo de propósito (evita ficar com uma sessão "zumbi"
  * meio conectada). Tanto admin quanto gerente podem fazer isso. */
 async function desconectar(requestingUserId) {
-  const guard = authService.requireRole(requestingUserId, ['admin', 'gerente']);
+  const guard = authService.requireRole(requestingUserId, ['admin', 'gerente', 'suporte']);
   if (!guard.ok) return guard;
   try {
     if (sock) await sock.logout().catch(() => {});

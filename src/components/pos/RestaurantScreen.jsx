@@ -7,7 +7,7 @@ import { DigitalMenuScreen } from '../inventory/DigitalMenuScreen';
 export function RestaurantScreen() {
   const { currentUser } = useSession();
   const [aba, setAba] = useState('mesas');
-  const podeVerCardapioDigital = ['gerente', 'admin'].includes(currentUser.role);
+  const podeVerCardapioDigital = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
 
   return (
     <div className="screen">

@@ -30,7 +30,13 @@ CREATE TABLE IF NOT EXISTS users (
   -- 'garcom' é um operador com escopo restrito: só lança pedido/comanda
   -- de mesa, não abre caixa nem acessa configuração. Cadastrado por um
   -- gerente (ou admin) — mesma regra de 'operador' (ver userService.js).
-  role          TEXT NOT NULL CHECK (role IN ('operador','gerente','admin','garcom')),
+  -- 'suporte' tem exatamente as mesmas permissões de 'admin' em toda
+  -- checagem de acesso — é um valor distinto só pra deixar rastreável
+  -- (auditoria, "quem fez o quê") que a ação foi de suporte técnico,
+  -- não do dono/admin do negócio. Ver userService.js pra quem pode
+  -- criar/ativar/resetar PIN de um usuário 'suporte' (mesma regra de
+  -- 'admin': só outro admin, nunca um gerente).
+  role          TEXT NOT NULL CHECK (role IN ('operador','gerente','admin','garcom','suporte')),
   pin_hash      TEXT NOT NULL,
   pin_temporario INTEGER DEFAULT 0, -- 1 força a troca do PIN no próximo login
   tentativas_falhas INTEGER NOT NULL DEFAULT 0,

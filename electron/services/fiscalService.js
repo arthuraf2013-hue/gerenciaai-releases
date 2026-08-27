@@ -57,7 +57,7 @@ function getNomeNegocio() {
 function updateFiscalConfig(requestingUserId, payload) {
   // Mesmo nível de acesso da aba Fiscal em Configurações (só admin) —
   // guarda também no backend, não só escondendo o botão na tela.
-  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  const guard = require('./authService').requireRole(requestingUserId, ['admin', 'suporte']);
   if (!guard.ok) return guard;
 
   const db = getDb();
@@ -432,7 +432,7 @@ async function cancelarNFCe(nfceId, { justificativa, currentOperatorId, candidat
  * 'homologada' se a SEFAZ confirmar (cStat 102).
  */
 async function inutilizarNumeracao({ serie, numeroInicial, numeroFinal, justificativa, requestingUserId }) {
-  const guard = require('./authService').requireRole(requestingUserId, ['admin']);
+  const guard = require('./authService').requireRole(requestingUserId, ['admin', 'suporte']);
   if (!guard.ok) return guard;
 
   const config = getFiscalConfig();

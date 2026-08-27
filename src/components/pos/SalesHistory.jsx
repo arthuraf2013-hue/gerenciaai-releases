@@ -35,8 +35,8 @@ function formatMetodos(str) {
 export function SalesHistory({ onDevolver }) {
   const { currentUser } = useSession();
   const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
-  const podeExcluir = currentUser.role === 'gerente' || currentUser.role === 'admin';
-  const podeEditarHistorico = currentUser.role === 'admin';
+  const podeExcluir = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
+  const podeEditarHistorico = ['admin', 'suporte'].includes(currentUser.role);
   const [vendaEditando, setVendaEditando] = useState(null);
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('hoje'); // 'hoje' | 'semana' | 'mes' | 'personalizado'

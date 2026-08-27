@@ -392,7 +392,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               <button className="btn-link" onClick={(e) => { e.stopPropagation(); abrirEdicaoObs(item); }}>
                 {item.observacao ? 'Editar obs.' : '+ Observação'}
               </button>
-              {(currentUser.role === 'gerente' || currentUser.role === 'admin') && (
+              {['gerente', 'admin', 'suporte'].includes(currentUser.role) && (
                 <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleEditarPrecoItem(item); }}>
                   Editar preço
                 </button>

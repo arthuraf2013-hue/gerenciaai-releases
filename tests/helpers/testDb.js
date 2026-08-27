@@ -24,6 +24,16 @@ function freshTestDb() {
   return { db, locationId, adminId, gerenteId, operadorId };
 }
 
+/** Cria (e devolve o id de) um usuário 'suporte' extra no banco de teste —
+ * separado de freshTestDb() pra não mudar a contagem/lista padrão de
+ * usuários em cima da qual centenas de testes já existentes contam. */
+function createSuporteUser(db, { nome = 'Suporte Teste', pin = '9999' } = {}) {
+  const id = randomUUID();
+  db.prepare(`INSERT INTO users (id, nome, role, pin_hash) VALUES (?, ?, 'suporte', ?)`)
+    .run(id, nome, bcrypt.hashSync(pin, 10));
+  return id;
+}
+
 function createProduct(db, { nome = 'Produto Teste', preco = 10, estoqueMinimo = 5, categoria = null, tipo = 'produto' } = {}) {
   const id = randomUUID();
   db.prepare(
@@ -39,4 +49,4 @@ function addStock(db, { productId, locationId, quantidade, operadorId }) {
   ).run(randomUUID(), productId, locationId, quantidade, operadorId);
 }
 
-module.exports = { freshTestDb, createProduct, addStock };
+module.exports = { freshTestDb, createProduct, addStock, createSuporteUser };

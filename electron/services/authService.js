@@ -124,7 +124,7 @@ function authorizeManagerOverride({ candidateUserId, pin, currentOperatorId, tip
     return { ok: false, error: 'Usuário autorizador não encontrado ou inativo.' };
   }
 
-  if (!['gerente', 'admin'].includes(candidate.role)) {
+  if (!['gerente', 'admin', 'suporte'].includes(candidate.role)) {
     record(false, null);
     return { ok: false, error: 'Este usuário não tem permissão para autorizar cancelamentos.' };
   }
@@ -210,7 +210,7 @@ function requireRole(requestingUserId, allowedRoles) {
  * authorizeManagerOverride acima), então só admin pode desligá-la.
  */
 function updateSecurityConfig(requestingUserId, { exigirAutorizacaoCancelamento, exigirAutorizacaoDesconto }) {
-  const guard = requireRole(requestingUserId, ['admin']);
+  const guard = requireRole(requestingUserId, ['admin', 'suporte']);
   if (!guard.ok) return guard;
 
   const db = getDb();

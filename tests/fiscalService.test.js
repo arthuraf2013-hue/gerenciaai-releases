@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const fiscalService = require('../electron/services/fiscalService');
 
 // A aba Fiscal só aparece em Configurações, que é admin-only no menu — o
@@ -24,6 +24,14 @@ test('updateFiscalConfig recusa operador', () => {
 test('updateFiscalConfig funciona pra admin e o valor realmente é salvo', () => {
   const { adminId } = freshTestDb();
   const result = fiscalService.updateFiscalConfig(adminId, { cnpj: '00000000000191' });
+  assert.equal(result.ok, true);
+  assert.equal(fiscalService.getFiscalConfigPublic().cnpj, '00000000000191');
+});
+
+test('updateFiscalConfig funciona pra suporte, igual admin', () => {
+  const { db } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  const result = fiscalService.updateFiscalConfig(suporteId, { cnpj: '00000000000191' });
   assert.equal(result.ok, true);
   assert.equal(fiscalService.getFiscalConfigPublic().cnpj, '00000000000191');
 });

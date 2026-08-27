@@ -10,7 +10,7 @@ import Icon from '../common/Icon';
 export function HistoryScreen({ onDevolver }) {
   const { currentUser } = useSession();
   const [aba, setAba] = useState('vendas');
-  const podeVerFechamentos = ['gerente', 'admin'].includes(currentUser.role);
+  const podeVerFechamentos = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
 
   return (
     <div className="screen">

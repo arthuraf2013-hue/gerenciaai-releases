@@ -57,16 +57,16 @@ const STATUS_SEPARACAO_LABEL = { novo: 'Novo', em_separacao: 'Em separação', p
 
 const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
-  { id: 'pos', icon: 'cart', label: 'PDV', roles: ['operador', 'gerente', 'admin'] },
-  { id: 'restaurant', icon: 'plate', label: 'Restaurante', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
-  { id: 'kitchen', icon: 'cooking', label: 'Cozinha', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE },
+  { id: 'pos', icon: 'cart', label: 'PDV', roles: ['operador', 'gerente', 'admin', 'suporte'] },
+  { id: 'restaurant', icon: 'plate', label: 'Restaurante', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE },
+  { id: 'kitchen', icon: 'cooking', label: 'Cozinha', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE },
 
-  { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'returns', icon: 'undo', label: 'Devolução', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin'], section: 'Vendas' },
-  { id: 'agenda', icon: 'calendar', label: 'Agenda', roles: ['operador', 'gerente', 'admin'], perfil: 'salao_beleza', section: 'Vendas' },
-  { id: 'reservations', icon: 'book', label: 'Reservas', roles: ['operador', 'gerente', 'admin'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
+  { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
+  { id: 'returns', icon: 'undo', label: 'Devolução', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
+  { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
+  { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
+  { id: 'agenda', icon: 'calendar', label: 'Agenda', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: 'salao_beleza', section: 'Vendas' },
+  { id: 'reservations', icon: 'book', label: 'Reservas', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
 
   // Setor à parte, fora de qualquer perfil de negócio — só aparece
   // quando o admin ativa em Configurações (é onde o pedido separado
@@ -74,22 +74,22 @@ const NAV_ITEMS = [
   // separar). `requerBotDelivery` é filtrado dinamicamente abaixo,
   // igual a `perfil` — não dá pra decidir isso na hora de montar esta
   // lista estática porque depende de uma configuração salva no banco.
-  { id: 'botOrders', icon: 'box', label: 'Separação', roles: ['operador', 'gerente', 'admin'], section: 'Separação', requerBotDelivery: true },
+  { id: 'botOrders', icon: 'box', label: 'Separação', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerBotDelivery: true },
 
-  { id: 'products', icon: 'tag', label: 'Produtos', roles: ['gerente', 'admin'], section: 'Cadastros' },
-  { id: 'customers', icon: 'users', label: 'Clientes', roles: ['operador', 'gerente', 'admin'], section: 'Cadastros' },
+  { id: 'products', icon: 'tag', label: 'Produtos', roles: ['gerente', 'admin', 'suporte'], section: 'Cadastros' },
+  { id: 'customers', icon: 'users', label: 'Clientes', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Cadastros' },
 
-  { id: 'dashboard', icon: 'chart', label: 'Painel', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'supply', icon: 'import', label: 'Abastecimento', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'financeiro', icon: 'money', label: 'Financeiro', roles: ['gerente', 'admin'], section: 'Gestão' },
-  { id: 'alerts', icon: 'warning', label: 'Alertas', roles: ['operador', 'gerente', 'admin'], section: 'Gestão' },
-  { id: 'users', icon: 'briefcase', label: 'Usuários', roles: ['gerente', 'admin'], section: 'Gestão' },
+  { id: 'dashboard', icon: 'chart', label: 'Painel', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'supply', icon: 'import', label: 'Abastecimento', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'financeiro', icon: 'money', label: 'Financeiro', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'alerts', icon: 'warning', label: 'Alertas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'users', icon: 'briefcase', label: 'Usuários', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
 
   // Gerente também vê Configurações agora (pra poder conectar/gerenciar
   // o canal de WhatsApp sozinho) — seções realmente restritas a admin
   // (segurança, restaurar backup) continuam bloqueadas no backend
   // mesmo que a tela apareça (ver authService.requireRole nos handlers).
-  { id: 'settings', icon: 'settings', label: 'Configurações', roles: ['gerente', 'admin'], section: 'Sistema' },
+  { id: 'settings', icon: 'settings', label: 'Configurações', roles: ['gerente', 'admin', 'suporte'], section: 'Sistema' },
 ];
 
 // Ícone dos títulos de seção (gaveta) da barra lateral — puramente

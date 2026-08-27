@@ -66,6 +66,19 @@ atual.
   pagamento, desconto, devolução) passa por `authService.authorizeManagerOverride()`
   — nunca aceita o próprio operador como autorizador, mesmo sendo
   gerente/admin.
+- **Papéis de usuário**: `operador`, `gerente`, `admin`, `garcom` e
+  `suporte` (`users.role`, CHECK em `schema.sql` + migração
+  `atualizarCheckRoleParaIncluirSuporte` em `database.js`). `suporte`
+  tem exatamente as mesmas permissões de `admin` em TODA checagem de
+  acesso do app (backend e frontend) — é um valor distinto só pra
+  deixar rastreável na Auditoria que a ação foi de suporte técnico, não
+  do dono/admin do negócio. Ao adicionar uma checagem nova baseada em
+  `role === 'admin'` (ou array com `'admin'`), incluir `'suporte'`
+  junto — não tem nenhuma tela/fluxo onde os dois deveriam se
+  comportar diferente. Único lugar onde `suporte` NÃO é tratado como
+  admin: um `gerente` não pode criar/ativar/desativar/resetar PIN de
+  um usuário `suporte`, mesma regra que já existia pra `admin`
+  (`userService.js`).
 
 ## A armadilha de fuso horário — já mordeu várias vezes
 

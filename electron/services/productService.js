@@ -503,7 +503,7 @@ function clearAllProducts(requestingUserId) {
   // Apaga o catálogo inteiro — mesmo nível de acesso da tela de Produtos
   // (gerente ou admin) que expõe esta ação, agora também checado aqui,
   // não só escondendo o botão na tela.
-  const guard = require('./authService').requireRole(requestingUserId, ['gerente', 'admin']);
+  const guard = require('./authService').requireRole(requestingUserId, ['gerente', 'admin', 'suporte']);
   if (!guard.ok) return guard;
 
   const db = getDb();

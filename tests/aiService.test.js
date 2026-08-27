@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const aiService = require('../electron/services/aiService');
 
 // Trocar a chave de API paga da IA também só aparece em Configurações
@@ -23,6 +23,15 @@ test('updateAiSettings recusa operador', () => {
 test('updateAiSettings funciona pra admin', () => {
   const { adminId } = freshTestDb();
   const result = aiService.updateAiSettings(adminId, { ativado: true, modelo: 'gemini-3.1-flash-lite' });
+  assert.equal(result.ok, true);
+  const settings = aiService.getAiSettingsPublic();
+  assert.equal(settings.ativado, true);
+});
+
+test('updateAiSettings funciona pra suporte, igual admin', () => {
+  const { db } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  const result = aiService.updateAiSettings(suporteId, { ativado: true, modelo: 'gemini-3.1-flash-lite' });
   assert.equal(result.ok, true);
   const settings = aiService.getAiSettingsPublic();
   assert.equal(settings.ativado, true);

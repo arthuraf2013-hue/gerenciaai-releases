@@ -214,6 +214,52 @@ function atualizarCheckOrigemParaIncluirAppGarcom(database) {
   }
 }
 
+/**
+ * Mesmo raciocínio de atualizarCheckRoleParaIncluirGarcom, agora pra
+ * incluir 'suporte' -- papel com exatamente as mesmas permissões de
+ * 'admin' em toda checagem de acesso do app, usado só pra deixar
+ * rastreável (auditoria) que uma ação foi de suporte técnico e não do
+ * dono/admin do negócio. Ver authService/userService/etc.
+ */
+function atualizarCheckRoleParaIncluirSuporte(database) {
+  try {
+    const tabela = database.prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'`
+    ).get();
+    if (!tabela || tabela.sql.includes("'suporte'")) return; // já migrado, ou banco novo (schema.sql já criou certo)
+
+    const fkEstava = database.pragma('foreign_keys', { simple: true });
+    database.pragma('foreign_keys = OFF');
+    try {
+      database.transaction(() => {
+        database.exec(`
+          CREATE TABLE users_novo_com_suporte (
+            id            TEXT PRIMARY KEY,
+            nome          TEXT NOT NULL,
+            role          TEXT NOT NULL CHECK (role IN ('operador','gerente','admin','garcom','suporte')),
+            pin_hash      TEXT NOT NULL,
+            pin_temporario INTEGER DEFAULT 0,
+            tentativas_falhas INTEGER NOT NULL DEFAULT 0,
+            bloqueado_ate TEXT,
+            ativo         INTEGER DEFAULT 1,
+            criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+          );
+        `);
+        database.exec(`
+          INSERT INTO users_novo_com_suporte (id, nome, role, pin_hash, pin_temporario, tentativas_falhas, bloqueado_ate, ativo, criado_em)
+          SELECT id, nome, role, pin_hash, pin_temporario, tentativas_falhas, bloqueado_ate, ativo, criado_em FROM users;
+        `);
+        database.exec(`DROP TABLE users;`);
+        database.exec(`ALTER TABLE users_novo_com_suporte RENAME TO users;`);
+      })();
+    } finally {
+      database.pragma(`foreign_keys = ${fkEstava ? 'ON' : 'OFF'}`);
+    }
+  } catch (err) {
+    console.error('[migração] falhou ao atualizar CHECK de users.role pra incluir suporte:', err);
+  }
+}
+
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
@@ -330,6 +376,7 @@ function migrateColumnsIfNeeded(database) {
 
   atualizarCheckRoleParaIncluirGarcom(database);
   atualizarCheckOrigemParaIncluirAppGarcom(database);
+  atualizarCheckRoleParaIncluirSuporte(database);
 
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
@@ -537,6 +584,8 @@ module.exports = {
   atualizarCheckRoleParaIncluirGarcom,
   // Idem, pra tests/migracaoOrigemAppGarcom.test.js.
   atualizarCheckOrigemParaIncluirAppGarcom,
+  // Idem, pra tests/migracaoRoleSuporte.test.js.
+  atualizarCheckRoleParaIncluirSuporte,
 };
 
 function getDbPath() {

@@ -34,7 +34,7 @@ function gerarCodigoNumerico() {
 function requireGerenteOuAdmin(requestingUserId) {
   const db = getDb();
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
-  if (!user || !['gerente', 'admin'].includes(user.role)) {
+  if (!user || !['gerente', 'admin', 'suporte'].includes(user.role)) {
     return { ok: false, error: 'Apenas um gerente ou administrador pode gerenciar pareamento de dispositivos.' };
   }
   return { ok: true };
@@ -58,7 +58,7 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
   if (tipo === 'garcom' && vinculo.role !== 'garcom') {
     return { ok: false, error: 'Um código do tipo "garçom" só pode ser vinculado a um usuário com papel Garçom.' };
   }
-  if (tipo === 'consulta' && !['gerente', 'admin'].includes(vinculo.role)) {
+  if (tipo === 'consulta' && !['gerente', 'admin', 'suporte'].includes(vinculo.role)) {
     return { ok: false, error: 'Um código de consulta remota só pode ser vinculado a um Gerente ou Administrador.' };
   }
 
