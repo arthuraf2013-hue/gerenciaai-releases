@@ -22,6 +22,7 @@ export function ProductList() {
   const [estoquePorProduto, setEstoquePorProduto] = useState({});
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
+  const [tipoFiltro, setTipoFiltro] = useState('todos'); // 'todos' | 'produto' | 'servico'
   const [editing, setEditing] = useState(null); // null = fechado, {} = novo, {...} = editar
   useEscToClose(() => setEditing(null), !!editing);
   const [adjusting, setAdjusting] = useState(null); // produto sendo ajustado, ou null
@@ -76,7 +77,7 @@ export function ProductList() {
       // os primeiros produtos apareciam duplicados na tela.
       carregandoMais = true;
       setHasMore(true);
-      const list = await window.pdv.products.list({ query: debouncedQuery || undefined, limit: PAGE_SIZE, offset: 0 });
+      const list = await window.pdv.products.list({ query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined, limit: PAGE_SIZE, offset: 0 });
       carregandoMais = false;
       if (ignore) return; // uma busca mais nova já começou — descarta esta resposta atrasada
 
@@ -93,7 +94,7 @@ export function ProductList() {
       temMais = list.length === PAGE_SIZE;
       setHasMore(temMais);
 
-      const total = await window.pdv.products.count({ query: debouncedQuery || undefined });
+      const total = await window.pdv.products.count({ query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined });
       if (!ignore) setTotalProdutos(total);
 
       const estoque = await window.pdv.stock.getForLocation({ locationId: window.APP_LOCATION_ID });
@@ -114,7 +115,7 @@ export function ProductList() {
       // (ver o comentário de ORDER BY no backend pra mais detalhes).
       const ultimoCarregado = produtosCarregados[produtosCarregados.length - 1];
       const list = await window.pdv.products.list({
-        query: debouncedQuery || undefined, limit: PAGE_SIZE,
+        query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined, limit: PAGE_SIZE,
         cursorNome: ultimoCarregado?.nome, cursorId: ultimoCarregado?.id,
       });
       carregandoMais = false;
@@ -132,7 +133,7 @@ export function ProductList() {
     carregarPrimeiroLote();
 
     return () => { ignore = true; };
-  }, [debouncedQuery]);
+  }, [debouncedQuery, tipoFiltro]);
 
   // Observa um marcador invisível logo depois da tabela — quando ele
   // entra na área visível da rolagem, carrega o próximo lote sozinho.
@@ -264,6 +265,22 @@ export function ProductList() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {[
+          { valor: 'todos', rotulo: 'Todos' },
+          { valor: 'produto', rotulo: 'Produtos' },
+          { valor: 'servico', rotulo: 'Serviços' },
+        ].map((aba) => (
+          <button
+            key={aba.valor}
+            className={tipoFiltro === aba.valor ? 'btn-secondary' : 'btn-link'}
+            onClick={() => setTipoFiltro(aba.valor)}
+            style={{ fontWeight: tipoFiltro === aba.valor ? 600 : 400 }}
+          >
+            {aba.rotulo}
+          </button>
+        ))}
+      </div>
       <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 12 }}>
         <input type="checkbox" style={{ width: 'auto' }} checked={soConflitos} onChange={(e) => setSoConflitos(e.target.checked)} />
         Mostrar só produtos com conflito de código de barras pendente
@@ -284,8 +301,9 @@ export function ProductList() {
         </thead>
         <tbody>
           {produtosExibidos.map((p) => {
-            const estoqueAtual = estoquePorProduto[p.id] ?? '—';
-            const abaixoDoMinimo = typeof estoqueAtual === 'number' && estoqueAtual <= p.estoque_minimo;
+            const ehServico = p.tipo === 'servico';
+            const estoqueAtual = ehServico ? '—' : (estoquePorProduto[p.id] ?? '—');
+            const abaixoDoMinimo = !ehServico && typeof estoqueAtual === 'number' && estoqueAtual <= p.estoque_minimo;
             return (
               <tr key={p.id}>
                 <td><ProductThumbnail product={p} size={36} /></td>
@@ -305,15 +323,17 @@ export function ProductList() {
                 <td>{p.categoria}</td>
                 <td>R$ {p.preco.toFixed(2)}</td>
                 <td className={abaixoDoMinimo ? 'text-danger' : ''}>{estoqueAtual}</td>
-                <td>{p.estoque_minimo}</td>
+                <td>{ehServico ? '—' : p.estoque_minimo}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <button className="btn-link" onClick={() => setEditing(p)}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="edit" size={14} /> Editar</span>
                     </button>
-                    <button className="btn-link" onClick={() => setAdjusting(p)}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="box" size={14} /> Ajustar estoque</span>
-                    </button>
+                    {!ehServico && (
+                      <button className="btn-link" onClick={() => setAdjusting(p)}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="box" size={14} /> Ajustar estoque</span>
+                      </button>
+                    )}
                     <button className="btn-link-danger" onClick={() => handleDelete(p)}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Excluir</span>
                     </button>

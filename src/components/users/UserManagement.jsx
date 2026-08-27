@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
+import { useProfile } from '../../context/ProfileContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
 import Icon from '../common/Icon';
 
+const ROTULO_PAPEL = { operador: 'Operador de caixa', gerente: 'Gerente', admin: 'Administrador', garcom: 'Garçom' };
+
 export function UserManagement() {
   const { currentUser } = useSession();
+  const { profile } = useProfile();
   const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
@@ -75,7 +79,7 @@ export function UserManagement() {
             return (
               <tr key={u.id}>
                 <td>{u.nome}</td>
-                <td>{u.role}</td>
+                <td>{ROTULO_PAPEL[u.role] || u.role}</td>
                 <td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
                 <td>
                   {!bloqueadoPraGerente && <button className="btn-link" onClick={() => resetPin(u)}><Icon name="key" size={14} /> Resetar PIN</button>}
@@ -104,6 +108,7 @@ export function UserManagement() {
             <label>Papel
               <select value={novoRole} onChange={(e) => setNovoRole(e.target.value)}>
                 <option value="operador">Operador de caixa</option>
+                {profile?.id === 'restaurante' && <option value="garcom">Garçom</option>}
                 <option value="gerente">Gerente</option>
                 {currentUser.role === 'admin' && <option value="admin">Administrador</option>}
               </select>

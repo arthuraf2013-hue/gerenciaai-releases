@@ -330,3 +330,65 @@ test('desconto de fidelidade não estoura o total quando somado ao desconto de g
   assert.equal(resgate.ok, true);
   assert.equal(resgate.desconto, 2);
 });
+
+// ---------------------------------------------------------------------
+// Venda de serviço (tipo='servico') — mão de obra, consulta, taxa: nunca
+// tem estoque físico, então addItem/cancelSaleItem/cancelSale nunca podem
+// gerar ou tentar estornar um stock_movements pra ele (saldo fantasma).
+// ---------------------------------------------------------------------
+
+test('addItem vende serviço mesmo com estoque zerado, sem gerar stock_movements', () => {
+  const ctx = freshTestDb();
+  const servicoId = createProduct(ctx.db, { nome: 'Corte de cabelo', preco: 50, tipo: 'servico' });
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+
+  const result = saleService.addItem({
+    saleId, productId: servicoId, locationId: ctx.locationId, quantidade: 1,
+    operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+
+  assert.equal(result.ok, true);
+  const movimentos = ctx.db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE product_id = ?').get(servicoId).c;
+  assert.equal(movimentos, 0, 'serviço nunca deveria gerar stock_movements');
+});
+
+test('cancelSaleItem de um serviço não gera estorno de estoque (nunca existiu)', () => {
+  const ctx = freshTestDb();
+  const servicoId = createProduct(ctx.db, { nome: 'Consulta', preco: 80, tipo: 'servico' });
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  const addResult = saleService.addItem({
+    saleId, productId: servicoId, locationId: ctx.locationId, quantidade: 1,
+    operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+
+  const result = saleService.cancelSaleItem({
+    saleId, saleItemId: addResult.itemId, locationId: ctx.locationId,
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234',
+    deviceId: 'device-teste',
+  });
+
+  assert.equal(result.ok, true);
+  const movimentos = ctx.db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE product_id = ?').get(servicoId).c;
+  assert.equal(movimentos, 0, 'cancelar item de serviço não deveria gerar estorno de estoque');
+});
+
+test('cancelSale com item de serviço não gera estorno de estoque pra ele', () => {
+  const ctx = freshTestDb();
+  const servicoId = createProduct(ctx.db, { nome: 'Taxa de entrega', preco: 15, tipo: 'servico' });
+  const produtoId = createProduct(ctx.db, { nome: 'Produto físico', preco: 10, estoqueMinimo: 1 });
+  addStock(ctx.db, { productId: produtoId, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  saleService.addItem({ saleId, productId: servicoId, locationId: ctx.locationId, quantidade: 1, operadorId: ctx.operadorId, deviceId: 'device-teste' });
+  saleService.addItem({ saleId, productId: produtoId, locationId: ctx.locationId, quantidade: 2, operadorId: ctx.operadorId, deviceId: 'device-teste' });
+  assert.equal(stockService.getCurrentStock(produtoId, ctx.locationId), 8);
+
+  const result = saleService.cancelSale({
+    saleId, locationId: ctx.locationId, currentOperatorId: ctx.operadorId,
+    candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'device-teste',
+  });
+
+  assert.equal(result.ok, true);
+  const movimentosServico = ctx.db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE product_id = ?').get(servicoId).c;
+  assert.equal(movimentosServico, 0, 'serviço nunca deveria ter stock_movements, nem no cancelamento da venda inteira');
+  assert.equal(stockService.getCurrentStock(produtoId, ctx.locationId), 10, 'estoque do produto físico deveria voltar ao normal');
+});

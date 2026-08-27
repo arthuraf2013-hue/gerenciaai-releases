@@ -24,11 +24,11 @@ function freshTestDb() {
   return { db, locationId, adminId, gerenteId, operadorId };
 }
 
-function createProduct(db, { nome = 'Produto Teste', preco = 10, estoqueMinimo = 5, categoria = null } = {}) {
+function createProduct(db, { nome = 'Produto Teste', preco = 10, estoqueMinimo = 5, categoria = null, tipo = 'produto' } = {}) {
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO products (id, nome, preco, estoque_minimo, unidade, categoria) VALUES (?, ?, ?, ?, 'un', ?)`
-  ).run(id, nome, preco, estoqueMinimo, categoria);
+    `INSERT INTO products (id, nome, preco, estoque_minimo, unidade, categoria, tipo) VALUES (?, ?, ?, ?, 'un', ?, ?)`
+  ).run(id, nome, preco, estoqueMinimo, categoria, tipo);
   return id;
 }
 

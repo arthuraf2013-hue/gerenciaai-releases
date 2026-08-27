@@ -760,7 +760,12 @@ function processarMensagem({ telefone, texto, nomeExibicao, locationId, estadoCo
         && appointmentService.listProfessionals().length > 0;
       const dicaAgendamento = temProfissional ? '\n\nOu digite *agendar* pra marcar um horário 💇' : '';
       const dicaOrcamento = '\n\nOu digite *orçamento* se quiser uma cotação sem compromisso 📝';
-      return { resposta: `Oi${conversa.nomeExibicao ? ', ' + conversa.nomeExibicao : ''}! 👋😊 Seja bem-vindo(a)! ${menu.texto}${dicaReserva}${dicaAgendamento}${dicaOrcamento}` };
+      // Nome fantasia (Configurações → Fiscal) personaliza a saudação
+      // quando preenchido -- sem isso, cai pro "seja bem-vindo(a)"
+      // genérico de sempre (nem toda instalação preenche esse campo).
+      const nomeNegocio = require('./fiscalService').getNomeNegocio();
+      const boasVindas = nomeNegocio ? `Seja bem-vindo(a) à ${nomeNegocio}!` : 'Seja bem-vindo(a)!';
+      return { resposta: `Oi${conversa.nomeExibicao ? ', ' + conversa.nomeExibicao : ''}! 👋😊 ${boasVindas} ${menu.texto}${dicaReserva}${dicaAgendamento}${dicaOrcamento}` };
     }
 
     case 'aguardando_nome_reserva': {

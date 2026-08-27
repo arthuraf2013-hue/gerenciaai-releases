@@ -6,9 +6,9 @@ const saleService = require('../electron/services/saleService');
 const returnService = require('../electron/services/returnService');
 const stockService = require('../electron/services/stockService');
 
-function vendaFinalizadaComItem(ctx, { quantidadeVenda = 2, preco = 10 } = {}) {
-  const productId = createProduct(ctx.db, { preco });
-  addStock(ctx.db, { productId, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+function vendaFinalizadaComItem(ctx, { quantidadeVenda = 2, preco = 10, tipo = 'produto' } = {}) {
+  const productId = createProduct(ctx.db, { preco, tipo });
+  if (tipo !== 'servico') addStock(ctx.db, { productId, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
   const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
   const addResult = saleService.addItem({
     saleId, productId, locationId: ctx.locationId, quantidade: quantidadeVenda,
@@ -106,4 +106,19 @@ test('listReturns respeita as fronteiras do dia local (UTC-3) no filtro de data'
   const resultado = returnService.listReturns({ locationId: ctx.locationId, dataInicio: '2026-07-31', dataFim: '2026-08-31' });
   assert.equal(resultado.length, 2);
   assert.ok(resultado.every((r) => r.criado_em === '2026-07-31 03:00:00' || r.criado_em === '2026-09-01 02:59:59'));
+});
+
+test('devolução de item de serviço não inventa uma entrada de estoque (nunca teve saída)', () => {
+  const ctx = vendaFinalizadaComItem(freshTestDb(), { quantidadeVenda: 1, preco: 80, tipo: 'servico' });
+
+  const result = returnService.createReturn({
+    saleId: ctx.saleId, locationId: ctx.locationId,
+    itens: [{ saleItemId: ctx.saleItemId, quantidade: 1 }],
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'd',
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.valorDevolvido, 80);
+  const movimentos = ctx.db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE product_id = ?').get(ctx.productId).c;
+  assert.equal(movimentos, 0, 'devolver serviço não deveria criar stock_movements de entrada');
 });

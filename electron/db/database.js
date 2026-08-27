@@ -86,6 +86,63 @@ function adicionarColunaSeFaltando(database, tabela, coluna, definicaoSql) {
   }
 }
 
+/**
+ * O CHECK de `users.role` foi definido junto com a tabela (não é uma
+ * coluna nova, é o mesmo `role` de sempre aceitando um valor a mais:
+ * 'garcom') — SQLite não deixa alterar o CHECK de uma coluna existente
+ * sem recriar a tabela inteira, então `adicionarColunaSeFaltando` não
+ * serve aqui. Sem essa migração, toda instalação já existente (banco
+ * criado antes desta versão) continuaria travada no CHECK antigo e
+ * criar um usuário 'garcom' falharia com "CHECK constraint failed" —
+ * só banco novo (criado direto pelo schema.sql atualizado) funcionaria.
+ *
+ * Recria a tabela num nome temporário e SÓ NO FINAL renomeia ele de
+ * volta pra "users" (em vez de renomear "users" pra fora do caminho
+ * primeiro) — assim toda outra tabela com `REFERENCES users(id)`
+ * (são quase vinte) nunca fica, nem por um instante, apontando pra um
+ * nome que deixou de existir. `foreign_keys` desligado durante a troca
+ * só por segurança (não há linha sendo escrita nas tabelas filhas
+ * nesse meio-tempo, mas evita qualquer checagem incômoda no DROP).
+ */
+function atualizarCheckRoleParaIncluirGarcom(database) {
+  try {
+    const tabela = database.prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'`
+    ).get();
+    if (!tabela || tabela.sql.includes("'garcom'")) return; // já migrado, ou banco novo (schema.sql já criou certo)
+
+    const fkEstava = database.pragma('foreign_keys', { simple: true });
+    database.pragma('foreign_keys = OFF');
+    try {
+      database.transaction(() => {
+        database.exec(`
+          CREATE TABLE users_novo_com_garcom (
+            id            TEXT PRIMARY KEY,
+            nome          TEXT NOT NULL,
+            role          TEXT NOT NULL CHECK (role IN ('operador','gerente','admin','garcom')),
+            pin_hash      TEXT NOT NULL,
+            pin_temporario INTEGER DEFAULT 0,
+            tentativas_falhas INTEGER NOT NULL DEFAULT 0,
+            bloqueado_ate TEXT,
+            ativo         INTEGER DEFAULT 1,
+            criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+          );
+        `);
+        database.exec(`
+          INSERT INTO users_novo_com_garcom (id, nome, role, pin_hash, pin_temporario, tentativas_falhas, bloqueado_ate, ativo, criado_em)
+          SELECT id, nome, role, pin_hash, pin_temporario, tentativas_falhas, bloqueado_ate, ativo, criado_em FROM users;
+        `);
+        database.exec(`DROP TABLE users;`);
+        database.exec(`ALTER TABLE users_novo_com_garcom RENAME TO users;`);
+      })();
+    } finally {
+      database.pragma(`foreign_keys = ${fkEstava ? 'ON' : 'OFF'}`);
+    }
+  } catch (err) {
+    console.error('[migração] falhou ao atualizar CHECK de users.role pra incluir garcom:', err);
+  }
+}
+
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
@@ -196,6 +253,11 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelamento_protocolo', 'TEXT');
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'cancelada_em', 'TEXT');
   adicionarColunaSeFaltando(database, 'nfce_emitidas', 'transmitida_em_contingencia', 'INTEGER NOT NULL DEFAULT 0');
+  // Venda de serviço (sem controle de estoque) além de produto — ver
+  // comentário da coluna em schema.sql e saleService.addItem.
+  adicionarColunaSeFaltando(database, 'products', 'tipo', "TEXT NOT NULL DEFAULT 'produto' CHECK (tipo IN ('produto','servico'))");
+
+  atualizarCheckRoleParaIncluirGarcom(database);
 
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
@@ -395,7 +457,13 @@ function seedIfEmpty(database) {
   }
 }
 
-module.exports = { getDb, setDbForTesting, getDbPath, closeConnection };
+module.exports = {
+  getDb, setDbForTesting, getDbPath, closeConnection,
+  // Exportado só pra teste de migração (tests/migracaoRoleGarcom.test.js) —
+  // precisa simular um banco "antigo" (CHECK sem 'garcom') e chamar a
+  // migração isoladamente, já que setDbForTesting não roda migrateColumnsIfNeeded.
+  atualizarCheckRoleParaIncluirGarcom,
+};
 
 function getDbPath() {
   const userDataPath = getUserDataPath();

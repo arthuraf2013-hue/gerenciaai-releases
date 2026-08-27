@@ -24,7 +24,7 @@ function create(requestingUserId, { nome, role, pin }) {
   if (!guard.ok) return guard;
 
   if (!nome || !nome.trim()) return { ok: false, error: 'Informe o nome.' };
-  if (!['operador', 'gerente', 'admin'].includes(role)) return { ok: false, error: 'Papel inválido.' };
+  if (!['operador', 'gerente', 'admin', 'garcom'].includes(role)) return { ok: false, error: 'Papel inválido.' };
   if (guard.requestingRole === 'gerente' && role === 'admin') {
     return { ok: false, error: 'Um gerente não pode criar um administrador — peça pra um administrador fazer isso.' };
   }

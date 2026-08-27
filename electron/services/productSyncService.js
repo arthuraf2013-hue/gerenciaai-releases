@@ -19,7 +19,7 @@ let catalogoDoGrupoEmMemoria = new Map();
  * estoque (quantidade física presente) é que nunca sincroniza. */
 const CAMPOS_SINCRONIZADOS = [
   'nome', 'categoria', 'preco', 'custo', 'unidade', 'sku', 'codigoBarras',
-  'ncm', 'cest', 'cfop', 'cstCsosn', 'origemMercadoria', 'estoqueMinimo', 'ativo',
+  'ncm', 'cest', 'cfop', 'cstCsosn', 'origemMercadoria', 'estoqueMinimo', 'ativo', 'tipo',
 ];
 
 /** Manda a versão atual de um produto pro grupo — best-effort,

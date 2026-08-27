@@ -75,7 +75,7 @@ function normalizarTexto(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
-function list({ query, categoria, limit, offset, cursorNome, cursorId } = {}) {
+function list({ query, categoria, tipo, limit, offset, cursorNome, cursorId } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
@@ -97,7 +97,9 @@ function list({ query, categoria, limit, offset, cursorNome, cursorId } = {}) {
     // simplesmente não devolver nada.
     const queryNormalizada = normalizarTexto(query);
     const queryLower = query.toLowerCase();
-    const todosAtivos = db.prepare('SELECT * FROM products WHERE ativo = 1').all();
+    const todosAtivos = tipo
+      ? db.prepare('SELECT * FROM products WHERE ativo = 1 AND tipo = ?').all(tipo)
+      : db.prepare('SELECT * FROM products WHERE ativo = 1').all();
 
     const comecamComOTermo = [];
     const outrosMatches = [];
@@ -157,6 +159,10 @@ function list({ query, categoria, limit, offset, cursorNome, cursorId } = {}) {
   if (categoria) {
     sql += ' AND categoria = ?';
     params.push(categoria);
+  }
+  if (tipo) {
+    sql += ' AND tipo = ?';
+    params.push(tipo);
   }
 
   // Paginação por CURSOR (baseada no último item visto), não por
@@ -221,7 +227,7 @@ function countConflitosCodigoBarrasPendentes() {
   ).get().total;
 }
 
-function count({ query, categoria } = {}) {
+function count({ query, categoria, tipo } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
@@ -229,7 +235,7 @@ function count({ query, categoria } = {}) {
     // começa com o termo, só cai pro resto quando não tem nenhum
     // assim) — senão a paginação da tela de Produtos "acha" que tem
     // mais resultado do que list() realmente devolve, ou o contrário.
-    return list({ query }).length;
+    return list({ query, tipo }).length;
   }
 
   const params = [];
@@ -237,6 +243,10 @@ function count({ query, categoria } = {}) {
   if (categoria) {
     sql += ' AND categoria = ?';
     params.push(categoria);
+  }
+  if (tipo) {
+    sql += ' AND tipo = ?';
+    params.push(tipo);
   }
   return db.prepare(sql).get(...params).total;
 }
@@ -279,9 +289,11 @@ function upsert(product) {
   // realmente mudou (não dispara em toda edição de produto).
   const existente = product.id ? db.prepare('SELECT preco FROM products WHERE id = ?').get(product.id) : null;
 
+  const tipo = product.tipo === 'servico' ? 'servico' : 'produto';
+
   db.prepare(
-    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields, codigo_balanca)
-     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields, @codigoBalanca)
+    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields, codigo_balanca, tipo)
+     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields, @codigoBalanca, @tipo)
      ON CONFLICT(id) DO UPDATE SET
        sku=excluded.sku, codigo_barras=excluded.codigo_barras, nome=excluded.nome,
        categoria=excluded.categoria, preco=excluded.preco, custo=excluded.custo,
@@ -289,6 +301,7 @@ function upsert(product) {
        ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
        cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria,
        custom_fields=excluded.custom_fields, codigo_balanca=excluded.codigo_balanca,
+       tipo=excluded.tipo,
        conflito_codigo_barras_pendente=NULL`
   ).run({
     id,
@@ -307,6 +320,7 @@ function upsert(product) {
     cstCsosn: product.cstCsosn || null,
     origemMercadoria: product.origemMercadoria || '0',
     customFields,
+    tipo,
   });
 
   if (existente && existente.preco !== precoNovo) {
@@ -323,6 +337,7 @@ function upsert(product) {
     codigoBarras: product.codigoBarras || null, ncm: product.ncm || null, cest: product.cest || null,
     cfop: product.cfop || null, cstCsosn: product.cstCsosn || null,
     origemMercadoria: product.origemMercadoria || '0', estoqueMinimo: Number(product.estoqueMinimo) || 0,
+    tipo,
     ativo: true,
   }).catch(() => {});
 

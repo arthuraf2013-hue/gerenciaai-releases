@@ -116,3 +116,63 @@ test('clearAllProducts funciona pra gerente, mesmo nível de acesso da tela de P
   assert.equal(resultado.ok, true);
   assert.equal(resultado.apagados, 1);
 });
+
+// ---------------------------------------------------------------------
+// tipo ('produto' | 'servico') — permite vender serviço (mão de obra,
+// consulta, taxa) sem gerar estoque. list/count precisam filtrar por
+// aba (Todos/Produtos/Serviços) igual a tela de catálogo faz.
+// ---------------------------------------------------------------------
+
+test('upsert sem tipo assume "produto" por padrão', () => {
+  const { db } = freshTestDb();
+  const resultado = productService.upsert({ nome: 'Item sem tipo', preco: 10 });
+  assert.equal(resultado.ok, true);
+  const row = db.prepare('SELECT tipo FROM products WHERE id = ?').get(resultado.id);
+  assert.equal(row.tipo, 'produto');
+});
+
+test('upsert com tipo="servico" grava corretamente', () => {
+  const { db } = freshTestDb();
+  const resultado = productService.upsert({ nome: 'Corte de cabelo', preco: 50, tipo: 'servico' });
+  assert.equal(resultado.ok, true);
+  const row = db.prepare('SELECT tipo FROM products WHERE id = ?').get(resultado.id);
+  assert.equal(row.tipo, 'servico');
+});
+
+test('list filtra por tipo quando informado', () => {
+  const { db } = freshTestDb();
+  inserirProduto(db, 'Produto A');
+  inserirProduto(db, 'Produto B');
+  productService.upsert({ nome: 'Serviço A', preco: 30, tipo: 'servico' });
+
+  const soProdutos = productService.list({ tipo: 'produto' });
+  const soServicos = productService.list({ tipo: 'servico' });
+  const todos = productService.list({});
+
+  assert.equal(soProdutos.length, 2);
+  assert.ok(soProdutos.every((p) => p.tipo === 'produto'));
+  assert.equal(soServicos.length, 1);
+  assert.equal(soServicos[0].nome, 'Serviço A');
+  assert.equal(todos.length, 3);
+});
+
+test('list filtra por tipo também na busca por nome (query + tipo juntos)', () => {
+  const { db } = freshTestDb();
+  inserirProduto(db, 'Consulta Veterinaria'); // produto (default), nome parecido de propósito
+  productService.upsert({ nome: 'Consulta Veterinaria Servico', preco: 80, tipo: 'servico' });
+
+  const resultado = productService.list({ query: 'consulta', tipo: 'servico' });
+  assert.equal(resultado.length, 1);
+  assert.equal(resultado[0].tipo, 'servico');
+});
+
+test('count respeita o filtro de tipo', () => {
+  const { db } = freshTestDb();
+  inserirProduto(db, 'Produto A');
+  productService.upsert({ nome: 'Serviço A', preco: 30, tipo: 'servico' });
+  productService.upsert({ nome: 'Serviço B', preco: 40, tipo: 'servico' });
+
+  assert.equal(productService.count({ tipo: 'servico' }), 2);
+  assert.equal(productService.count({ tipo: 'produto' }), 1);
+  assert.equal(productService.count({}), 3);
+});

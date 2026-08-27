@@ -833,3 +833,30 @@ test('pedido de mesa concluído não dispara pesquisa de satisfação (só retir
   const r = whatsappBotHandler.processarMensagem({ telefone, texto: 'oi', locationId, estadoConversas: new Map() });
   assert.match(r.resposta, /bem-vindo/i);
 });
+
+// Bot se adaptar ao nome do negócio do cliente (nome_fantasia, já usado
+// na NFC-e) -- reaproveitado na saudação inicial em vez de um texto
+// genérico fixo.
+
+test('saudação inicial usa o nome do negócio quando o nome fantasia está configurado', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  require('../electron/services/fiscalService').updateFiscalConfig(adminId, { nomeFantasia: 'Pet Shop Amigo Fiel' });
+  const p = createProduct(db, { nome: 'Ração X', preco: 40, categoria: 'Ração' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+
+  const r = whatsappBotHandler.processarMensagem({
+    telefone: '5511900099999', texto: 'oi', nomeExibicao: 'Carla', locationId, estadoConversas: new Map(),
+  });
+  assert.match(r.resposta, /Pet Shop Amigo Fiel/);
+});
+
+test('saudação inicial cai pra texto genérico quando nome fantasia não está configurado', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const p = createProduct(db, { nome: 'Ração Y', preco: 40, categoria: 'Ração' });
+  addStock(db, { productId: p, locationId, quantidade: 5, operadorId: adminId });
+
+  const r = whatsappBotHandler.processarMensagem({
+    telefone: '5511900088888', texto: 'oi', locationId, estadoConversas: new Map(),
+  });
+  assert.match(r.resposta, /bem-vindo/i);
+});

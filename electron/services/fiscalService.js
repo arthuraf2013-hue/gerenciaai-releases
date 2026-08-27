@@ -42,6 +42,18 @@ function getFiscalConfigPublic() {
   };
 }
 
+/** Nome pra humanizar mensagens voltadas ao cliente final (hoje: saudação
+ * do bot do WhatsApp) — só o nome fantasia, sem puxar o resto da
+ * configuração fiscal (evita descriptografar certificado/CSC à toa pra
+ * quem só quer o nome). Cai pra null se a farmácia/negócio ainda não
+ * preencheu isso em Configurações → Fiscal — quem chamar decide o texto
+ * genérico de fallback (ver whatsappBotHandler.js). */
+function getNomeNegocio() {
+  const db = getDb();
+  const row = db.prepare('SELECT nome_fantasia FROM fiscal_config WHERE id = ?').get('default');
+  return row?.nome_fantasia?.trim() || null;
+}
+
 function updateFiscalConfig(requestingUserId, payload) {
   // Mesmo nível de acesso da aba Fiscal em Configurações (só admin) —
   // guarda também no backend, não só escondendo o botão na tela.
@@ -545,7 +557,7 @@ function livroDeControlados({ locationId, dataInicio, dataFim }) {
 }
 
 module.exports = {
-  getFiscalConfigPublic, updateFiscalConfig, emitirNFCe, reenviarNFCe,
+  getFiscalConfigPublic, getNomeNegocio, updateFiscalConfig, emitirNFCe, reenviarNFCe,
   cancelarNFCe, inutilizarNumeracao, listInutilizacoes, listNfcePendentesOuContingencia,
   listNfceForSale, getNfceMaisRecente, getQrCodeUrlParaNfce, livroDeControlados,
 };

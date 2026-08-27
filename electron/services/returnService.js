@@ -88,10 +88,16 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
         `INSERT INTO return_items (id, return_id, product_id, quantidade, valor_unitario) VALUES (?, ?, ?, ?, ?)`
       ).run(randomUUID(), returnId, saleItem.product_id, item.quantidade, saleItem.preco_unitario);
 
-      db.prepare(
-        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, operador_id, autorizado_por_id, device_id)
-         VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?, ?, ?)`
-      ).run(randomUUID(), saleItem.product_id, locationId, Math.abs(item.quantidade), motivo || 'Devolução pós-venda', saleId, currentOperatorId, auth.autorizadoPor.id, deviceId);
+      // Serviço (mão de obra, taxa, consulta...) nunca teve stock_movements
+      // gerado na venda original (ver saleService.addItem) — devolver o
+      // valor não pode inventar uma "entrada" de estoque que não existe.
+      const produtoDevolvido = db.prepare('SELECT tipo FROM products WHERE id = ?').get(saleItem.product_id);
+      if (produtoDevolvido?.tipo !== 'servico') {
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, operador_id, autorizado_por_id, device_id)
+           VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?, ?, ?)`
+        ).run(randomUUID(), saleItem.product_id, locationId, Math.abs(item.quantidade), motivo || 'Devolução pós-venda', saleId, currentOperatorId, auth.autorizadoPor.id, deviceId);
+      }
     }
 
     db.prepare('UPDATE returns SET valor_devolvido = ? WHERE id = ?').run(valorTotal, returnId);

@@ -299,8 +299,12 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   const product = db.prepare('SELECT * FROM products WHERE id = ? AND ativo = 1').get(productId);
   if (!product) return { ok: false, error: 'Produto não encontrado.' };
 
-  const disponivel = getCurrentStock(productId, locationId);
-  if (quantidade > disponivel) {
+  // Serviço (mão de obra, taxa, consulta...) não tem estoque físico —
+  // sempre "disponível", nunca gera stock_movements nem desconta
+  // insumo/ficha técnica (ver dentro da transação abaixo).
+  const ehServico = product.tipo === 'servico';
+  const disponivel = ehServico ? null : getCurrentStock(productId, locationId);
+  if (!ehServico && quantidade > disponivel) {
     return { ok: false, error: `Estoque insuficiente. Disponível: ${disponivel} ${product.unidade}.` };
   }
 
@@ -332,16 +336,20 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       ).run(itemId, saleId, productId, quantidade, precoDeVenda);
     }
 
-    db.prepare(
-      `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
-       VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
-    ).run(movId, productId, locationId, -Math.abs(quantidade), saleId, itemId, operadorId, deviceId);
+    if (!ehServico) {
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
+         VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
+      ).run(movId, productId, locationId, -Math.abs(quantidade), saleId, itemId, operadorId, deviceId);
 
-    // Se o produto tiver ficha técnica (prato com insumos cadastrados),
-    // já desconta os insumos na mesma transação — mesma ideia do
-    // estoque do produto em si, "vendas diminuem estoque diretamente".
-    // Produto sem ficha técnica: não faz nada (ver ingredientService).
-    ingredientService.descontarPorVenda(productId, quantidade);
+      // Se o produto tiver ficha técnica (prato com insumos cadastrados),
+      // já desconta os insumos na mesma transação — mesma ideia do
+      // estoque do produto em si, "vendas diminuem estoque diretamente".
+      // Produto sem ficha técnica: não faz nada (ver ingredientService).
+      // Serviço nunca tem ficha técnica (não existe "produção" pra
+      // consumir insumo).
+      ingredientService.descontarPorVenda(productId, quantidade);
+    }
 
     db.prepare(
       `UPDATE sales SET total = total + ? WHERE id = ?`
@@ -349,10 +357,14 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   });
   tx();
 
-  const estoqueAposVenda = disponivel - quantidade;
-
-  const profile = profileService.getActiveProfile();
-  const alerta = computeProductAlert({ product, estoqueAtual: estoqueAposVenda, profile });
+  // Sem estoque físico, serviço nunca dispara alerta de validade/estoque
+  // baixo — não há "estoqueAtual" que faça sentido calcular.
+  let alerta = null;
+  if (!ehServico) {
+    const estoqueAposVenda = disponivel - quantidade;
+    const profile = profileService.getActiveProfile();
+    alerta = computeProductAlert({ product, estoqueAtual: estoqueAposVenda, profile });
+  }
 
   // avisoReceita é só um sinalizador para a UI sugerir anexar a receita —
   // nunca impede a venda, já que o estoque pode ter itens não farmacêuticos.
@@ -617,21 +629,27 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   }
 
   const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+  // Serviço nunca gerou stock_movements no addItem original (ver lá) —
+  // cancelar não pode estornar um estoque que nunca existiu, ou o
+  // produto-serviço fica com saldo fantasma na tabela de movimentos.
+  const ehServico = product?.tipo === 'servico';
 
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED(), motivo_cancelamento = ? WHERE id = ?`
     ).run(autorizadoPorId || currentOperatorId, motivo || null, saleItemId);
 
-    db.prepare(
-      `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
-       VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de item', saleId, saleItemId, currentOperatorId, autorizadoPorId, deviceId);
+    if (!ehServico) {
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
+         VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
+      ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de item', saleId, saleItemId, currentOperatorId, autorizadoPorId, deviceId);
 
-    // Espelha o estorno de estoque do produto pros insumos da ficha
-    // técnica (se tiver) — devolve exatamente o que foi descontado
-    // no addItem original.
-    ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+      // Espelha o estorno de estoque do produto pros insumos da ficha
+      // técnica (se tiver) — devolve exatamente o que foi descontado
+      // no addItem original.
+      ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+    }
 
     // Item personalizado: devolve o estoque de cada insumo/produto usado
     // na composição dele (ver customItemService) — o item.product_id
@@ -645,7 +663,9 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   });
   tx();
 
-  require('./stockSyncService').pushEstoqueProduto(item.product_id).catch(() => {});
+  if (!ehServico) {
+    require('./stockSyncService').pushEstoqueProduto(item.product_id).catch(() => {});
+  }
 
   return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: exigeAutorizacao };
 }
@@ -689,12 +709,18 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
 
   const tx = db.transaction(() => {
     for (const item of items) {
-      db.prepare(
-        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
-         VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
-      ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPor?.id || null, deviceId);
+      // Mesmo raciocínio de cancelSaleItem: serviço nunca gerou
+      // stock_movements no addItem original, então cancelar a venda não
+      // pode estornar um estoque que nunca existiu pra ele.
+      const produtoDoItem = db.prepare('SELECT tipo FROM products WHERE id = ?').get(item.product_id);
+      if (produtoDoItem?.tipo !== 'servico') {
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
+           VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
+        ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPor?.id || null, deviceId);
 
-      ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+        ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+      }
 
       if (item.eh_personalizado) {
         customItemService.reverterLinhasDoItem(item.id, { locationId, saleId, saleItemId: item.id, operadorId: autorizadoPor?.id || currentOperatorId, deviceId });

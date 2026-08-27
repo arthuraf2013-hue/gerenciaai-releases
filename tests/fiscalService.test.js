@@ -28,6 +28,27 @@ test('updateFiscalConfig funciona pra admin e o valor realmente é salvo', () =>
   assert.equal(fiscalService.getFiscalConfigPublic().cnpj, '00000000000191');
 });
 
+// getNomeNegocio -- usado pra personalizar a saudação do bot do WhatsApp
+// com o nome do negócio do cliente (nome_fantasia já existente, usado
+// também no <xFant> da NFC-e).
+
+test('getNomeNegocio retorna null quando nome_fantasia ainda não foi preenchido', () => {
+  freshTestDb();
+  assert.equal(fiscalService.getNomeNegocio(), null);
+});
+
+test('getNomeNegocio retorna o nome fantasia já configurado', () => {
+  const { adminId } = freshTestDb();
+  fiscalService.updateFiscalConfig(adminId, { nomeFantasia: 'Farmácia Boa Saúde' });
+  assert.equal(fiscalService.getNomeNegocio(), 'Farmácia Boa Saúde');
+});
+
+test('getNomeNegocio recorta espaços em volta e trata string em branco como não preenchido', () => {
+  const { adminId } = freshTestDb();
+  fiscalService.updateFiscalConfig(adminId, { nomeFantasia: '   ' });
+  assert.equal(fiscalService.getNomeNegocio(), null);
+});
+
 test('updateFiscalConfig salva a URL de consulta do QR Code', () => {
   const { adminId } = freshTestDb();
   const result = fiscalService.updateFiscalConfig(adminId, { qrCodeUrl: 'https://www.nfce.fazenda.sp.gov.br/qrcode' });

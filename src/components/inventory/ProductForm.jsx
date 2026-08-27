@@ -4,7 +4,7 @@ import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
 
 const emptyProduct = {
-  id: null, sku: '', codigoBarras: '', nome: '', categoria: '',
+  id: null, sku: '', codigoBarras: '', nome: '', categoria: '', tipo: 'produto',
   preco: '', custo: '', unidade: 'un', codigoBalanca: '', estoqueMinimo: '', customFields: {},
   ncm: '', cest: '', cfop: '', cstCsosn: '', origemMercadoria: '0',
 };
@@ -62,6 +62,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         codigoBarras: product.codigo_barras || '',
         nome: product.nome || '',
         categoria: product.categoria || '',
+        tipo: product.tipo || 'produto',
         preco: product.preco ?? '',
         custo: product.custo || '',
         unidade: product.unidade || 'un',
@@ -208,9 +209,14 @@ export function ProductForm({ product, onSaved, onCancel }) {
     if (!form.nome.trim()) return setError('Informe o nome do produto.');
     if (form.preco === '' || isNaN(Number(form.preco))) return setError('Informe um preço válido.');
 
-    for (const campo of profile?.camposExtras || []) {
-      if (campo.obrigatorio && !form.customFields[campo.campo]) {
-        return setError(`O campo "${campo.label}" é obrigatório para o perfil ${profile.nome}.`);
+    // Campos extras do perfil (lote, validade, princípio ativo...) são
+    // sobre um item físico — não fazem sentido pra serviço (consulta,
+    // mão de obra, taxa), então não bloqueiam o cadastro dele.
+    if (form.tipo !== 'servico') {
+      for (const campo of profile?.camposExtras || []) {
+        if (campo.obrigatorio && !form.customFields[campo.campo]) {
+          return setError(`O campo "${campo.label}" é obrigatório para o perfil ${profile.nome}.`);
+        }
       }
     }
 
@@ -221,6 +227,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
       codigoBarras: form.codigoBarras || null,
       nome: form.nome.trim(),
       categoria: form.categoria || null,
+      tipo: form.tipo,
       preco: Number(form.preco),
       custo: form.custo ? Number(form.custo) : 0,
       unidade: form.unidade || 'un',
@@ -245,6 +252,15 @@ export function ProductForm({ product, onSaved, onCancel }) {
       onSubmit={handleSubmit}
     >
       <h2>{form.id ? 'Editar produto' : 'Novo produto'}</h2>
+
+      <div className="form-grid" style={{ marginBottom: 12 }}>
+        <label>Tipo
+          <select value={form.tipo} onChange={(e) => setField('tipo', e.target.value)}>
+            <option value="produto">Produto (controla estoque)</option>
+            <option value="servico">Serviço (mão de obra, taxa, consulta — sem estoque)</option>
+          </select>
+        </label>
+      </div>
 
       {!form.id && (
         <div style={{ marginBottom: 12 }}>
@@ -368,35 +384,41 @@ export function ProductForm({ product, onSaved, onCancel }) {
             />
           </label>
         )}
-        <label>Estoque mínimo (alerta)
-          <input type="number" step="0.01" value={form.estoqueMinimo} onChange={(e) => setField('estoqueMinimo', e.target.value)} />
-        </label>
+        {form.tipo !== 'servico' && (
+          <label>Estoque mínimo (alerta)
+            <input type="number" step="0.01" value={form.estoqueMinimo} onChange={(e) => setField('estoqueMinimo', e.target.value)} />
+          </label>
+        )}
       </div>
 
-      <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={16} /> Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
-      <div className="form-grid">
-        <label>NCM
-          <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} placeholder="8 dígitos" maxLength={8} />
-        </label>
-        <label>CEST
-          <input value={form.cest} onChange={(e) => setField('cest', e.target.value)} placeholder="quando aplicável" />
-        </label>
-        <label>CFOP
-          <input value={form.cfop} onChange={(e) => setField('cfop', e.target.value)} placeholder="ex: 5102" />
-        </label>
-        <label>CST/CSOSN
-          <input value={form.cstCsosn} onChange={(e) => setField('cstCsosn', e.target.value)} placeholder="conforme regime tributário" />
-        </label>
-        <label>Origem da mercadoria
-          <select value={form.origemMercadoria} onChange={(e) => setField('origemMercadoria', e.target.value)}>
-            <option value="0">0 - Nacional</option>
-            <option value="1">1 - Estrangeira (importação direta)</option>
-            <option value="2">2 - Estrangeira (adquirida no mercado interno)</option>
-          </select>
-        </label>
-      </div>
+      {form.tipo !== 'servico' && (
+        <>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={16} /> Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
+          <div className="form-grid">
+            <label>NCM
+              <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} placeholder="8 dígitos" maxLength={8} />
+            </label>
+            <label>CEST
+              <input value={form.cest} onChange={(e) => setField('cest', e.target.value)} placeholder="quando aplicável" />
+            </label>
+            <label>CFOP
+              <input value={form.cfop} onChange={(e) => setField('cfop', e.target.value)} placeholder="ex: 5102" />
+            </label>
+            <label>CST/CSOSN
+              <input value={form.cstCsosn} onChange={(e) => setField('cstCsosn', e.target.value)} placeholder="conforme regime tributário" />
+            </label>
+            <label>Origem da mercadoria
+              <select value={form.origemMercadoria} onChange={(e) => setField('origemMercadoria', e.target.value)}>
+                <option value="0">0 - Nacional</option>
+                <option value="1">1 - Estrangeira (importação direta)</option>
+                <option value="2">2 - Estrangeira (adquirida no mercado interno)</option>
+              </select>
+            </label>
+          </div>
+        </>
+      )}
 
-      {profile?.camposExtras?.length > 0 && (
+      {form.tipo !== 'servico' && profile?.camposExtras?.length > 0 && (
         <>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
           <div className="form-grid">
@@ -426,7 +448,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
 
       {error && <p className="modal-error">{error}</p>}
 
-      {form.id && (
+      {form.id && form.tipo !== 'servico' && (
         <div style={{ gridColumn: '1 / -1', marginTop: 12 }}>
           <button type="button" className="btn-link" onClick={() => setMostrarFicha((v) => !v)}>
             {mostrarFicha ? 'Esconder' : 'Ver'} ficha técnica (insumos)

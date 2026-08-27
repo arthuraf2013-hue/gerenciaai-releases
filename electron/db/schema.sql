@@ -27,7 +27,10 @@ CREATE TABLE IF NOT EXISTS locations (
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   nome          TEXT NOT NULL,
-  role          TEXT NOT NULL CHECK (role IN ('operador','gerente','admin')),
+  -- 'garcom' é um operador com escopo restrito: só lança pedido/comanda
+  -- de mesa, não abre caixa nem acessa configuração. Cadastrado por um
+  -- gerente (ou admin) — mesma regra de 'operador' (ver userService.js).
+  role          TEXT NOT NULL CHECK (role IN ('operador','gerente','admin','garcom')),
   pin_hash      TEXT NOT NULL,
   pin_temporario INTEGER DEFAULT 0, -- 1 força a troca do PIN no próximo login
   tentativas_falhas INTEGER NOT NULL DEFAULT 0,
@@ -77,6 +80,11 @@ CREATE TABLE IF NOT EXISTS products (
   custo           REAL DEFAULT 0,
   unidade         TEXT DEFAULT 'un',
   estoque_minimo  REAL DEFAULT 0,
+  -- 'servico' é um item vendável sem controle de estoque (ex: mão de
+  -- obra, taxa, consulta) — sale_items aceita normalmente, mas
+  -- saleService nunca gera stock_movements nem desconta insumo/ficha
+  -- técnica pra ele (ver comentário em saleService.addItem).
+  tipo            TEXT NOT NULL DEFAULT 'produto' CHECK (tipo IN ('produto','servico')),
   -- Desconto por validade próxima — preenchido pela ferramenta de
   -- "descontar por validade" (ou manualmente); o PDV usa esse preço
   -- em vez do normal enquanto a data não passar. Guardar os dois (o
