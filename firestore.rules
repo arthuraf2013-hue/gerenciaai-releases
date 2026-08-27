@@ -1,0 +1,202 @@
+rules_version = '2';
+
+// ================================================================
+// Regras do ÚNICO projeto Firebase do GerenciaAI (gerenciaai-licencas)
+// — compartilhado por TODAS as instalações de TODOS os clientes (ver
+// LICENSE_FIREBASE_CONFIG em electron/services/licenseService.js).
+// Não existe "Firebase de cada cliente" -- é sempre este mesmo banco.
+//
+// Antes deste arquivo não existia NENHUMA regra publicada (banco
+// totalmente aberto — a config do Firebase embutida no instalador não
+// é secreta, então isso já era um risco real, independente de
+// qualquer coisa nova). Este arquivo tem duas partes bem diferentes:
+//
+//   PARTE 1 — replica o comportamento de HOJE (leitura/escrita livre)
+//   pra tudo que já existia antes do pareamento de celular, de
+//   propósito, pra não quebrar nada em produção ao publicar isto pela
+//   primeira vez. Não é a solução ideal — é a base seguro pra migrar
+//   depois, com calma, cada coleção pra uma regra de verdade.
+//
+//   PARTE 2 — regras de verdade pro que é novo (pareamento de celular,
+//   pedidos do garçom, status ao vivo), porque aqui quem escreve pode
+//   ser o CELULAR de um funcionário, não mais só as máquinas da
+//   própria loja.
+//
+// COMO TESTAR ANTES DE PUBICAR (recomendado, não fiz isso aqui porque
+// este ambiente não tem rota de rede até o downloads do emulador):
+//   1. `npm install -g firebase-tools`
+//   2. `firebase emulators:start --only firestore` (baixa o emulador
+//      na primeira vez -- precisa de internet só nessa hora)
+//   3. Rodar os testes em tests/firestoreRules.test.js (escritos, mas
+//      não executados neste ambiente -- ver aviso no topo daquele
+//      arquivo) contra o emulador.
+//
+// COMO PUBLICAR: Console do Firebase → projeto gerenciaai-licencas →
+// Firestore Database → aba "Regras" → colar o conteúdo deste arquivo
+// → Publicar. (Ou `firebase deploy --only firestore:rules`, com o
+// firebase.json deste repositório, se preferir a CLI.)
+// ================================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --------------------------------------------------------------
+    // PARTE 1 — superfície já existente, comportamento preservado
+    // --------------------------------------------------------------
+
+    match /installations/{installId} {
+      allow read, write: if true;
+
+      match /backups/{arquivo} {
+        allow read, write: if true;
+      }
+    }
+
+    match /clientes/{clienteId} { allow read, write: if true; }
+    match /erros_reportados/{erroId} { allow read, write: if true; }
+    match /acoes_log/{logId} { allow read, write: if true; }
+    match /config/{docId} { allow read, write: if true; }
+    match /config_publica/{docId} { allow read, write: if true; }
+    match /contas_google/{docId} { allow read, write: if true; }
+
+    // Cofre de senhas — recurso CONGELADO/obsoleto (ver CLAUDE.md).
+    // Regra aqui só preserva o comportamento de hoje; não desenvolver
+    // nem mexer nisso além do necessário pra essa preservação.
+    match /cofre_acessos/{docId} { allow read, write: if true; }
+    match /cofre_config/{docId} { allow read, write: if true; }
+
+    match /grupos_sincronizacao/{grupoId} {
+      allow read, write: if true;
+      match /produtos/{produtoId} { allow read, write: if true; }
+      match /vendas/{vendaId} { allow read, write: if true; }
+      match /estoque/{produtoId} { allow read, write: if true; }
+    }
+
+    // --------------------------------------------------------------
+    // PARTE 2 — pareamento de celular (novo)
+    // --------------------------------------------------------------
+
+    match /installations/{installId}/pareamentos/{codigo} {
+      // O DESKTOP publica o código (mesmo nível de confiança sem
+      // autenticação que o resto do app já usa hoje pra escrever em
+      // installations/{installId}).
+      allow create: if true;
+
+      // O CELULAR só pode ler depois de ao menos autenticar (anônimo
+      // já basta) — fecha a porta de alguém varrer códigos sem nem
+      // abrir o app. `list` aqui é o que permite o fluxo "digitar o
+      // código" (consulta por collectionGroup, sem saber o installId
+      // de antemão); é uma concessão deliberada à simplicidade pedida
+      // ("código de sincronização simples") — o código já expira em
+      // 10 minutos e só serve uma vez. Pra fechar essa janela de vez,
+      // ativar o Firebase App Check é a recomendação (não depende de
+      // mudar esta regra).
+      allow get, list: if request.auth != null;
+
+      // Resgate do código: só pode marcar usado=true, atribuindo a si
+      // mesmo, e só se ainda não tiver sido usado nem expirado. Mais
+      // nenhum campo pode mudar nesta operação.
+      allow update: if request.auth != null
+        && resource.data.usado == false
+        && resource.data.expiraEm > request.time
+        && request.resource.data.usado == true
+        && request.resource.data.usadoPorUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['usado', 'usadoPorUid', 'usadoEm']);
+
+      allow delete: if false;
+    }
+
+    match /installations/{installId}/dispositivos/{uid} {
+      // Ler quem está pareado é aberto (só revela tipo/nome/ativo, sem
+      // dado de negócio) — mesmo espírito do resto de installations/.
+      allow read: if true;
+
+      // Confere se `codigo` autoriza de fato criar/substituir um
+      // dispositivo com esse tipo/vínculo -- mesmo código não pode ter
+      // sido usado nem expirado, e tipo/vínculo batem com o que o
+      // código promete (fecha o "resgatei um código de garçom mas criei
+      // um dispositivo de consulta" e afins). Extraído numa função
+      // porque É USADO DUAS VEZES: create (dispositivo novo) e update
+      // (re-pareamento reaproveitando um uid que já tinha dispositivo
+      // aqui antes, ex: revogado e reemitido um código novo pra mesma
+      // pessoa -- Firestore trata isso como "update", não "create",
+      // porque o documento já existe).
+      function pareamentoAutoriza(tipo, vinculoUserId, codigo) {
+        let pRef = /databases/$(database)/documents/installations/$(installId)/pareamentos/$(codigo);
+        return exists(pRef)
+          && get(pRef).data.usado == false
+          && get(pRef).data.expiraEm > request.time
+          && get(pRef).data.tipo == tipo
+          && get(pRef).data.vinculoUserId == vinculoUserId;
+      }
+
+      allow create: if request.auth != null && uid == request.auth.uid
+        && request.resource.data.tipo in ['garcom', 'consulta']
+        && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo);
+
+      // Depois de pareado, o próprio celular só pode tocar no seu
+      // "sinal de vida" (nome do aparelho, último acesso) -- OU
+      // re-parear de novo com um código novo válido (mesma checagem do
+      // create acima, só que aqui o documento já existe). Revogar
+      // (campo `ativo`) é feito pelo DESKTOP, sem autenticação -- mesmo
+      // nível de confiança de hoje, não uma regressão nova (ver aviso
+      // no topo do arquivo sobre a Parte 1).
+      allow update: if
+        (request.auth != null && uid == request.auth.uid && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso', 'nomeDispositivo'])
+          || (request.resource.data.tipo in ['garcom', 'consulta']
+              && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo))
+        ))
+        || (request.auth == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo']));
+
+      allow delete: if false;
+    }
+
+    // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.
+    match /installations/{installId}/pedidos_garcom/{pedidoId} {
+      // Só um dispositivo pareado como garçom, ATIVO, dessa loja
+      // específica pode criar pedido, e sempre como 'novo'.
+      allow create: if request.auth != null
+        && request.resource.data.garcomUid == request.auth.uid
+        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.tipo == 'garcom'
+        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true
+        && request.resource.data.status == 'novo';
+
+      // O garçom só vê os PRÓPRIOS pedidos (pra acompanhar status).
+      allow read: if request.auth != null && resource.data.garcomUid == request.auth.uid;
+
+      // Só o desktop (sem autenticação, mesmo nível de confiança de
+      // hoje) atualiza status/erro depois de processar.
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'erro', 'processadoEm', 'bot_order_id', 'saleId']);
+
+      allow delete: if false;
+    }
+
+    // Retrato "ao vivo" da loja (resumo do dia + mesas/pedidos em
+    // andamento + catálogo de produtos pro garçom montar pedido) -- ver
+    // liveStatusSyncService.js. Ao contrário do resto, este dado É
+    // sensível de verdade (números reais de venda), então a leitura é
+    // restrita a quem está pareado e ativo com ESTA loja (garçom ou
+    // consulta -- o garçom precisa do catalogoProdutos daqui mesmo pra
+    // montar o pedido; não vale a pena separar num documento à parte só
+    // pra diferenciar os dois tipos).
+    match /installations/{installId}/status_ao_vivo/{docId} {
+      allow read: if request.auth != null
+        && exists(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid))
+        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true;
+
+      allow write: if request.auth == null; // só o desktop publica
+    }
+
+    // Lista pessoal de lojas às quais um celular de CONSULTA está
+    // vinculado (dono de rede com mais de uma loja) -- só o próprio
+    // celular mexe nisso, nunca o desktop de nenhuma loja.
+    match /dispositivos_pareados/{uid} {
+      allow read, write: if request.auth != null && uid == request.auth.uid;
+    }
+  }
+}

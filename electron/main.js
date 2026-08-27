@@ -160,6 +160,12 @@ app.whenReady().then(() => {
   require('./services/productSyncService').iniciarEscutaProdutos();
   require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 });
   require('./services/messageService').iniciarEscutaMensagemGlobal();
+  // Pareamento de celular (app do garçom / consulta remota) e status ao
+  // vivo pro celular de quem já estiver pareado — ver pairingService.js
+  // e liveStatusSyncService.js.
+  require('./services/pairingService').iniciarEscutaPareamentos();
+  require('./services/liveStatusSyncService').iniciarPublicacaoContinua();
+  require('./services/pedidoGarcomSyncService').iniciarEscutaPedidosGarcom();
   // Reconecta sozinho no chatbot de WhatsApp se esta máquina já tinha
   // sido pareada antes e a aba "Separação" está ativada — sem isso, o
   // bot só voltaria a responder depois de alguém abrir Configurações

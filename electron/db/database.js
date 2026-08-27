@@ -143,6 +143,77 @@ function atualizarCheckRoleParaIncluirGarcom(database) {
   }
 }
 
+/**
+ * Mesmo raciocínio de atualizarCheckRoleParaIncluirGarcom, agora pro
+ * CHECK de bot_orders.origem (precisa aceitar 'app_garcom' -- pedido
+ * lançado pelo PWA do garçom, ver pedidoGarcomSyncService.js). Só uma
+ * tabela referencia bot_orders(id) (bot_order_items.bot_order_id), mas
+ * o cuidado de recriar num nome temporário e só renomear pra
+ * "bot_orders" no final é o mesmo -- evita a reescrita automática de FK
+ * do SQLite apontando pra um nome que deixa de existir no meio da troca.
+ */
+function atualizarCheckOrigemParaIncluirAppGarcom(database) {
+  try {
+    const tabela = database.prepare(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bot_orders'`
+    ).get();
+    if (!tabela || tabela.sql.includes("'app_garcom'")) return; // já migrado, ou banco novo
+
+    const fkEstava = database.pragma('foreign_keys', { simple: true });
+    database.pragma('foreign_keys = OFF');
+    try {
+      database.transaction(() => {
+        database.exec(`
+          CREATE TABLE bot_orders_novo_com_app_garcom (
+            id                TEXT PRIMARY KEY,
+            location_id       TEXT NOT NULL REFERENCES locations(id),
+            customer_id       TEXT REFERENCES customers(id),
+            cliente_nome      TEXT NOT NULL,
+            cliente_telefone  TEXT NOT NULL,
+            tipo_entrega      TEXT NOT NULL DEFAULT 'retirada' CHECK (tipo_entrega IN ('retirada','entrega')),
+            endereco          TEXT,
+            status            TEXT NOT NULL DEFAULT 'novo' CHECK (status IN ('novo','em_separacao','pronto','concluido','cancelado')),
+            origem            TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual','app_garcom')),
+            observacoes       TEXT,
+            mesa_numero       TEXT,
+            taxa_entrega      REAL,
+            separado_por      TEXT REFERENCES users(id),
+            delivery_id       TEXT REFERENCES deliveries(id),
+            sale_id           TEXT REFERENCES sales(id),
+            satisfacao_solicitada_em TEXT,
+            nota_satisfacao          INTEGER CHECK (nota_satisfacao IS NULL OR nota_satisfacao BETWEEN 1 AND 5),
+            comentario_satisfacao    TEXT,
+            criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+            separado_em       TEXT,
+            concluido_em      TEXT
+          );
+        `);
+        database.exec(`
+          INSERT INTO bot_orders_novo_com_app_garcom
+            (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco,
+             status, origem, observacoes, mesa_numero, taxa_entrega, separado_por, delivery_id,
+             sale_id, satisfacao_solicitada_em, nota_satisfacao, comentario_satisfacao,
+             criado_em, separado_em, concluido_em)
+          SELECT
+            id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco,
+            status, origem, observacoes, mesa_numero, taxa_entrega, separado_por, delivery_id,
+            sale_id, satisfacao_solicitada_em, nota_satisfacao, comentario_satisfacao,
+            criado_em, separado_em, concluido_em
+          FROM bot_orders;
+        `);
+        database.exec(`DROP TABLE bot_orders;`);
+        database.exec(`ALTER TABLE bot_orders_novo_com_app_garcom RENAME TO bot_orders;`);
+        database.exec(`CREATE INDEX IF NOT EXISTS idx_bot_orders_location ON bot_orders(location_id);`);
+        database.exec(`CREATE INDEX IF NOT EXISTS idx_bot_orders_status ON bot_orders(status);`);
+      })();
+    } finally {
+      database.pragma(`foreign_keys = ${fkEstava ? 'ON' : 'OFF'}`);
+    }
+  } catch (err) {
+    console.error('[migração] falhou ao atualizar CHECK de bot_orders.origem pra incluir app_garcom:', err);
+  }
+}
+
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
@@ -258,6 +329,7 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'products', 'tipo', "TEXT NOT NULL DEFAULT 'produto' CHECK (tipo IN ('produto','servico'))");
 
   atualizarCheckRoleParaIncluirGarcom(database);
+  atualizarCheckOrigemParaIncluirAppGarcom(database);
 
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
@@ -463,6 +535,8 @@ module.exports = {
   // precisa simular um banco "antigo" (CHECK sem 'garcom') e chamar a
   // migração isoladamente, já que setDbForTesting não roda migrateColumnsIfNeeded.
   atualizarCheckRoleParaIncluirGarcom,
+  // Idem, pra tests/migracaoOrigemAppGarcom.test.js.
+  atualizarCheckOrigemParaIncluirAppGarcom,
 };
 
 function getDbPath() {

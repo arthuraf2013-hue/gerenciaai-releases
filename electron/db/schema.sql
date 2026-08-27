@@ -897,7 +897,11 @@ CREATE TABLE IF NOT EXISTS bot_orders (
   tipo_entrega      TEXT NOT NULL DEFAULT 'retirada' CHECK (tipo_entrega IN ('retirada','entrega')),
   endereco          TEXT, -- obrigatório só quando tipo_entrega = 'entrega'
   status            TEXT NOT NULL DEFAULT 'novo' CHECK (status IN ('novo','em_separacao','pronto','concluido','cancelado')),
-  origem            TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual')),
+  -- 'app_garcom' = pedido lançado pelo PWA do garçom (venda a distância,
+  -- ver pedidoGarcomSyncService.js) -- em banco já existente, precisa da
+  -- migração atualizarCheckOrigemParaIncluirAppGarcom (database.js), já
+  -- que SQLite não deixa alterar o CHECK de uma coluna existente.
+  origem            TEXT NOT NULL DEFAULT 'manual' CHECK (origem IN ('whatsapp_bot','manual','app_garcom')),
   observacoes       TEXT,
   -- Preenchido quando o pedido veio do fluxo "Mesa N" do chatbot (ver
   -- whatsappBotHandler.js) -- pedido de cliente JÁ sentado numa mesa,
@@ -1202,3 +1206,41 @@ CREATE TABLE IF NOT EXISTS return_items (
   valor_unitario REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_return_items_return ON return_items(return_id);
+
+-- ============================================================
+-- Pareamento de dispositivo móvel (PWA do garçom / consulta remota
+-- Adm-Gerente) — ver electron/services/pairingService.js.
+--
+-- O código em si é redimido pelo CELULAR, que não tem acesso a este
+-- SQLite -- por isso o documento redimível de verdade mora no Firestore
+-- (installations/{installId}/pareamentos). Estas duas tabelas locais
+-- são o espelho/auditoria do lado do PDV: o que já foi gerado (pra
+-- mostrar "aguardando" na tela) e quem já está pareado de verdade (pra
+-- listar/revogar em Configurações sem precisar consultar a rede toda
+-- vez que a tela abre).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS pairing_codes (
+  id              TEXT PRIMARY KEY, -- o código de 6 dígitos
+  tipo            TEXT NOT NULL CHECK (tipo IN ('garcom','consulta')),
+  -- 'garcom': o funcionário que vai usar o celular pra lançar pedido.
+  -- 'consulta': o próprio Adm/Gerente que vai consultar os dados da
+  -- loja pelo celular (pode ser um vínculo a mais de uma loja -- essa
+  -- lista mora só no celular/Firestore, não aqui).
+  vinculo_user_id TEXT NOT NULL REFERENCES users(id),
+  criado_por_id   TEXT NOT NULL REFERENCES users(id), -- sempre gerente/admin
+  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  expira_em       TEXT NOT NULL,
+  usado           INTEGER NOT NULL DEFAULT 0,
+  usado_em        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pairing_codes_usado ON pairing_codes(usado, expira_em);
+
+CREATE TABLE IF NOT EXISTS paired_devices (
+  id               TEXT PRIMARY KEY, -- uid da autenticação anônima do Firebase no celular
+  tipo             TEXT NOT NULL CHECK (tipo IN ('garcom','consulta')),
+  vinculo_user_id  TEXT NOT NULL REFERENCES users(id),
+  nome_dispositivo TEXT,
+  criado_em        TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  ativo            INTEGER NOT NULL DEFAULT 1,
+  ultimo_acesso    TEXT
+);

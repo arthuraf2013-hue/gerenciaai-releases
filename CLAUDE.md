@@ -186,3 +186,38 @@ Telas/funcionalidades específicas de perfil ficam condicionadas por
 salao_beleza). Treinamento em PDF também é por perfil — 9 arquivos em
 `public/treinamento-*.pdf`, escolhidos automaticamente por
 `TrainingPresentationModal.jsx` conforme o perfil ativo.
+
+## App do celular (garçom + consulta remota) e `pwa-mobile/`
+
+`pwa-mobile/` é um segundo app, **fora do Electron** — um PWA estático
+(sem passo de build, Firebase importado de CDN) publicado à parte (ver
+`pwa-mobile/README.md`). Ele fala com o desktop só através do mesmo
+projeto Firebase central de licenciamento (`gerenciaai-licencas`, ver
+`licenseService.js`) — nunca direto com o SQLite. Vínculo celular↔loja
+é por código de 6 dígitos (gerado em Configurações → Celular), nunca
+login de verdade; um celular pode estar vinculado a mais de uma loja
+(dono de rede).
+
+Peças do lado do Electron:
+- `electron/services/pairingService.js` — gera/revoga código, espelha
+  localmente quem está pareado (`pairing_codes`/`paired_devices`).
+- `electron/services/liveStatusSyncService.js` — publica
+  `installations/{installId}/status_ao_vivo/atual` a cada ~25s (resumo
+  do dia, mesas, pedidos em andamento, catálogo de produtos pro
+  garçom). Por INTERVALO, de propósito — não hookado em
+  `tableService`/`saleService`/`botOrderService`.
+- `electron/services/pedidoGarcomSyncService.js` — recebe pedido do
+  PWA e cria `bot_orders`/`bot_order_items` (`origem = 'app_garcom'`,
+  mesma tabela do bot do WhatsApp), lançando na comanda via
+  `botOrderService.lancarPedidoNaMesa` quando tem mesa.
+- `firestore.rules` (raiz do repo) — **primeira regra de segurança
+  publicada no projeto** (antes era tudo aberto). Só as 5 coleções
+  novas do pareamento têm regra de verdade; o resto preserva o
+  comportamento de hoje de propósito (ver comentário no topo do
+  arquivo). `firestore.indexes.json` é obrigatório junto (a busca do
+  código de pareamento é uma collection group query).
+
+Ver a entrada "App do garçom + consulta remota pelo celular" no
+README.md pro raciocínio completo, e `tests/firestoreRules.test.js`
+pro que ainda falta rodar contra o emulador de verdade (não foi
+possível numa sessão sem rota de rede até o download dele).

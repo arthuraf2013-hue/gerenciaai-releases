@@ -1,0 +1,12 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "pareamentos",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "codigo", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

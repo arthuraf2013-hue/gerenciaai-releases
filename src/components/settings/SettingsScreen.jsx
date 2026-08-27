@@ -61,6 +61,14 @@ export function SettingsScreen() {
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
 
+  const [pairingTipo, setPairingTipo] = useState('garcom'); // 'garcom' | 'consulta'
+  const [pairingVinculoUserId, setPairingVinculoUserId] = useState('');
+  const [pairingUsuarios, setPairingUsuarios] = useState([]);
+  const [pairingGerando, setPairingGerando] = useState(false);
+  const [pairingErro, setPairingErro] = useState('');
+  const [pairingCodigosPendentes, setPairingCodigosPendentes] = useState([]);
+  const [pairingDispositivos, setPairingDispositivos] = useState([]);
+
   const [loyaltyForm, setLoyaltyForm] = useState({
     ativado: false, reaisPorPonto: 10, valorResgatePonto: 0.05,
     ativarCupomAniversario: false, pontosBonusAniversario: 20,
@@ -214,6 +222,47 @@ export function SettingsScreen() {
     const id = setInterval(consultarStatusWhatsapp, 3000);
     return () => clearInterval(id);
   }, [aba]);
+
+  // Idem pro pareamento de celular — atualiza sozinho enquanto a aba
+  // está aberta, pra mostrar o código pendente virando "pareado" assim
+  // que o celular termina de digitar, sem precisar recarregar a tela.
+  useEffect(() => {
+    if (aba !== 'pareamento') return;
+    window.pdv.users.listAll({ requestingUserId: currentUser.id }).then((r) => {
+      if (r.ok) setPairingUsuarios(r.users.filter((u) => u.ativo));
+    });
+    function consultarPareamento() {
+      window.pdv.pairing.listarCodigosPendentes().then((lista) => setPairingCodigosPendentes(Array.isArray(lista) ? lista : []));
+      window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
+    }
+    consultarPareamento();
+    const id = setInterval(consultarPareamento, 3000);
+    return () => clearInterval(id);
+  }, [aba, currentUser.id]);
+
+  const pairingGarcons = pairingUsuarios.filter((u) => u.role === 'garcom');
+  const pairingGerentesAdmins = pairingUsuarios.filter((u) => ['gerente', 'admin'].includes(u.role));
+
+  async function handleGerarCodigoPareamento(e) {
+    e.preventDefault();
+    if (!pairingVinculoUserId) return;
+    setPairingGerando(true);
+    setPairingErro('');
+    const result = await window.pdv.pairing.gerarCodigo({
+      tipo: pairingTipo, vinculoUserId: pairingVinculoUserId, requestingUserId: currentUser.id,
+    });
+    setPairingGerando(false);
+    if (!result.ok) { setPairingErro(result.error); return; }
+    setPairingVinculoUserId('');
+    window.pdv.pairing.listarCodigosPendentes().then((lista) => setPairingCodigosPendentes(Array.isArray(lista) ? lista : []));
+  }
+
+  async function handleRevogarDispositivo(deviceId) {
+    if (!confirm('Revogar o acesso deste dispositivo? Ele para de conseguir enviar pedidos ou consultar dados desta loja.')) return;
+    const result = await window.pdv.pairing.revogarDispositivo({ deviceId, requestingUserId: currentUser.id });
+    if (!result.ok) { setPairingErro(result.error); return; }
+    window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
+  }
 
   async function handleLocationSave(e) {
     e.preventDefault();
@@ -561,6 +610,7 @@ export function SettingsScreen() {
         <button className={aba === 'impressora' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('impressora')}><Icon name="printer" size={15} /> Impressora</button>
         <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}><Icon name="scale" size={15} /> Balança</button>
         <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}><Icon name="chat" size={15} /> WhatsApp</button>
+        <button className={aba === 'pareamento' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('pareamento')}><Icon name="link" size={15} /> Celular</button>
       </div>
 
       {aba === 'geral' && (
@@ -1514,6 +1564,91 @@ export function SettingsScreen() {
           </button>
         </form>
         {whatsappAutomationSaved && <p className="io-message">Automações salvas.</p>}
+      </section>
+      </>
+      )}
+
+      {aba === 'pareamento' && (
+      <>
+      <section className="settings-section">
+        <h2><Icon name="link" size={16} /> Pareamento de celular</h2>
+        <p className="screen-hint">
+          Gere um código de 6 dígitos e informe pro dono do celular digitar no app — sem precisar
+          entrar em contato com o suporte. Um código pro <strong>Garçom</strong> deixa o celular dele
+          lançar pedido a distância, vinculado à comanda da mesa. Um código de <strong>Consulta
+          remota</strong> deixa um Gerente ou Administrador ver o resumo do dia e a operação ao vivo
+          desta loja pelo próprio celular (inclusive de mais de uma loja, se ele parear com várias).
+        </p>
+
+        <form className="product-form" onSubmit={handleGerarCodigoPareamento}>
+          <div className="form-grid">
+            <label>
+              Tipo de pareamento
+              <select value={pairingTipo} onChange={(e) => { setPairingTipo(e.target.value); setPairingVinculoUserId(''); }}>
+                <option value="garcom">Garçom (pedido a distância)</option>
+                <option value="consulta">Consulta remota (Gerente/Admin)</option>
+              </select>
+            </label>
+            <label>
+              Vincular a
+              <select value={pairingVinculoUserId} onChange={(e) => setPairingVinculoUserId(e.target.value)}>
+                <option value="">Selecione...</option>
+                {(pairingTipo === 'garcom' ? pairingGarcons : pairingGerentesAdmins).map((u) => (
+                  <option key={u.id} value={u.id}>{u.nome}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {pairingTipo === 'garcom' && pairingGarcons.length === 0 && (
+            <p className="screen-hint">Nenhum usuário com papel Garçom cadastrado ainda — crie um em Usuários antes de gerar o código.</p>
+          )}
+          <button className="btn-primary" type="submit" disabled={pairingGerando || !pairingVinculoUserId}>
+            <Icon name="add" size={15} /> {pairingGerando ? 'Gerando...' : 'Gerar código'}
+          </button>
+        </form>
+        {pairingErro && <p className="modal-error">{pairingErro}</p>}
+
+        {pairingCodigosPendentes.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 8 }}>Aguardando o celular digitar</h3>
+            {pairingCodigosPendentes.map((c) => (
+              <div key={c.id} className="pdv-number-badge" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, letterSpacing: 3 }}>{c.id}</span>
+                <span>{c.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'} — {c.vinculo_nome}</span>
+                <span className="screen-hint" style={{ marginLeft: 'auto' }}>expira {new Date(c.expira_em).toLocaleTimeString('pt-BR')}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 18 }}>
+          <h3 style={{ fontSize: 14, marginBottom: 8 }}>Dispositivos pareados</h3>
+          {pairingDispositivos.length === 0 && <p className="empty-state">Nenhum celular pareado com esta loja ainda.</p>}
+          {pairingDispositivos.length > 0 && (
+            <table className="data-table">
+              <thead>
+                <tr><th>Tipo</th><th>Vínculo</th><th>Pareado em</th><th>Status</th><th></th></tr>
+              </thead>
+              <tbody>
+                {pairingDispositivos.map((d) => (
+                  <tr key={d.id}>
+                    <td>{d.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'}</td>
+                    <td>{d.vinculo_nome}</td>
+                    <td>{new Date(d.criado_em).toLocaleString('pt-BR')}</td>
+                    <td>{d.ativo ? 'Ativo' : <span className="badge-warning">Revogado</span>}</td>
+                    <td>
+                      {d.ativo === 1 && (
+                        <button className="btn-link-danger" onClick={() => handleRevogarDispositivo(d.id)}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Revogar</span>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </section>
       </>
       )}

@@ -1,0 +1,263 @@
+const { randomUUID, randomInt } = require('crypto');
+const { getDb } = require('../db/database');
+
+const DURACAO_CODIGO_MINUTOS = 10;
+
+/**
+ * Pareamento de celular (PWA do garçom ou consulta remota Adm/Gerente)
+ * com esta instalação — self-service, sem depender do suporte, ao
+ * contrário da sincronização entre PDVs (essa continua sendo
+ * configurada manualmente, ver SettingsScreen). O celular troca um
+ * código curto (6 dígitos, expira em 10 minutos, uso único) por um
+ * vínculo permanente.
+ *
+ * Duas coleções no MESMO Firestore de licenciamento (o app só tem um
+ * projeto Firebase, compartilhado por todos os clientes — ver
+ * licenseService.js):
+ *   installations/{installId}/pareamentos/{codigo} — o código em si,
+ *     consumido pelo celular (que não tem acesso a este SQLite).
+ *   installations/{installId}/dispositivos/{uid} — o vínculo definitivo
+ *     depois de trocado, onde {uid} é o uid da autenticação anônima do
+ *     Firebase gerado no primeiro uso do celular.
+ *
+ * Este arquivo cobre só o lado do DESKTOP: gerar o código, espelhar
+ * localmente os dispositivos já pareados (pra listar/revogar em
+ * Configurações sem depender de rede toda vez que a tela abre), e
+ * revogar. A troca do código em si (criar o vínculo) acontece no
+ * código do PWA (fora deste repositório Electron).
+ */
+
+function gerarCodigoNumerico() {
+  return String(randomInt(100000, 1000000));
+}
+
+function requireGerenteOuAdmin(requestingUserId) {
+  const db = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
+  if (!user || !['gerente', 'admin'].includes(user.role)) {
+    return { ok: false, error: 'Apenas um gerente ou administrador pode gerenciar pareamento de dispositivos.' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Gera um código de pareamento novo. `tipo` decide quem pode ser o
+ * vínculo: 'garcom' só aceita um usuário com papel garcom; 'consulta'
+ * só aceita gerente/admin (é a própria pessoa que vai consultar do
+ * celular, não um funcionário à parte).
+ */
+async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
+  const guard = requireGerenteOuAdmin(requestingUserId);
+  if (!guard.ok) return guard;
+
+  if (!['garcom', 'consulta'].includes(tipo)) return { ok: false, error: 'Tipo de pareamento inválido.' };
+
+  const db = getDb();
+  const vinculo = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(vinculoUserId);
+  if (!vinculo) return { ok: false, error: 'Usuário do vínculo não encontrado.' };
+  if (tipo === 'garcom' && vinculo.role !== 'garcom') {
+    return { ok: false, error: 'Um código do tipo "garçom" só pode ser vinculado a um usuário com papel Garçom.' };
+  }
+  if (tipo === 'consulta' && !['gerente', 'admin'].includes(vinculo.role)) {
+    return { ok: false, error: 'Um código de consulta remota só pode ser vinculado a um Gerente ou Administrador.' };
+  }
+
+  // Firestore precisa estar acessível pra publicar o código (é ele quem
+  // o celular de fato lê) — sem tentar gerar um código "só local" que
+  // nunca vai funcionar do outro lado.
+  let firestore;
+  let installId;
+  try {
+    const licenseService = require('./licenseService');
+    const pdvRegistryService = require('./pdvRegistryService');
+    firestore = licenseService.getLicenseFirestore();
+    installId = pdvRegistryService.getOrCreateDeviceUid();
+  } catch (err) {
+    return { ok: false, error: 'Não foi possível preparar o pareamento agora — confira a conexão com a internet.' };
+  }
+
+  const codigo = gerarCodigoNumerico();
+  const criadoEmMs = Date.now();
+  const expiraEmMs = criadoEmMs + DURACAO_CODIGO_MINUTOS * 60 * 1000;
+  const expiraEmIso = new Date(expiraEmMs).toISOString();
+
+  db.prepare(
+    `INSERT INTO pairing_codes (id, tipo, vinculo_user_id, criado_por_id, expira_em) VALUES (?, ?, ?, ?, ?)`
+  ).run(codigo, tipo, vinculoUserId, requestingUserId, expiraEmIso);
+
+  try {
+    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+    const fiscalService = require('./fiscalService');
+    const ref = doc(firestore, 'installations', installId, 'pareamentos', codigo);
+    await setDoc(ref, {
+      codigo, // duplicado do id do doc de propósito -- permite ao celular
+              // achar o código por collectionGroup('pareamentos').where('codigo', '==', ...)
+              // sem precisar saber o installId de antemão (fluxo "digitar o código").
+      tipo,
+      installId,
+      vinculoUserId,
+      nomeNegocio: fiscalService.getNomeNegocio() || 'Sua loja',
+      vinculoNome: vinculo.nome,
+      usado: false,
+      criadoEm: serverTimestamp(),
+      // Timestamp de verdade (não string ISO) -- as regras do Firestore
+      // comparam isso direto contra `request.time` na hora de redimir.
+      expiraEm: new Date(expiraEmMs),
+    });
+  } catch (err) {
+    // Publicar falhou -- desfaz o registro local pra não deixar um
+    // código "fantasma" que nunca vai funcionar aparecendo como pendente.
+    db.prepare('DELETE FROM pairing_codes WHERE id = ?').run(codigo);
+    return { ok: false, error: 'Não foi possível publicar o código agora — confira a conexão com a internet e tente de novo.' };
+  }
+
+  return { ok: true, codigo, expiraEm: expiraEmIso, tipo, vinculoNome: vinculo.nome };
+}
+
+/** Códigos gerados por esta instalação ainda dentro da validade e não
+ * usados -- pra tela de Configurações mostrar "aguardando o celular". */
+function listarCodigosPendentes() {
+  const db = getDb();
+  return db.prepare(
+    `SELECT pc.*, u.nome as vinculo_nome FROM pairing_codes pc
+     JOIN users u ON u.id = pc.vinculo_user_id
+     WHERE pc.usado = 0 AND pc.expira_em > datetime('now')
+     ORDER BY pc.criado_em DESC`
+  ).all();
+}
+
+/** Marca um código como usado no espelho local -- chamado pela escuta
+ * em tempo real (iniciarEscutaPareamentos) quando o Firestore confirma
+ * que o celular trocou o código por um vínculo de verdade. */
+function marcarCodigoComoUsado(codigo) {
+  const db = getDb();
+  db.prepare(`UPDATE pairing_codes SET usado = 1, usado_em = NOW_SYNCED() WHERE id = ?`).run(codigo);
+}
+
+/** Dispositivos (celulares) já pareados com esta instalação -- pra
+ * listar/revogar em Configurações. */
+function listarDispositivosPareados() {
+  const db = getDb();
+  return db.prepare(
+    `SELECT pd.*, u.nome as vinculo_nome FROM paired_devices pd
+     JOIN users u ON u.id = pd.vinculo_user_id
+     ORDER BY pd.ativo DESC, pd.criado_em DESC`
+  ).all();
+}
+
+/** Upsert local do que a escuta em tempo real recebeu do Firestore --
+ * nunca cria vínculo NOVO por conta própria (isso só acontece do lado
+ * do celular, que sabe o código); aqui só espelha o que já foi criado. */
+function espelharDispositivoPareado({ uid, tipo, vinculoUserId, nomeDispositivo, ativo }) {
+  const db = getDb();
+  const usuarioExiste = db.prepare('SELECT id FROM users WHERE id = ?').get(vinculoUserId);
+  if (!usuarioExiste) return; // vínculo apontando pra usuário que não existe mais aqui -- ignora
+
+  const existente = db.prepare('SELECT id FROM paired_devices WHERE id = ?').get(uid);
+  if (existente) {
+    db.prepare(
+      `UPDATE paired_devices SET tipo = ?, vinculo_user_id = ?, nome_dispositivo = ?, ativo = ?, ultimo_acesso = NOW_SYNCED() WHERE id = ?`
+    ).run(tipo, vinculoUserId, nomeDispositivo || null, ativo ? 1 : 0, uid);
+  } else {
+    db.prepare(
+      `INSERT INTO paired_devices (id, tipo, vinculo_user_id, nome_dispositivo, ativo) VALUES (?, ?, ?, ?, ?)`
+    ).run(uid, tipo, vinculoUserId, nomeDispositivo || null, ativo ? 1 : 0);
+  }
+}
+
+/**
+ * Revoga o acesso de um dispositivo já pareado -- o celular deixa de
+ * conseguir ler/escrever assim que notar (regras do Firestore conferem
+ * `ativo` antes de liberar qualquer coisa). Nunca apaga o registro
+ * (mantém o histórico de quem já usou o quê).
+ */
+async function revogarDispositivo({ deviceId, requestingUserId }) {
+  const guard = requireGerenteOuAdmin(requestingUserId);
+  if (!guard.ok) return guard;
+
+  const db = getDb();
+  const dispositivo = db.prepare('SELECT * FROM paired_devices WHERE id = ?').get(deviceId);
+  if (!dispositivo) return { ok: false, error: 'Dispositivo não encontrado.' };
+
+  db.prepare('UPDATE paired_devices SET ativo = 0 WHERE id = ?').run(deviceId);
+
+  try {
+    const licenseService = require('./licenseService');
+    const pdvRegistryService = require('./pdvRegistryService');
+    const { doc, setDoc } = require('firebase/firestore');
+    const firestore = licenseService.getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+    await setDoc(doc(firestore, 'installations', installId, 'dispositivos', deviceId), { ativo: false }, { merge: true });
+  } catch (err) {
+    // Revogado localmente já impede reflexo de novos dados na próxima
+    // sincronização deste desktop; se a rede falhar aqui, o celular só
+    // vai perceber a revogação um pouco mais tarde (quando a escrita
+    // conseguir ir, via reconciliação -- não crítico o bastante pra
+    // bloquear a ação local por causa de rede instável).
+    console.error('[pairingService] falha ao propagar revogação pro Firestore:', err.message);
+  }
+
+  return { ok: true };
+}
+
+let pararEscutaPareamentos = null;
+let pararEscutaDispositivos = null;
+
+/**
+ * Escuta em tempo real os pareamentos e dispositivos desta instalação
+ * — reflete no SQLite local assim que o celular troca um código (o
+ * código pendente vira "usado" e um dispositivo novo aparece na
+ * lista), sem precisar que alguém reabra a tela de Configurações pra
+ * ver o resultado. Chamado uma vez no início do app (main.js), mesmo
+ * padrão de productSyncService.iniciarEscutaProdutos.
+ */
+function iniciarEscutaPareamentos() {
+  try {
+    if (pararEscutaPareamentos) { pararEscutaPareamentos(); pararEscutaPareamentos = null; }
+    if (pararEscutaDispositivos) { pararEscutaDispositivos(); pararEscutaDispositivos = null; }
+
+    const licenseService = require('./licenseService');
+    const pdvRegistryService = require('./pdvRegistryService');
+    const { collection, onSnapshot } = require('firebase/firestore');
+    const firestore = licenseService.getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+
+    pararEscutaPareamentos = onSnapshot(
+      collection(firestore, 'installations', installId, 'pareamentos'),
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          const dados = change.doc.data();
+          if (dados.usado === true) marcarCodigoComoUsado(change.doc.id);
+        });
+      },
+      (err) => console.error('[pairingService] escuta de pareamentos falhou:', err)
+    );
+
+    pararEscutaDispositivos = onSnapshot(
+      collection(firestore, 'installations', installId, 'dispositivos'),
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type === 'removed') return;
+          const dados = change.doc.data();
+          espelharDispositivoPareado({
+            uid: change.doc.id,
+            tipo: dados.tipo,
+            vinculoUserId: dados.vinculoUserId,
+            nomeDispositivo: dados.nomeDispositivo,
+            ativo: dados.ativo !== false,
+          });
+        });
+      },
+      (err) => console.error('[pairingService] escuta de dispositivos pareados falhou:', err)
+    );
+  } catch (err) {
+    console.error('[pairingService] não foi possível iniciar a escuta de pareamentos:', err);
+  }
+}
+
+module.exports = {
+  gerarCodigo, listarCodigosPendentes, listarDispositivosPareados, revogarDispositivo,
+  iniciarEscutaPareamentos,
+  // Exportados só pra teste (a parte que não depende de rede).
+  marcarCodigoComoUsado, espelharDispositivoPareado,
+};

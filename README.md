@@ -4929,3 +4929,92 @@ Automação que **não depende de IA** e já dá pra priorizar antes disso:
    isso para uma tabela `product_batches`).
 3. **Multi-loja de fato**: hoje `location_id` já existe em tudo, falta a
    tela de seleção/criação de lojas quando houver mais de uma.
+
+## App do garçom + consulta remota pelo celular (pareamento por código)
+
+Duas funcionalidades novas, pedidas juntas: um **PWA do garçom** (lançar
+pedido de mesa direto do celular, sem depender do WhatsApp) e uma
+**consulta remota** pra Adm/Gerente ver o resumo financeiro e a operação
+ao vivo da loja de qualquer lugar — inclusive de várias lojas no mesmo
+celular, pra quem tem mais de uma unidade.
+
+### Pareamento, não login de verdade
+
+Em vez de inventar autenticação própria pro celular, o vínculo é por
+**código de 6 dígitos, válido por 10 minutos, uso único** — gerado em
+**Configurações → Celular** (novo, no desktop) escolhendo o tipo
+(garçom ou consulta) e a quem vincula. O celular troca o código por um
+vínculo permanente (Firebase Anonymous Auth) na primeira vez; depois
+disso não precisa digitar nada de novo.
+
+Cheguei a considerar reaproveitar o mecanismo de sincronização entre
+PDVs (`grupos_sincronizacao`) pra isso, mas ele é 100% configurado por
+mim manualmente (ver seção acima) — faria o garçom/consulta depender de
+mim intervir pra cada cliente, o que não faz sentido pra algo que
+precisa ser self-service. Ficou como um mecanismo à parte, mais simples.
+
+### O que foi implementado
+
+- `electron/services/pairingService.js`: gera o código (publica em
+  `installations/{installId}/pareamentos/{codigo}` no MESMO projeto
+  Firebase central de sempre), escuta em tempo real quando o celular
+  troca o código por um vínculo, e espelha localmente
+  (`paired_devices`) pra Configurações listar/revogar sem depender de
+  internet toda vez que a tela abre.
+- `electron/services/liveStatusSyncService.js`: publica a cada ~25s
+  (por intervalo, não por evento — evita mexer em `tableService`/
+  `saleService`/`botOrderService` só por causa disso) o resumo do dia,
+  a lista de mesas (todas, não só as ocupadas — o garçom precisa saber
+  quais números existem), os pedidos em andamento, e o catálogo de
+  produtos ativo (preço já com desconto por validade aplicado, se
+  houver) — tudo num único documento (`status_ao_vivo/atual`) que os
+  dois apps do celular assinam em tempo real.
+- `electron/services/pedidoGarcomSyncService.js`: recebe o que o
+  celular manda pra `pedidos_garcom`, cria a linha local em
+  `bot_orders`/`bot_order_items` (mesma tabela do bot do WhatsApp, com
+  uma origem nova: `app_garcom`) e, se tiver mesa vinculada, lança
+  direto na comanda via `botOrderService.lancarPedidoNaMesa` — sem
+  alterar essa função, ela já aceitava qualquer origem.
+- `pwa-mobile/`: o app do celular em si — **estático, sem passo de
+  build** (Firebase importado direto de CDN, mesma técnica do
+  `admin-panel/index.html`), pra poder ser publicado em qualquer
+  hospedagem de arquivo estático. PWA instalável (manifest + service
+  worker). Ver `pwa-mobile/README.md` pra arquitetura e deploy.
+- `firestore.rules` (novo — o projeto nunca teve regra publicada até
+  agora, ficava tudo aberto): regra de verdade só pras 5 coleções
+  novas; o resto do banco manteve o comportamento de hoje de propósito
+  (retrofit completo fica pra depois, documentado no topo do arquivo
+  como decisão consciente, não esquecimento). Ponto que exigiu mais
+  cuidado: o resgate do código e a criação do vínculo do dispositivo
+  são validados **na mesma transação** — as regras do Firestore
+  conferem o estado de ANTES da transação nos dois lados, então não dá
+  pra ficar um código "gasto" sem um dispositivo de verdade, mesmo se a
+  internet cair no meio.
+- `firestore.indexes.json` (novo): a tela de pareamento busca o código
+  por uma **collection group query** (o celular não sabe de qual loja é
+  o código até achar) — isso exige um índice publicado à parte
+  (`firebase deploy --only firestore:indexes`), senão a busca falha na
+  primeira tentativa de qualquer cliente.
+
+### Testado
+
+`node --test` cobre a parte local de tudo isso (geração/consumo de
+código, espelhamento de dispositivo, resumo do dia, catálogo, migração
+de banco existente pro `origem = 'app_garcom'` novo). As regras do
+Firestore têm um arquivo de teste dedicado
+(`tests/firestoreRules.test.js`, com `@firebase/rules-unit-testing` já
+no `package.json`) — mas **não rodei contra o emulador de verdade**: o
+ambiente onde fiz esse trabalho não tinha rota de rede até o download
+do emulador. Antes de considerar essa parte 100% validada, rode:
+
+```bash
+firebase emulators:start --only firestore   # baixa o emulador na 1ª vez
+FIRESTORE_EMULATOR_HOST=localhost:8080 node --test tests/firestoreRules.test.js
+```
+
+### Não incluído nesta rodada (deixado como próximo passo natural)
+
+- Item avulso no pedido do garçom (hoje só escolhe do catálogo).
+- Notificação push pro garçom quando o pedido é recebido/dá erro (hoje
+  só aparece na aba "Meus pedidos" do próprio app).
+- Editar o nome do dispositivo depois de pareado.

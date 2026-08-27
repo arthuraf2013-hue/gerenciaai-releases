@@ -15,6 +15,7 @@ const stockService = require('../services/stockService');
 const saleService = require('../services/saleService');
 const profileService = require('../services/profileService');
 const userService = require('../services/userService');
+const pairingService = require('../services/pairingService');
 const importExportService = require('../services/importExportService');
 const attachmentService = require('../services/attachmentService');
 const aiService = require('../services/aiService');
@@ -214,6 +215,11 @@ function registerIpcHandlers() {
   safeHandle('user:create', (_e, { requestingUserId, ...payload }) => userService.create(requestingUserId, payload));
   safeHandle('user:setActive', (_e, { requestingUserId, ...payload }) => userService.setActive(requestingUserId, payload));
   safeHandle('user:resetPin', (_e, { requestingUserId, ...payload }) => userService.resetPin(requestingUserId, payload));
+
+  safeHandle('pairing:gerarCodigo', (_e, payload) => pairingService.gerarCodigo(payload));
+  safeHandle('pairing:listarCodigosPendentes', () => pairingService.listarCodigosPendentes());
+  safeHandle('pairing:listarDispositivosPareados', () => pairingService.listarDispositivosPareados());
+  safeHandle('pairing:revogarDispositivo', (_e, payload) => pairingService.revogarDispositivo(payload));
 
   // --- Importação/exportação de planilhas de estoque ---
   safeHandle('io:exportProducts', async (_e, { locationId }) => {
