@@ -204,11 +204,16 @@
 
     <div id="secao-metricas" style="display:none;">
       <div id="metricas-card" class="card" style="margin-bottom: 20px;">
-        <h2>Visão geral do negócio</h2>
-        <p class="subtitle" style="margin-bottom: 14px;">
-          Somado de todas as instalações — só contagens, nunca o conteúdo de uma venda específica.
-          Atualiza sozinho conforme os clientes ficam online (cada um manda o próprio número a cada 6h).
-        </p>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+          <div>
+            <h2>Visão geral do negócio</h2>
+            <p class="subtitle" style="margin-bottom: 14px;">
+              Somado de todas as instalações — só contagens, nunca o conteúdo de uma venda específica.
+              Atualiza sozinho conforme os clientes ficam online (cada um manda o próprio número a cada 6h).
+            </p>
+          </div>
+          <button class="btn-secondary btn-small" id="btn-exportar-cobranca" style="white-space:nowrap;">Exportar cobrança (CSV)</button>
+        </div>
         <div id="metricas-conteudo"></div>
       </div>
     </div>
@@ -394,8 +399,10 @@
     <form class="modal-form" id="novo-cliente-form">
       <input type="text" id="novo-cliente-nome" placeholder="Nome do cliente / dono" required>
       <input type="text" id="novo-cliente-doc" placeholder="CPF ou CNPJ (opcional)">
-      <label class="cliente-resumo" for="novo-cliente-vencimento">Vencimento / cobrança (opcional)</label>
-      <input type="date" id="novo-cliente-vencimento">
+      <label class="cliente-resumo" for="novo-cliente-dia-vencimento">Cobrança recorrente — dia do mês (opcional)</label>
+      <input type="number" id="novo-cliente-dia-vencimento" min="1" max="31" step="1" placeholder="Ex: 10">
+      <label class="cliente-resumo" for="novo-cliente-valor-mensalidade">Valor da mensalidade (opcional)</label>
+      <input type="number" id="novo-cliente-valor-mensalidade" min="0" step="0.01" placeholder="R$">
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="novo-cliente-cancelar">Cancelar</button>
         <button type="submit" class="btn-primary">Criar</button>
@@ -853,6 +860,10 @@
     return timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
   }
 
+  function formatarMoeda(v) {
+    return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
   function statusDaInstalacao(inst) {
     const dias = diasAtras(ultimoSinalTimestamp(inst));
     const semContatoHaTempo = dias !== null && dias >= 2;
@@ -989,26 +1000,104 @@
     }
   }
 
-  /** Status do vencimento/cobrança de um cliente — só um lembrete visual
-   * pra você, não afeta bloqueio nem congelamento automaticamente
-   * (continua sendo você quem decide bloquear ou não, na mão). */
-  function statusVencimento(cliente) {
-    if (!cliente.vencimento) return null;
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    const venc = new Date(cliente.vencimento + 'T00:00:00');
-    const dias = Math.round((venc - hoje) / 86400000);
-    if (dias < 0) return { texto: `Vencido há ${Math.abs(dias)}d`, classe: 'status-atraso' };
-    if (dias <= 5) return { texto: `Vence em ${dias}d`, classe: 'status-atraso' };
-    return { texto: `Vence em ${dias}d`, classe: 'status-ativa' };
+  // --- Cobrança recorrente mensal (substituiu a data única "vencimento")
+  // ---------------------------------------------------------------------
+  // Cada cliente agora tem um DIA DO MÊS fixo (diaVencimentoMensal, 1-31)
+  // em vez de uma data única que você tinha que reeditar na mão toda vez
+  // que recebia. O painel calcula sozinho a próxima cobrança a partir
+  // desse dia, e ultimoPagamentoEm (marcado com "Pago hoje") é o que
+  // diferencia "já pago este ciclo" de "vencido, aguardando" — sem isso,
+  // o dia do mês sozinho não saberia dizer se você já recebeu ou não.
+
+  function ultimoDiaDoMes(ano, mesIndex) {
+    return new Date(ano, mesIndex + 1, 0).getDate();
   }
 
-  async function salvarVencimentoCliente(clienteId, novaData) {
+  /** A data de vencimento DENTRO de um mês específico, considerando
+   * meses mais curtos que o dia cadastrado (dia 31 cadastrado num mês de
+   * 30 dias cai no último dia dele, não estoura pro mês seguinte). */
+  function dataVencimentoNoMes(diaVencimentoMensal, ano, mesIndex) {
+    const dia = Math.min(diaVencimentoMensal, ultimoDiaDoMes(ano, mesIndex));
+    return new Date(ano, mesIndex, dia);
+  }
+
+  /** Vencimento do CICLO ATUAL -- a ocorrência mais recente do dia
+   * cadastrado que já chegou (podendo ser hoje). É contra essa data que
+   * comparamos o último pagamento pra saber se o ciclo já foi quitado. */
+  function vencimentoCicloAtual(diaVencimentoMensal) {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    let candidato = dataVencimentoNoMes(diaVencimentoMensal, hoje.getFullYear(), hoje.getMonth());
+    if (candidato > hoje) {
+      candidato = dataVencimentoNoMes(diaVencimentoMensal, hoje.getFullYear(), hoje.getMonth() - 1);
+    }
+    return candidato;
+  }
+
+  /** Próxima cobrança a partir de hoje (usada só pro resumo/exibição —
+   * o que decide "pago ou não" é sempre vencimentoCicloAtual acima). */
+  function proximoVencimento(diaVencimentoMensal) {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    let candidato = dataVencimentoNoMes(diaVencimentoMensal, hoje.getFullYear(), hoje.getMonth());
+    if (candidato < hoje) {
+      candidato = dataVencimentoNoMes(diaVencimentoMensal, hoje.getFullYear(), hoje.getMonth() + 1);
+    }
+    return candidato;
+  }
+
+  /** Status da cobrança de um cliente — só um lembrete visual pra você,
+   * não afeta bloqueio nem congelamento automaticamente (continua sendo
+   * você quem decide bloquear ou não, na mão). */
+  function statusVencimento(cliente) {
+    if (!cliente.diaVencimentoMensal) return null;
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const cicloAtual = vencimentoCicloAtual(cliente.diaVencimentoMensal);
+    const pago = cliente.ultimoPagamentoEm && new Date(cliente.ultimoPagamentoEm + 'T00:00:00') >= cicloAtual;
+
+    if (pago) {
+      const proximo = proximoVencimento(cliente.diaVencimentoMensal);
+      const diasProximo = Math.round((proximo - hoje) / 86400000);
+      return { texto: `Pago · próx. cobrança em ${diasProximo}d (dia ${cliente.diaVencimentoMensal})`, classe: 'status-ativa' };
+    }
+    const diasAtraso = Math.round((hoje - cicloAtual) / 86400000);
+    if (diasAtraso <= 0) return { texto: 'Vence hoje', classe: 'status-atraso' };
+    return { texto: `Vencido há ${diasAtraso}d`, classe: 'status-atraso' };
+  }
+
+  async function salvarDiaVencimentoCliente(clienteId, novoDia) {
     limparErro();
+    const dia = novoDia ? Math.min(31, Math.max(1, Math.round(Number(novoDia)))) : null;
     try {
-      await updateDoc(doc(db, 'clientes', clienteId), { vencimento: novaData || null });
+      await updateDoc(doc(db, 'clientes', clienteId), { diaVencimentoMensal: dia });
+      registrarAcao('alterar_dia_vencimento_cliente', { clienteId, dia });
     } catch (err) {
-      mostrarErro(err, 'salvar o vencimento do cliente');
+      mostrarErro(err, 'salvar o dia de vencimento do cliente');
+    }
+  }
+
+  async function salvarValorMensalidadeCliente(clienteId, novoValor) {
+    limparErro();
+    const valor = novoValor !== '' && novoValor != null ? Number(novoValor) : null;
+    try {
+      await updateDoc(doc(db, 'clientes', clienteId), { valorMensalidade: valor });
+    } catch (err) {
+      mostrarErro(err, 'salvar o valor da mensalidade do cliente');
+    }
+  }
+
+  /** "Recebi o pagamento" — um clique, sem precisar calcular nem digitar
+   * data nenhuma. Marca hoje como o último pagamento; o status já passa
+   * a mostrar "Pago" até o próximo ciclo vencer sozinho. */
+  async function marcarPagoHoje(clienteId) {
+    limparErro();
+    const hojeISO = new Date().toISOString().slice(0, 10);
+    try {
+      await updateDoc(doc(db, 'clientes', clienteId), { ultimoPagamentoEm: hojeISO });
+      registrarAcao('marcar_cliente_pago', { clienteId, data: hojeISO });
+    } catch (err) {
+      mostrarErro(err, 'marcar esse cliente como pago');
     }
   }
 
@@ -1085,10 +1174,78 @@
 
   // --- Métricas agregadas ---
 
+  /** Resumo de cobrança recorrente — pra ter uma visão geral (quanto
+   * está previsto de MRR, quanto está em atraso) sem precisar abrir
+   * cliente por cliente. "MRR cadastrado" é a soma do que está
+   * preenchido em cada cliente, não necessariamente o que já entrou
+   * este mês (isso quem diz é o próprio "Marcar pago"). */
+  function calcularResumoCobranca() {
+    let mrrCadastrado = 0;
+    let totalComCobranca = 0;
+    let vencidos = 0;
+    let vencendoEm7Dias = 0;
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+
+    for (const cliente of clientes) {
+      if (cliente.valorMensalidade) mrrCadastrado += cliente.valorMensalidade;
+      if (!cliente.diaVencimentoMensal) continue;
+      totalComCobranca++;
+
+      const cicloAtual = vencimentoCicloAtual(cliente.diaVencimentoMensal);
+      const pago = cliente.ultimoPagamentoEm && new Date(cliente.ultimoPagamentoEm + 'T00:00:00') >= cicloAtual;
+      if (!pago) {
+        vencidos++;
+      } else {
+        const diasProximo = Math.round((proximoVencimento(cliente.diaVencimentoMensal) - hoje) / 86400000);
+        if (diasProximo <= 7) vencendoEm7Dias++;
+      }
+    }
+    return { mrrCadastrado, totalComCobranca, vencidos, vencendoEm7Dias };
+  }
+
+  /** CSV de todos os clientes com cobrança recorrente cadastrada -- pra
+   * usar como lista de cobrança (mandar mensagem, importar em outra
+   * ferramenta etc.), sem precisar copiar cliente por cliente da tela. */
+  function exportarCobrancaCsv() {
+    const linhas = [['Cliente', 'Documento', 'Dia de vencimento', 'Valor mensal', 'Status', 'Último pagamento']];
+    const comCobranca = clientes.filter((c) => c.diaVencimentoMensal);
+    for (const cliente of comCobranca) {
+      const venc = statusVencimento(cliente);
+      linhas.push([
+        cliente.nome || '',
+        cliente.documento || '',
+        String(cliente.diaVencimentoMensal),
+        cliente.valorMensalidade != null ? String(cliente.valorMensalidade).replace('.', ',') : '',
+        venc ? venc.texto : '',
+        cliente.ultimoPagamentoEm ? new Date(cliente.ultimoPagamentoEm + 'T00:00:00').toLocaleDateString('pt-BR') : '',
+      ]);
+    }
+    if (comCobranca.length === 0) {
+      alert('Nenhum cliente com cobrança recorrente cadastrada ainda.');
+      return;
+    }
+    // Escapa aspas duplas e embrulha todo campo em aspas -- forma mais
+    // simples de não quebrar o CSV com vírgula/ponto-e-vírgula no nome
+    // do cliente (comum em razão social).
+    const csv = linhas.map((linha) => linha.map((campo) => `"${String(campo).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+    // BOM UTF-8 -- sem isso o Excel no Windows abre acento errado.
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cobranca-gerenciaai-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   function renderMetricas() {
     const div = document.getElementById('metricas-conteudo');
     const totalVendas = instalacoes.reduce((acc, i) => acc + (i.totalVendasHistorico || 0), 0);
     const vendas30Dias = instalacoes.reduce((acc, i) => acc + (i.vendasUltimos30Dias || 0), 0);
+    const cobranca = calcularResumoCobranca();
 
     const porPerfil = {};
     for (const i of instalacoes) {
@@ -1117,6 +1274,17 @@
         <div class="metrica-box"><div class="metrica-valor">${vendas30Dias}</div><div class="metrica-label">Vendas — últimos 30 dias</div></div>
         <div class="metrica-box"><div class="metrica-valor">${perfilMaisComum ? escapeHtml(perfilMaisComum[0]) : '—'}</div><div class="metrica-label">Perfil mais comum (${perfilMaisComum ? perfilMaisComum[1] : 0} instalação(ões))</div></div>
       </div>
+      ${cobranca.totalComCobranca > 0 || cobranca.mrrCadastrado > 0 ? `
+        <div class="metricas-grid" style="margin-top: 12px;">
+          <div class="metrica-box"><div class="metrica-valor">${formatarMoeda(cobranca.mrrCadastrado)}</div><div class="metrica-label">MRR cadastrado</div></div>
+          <div class="metrica-box"><div class="metrica-valor">${cobranca.totalComCobranca}</div><div class="metrica-label">Clientes com cobrança recorrente</div></div>
+          <div class="metrica-box" style="${cobranca.vencidos > 0 ? 'border-color: var(--danger);' : ''}">
+            <div class="metrica-valor" style="${cobranca.vencidos > 0 ? 'color: var(--danger);' : ''}">${cobranca.vencidos}</div>
+            <div class="metrica-label">Vencidos, aguardando pagamento</div>
+          </div>
+          <div class="metrica-box"><div class="metrica-valor">${cobranca.vencendoEm7Dias}</div><div class="metrica-label">Vencendo nos próximos 7 dias</div></div>
+        </div>
+      ` : ''}
       ${topClientes.length > 0 ? `
         <div style="margin-top: 18px;">
           <div class="metrica-label" style="margin-bottom: 8px;">Clientes mais ativos (vendas nos últimos 30 dias)</div>
@@ -2113,6 +2281,7 @@
     document.getElementById('novo-cliente-form').reset();
     novoClienteModal.style.display = 'flex';
   });
+  document.getElementById('btn-exportar-cobranca').addEventListener('click', exportarCobrancaCsv);
   document.getElementById('novo-cliente-cancelar').addEventListener('click', () => {
     novoClienteModal.style.display = 'none';
   });
@@ -2120,12 +2289,16 @@
     e.preventDefault();
     const nome = document.getElementById('novo-cliente-nome').value.trim();
     const documento = document.getElementById('novo-cliente-doc').value.trim();
-    const vencimento = document.getElementById('novo-cliente-vencimento').value;
+    const diaVencimentoBruto = document.getElementById('novo-cliente-dia-vencimento').value;
+    const valorBruto = document.getElementById('novo-cliente-valor-mensalidade').value;
     if (!nome) return;
     limparErro();
     try {
       await addDoc(collection(db, 'clientes'), {
-        nome, documento: documento || null, vencimento: vencimento || null, criadoEm: serverTimestamp(),
+        nome, documento: documento || null,
+        diaVencimentoMensal: diaVencimentoBruto ? Math.min(31, Math.max(1, Math.round(Number(diaVencimentoBruto)))) : null,
+        valorMensalidade: valorBruto ? Number(valorBruto) : null,
+        criadoEm: serverTimestamp(),
       });
       novoClienteModal.style.display = 'none';
     } catch (err) {
@@ -2229,6 +2402,12 @@
     const aberto = blocosAbertos.has(cliente.id);
     const resumoStatus = calcularResumoStatus(maquinas);
     const venc = statusVencimento(cliente);
+    // Cliente antigo que ainda só tem a data única `vencimento` (campo
+    // substituído por este recurso) e nunca definiu o dia recorrente
+    // novo -- sugere o dia extraído dela, só como ponto de partida no
+    // campo (não grava sozinho; precisa salvar de propósito).
+    const diaVencimentoSugerido = cliente.diaVencimentoMensal
+      || (cliente.vencimento ? new Date(cliente.vencimento + 'T00:00:00').getDate() : '');
 
     return `
       <div class="card cliente-card" data-cliente-card="${cliente.id}">
@@ -2256,8 +2435,14 @@
             <button class="btn-secondary btn-small" data-limpar-mensagem-cliente="${cliente.id}">Limpar</button>
           </div>
           <div class="mensagem-cliente-wrap">
-            <label class="cliente-resumo" style="align-self:center;" for="vencimento-${cliente.id}">Vencimento / cobrança:</label>
-            <input type="date" id="vencimento-${cliente.id}" style="max-width:160px;" data-vencimento-cliente="${cliente.id}" value="${cliente.vencimento || ''}">
+            <label class="cliente-resumo" style="align-self:center;" for="dia-vencimento-${cliente.id}">Cobra todo dia:</label>
+            <input type="number" id="dia-vencimento-${cliente.id}" min="1" max="31" step="1" style="max-width:80px;"
+              data-dia-vencimento-cliente="${cliente.id}" value="${diaVencimentoSugerido}" placeholder="dia">
+            <label class="cliente-resumo" style="align-self:center;" for="valor-mensalidade-${cliente.id}">Valor:</label>
+            <input type="number" id="valor-mensalidade-${cliente.id}" min="0" step="0.01" style="max-width:110px;"
+              data-valor-mensalidade-cliente="${cliente.id}" value="${cliente.valorMensalidade ?? ''}" placeholder="R$">
+            <button class="btn-secondary btn-small" data-marcar-pago="${cliente.id}">Marcar pago hoje</button>
+            ${cliente.ultimoPagamentoEm ? `<span class="cliente-resumo">último pagamento: ${new Date(cliente.ultimoPagamentoEm + 'T00:00:00').toLocaleDateString('pt-BR')}</span>` : ''}
           </div>
           <div class="mensagem-cliente-wrap">
             <span class="cliente-resumo" style="align-self:center;">Módulos pagos:</span>
@@ -2410,9 +2595,19 @@
     listaClientes.querySelectorAll('[data-mensagem-cliente]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
     });
-    listaClientes.querySelectorAll('[data-vencimento-cliente]').forEach((input) => {
+    listaClientes.querySelectorAll('[data-dia-vencimento-cliente]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
-      input.addEventListener('change', () => salvarVencimentoCliente(input.dataset.vencimentoCliente, input.value));
+      input.addEventListener('change', () => salvarDiaVencimentoCliente(input.dataset.diaVencimentoCliente, input.value));
+    });
+    listaClientes.querySelectorAll('[data-valor-mensalidade-cliente]').forEach((input) => {
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('change', () => salvarValorMensalidadeCliente(input.dataset.valorMensalidadeCliente, input.value));
+    });
+    listaClientes.querySelectorAll('[data-marcar-pago]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        marcarPagoHoje(btn.dataset.marcarPago);
+      });
     });
     listaClientes.querySelectorAll('[data-modulo-toggle]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
