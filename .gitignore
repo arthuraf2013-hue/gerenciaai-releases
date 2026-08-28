@@ -8,3 +8,12 @@ Thumbs.db
 
 # pasta usada só durante manutenção via bridge -- nunca deve ser versionada
 _to_delete/
+
+# chave/segredo local -- nunca deve ser versionado nem lido pelo app
+masterkey co.txt
+
+# dados/runtime locais (backups .sqlite3, anexos, fotos de produto) --
+# gerados em tempo de execução (ver backupsDir() em backupService.js),
+# nunca deveriam ter ido pro Git (entraram sem querer num "release: att"
+# automático que faz `git add -A`)
+.data/
