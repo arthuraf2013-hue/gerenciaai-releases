@@ -42,7 +42,25 @@ async function setupTestEnv() {
   return testEnv;
 }
 
+// Todo teste que envolve pareamento/dispositivo/pedido precisa que a
+// instalação tenha um cliente vinculado com os módulos pagos ativos --
+// desde a PARTE 1.5 das regras (módulos pagos), a ausência de
+// clienteId ou de modulosAtivos conta como módulo DESATIVADO
+// (fail-closed). setupModulos() dá o cliente "padrão" (tudo ativo) pros
+// testes que não são especificamente sobre módulo pago/desativado; os
+// testes de módulo usam clienteId/modulosAtivos próprios pra simular o
+// cliente que não paga ou que teve o módulo desligado.
+async function setupModulos(installId, { clienteId = `cliente-de-${installId}`, consultaRemota = true, appGarcom = true } = {}) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`installations/${installId}`).set({ clienteId }, { merge: true });
+    await db.doc(`clientes/${clienteId}`).set({ modulosAtivos: { consultaRemota, appGarcom } });
+  });
+  return clienteId;
+}
+
 async function seed(installId, { pareamentoUsado = false, garcomVinculoId = 'user-garcom-1' } = {}) {
+  const clienteId = await setupModulos(installId);
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await db.doc(`installations/${installId}/pareamentos/111111`).set({
@@ -58,6 +76,7 @@ async function seed(installId, { pareamentoUsado = false, garcomVinculoId = 'use
       expiraEm: new Date(Date.now() + 10 * 60 * 1000),
     });
   });
+  return clienteId;
 }
 
 test.after(async () => { if (testEnv) await testEnv.cleanup(); });
@@ -188,6 +207,7 @@ test('status_ao_vivo: leitura negada pra celular sem dispositivo pareado nesta l
 
 test('status_ao_vivo: leitura permitida pra dispositivo pareado e ativo', { skip: !RODAR && SKIP_MSG }, async () => {
   await setupTestEnv();
+  await setupModulos('install-K');
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await db.doc('installations/install-K/status_ao_vivo/atual').set({ resumoHoje: { faturamentoHoje: 100 } });
@@ -213,6 +233,7 @@ test('dispositivos_pareados: só o próprio uid lê/escreve o próprio documento
 
 test('pedidos_garcom: criação exige dispositivo garçom ativo vinculado a esta loja', { skip: !RODAR && SKIP_MSG }, async () => {
   await setupTestEnv();
+  await setupModulos('install-M');
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await context.firestore().doc('installations/install-M/dispositivos/uid-garcom-ok').set({ tipo: 'garcom', ativo: true, vinculoUserId: 'user-garcom-1' });
   });
@@ -231,4 +252,101 @@ test('pedidos_garcom: negado pra dispositivo do tipo consulta (não é garçom)'
   await assertFails(consulta.collection('installations/install-N/pedidos_garcom').add({
     garcomUid: 'uid-consulta-1', itens: [], status: 'novo',
   }));
+});
+
+// ---------------------------------------------------------------------
+// PARTE 1.5 — módulos pagos (Consulta remota, App do garçom). O ponto
+// central destes testes: desligar um módulo no painel corta o acesso
+// IMEDIATAMENTE, não só pra pareamento novo -- inclusive pra quem já
+// estava pareado antes do módulo ser desligado (é por isso que o gate
+// está em 4 pontos: criação do código, criação/re-pareamento do
+// dispositivo, criação de pedido, e leitura do status ao vivo).
+// ---------------------------------------------------------------------
+
+test('pareamentos: create falha se o módulo do tipo (App do garçom) está desativado pro cliente', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-O', { appGarcom: false, consultaRemota: true });
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertFails(desktop.doc('installations/install-O/pareamentos/444444').set({
+    codigo: '444444', tipo: 'garcom', installId: 'install-O', vinculoUserId: 'user-garcom-x',
+    usado: false, expiraEm: new Date(Date.now() + 10 * 60 * 1000),
+  }));
+});
+
+test('pareamentos: create funciona pro tipo consulta mesmo com appGarcom desativado (módulos são independentes)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-O2', { appGarcom: false, consultaRemota: true });
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(desktop.doc('installations/install-O2/pareamentos/444444').set({
+    codigo: '444444', tipo: 'consulta', installId: 'install-O2', vinculoUserId: 'user-admin-x',
+    usado: false, expiraEm: new Date(Date.now() + 10 * 60 * 1000),
+  }));
+});
+
+test('pareamentos: create falha se o cliente é legado e não tem modulosAtivos nenhum (fail-closed)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-P').set({ clienteId: 'cliente-legado' }, { merge: true });
+    await db.doc('clientes/cliente-legado').set({ nome: 'Cliente Antigo' }); // sem modulosAtivos
+  });
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertFails(desktop.doc('installations/install-P/pareamentos/444444').set({
+    codigo: '444444', tipo: 'consulta', installId: 'install-P', vinculoUserId: 'user-admin-x',
+    usado: false, expiraEm: new Date(Date.now() + 10 * 60 * 1000),
+  }));
+});
+
+test('pareamentos: create falha se a instalação nem tem clienteId vinculado ainda (fail-closed)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertFails(desktop.doc('installations/install-Q/pareamentos/444444').set({
+    codigo: '444444', tipo: 'consulta', installId: 'install-Q', vinculoUserId: 'user-admin-x',
+    usado: false, expiraEm: new Date(Date.now() + 10 * 60 * 1000),
+  }));
+});
+
+test('dispositivos: criação falha se o módulo foi desligado DEPOIS do código gerado mas ANTES do resgate', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const clienteId = await seed('install-R', { garcomVinculoId: 'user-garcom-9' }); // código 111111 = garcom, gerado com módulo ativo
+  // Cliente cancela o módulo "App do garçom" no painel antes do celular resgatar.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`clientes/${clienteId}`).update({ 'modulosAtivos.appGarcom': false });
+  });
+  const celular = testEnv.authenticatedContext('uid-garcom-tardio').firestore();
+  await assertFails(celular.doc('installations/install-R/dispositivos/uid-garcom-tardio').set({
+    tipo: 'garcom', vinculoUserId: 'user-garcom-9', pareamentoCodigo: '111111', ativo: true,
+  }));
+});
+
+test('pedidos_garcom: create falha se o módulo appGarcom foi desligado depois que o dispositivo já estava pareado', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const clienteId = await setupModulos('install-S');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-S/dispositivos/uid-garcom-cortado').set({ tipo: 'garcom', ativo: true, vinculoUserId: 'user-garcom-1' });
+  });
+  // Módulo desligado no painel DEPOIS que este dispositivo já estava pareado.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`clientes/${clienteId}`).update({ 'modulosAtivos.appGarcom': false });
+  });
+  const garcom = testEnv.authenticatedContext('uid-garcom-cortado').firestore();
+  await assertFails(garcom.collection('installations/install-S/pedidos_garcom').add({
+    garcomUid: 'uid-garcom-cortado', mesaNumero: '3', itens: [], status: 'novo',
+  }));
+});
+
+test('status_ao_vivo: leitura é cortada quando o módulo é desligado, mesmo pra dispositivo já pareado e ativo', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const clienteId = await setupModulos('install-T');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-T/status_ao_vivo/atual').set({ resumoHoje: { faturamentoHoje: 100 } });
+    await db.doc('installations/install-T/dispositivos/uid-consulta-cortado').set({ tipo: 'consulta', ativo: true, vinculoUserId: 'user-admin-1' });
+  });
+  // Módulo "Consulta remota" desligado no painel DEPOIS que este dispositivo já estava pareado.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`clientes/${clienteId}`).update({ 'modulosAtivos.consultaRemota': false });
+  });
+  const celular = testEnv.authenticatedContext('uid-consulta-cortado').firestore();
+  await assertFails(celular.doc('installations/install-T/status_ao_vivo/atual').get());
 });

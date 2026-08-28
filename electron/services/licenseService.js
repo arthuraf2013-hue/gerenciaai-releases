@@ -99,6 +99,16 @@ function aplicarDadosDoServidor(dados) {
     console.error('[licenseService] aplicarGrupoDaInstalacao falhou:', err);
   }
 
+  // Espelho local dos módulos pagos (Consulta remota, App do garçom) --
+  // só o clienteId vem junto neste documento; modulosAtivos em si mora
+  // num documento separado (clientes/{clienteId}), então este chamado
+  // só decide se precisa (re)iniciar a escuta própria dele.
+  try {
+    require('./modulosPagosService').aplicarClienteIdDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarClienteIdDaInstalacao (módulos pagos) falhou:', err);
+  }
+
   // Override de versão mínima por instalação (rollout gradual/exceção
   // pontual) -- mesmo documento, mesma leitura.
   try {

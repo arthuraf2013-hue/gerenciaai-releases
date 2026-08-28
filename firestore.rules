@@ -73,14 +73,62 @@ service cloud.firestore {
     }
 
     // --------------------------------------------------------------
+    // PARTE 1.5 — módulos pagos (Consulta remota, App do garçom)
+    // --------------------------------------------------------------
+    //
+    // Cada CLIENTE (clientes/{clienteId}, ver painel de licenciamento)
+    // tem um mapa modulosAtivos: { consultaRemota: bool, appGarcom: bool }.
+    // Ausência do campo (cliente antigo, ou instalação sem clienteId
+    // vinculado ainda) conta como módulo DESATIVADO -- fail-closed, o
+    // padrão nunca dá acesso de graça por omissão.
+    //
+    // Usado abaixo (PARTE 2) pra bloquear pareamento/uso de um módulo
+    // que o cliente não paga -- tanto na hora de criar o vínculo quanto
+    // depois, pra cortar o acesso de quem já estava pareado assim que o
+    // módulo é desligado no painel (não só impedir pareamento novo).
+    //
+    // LIMITAÇÃO CONHECIDA (não fechada nesta rodada): a coleção
+    // clientes/ continua na PARTE 1 (read/write livre, ver aviso no
+    // topo deste arquivo) -- então esta checagem bloqueia o app normal
+    // (desktop e celular) de usar um módulo não pago, mas não impede
+    // alguém com acesso direto ao Firestore (fora do app) de editar o
+    // próprio doc de cliente e ligar o módulo sozinho. Fechar isso de
+    // vez exigiria autenticação de verdade no admin-panel (hoje ele
+    // também escreve em clientes/ sem login nenhum) -- fora do escopo
+    // desta mudança; ver CLAUDE.md.
+    function clienteIdDaInstalacao(installId) {
+      let ref = /databases/$(database)/documents/installations/$(installId);
+      return exists(ref) ? get(ref).data.get('clienteId', null) : null;
+    }
+
+    function moduloAtivoParaCliente(clienteId, modulo) {
+      let cRef = /databases/$(database)/documents/clientes/$(clienteId);
+      return exists(cRef) && get(cRef).data.get('modulosAtivos', {}).get(modulo, false) == true;
+    }
+
+    function moduloAtivo(installId, modulo) {
+      let clienteId = clienteIdDaInstalacao(installId);
+      return clienteId != null && moduloAtivoParaCliente(clienteId, modulo);
+    }
+
+    // 'garcom' → módulo "App do garçom"; qualquer outro tipo (só existe
+    // 'consulta' hoje) → módulo "Consulta remota".
+    function moduloDoTipoDePareamento(tipo) {
+      return tipo == 'garcom' ? 'appGarcom' : 'consultaRemota';
+    }
+
+    // --------------------------------------------------------------
     // PARTE 2 — pareamento de celular (novo)
     // --------------------------------------------------------------
 
     match /installations/{installId}/pareamentos/{codigo} {
       // O DESKTOP publica o código (mesmo nível de confiança sem
       // autenticação que o resto do app já usa hoje pra escrever em
-      // installations/{installId}).
-      allow create: if true;
+      // installations/{installId}) -- mas só se o cliente pagar o
+      // módulo correspondente (ver PARTE 1.5 acima). O desktop também
+      // checa isso ANTES de chamar aqui (ver pairingService.gerarCodigo),
+      // então isto é a segunda trava, não a única.
+      allow create: if moduloAtivo(installId, moduloDoTipoDePareamento(request.resource.data.tipo));
 
       // O CELULAR só pode ler depois de ao menos autenticar (anônimo
       // já basta) — fecha a porta de alguém varrer códigos sem nem
@@ -128,7 +176,12 @@ service cloud.firestore {
           && get(pRef).data.usado == false
           && get(pRef).data.expiraEm > request.time
           && get(pRef).data.tipo == tipo
-          && get(pRef).data.vinculoUserId == vinculoUserId;
+          && get(pRef).data.vinculoUserId == vinculoUserId
+          // Módulo pago ainda ativo pro cliente dessa instalação (ver
+          // PARTE 1.5) -- confere de novo aqui (não só na criação do
+          // código) porque o módulo pode ter sido desligado no painel
+          // DEPOIS que o código foi gerado mas ANTES do celular resgatar.
+          && moduloAtivo(installId, moduloDoTipoDePareamento(tipo));
       }
 
       allow create: if request.auth != null && uid == request.auth.uid
@@ -157,11 +210,15 @@ service cloud.firestore {
     // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.
     match /installations/{installId}/pedidos_garcom/{pedidoId} {
       // Só um dispositivo pareado como garçom, ATIVO, dessa loja
-      // específica pode criar pedido, e sempre como 'novo'.
+      // específica, com o módulo "App do garçom" ainda pago (ver PARTE
+      // 1.5 -- corta o acesso na hora se o cliente parar de pagar, não
+      // só impede pareamento novo), pode criar pedido, e sempre como
+      // 'novo'.
       allow create: if request.auth != null
         && request.resource.data.garcomUid == request.auth.uid
         && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.tipo == 'garcom'
         && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true
+        && moduloAtivo(installId, 'appGarcom')
         && request.resource.data.status == 'novo';
 
       // O garçom só vê os PRÓPRIOS pedidos (pra acompanhar status).
@@ -185,9 +242,20 @@ service cloud.firestore {
     // montar o pedido; não vale a pena separar num documento à parte só
     // pra diferenciar os dois tipos).
     match /installations/{installId}/status_ao_vivo/{docId} {
-      allow read: if request.auth != null
-        && exists(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid))
-        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true;
+      // Extraído numa função (em vez de inline) porque precisa ler o
+      // `tipo` do dispositivo pra saber QUAL módulo checar (garçom usa
+      // "appGarcom", consulta usa "consultaRemota") -- sem essa
+      // checagem de módulo, desligar o módulo de um cliente no painel
+      // não cortava o acesso de quem já estava pareado, só impedia
+      // pareamento novo.
+      function dispositivoPareadoEModuloAtivo(installId) {
+        let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+        return exists(dRef)
+          && get(dRef).data.ativo == true
+          && moduloAtivo(installId, moduloDoTipoDePareamento(get(dRef).data.tipo));
+      }
+
+      allow read: if request.auth != null && dispositivoPareadoEModuloAtivo(installId);
 
       allow write: if request.auth == null; // só o desktop publica
     }

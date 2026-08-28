@@ -62,6 +62,19 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
     return { ok: false, error: 'Um código de consulta remota só pode ser vinculado a um Gerente ou Administrador.' };
   }
 
+  // Consulta remota e App do garçom são módulos pagos à parte (ver
+  // PARTE 1.5 de firestore.rules, onde a checagem de verdade acontece)
+  // -- este é só o atalho local: quando já SABEMOS (confirmado com o
+  // servidor) que o módulo do cliente está desligado, recusa na hora,
+  // sem nem tentar a chamada de rede. Se o espelho local ainda não
+  // sincronizou, deixa passar e a regra do Firestore decide (ver
+  // modulosPagosService.moduloAtivo).
+  const modulo = tipo === 'garcom' ? 'appGarcom' : 'consultaRemota';
+  if (!require('./modulosPagosService').moduloAtivo(modulo)) {
+    const nomeModulo = tipo === 'garcom' ? 'App do garçom' : 'Consulta remota';
+    return { ok: false, error: `O módulo "${nomeModulo}" não está ativo pra este cliente. Fale com o suporte pra contratar.` };
+  }
+
   // Firestore precisa estar acessível pra publicar o código (é ele quem
   // o celular de fato lê) — sem tentar gerar um código "só local" que
   // nunca vai funcionar do outro lado.

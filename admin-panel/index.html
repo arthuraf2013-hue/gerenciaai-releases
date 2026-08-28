@@ -1012,6 +1012,23 @@
     }
   }
 
+  /** Liga/desliga um módulo pago (Consulta remota, App do garçom) pra
+   * este cliente — quem bloqueia de verdade é a regra do Firestore
+   * (PARTE 1.5 de firestore.rules), inclusive já cortando o acesso de
+   * quem estava pareado antes; isto aqui só grava a intenção. Usa
+   * `modulosAtivos.<nome>` (dot notation) em vez de reescrever o mapa
+   * inteiro, pra nunca apagar sem querer o outro módulo por causa de
+   * uma corrida entre duas abas/pessoas mexendo no mesmo cliente. */
+  async function salvarModuloCliente(clienteId, nomeModulo, ativo) {
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'clientes', clienteId), { [`modulosAtivos.${nomeModulo}`]: ativo });
+      registrarAcao('alterar_modulo_pago_cliente', { clienteId, modulo: nomeModulo, ativo });
+    } catch (err) {
+      mostrarErro(err, 'salvar o módulo pago desse cliente');
+    }
+  }
+
   // --- Ações em bloco (todas as máquinas de um cliente de uma vez) ---
 
   async function salvarMensagemCliente(clienteId, texto, maquinasDoCliente) {
@@ -2242,6 +2259,19 @@
             <label class="cliente-resumo" style="align-self:center;" for="vencimento-${cliente.id}">Vencimento / cobrança:</label>
             <input type="date" id="vencimento-${cliente.id}" style="max-width:160px;" data-vencimento-cliente="${cliente.id}" value="${cliente.vencimento || ''}">
           </div>
+          <div class="mensagem-cliente-wrap">
+            <span class="cliente-resumo" style="align-self:center;">Módulos pagos:</span>
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
+              <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="consultaRemota"
+                ${cliente.modulosAtivos?.consultaRemota ? 'checked' : ''} style="width:auto;">
+              Consulta remota
+            </label>
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
+              <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="appGarcom"
+                ${cliente.modulosAtivos?.appGarcom ? 'checked' : ''} style="width:auto;">
+              App do garçom
+            </label>
+          </div>
           ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
         </div>
       </div>
@@ -2383,6 +2413,12 @@
     listaClientes.querySelectorAll('[data-vencimento-cliente]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
       input.addEventListener('change', () => salvarVencimentoCliente(input.dataset.vencimentoCliente, input.value));
+    });
+    listaClientes.querySelectorAll('[data-modulo-toggle]').forEach((input) => {
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('change', () => {
+        salvarModuloCliente(input.dataset.moduloToggle, input.dataset.moduloNome, input.checked);
+      });
     });
   }
 

@@ -8,6 +8,12 @@ const pairingService = require('../electron/services/pairingService');
 // gerarCodigo/revogarDispositivo/iniciarEscutaPareamentos exigem
 // licenseService/Firestore de verdade, fora do escopo de um teste local
 // (ver comentário "Exportados só pra teste" no próprio arquivo).
+//
+// EXCEÇÃO: o trecho novo de gerarCodigo que recusa por módulo pago
+// desativado (ver modulosPagosService.js) roda ANTES de qualquer
+// chamada ao Firestore -- então dá pra testar essa recusa localmente,
+// simulando o espelho local "já confirmou que o módulo está
+// desligado" direto no banco, sem precisar de rede nenhuma.
 
 test('marcarCodigoComoUsado marca usado=1 e carimba usado_em, sem mexer em outro código', () => {
   const { db, adminId, gerenteId } = freshTestDb();
@@ -86,6 +92,40 @@ test('espelharDispositivoPareado ignora silenciosamente vínculo apontando pra u
   const dispositivo = db.prepare('SELECT * FROM paired_devices WHERE id = ?').get('uid-orfao');
   assert.equal(dispositivo, undefined);
 });
+
+test('gerarCodigo recusa na hora (sem tocar rede) quando o módulo "App do garçom" está confirmado desativado', async () => {
+  const { db, adminId } = freshTestDb();
+  const garcomId = randomUUID();
+  db.prepare(`INSERT INTO users (id, nome, role, pin_hash) VALUES (?, 'Garçom Teste', 'garcom', 'x')`).run(garcomId);
+  db.prepare(
+    `INSERT INTO modulos_pagos_state (id, cliente_id, consulta_remota, app_garcom, ja_sincronizado) VALUES ('default', 'cliente-x', 1, 0, 1)`
+  ).run();
+
+  const resultado = await pairingService.gerarCodigo({ tipo: 'garcom', vinculoUserId: garcomId, requestingUserId: adminId });
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.error, /App do garçom/);
+
+  // Nenhum código deveria ter sido gravado localmente -- a recusa foi
+  // antes de qualquer tentativa de publicar.
+  const pendentes = pairingService.listarCodigosPendentes();
+  assert.equal(pendentes.length, 0);
+});
+
+test('gerarCodigo recusa na hora quando o módulo "Consulta remota" está confirmado desativado', async () => {
+  const { db, adminId } = freshTestDb();
+  db.prepare(
+    `INSERT INTO modulos_pagos_state (id, cliente_id, consulta_remota, app_garcom, ja_sincronizado) VALUES ('default', 'cliente-x', 0, 1, 1)`
+  ).run();
+
+  const resultado = await pairingService.gerarCodigo({ tipo: 'consulta', vinculoUserId: adminId, requestingUserId: adminId });
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.error, /Consulta remota/);
+});
+
+// Não testamos aqui o caminho "módulo ativo" de gerarCodigo -- passar
+// da checagem de módulo cai direto na parte que precisa de
+// licenseService/Firestore de verdade (mesma exclusão documentada no
+// topo do arquivo).
 
 test('listarDispositivosPareados traz ativos primeiro e junto o nome do vínculo', () => {
   const { gerenteId, adminId } = freshTestDb();

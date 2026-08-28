@@ -653,6 +653,33 @@ CREATE TABLE IF NOT EXISTS sync_state (
   servidor_do_grupo        INTEGER NOT NULL DEFAULT 0
 );
 
+-- Espelho local dos módulos pagos (Consulta remota, App do garçom) do
+-- CLIENTE desta instalação -- ver modulosPagosService.js e a PARTE 1.5
+-- de firestore.rules (é lá que a checagem de verdade acontece; isto
+-- aqui é só um cache pra pairingService.gerarCodigo poder recusar na
+-- hora, sem depender de round-trip de rede, quando já sabe que o
+-- módulo está desligado).
+--
+-- Ao contrário de sync_state (que vem de graça junto no documento da
+-- própria instalação), modulosAtivos mora num documento SEPARADO
+-- (clientes/{clienteId}), então precisa da própria escuta em tempo
+-- real, iniciada só depois de saber o clienteId.
+--
+-- ja_sincronizado distingue "nunca recebemos resposta nenhuma do
+-- servidor ainda" (0 -- trata como desconhecido, deixa passar; quem
+-- decide de verdade é a regra do Firestore) de "já confirmamos com o
+-- servidor, e o módulo está desligado" (1 com o campo em 0 -- bloqueia
+-- na hora). Sem essa distinção, uma instalação que nunca conseguiu
+-- falar com o servidor (offline desde a instalação) ficaria bloqueada
+-- pra sempre por engano, mesmo pagando os módulos.
+CREATE TABLE IF NOT EXISTS modulos_pagos_state (
+  id                TEXT PRIMARY KEY DEFAULT 'default',
+  cliente_id        TEXT,
+  consulta_remota   INTEGER NOT NULL DEFAULT 0,
+  app_garcom        INTEGER NOT NULL DEFAULT 0,
+  ja_sincronizado   INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS firebase_config (
   id            TEXT PRIMARY KEY DEFAULT 'default',
   api_key       TEXT,
