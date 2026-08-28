@@ -90,16 +90,31 @@ python3 -m http.server 8080
 Abra `http://localhost:8080` no celular (mesma rede Wi-Fi) ou no
 Chrome DevTools em modo responsivo no computador.
 
+## Módulos pagos (Consulta remota, App do garçom)
+
+Cada cliente (`clientes/{clienteId}.modulosAtivos`) tem os dois módulos
+independentemente ativos/desativados -- ver a PARTE 1.5 de
+`firestore.rules` e `electron/services/modulosPagosService.js`. Desligar
+um módulo no admin-panel corta o acesso de quem já estava pareado, não
+só impede pareamento novo (a checagem roda em toda leitura de dado
+sensível, não só na hora de gerar/resgatar o código).
+
+## Grupo de sincronização (múltiplos PDVs da mesma loja)
+
+Quando a instalação pareada pertence a um grupo de sincronização (ver
+`syncStateService.js`/Central → Sincronização), a tela de Consulta
+remota agrega automaticamente o resumo financeiro do dia (faturamento,
+vendas, ticket médio, com detalhamento por terminal) de TODOS os
+terminais do grupo -- sem precisar parear em cada um. Isso usa
+`grupos_sincronizacao/{grupoId}/vendas` (já sincronizado ali por
+`salesSyncService.js`, leitura já aberta nas regras). Mesas e pedidos em
+andamento continuam mostrando só o terminal ao qual o celular está
+pareado de fato -- esse dado é local de cada terminal, não existe hoje
+sincronização de mesas/pedidos entre terminais do mesmo grupo.
+
 ## Limitações conhecidas / próximos passos possíveis
 
-- O garçom só lança item que já existe no catálogo publicado (sem
-  "item avulso" digitado à mão) -- `pedidoGarcomSyncService.criarPedidoLocal`
-  já aceita item sem `productId` (fica como `descricao_livre`), então
-  dá pra adicionar essa opção na UI depois sem mexer no backend.
 - Sem push notification (ex: avisar o garçom quando o pedido é
   recebido/dá erro) -- hoje só dá pra ver isso abrindo a aba "Meus
   pedidos". Notificação push exigiria Firebase Cloud Messaging + pedir
-  permissão do navegador, deixado de fora desta primeira versão.
-- Sem tela de configuração de nome do dispositivo depois do pareamento
-  (usa um nome padrão) -- editar `nomeDispositivo` é só um `updateDoc`
-  a mais, mas não tem UI pra isso ainda.
+  permissão do navegador, deixado de fora desta versão.

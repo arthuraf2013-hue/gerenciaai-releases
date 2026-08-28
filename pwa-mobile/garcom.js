@@ -17,7 +17,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   let mesaSelecionada = null;
   let categoriaAtiva = 'todas';
   let busca = '';
-  const carrinho = new Map(); // productId -> { produto, quantidade }
+  const carrinho = new Map(); // productId (ou 'avulso-N' pra item fora do catálogo) -> { produto, quantidade }
   let abaAtiva = 'novo'; // 'novo' | 'meus-pedidos'
 
   root.innerHTML = `
@@ -63,15 +63,44 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     }
     menu.innerHTML = `
       ${itensTroca}
+      <button class="item-menu" id="btn-renomear-dispositivo">Renomear este celular</button>
       <button class="item-menu" id="btn-parear-outra">Parear outra loja</button>
       <button class="item-menu item-menu-perigo" id="btn-esquecer">Esquecer esta loja neste celular</button>
     `;
     btnMenu.addEventListener('click', () => { menu.hidden = !menu.hidden; });
     menu.querySelectorAll('[data-trocar]').forEach((b) => b.addEventListener('click', () => onTrocarLoja(b.dataset.trocar)));
+    menu.querySelector('#btn-renomear-dispositivo').addEventListener('click', renomearDispositivo);
     menu.querySelector('#btn-parear-outra').addEventListener('click', onParearOutra);
     menu.querySelector('#btn-esquecer').addEventListener('click', () => {
       if (confirm('Isso só remove essa loja da lista deste celular -- não afeta o acesso no servidor. Continuar?')) onEsquecerLoja();
     });
+  }
+
+  /** Nome do dispositivo (mostrado pro gerente em Configurações →
+   * Celular, pra ele diferenciar "celular do João" de "celular da
+   * Maria") -- o único campo (junto de ultimoAcesso) que o próprio
+   * celular tem permissão de alterar no seu doc de dispositivo (ver
+   * firestore.rules). Antes só dava pra definir na hora do pareamento
+   * (nome fixo tipo "Garçom 1 — Android"), sem jeito de corrigir depois. */
+  async function renomearDispositivo() {
+    // Sem prefill com o nome atual de verdade (evitaria um round-trip de
+    // rede só pra isso) -- o mesmo padrão de nome usado no pareamento
+    // (ver pairing.js) serve de sugestão inicial razoável.
+    const sugestao = `${loja.vinculoNome || 'Celular'} — ${navigator.platform || 'celular'}`;
+    const novoNome = prompt('Nome deste celular (aparece pro gerente em Configurações → Celular):', sugestao);
+    if (novoNome === null) return; // cancelou
+    const nome = novoNome.trim();
+    if (!nome) return;
+    try {
+      await firestoreFns.updateDoc(
+        firestoreFns.doc(db, 'installations', loja.installId, 'dispositivos', auth.currentUser.uid),
+        { nomeDispositivo: nome }
+      );
+      mostrarToast('Nome atualizado!');
+    } catch (err) {
+      console.error('[garcom] falha ao renomear dispositivo', err);
+      alert('Não foi possível salvar agora. Confira sua internet e tente de novo.');
+    }
   }
 
   function renderAbaAtiva() {
@@ -92,6 +121,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
       </div>
       <div class="chips-categoria">
         ${categorias.map((c) => `<button class="chip ${c === categoriaAtiva ? 'chip-ativo' : ''}" data-cat="${escapeHtml(c)}">${c === 'todas' ? 'Todas' : escapeHtml(c)}</button>`).join('')}
+        <button class="chip" id="btn-item-avulso">+ Item avulso</button>
       </div>
       <div id="grid-produtos" class="grid-produtos"></div>
     `;
@@ -100,6 +130,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     conteudo.querySelectorAll('[data-cat]').forEach((btn) => {
       btn.addEventListener('click', () => { categoriaAtiva = btn.dataset.cat; renderNovoPedido(); });
     });
+    conteudo.querySelector('#btn-item-avulso').addEventListener('click', abrirModalItemAvulso);
 
     if (status.perfilAtivo === 'restaurante') {
       conteudo.querySelectorAll('[data-mesa]').forEach((btn) => {
@@ -176,6 +207,53 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     carrinho.set(produto.id, { produto, quantidade: (atual?.quantidade || 0) + 1 });
     renderGridProdutos();
     renderCarrinhoFlutuante();
+  }
+
+  // ---------- Item avulso (fora do catálogo -- promoção, combinado,
+  // item fora de linha etc.) -- vai pro pedido com productId: null,
+  // igual o caminho que pedidoGarcomSyncService.criarPedidoLocal já
+  // trata como descricao_livre (mesmo tratamento que a importação de
+  // planilha usa pra "não travar tudo por causa de uma linha ruim"). ----------
+
+  let contadorAvulso = 0;
+
+  function adicionarItemAvulso({ nome, preco, quantidade }) {
+    const id = `avulso-${++contadorAvulso}`;
+    carrinho.set(id, { produto: { id, nome, preco, avulso: true }, quantidade });
+    renderCarrinhoFlutuante();
+  }
+
+  function abrirModalItemAvulso() {
+    const modal = document.createElement('div');
+    modal.className = 'modal-fundo';
+    modal.innerHTML = `
+      <div class="modal-caixa">
+        <h2>Item avulso</h2>
+        <p class="subtexto">Pra um item que não está no catálogo (promoção, combinado, fora de linha...).</p>
+        <div class="form-avulso">
+          <input id="avulso-nome" type="text" placeholder="Nome do item" autofocus />
+          <input id="avulso-preco" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Preço unitário (R$)" />
+          <input id="avulso-qtd" type="number" inputmode="numeric" min="1" step="1" value="1" placeholder="Quantidade" />
+        </div>
+        <p id="msg-erro-avulso" class="msg-erro" hidden></p>
+        <button id="btn-confirmar-avulso" class="btn-primario">Adicionar ao pedido</button>
+        <button id="btn-cancelar-avulso" class="btn-secundario">Cancelar</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const msgErro = modal.querySelector('#msg-erro-avulso');
+    modal.querySelector('#btn-cancelar-avulso').addEventListener('click', () => modal.remove());
+    modal.querySelector('#btn-confirmar-avulso').addEventListener('click', () => {
+      const nome = modal.querySelector('#avulso-nome').value.trim();
+      const preco = Number(modal.querySelector('#avulso-preco').value);
+      const quantidade = Number(modal.querySelector('#avulso-qtd').value);
+      if (!nome) { msgErro.textContent = 'Digite o nome do item.'; msgErro.hidden = false; return; }
+      if (!Number.isFinite(preco) || preco < 0) { msgErro.textContent = 'Digite um preço válido.'; msgErro.hidden = false; return; }
+      if (!Number.isFinite(quantidade) || quantidade <= 0) { msgErro.textContent = 'Digite uma quantidade válida.'; msgErro.hidden = false; return; }
+      adicionarItemAvulso({ nome, preco, quantidade: Math.floor(quantidade) });
+      modal.remove();
+    });
   }
 
   function renderCarrinhoFlutuante() {
@@ -255,7 +333,11 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
 
     const observacoes = modal.querySelector('#obs-pedido').value.trim() || null;
     const itens = [...carrinho.values()].map(({ produto, quantidade }) => ({
-      productId: produto.id, nome: produto.nome, quantidade, precoUnitario: produto.preco,
+      // Item avulso não tem productId de verdade -- manda null de
+      // propósito (em vez do id sintético só-local `avulso-N`), pra cair
+      // explicitamente no caminho de descricao_livre do desktop, não por
+      // acidente de o id não bater com nenhum produto real.
+      productId: produto.avulso ? null : produto.id, nome: produto.nome, quantidade, precoUnitario: produto.preco,
     }));
 
     try {

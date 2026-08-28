@@ -197,6 +197,11 @@ button { cursor: pointer; }
   width: 100%; min-height: 60px; border-radius: var(--radius); border: 1px solid var(--color-border);
   background: var(--color-surface2); padding: 10px; resize: vertical;
 }
+.form-avulso { display: flex; flex-direction: column; gap: 10px; }
+.form-avulso input {
+  width: 100%; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text);
+}
 .total-carrinho { font-size: 18px; display: flex; justify-content: space-between; padding-top: 4px; }
 
 /* ---------- Meus pedidos / pedidos em andamento ---------- */
