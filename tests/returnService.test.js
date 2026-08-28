@@ -5,16 +5,18 @@ const { freshTestDb, createProduct, addStock } = require('./helpers/testDb');
 const saleService = require('../electron/services/saleService');
 const returnService = require('../electron/services/returnService');
 const stockService = require('../electron/services/stockService');
+const customerService = require('../electron/services/customerService');
 
-function vendaFinalizadaComItem(ctx, { quantidadeVenda = 2, preco = 10, tipo = 'produto' } = {}) {
+function vendaFinalizadaComItem(ctx, { quantidadeVenda = 2, preco = 10, tipo = 'produto', metodo = 'dinheiro', customerId } = {}) {
   const productId = createProduct(ctx.db, { preco, tipo });
   if (tipo !== 'servico') addStock(ctx.db, { productId, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
   const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  if (customerId) saleService.setCustomer(saleId, customerId);
   const addResult = saleService.addItem({
     saleId, productId, locationId: ctx.locationId, quantidade: quantidadeVenda,
     operadorId: ctx.operadorId, deviceId: 'device-teste',
   });
-  saleService.addPayment({ saleId, metodo: 'dinheiro', valor: preco * quantidadeVenda, detalhes: {} });
+  saleService.addPayment({ saleId, metodo, valor: preco * quantidadeVenda, detalhes: {} });
   saleService.finalizeSale(saleId);
   return { ...ctx, productId, saleId, saleItemId: addResult.itemId };
 }
@@ -121,4 +123,71 @@ test('devolução de item de serviço não inventa uma entrada de estoque (nunca
   assert.equal(result.valorDevolvido, 80);
   const movimentos = ctx.db.prepare('SELECT COUNT(*) as c FROM stock_movements WHERE product_id = ?').get(ctx.productId).c;
   assert.equal(movimentos, 0, 'devolver serviço não deveria criar stock_movements de entrada');
+});
+
+// ---------------------------------------------------------------------
+// Devolução de item vendido fiado precisa abater a dívida do cliente —
+// sem isso, ele continua devendo o valor cheio de um item que já
+// devolveu (o negócio cobra a mais).
+// ---------------------------------------------------------------------
+
+test('devolução total de venda 100% fiado zera a dívida do cliente', () => {
+  const base = freshTestDb();
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Fiado' });
+  const ctx = vendaFinalizadaComItem(base, { quantidadeVenda: 2, preco: 10, metodo: 'fiado', customerId });
+  assert.equal(customerService.getSaldoFiado(customerId), 20);
+
+  const result = returnService.createReturn({
+    saleId: ctx.saleId, locationId: ctx.locationId,
+    itens: [{ saleItemId: ctx.saleItemId, quantidade: 2 }],
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'd',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(customerService.getSaldoFiado(customerId), 0);
+});
+
+test('devolução parcial de venda fiado abate só a parte proporcional da dívida', () => {
+  const base = freshTestDb();
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Fiado Parcial' });
+  const ctx = vendaFinalizadaComItem(base, { quantidadeVenda: 4, preco: 10, metodo: 'fiado', customerId }); // dívida = 40
+
+  returnService.createReturn({
+    saleId: ctx.saleId, locationId: ctx.locationId,
+    itens: [{ saleItemId: ctx.saleItemId, quantidade: 1 }], // devolve 1 de 4 = R$10
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'd',
+  });
+  assert.equal(customerService.getSaldoFiado(customerId), 30);
+
+  // segunda devolução parcial continua abatendo corretamente
+  returnService.createReturn({
+    saleId: ctx.saleId, locationId: ctx.locationId,
+    itens: [{ saleItemId: ctx.saleItemId, quantidade: 1 }],
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'd',
+  });
+  assert.equal(customerService.getSaldoFiado(customerId), 20);
+});
+
+test('devolução de venda paga em dinheiro não mexe em dívida nenhuma (cliente sem fiado)', () => {
+  const base = freshTestDb();
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Dinheiro' });
+  const ctx = vendaFinalizadaComItem(base, { quantidadeVenda: 2, preco: 10, metodo: 'dinheiro', customerId });
+  assert.equal(customerService.getSaldoFiado(customerId), 0);
+
+  const result = returnService.createReturn({
+    saleId: ctx.saleId, locationId: ctx.locationId,
+    itens: [{ saleItemId: ctx.saleItemId, quantidade: 1 }],
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'd',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(customerService.getSaldoFiado(customerId), 0, 'não deveria criar dívida negativa nem mexer no saldo');
+});
+
+test('devolução de venda sem cliente vinculado não quebra (sem fiado pra abater)', () => {
+  const ctx = vendaFinalizadaComItem(freshTestDb(), { quantidadeVenda: 2, preco: 10, metodo: 'dinheiro' });
+  const result = returnService.createReturn({
+    saleId: ctx.saleId, locationId: ctx.locationId,
+    itens: [{ saleItemId: ctx.saleItemId, quantidade: 1 }],
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234', deviceId: 'd',
+  });
+  assert.equal(result.ok, true);
 });

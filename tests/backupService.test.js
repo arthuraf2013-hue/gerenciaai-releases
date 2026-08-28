@@ -132,6 +132,30 @@ test('restoreBackup devolve fotos/anexos/NFC-e do espelho pras pastas ao vivo', 
   assert.equal(fs.readFileSync(path.join(fotosAoVivo, 'produto-1.jpg'), 'utf-8'), 'foto-original');
 });
 
+// Restaurar é a ação mais destrutiva do sistema (substitui TODOS os
+// dados atuais) -- precisa ficar rastreável mesmo depois da troca de
+// banco. O rastro só pode ser gravado DENTRO do banco recém-restaurado
+// (gravar no banco antigo antes de sobrescrever o arquivo seria inútil).
+test('restoreBackup grava um evento de auditoria dentro do próprio banco restaurado', async () => {
+  const primeiraInstancia = freshTestDb();
+  const backupResult = await backupService.runBackup();
+  const nomeArquivo = path.basename(backupResult.arquivo);
+
+  const { adminId } = freshTestDb(); // troca de banco de novo, como o teste acima já faz
+  const resultado = await backupService.restoreBackup(adminId, nomeArquivo);
+  assert.equal(resultado.ok, true);
+
+  const Database = require('better-sqlite3');
+  const dbRestaurado = new Database(require('../electron/db/database').getDbPath(), { readonly: true });
+  try {
+    const evento = dbRestaurado.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'backup_restaurado'`).get();
+    assert.ok(evento, 'deveria ter gravado um evento de auditoria no banco restaurado');
+    assert.match(evento.motivo, new RegExp(nomeArquivo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  } finally {
+    dbRestaurado.close();
+  }
+});
+
 // updateConfig (pasta secundária) também dispara (melhor esforço) um
 // report imediato pra Central, sem esperar o próximo ciclo de
 // sincronização de 6h. O campo de texto livre "conta de nuvem pessoal"

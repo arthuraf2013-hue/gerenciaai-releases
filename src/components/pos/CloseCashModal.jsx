@@ -81,6 +81,9 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
             {summary.porMetodo.map((m) => (
               <div key={m.metodo}><span>{METODO_LABEL[m.metodo] || m.metodo}</span><strong>R$ {m.total.toFixed(2)}</strong></div>
             ))}
+            {summary.totalDevolvidoEmDinheiro > 0 && (
+              <div><span>Devoluções (em dinheiro)</span><strong>- R$ {summary.totalDevolvidoEmDinheiro.toFixed(2)}</strong></div>
+            )}
             <div className="cash-summary-total"><span>Esperado em dinheiro</span><strong>R$ {summary.valorEsperado.toFixed(2)}</strong></div>
           </div>
         )}

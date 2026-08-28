@@ -294,6 +294,19 @@ async function runBackup() {
  */
 const RETENCAO_NUVEM = 10;
 
+// Enquanto true, uma restauração de backup está em andamento neste
+// processo (ver restoreBackup) -- qualquer chamada de fundo que
+// terminar nesse meio-tempo (ex: o upload pra nuvem abaixo, que roda
+// sem `await` e pode levar segundos com retentativas de rede) não pode
+// reabrir a conexão com o banco (getDb()) sozinha: restoreBackup conta
+// com a conexão ficando fechada entre closeConnection() e o app
+// reiniciar, pra poder sobrescrever o arquivo .sqlite3 com segurança
+// (no Windows, sobrescrever um arquivo que outro handle ainda tem
+// aberto falha; mesmo no Linux, dava pra colidir com a escrita da
+// auditoria da própria restauração -- foi assim que esse bug foi
+// encontrado, ver tests/backupService.test.js).
+let restaurandoBackup = false;
+
 async function uploadBackupParaNuvem(caminhoLocal, nomeArquivo) {
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
@@ -326,11 +339,15 @@ async function uploadBackupParaNuvem(caminhoLocal, nomeArquivo) {
       await deleteDoc(d.ref);
     }
 
-    const db = getDb();
-    db.prepare('UPDATE backup_config SET ultimo_upload_nuvem_em = NOW_SYNCED(), ultimo_upload_nuvem_ok = 1 WHERE id = ?').run('default');
+    if (!restaurandoBackup) {
+      const db = getDb();
+      db.prepare('UPDATE backup_config SET ultimo_upload_nuvem_em = NOW_SYNCED(), ultimo_upload_nuvem_ok = 1 WHERE id = ?').run('default');
+    }
   } catch (err) {
-    const db = getDb();
-    db.prepare('UPDATE backup_config SET ultimo_upload_nuvem_em = NOW_SYNCED(), ultimo_upload_nuvem_ok = 0 WHERE id = ?').run('default');
+    if (!restaurandoBackup) {
+      const db = getDb();
+      db.prepare('UPDATE backup_config SET ultimo_upload_nuvem_em = NOW_SYNCED(), ultimo_upload_nuvem_ok = 0 WHERE id = ?').run('default');
+    }
     throw err;
   }
 }
@@ -491,6 +508,26 @@ async function restoreBackup(requestingUserId, nomeArquivo) {
   const backupPath = path.join(backupsDir(), nomeArquivo);
   if (!fs.existsSync(backupPath)) return { ok: false, error: 'Arquivo de backup não encontrado.' };
 
+  // Sinaliza pro resto do módulo (ver uploadBackupParaNuvem) não reabrir
+  // getDb() sozinho enquanto isso roda -- ver o comentário na declaração
+  // de restaurandoBackup. Sempre volta a false no fim, mesmo se algo
+  // aqui lançar.
+  restaurandoBackup = true;
+  try {
+    return await restaurarBackupInterno(requestingUserId, backupPath, nomeArquivo);
+  } finally {
+    restaurandoBackup = false;
+  }
+}
+
+async function restaurarBackupInterno(requestingUserId, backupPath, nomeArquivo) {
+  // Precisa do nome de quem pediu ANTES de fechar a conexão atual --
+  // depois da restauração o banco vira outro arquivo (o do backup), que
+  // pode nem ter esse usuário (ex: admin criado depois da data do
+  // backup).
+  const db = getDb();
+  const solicitante = db.prepare('SELECT nome FROM users WHERE id = ?').get(requestingUserId);
+
   const { closeConnection } = require('../db/database');
   closeConnection();
 
@@ -501,6 +538,56 @@ async function restoreBackup(requestingUserId, nomeArquivo) {
   }
 
   fs.copyFileSync(backupPath, dbPath);
+
+  // Restaurar é a ação mais destrutiva que existe no sistema (substitui
+  // TODOS os dados atuais) -- precisa ficar rastreável, e o único lugar
+  // onde esse rastro sobrevive é dentro do próprio banco recém-restaurado
+  // (gravar antes do copyFileSync acima seria inútil: o arquivo em si já
+  // teria sido sobrescrito). Se o usuário que pediu não existir nesse
+  // banco mais antigo (ex: foi criado depois do backup), grava sem
+  // vínculo de FK, mas com o nome dele no motivo mesmo assim -- melhor
+  // esforço, nunca trava a restauração em si.
+  try {
+    // Uma chamada de fundo de uploadBackupParaNuvem (ver runBackup — o
+    // upload roda sem `await`, "melhor esforço") pode terminar (sucesso
+    // OU falha, os dois chamam getDb() pra atualizar backup_config) bem
+    // nesse meio-tempo e reabrir sozinha uma conexão de verdade com
+    // dbPath, que nunca mais é fechada -- daí um SQLITE_BUSY aqui não
+    // teria nada a ver com a restauração em si. Fecha de novo por
+    // garantia (idempotente: não faz nada se ninguém reabriu).
+    closeConnection();
+    for (const sufixo of ['-wal', '-shm']) {
+      const residual = dbPath + sufixo;
+      if (fs.existsSync(residual)) fs.unlinkSync(residual);
+    }
+
+    const Database = require('better-sqlite3');
+    const dbRestaurado = new Database(dbPath);
+    try {
+      // Espera em vez de falhar na hora se o arquivo ainda estiver
+      // brevemente ocupado por outro handle (ex: o SO ainda liberando o
+      // descritor da conexão anterior) -- sem isso, "database is locked"
+      // podia derrubar só essa gravação de auditoria por uma disputa de
+      // milissegundos, sem relação nenhuma com a restauração em si.
+      dbRestaurado.pragma('busy_timeout = 5000');
+      // audit_log.criado_em usa NOW_SYNCED() como default (ver
+      // schema.sql) -- essa função SQL só existe numa conexão onde ela
+      // foi registrada (ver database.js), o que essa conexão avulsa não
+      // é. Sem isso o INSERT abaixo falha com "unknown function".
+      dbRestaurado.function('NOW_SYNCED', () => require('./timeService').nowSyncedUTCString());
+      const aindaExiste = dbRestaurado.prepare('SELECT id FROM users WHERE id = ?').get(requestingUserId);
+      dbRestaurado.prepare(
+        `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso)
+         VALUES (?, 'backup_restaurado', ?, ?, 1)`
+      ).run(
+        require('crypto').randomUUID(),
+        aindaExiste ? requestingUserId : null,
+        `Backup "${nomeArquivo}" restaurado por ${solicitante?.nome || requestingUserId}`
+      );
+    } finally {
+      dbRestaurado.close();
+    }
+  } catch (err) { /* auditoria não deve travar a restauração se falhar */ }
 
   const avisosArquivos = await restaurarArquivosAdicionaisSeHouver();
   return avisosArquivos.length > 0

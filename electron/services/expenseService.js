@@ -62,9 +62,32 @@ function listPending({ locationId }) {
   ).all(locationId);
 }
 
-function remove({ expenseId }) {
+/** Exclui uma despesa (definitivo). Só gerente/admin/suporte pode --
+ * sem essa checagem, qualquer operador logado conseguia apagar
+ * qualquer despesa (mesmo já paga) direto pelo IPC, sem deixar rastro
+ * nenhum na Auditoria. */
+function remove({ expenseId, operadorId }) {
   const db = getDb();
+  const despesa = db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId);
+  if (!despesa) return { ok: false, error: 'Despesa não encontrada.' };
+
+  const operador = operadorId ? db.prepare('SELECT * FROM users WHERE id = ?').get(operadorId) : null;
+  if (!operador || !['gerente', 'admin', 'suporte'].includes(operador.role)) {
+    return { ok: false, error: 'Só gerente, admin ou suporte pode excluir uma despesa.' };
+  }
+
   db.prepare('DELETE FROM expenses WHERE id = ?').run(expenseId);
+
+  try {
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso)
+       VALUES (?, 'despesa_removida', ?, ?, 1)`
+    ).run(
+      randomUUID(), operadorId,
+      `Despesa "${despesa.descricao}" (R$ ${Number(despesa.valor).toFixed(2)}) excluída${despesa.data_pagamento ? ' — já estava paga' : ''}`
+    );
+  } catch (err) { /* auditoria não deve travar a exclusão se falhar */ }
+
   return { ok: true };
 }
 

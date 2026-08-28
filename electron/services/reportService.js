@@ -18,6 +18,10 @@ const TIPO_EVENTO_LABEL = {
   devolucao: 'Devolução',
   desconto_manual: 'Desconto manual',
   ajuste_estoque: 'Ajuste de estoque',
+  despesa_removida: 'Despesa excluída',
+  pin_resetado: 'PIN redefinido',
+  config_seguranca_alterada: 'Configuração de segurança alterada',
+  backup_restaurado: 'Backup restaurado',
 };
 
 async function exportSalesReport(filePath, { locationId, dataInicio, dataFim }) {
@@ -46,8 +50,9 @@ async function exportSalesReport(filePath, { locationId, dataInicio, dataFim }) 
 
 /** Exporta a trilha de auditoria (cancelamentos, devoluções, descontos —
  * aprovados ou negados) num período, no mesmo formato do relatório de vendas. */
-async function exportAuditReport(filePath, { dataInicio, dataFim }) {
-  const eventos = authService.listAuditLog({ dataInicio, dataFim });
+async function exportAuditReport(filePath, { dataInicio, dataFim, requestingUserId }) {
+  const eventos = authService.listAuditLog({ dataInicio, dataFim, requestingUserId });
+  if (!Array.isArray(eventos)) return eventos; // { ok: false, error } -- sem permissão
 
   const rows = eventos.map((e) => ({
     data: e.criado_em,

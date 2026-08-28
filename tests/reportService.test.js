@@ -1,9 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { randomUUID } = require('crypto');
-const { freshTestDb, createProduct } = require('./helpers/testDb');
+const { freshTestDb, createProduct, createSuporteUser } = require('./helpers/testDb');
 const customerService = require('../electron/services/customerService');
 const reportService = require('../electron/services/reportService');
+
+function caminhoTemp() {
+  return path.join(os.tmpdir(), `teste-report-${randomUUID()}.xlsx`);
+}
 
 /**
  * getCustomerPurchaseReport tinha um bug pré-existente (`getDb` nunca
@@ -43,4 +50,35 @@ test('getCustomerPurchaseReport devolve erro claro pra cliente inexistente (não
   freshTestDb();
   const relatorio = reportService.getCustomerPurchaseReport({ customerId: 'cliente-que-nao-existe', dataInicio: '2026-08-01', dataFim: '2026-08-31' });
   assert.equal(relatorio.ok, false);
+});
+
+// ---------------------------------------------------------------------
+// exportAuditReport chama authService.listAuditLog por baixo -- também
+// precisa recusar quem não é admin/suporte (mesmo motivo do teste em
+// authService.test.js: sem isso, qualquer operador exportava a trilha
+// de auditoria inteira pra uma planilha).
+// ---------------------------------------------------------------------
+
+test('exportAuditReport recusa operador comum e não cria o arquivo', () => {
+  const { operadorId } = freshTestDb();
+  const filePath = caminhoTemp();
+  return reportService.exportAuditReport(filePath, { dataInicio: '2020-01-01', dataFim: '2030-12-31', requestingUserId: operadorId }).then((result) => {
+    assert.equal(result.ok, false);
+    assert.equal(fs.existsSync(filePath), false);
+  });
+});
+
+test('exportAuditReport funciona pra admin e suporte', async () => {
+  const { db, adminId } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+
+  const path1 = caminhoTemp();
+  const result1 = await reportService.exportAuditReport(path1, { dataInicio: '2020-01-01', dataFim: '2030-12-31', requestingUserId: adminId });
+  assert.equal(result1.ok, true);
+  assert.ok(fs.existsSync(path1));
+
+  const path2 = caminhoTemp();
+  const result2 = await reportService.exportAuditReport(path2, { dataInicio: '2020-01-01', dataFim: '2030-12-31', requestingUserId: suporteId });
+  assert.equal(result2.ok, true);
+  assert.ok(fs.existsSync(path2));
 });

@@ -175,6 +175,24 @@ test('finalizeSale aceita quando o pagamento cobre exatamente o total', () => {
   assert.equal(result.ok, true);
 });
 
+test('finalizeSale recusa uma segunda chamada pra mesma venda (não duplica fiado nem pontos)', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 }); // total = 20
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Fiado' });
+  saleService.setCustomer(ctx.saleId, customerId);
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'fiado', valor: 20, detalhes: {} });
+
+  const primeira = saleService.finalizeSale(ctx.saleId);
+  assert.equal(primeira.ok, true);
+  const saldoDepoisDaPrimeira = customerService.getSaldoFiado(customerId);
+
+  const segunda = saleService.finalizeSale(ctx.saleId);
+  assert.equal(segunda.ok, false);
+  assert.match(segunda.error, /não está mais aberta/i);
+
+  const saldoFinal = customerService.getSaldoFiado(customerId);
+  assert.equal(saldoFinal, saldoDepoisDaPrimeira, 'a dívida fiado não deveria dobrar numa segunda chamada');
+});
+
 test('desconto de fidelidade reduz o valor exigido no pagamento', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 }); // total = 20
   const { id: customerId } = customerService.upsert({ nome: 'Cliente Teste' });
@@ -467,4 +485,41 @@ test('editarHistoricoVenda funciona pra suporte, igual admin', async () => {
   assert.equal(result.ok, true);
   const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
   assert.equal(sale.total, 42);
+});
+
+// ---------------------------------------------------------------------
+// excluirDoHistorico/reexibirNoHistorico — restrito a gerente/admin/
+// suporte (mesmo nível de acesso do botão na tela de Histórico), checado
+// no backend, não só escondido no botão.
+// ---------------------------------------------------------------------
+
+test('excluirDoHistorico recusa operador', () => {
+  const ctx = abrirVendaFinalizada(freshTestDb());
+  const result = saleService.excluirDoHistorico({ saleId: ctx.saleId, operadorId: ctx.operadorId });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /gerente ou admin/i);
+  const sale = ctx.db.prepare('SELECT oculta_historico FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.oculta_historico, 0, 'nada deveria ter mudado quando a permissão é recusada');
+});
+
+test('excluirDoHistorico funciona pra gerente e reexibirNoHistorico desfaz', () => {
+  const ctx = abrirVendaFinalizada(freshTestDb());
+
+  const excluir = saleService.excluirDoHistorico({ saleId: ctx.saleId, operadorId: ctx.gerenteId, motivo: 'teste' });
+  assert.equal(excluir.ok, true);
+  assert.equal(ctx.db.prepare('SELECT oculta_historico FROM sales WHERE id = ?').get(ctx.saleId).oculta_historico, 1);
+
+  const reexibirComOperador = saleService.reexibirNoHistorico({ saleId: ctx.saleId, operadorId: ctx.operadorId });
+  assert.equal(reexibirComOperador.ok, false, 'operador também não deveria poder reexibir');
+
+  const reexibir = saleService.reexibirNoHistorico({ saleId: ctx.saleId, operadorId: ctx.gerenteId });
+  assert.equal(reexibir.ok, true);
+  assert.equal(ctx.db.prepare('SELECT oculta_historico FROM sales WHERE id = ?').get(ctx.saleId).oculta_historico, 0);
+});
+
+test('excluirDoHistorico funciona pra suporte, igual admin', () => {
+  const ctx = abrirVendaFinalizada(freshTestDb());
+  const suporteId = createSuporteUser(ctx.db);
+  const result = saleService.excluirDoHistorico({ saleId: ctx.saleId, operadorId: suporteId });
+  assert.equal(result.ok, true);
 });

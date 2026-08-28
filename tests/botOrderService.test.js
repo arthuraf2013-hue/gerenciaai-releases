@@ -306,6 +306,61 @@ test('createOrder congela o preço atual do produto quando não vem precoUnitari
   assert.equal(item.preco_unitario, 9.9);
 });
 
+// ---------------------------------------------------------------------
+// createOrder/adicionarItensAoPedido não podem confiar no precoUnitario
+// de quem chamou pra item com produto real (o bot do WhatsApp e o app
+// do garçom são as origens mais expostas) -- o preço tem que vir sempre
+// do catálogo local. Só item sem produto (descrição livre) usa o preço
+// informado, porque não existe preço de catálogo pra conferir.
+// ---------------------------------------------------------------------
+
+test('createOrder ignora precoUnitario mandado por quem chamou e usa o preço do catálogo quando o item tem produto', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Produto Y', preco: 20, categoria: 'Geral' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 5, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Ana', clienteTelefone: '5511977776666',
+    tipoEntrega: 'retirada', origem: 'whatsapp_bot',
+    itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 0.01 }], // preço fraudado
+  });
+
+  const item = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').get(criado.id);
+  assert.equal(item.preco_unitario, 20, 'deveria ter usado o preço do catálogo, não o mandado pelo cliente');
+});
+
+test('createOrder usa o precoUnitario informado só quando o item não tem produto (descrição livre)', () => {
+  const { locationId } = freshTestDb();
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Ana', clienteTelefone: '5511977776666',
+    tipoEntrega: 'retirada', origem: 'manual',
+    itens: [{ descricaoLivre: 'Taxa combinada por telefone', quantidade: 1, precoUnitario: 15 }],
+  });
+  const detalhe = botOrderService.getOrderWithItems(criado.id);
+  assert.equal(detalhe.itens[0].preco_unitario, 15);
+});
+
+test('adicionarItensAoPedido também ignora precoUnitario mandado por quem chamou pra item com produto real', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Produto W', preco: 30, categoria: 'Geral' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 5, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Ana', clienteTelefone: '5511977776666',
+    tipoEntrega: 'retirada', origem: 'whatsapp_bot',
+    itens: [{ descricaoLivre: 'Item inicial' }],
+  });
+
+  const result = botOrderService.adicionarItensAoPedido({
+    orderId: criado.id,
+    itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 0.01 }],
+  });
+  assert.equal(result.ok, true);
+
+  const itemNovo = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ? AND product_id = ?').get(criado.id, produtoId);
+  assert.equal(itemNovo.preco_unitario, 30);
+});
+
 // ---------- Pesquisa de satisfação pós-pedido ----------
 
 test('registrarNotaSatisfacao grava nota e comentário, e recusa nota fora de 1-5', () => {

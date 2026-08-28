@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
-const { freshTestDb } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
 const expenseService = require('../electron/services/expenseService');
 
 test('create recusa valor inválido ou descrição vazia', () => {
@@ -58,4 +58,62 @@ test('list com apenasPendentes filtra só despesas sem data_pagamento', () => {
   const pendentes = expenseService.list({ locationId, dataInicio: '2020-01-01', dataFim: '2030-12-31', apenasPendentes: true });
   assert.equal(pendentes.length, 1);
   assert.equal(pendentes[0].descricao, 'Pendente');
+});
+
+// ---------------------------------------------------------------------
+// remove() precisa checar o papel de quem pede -- sem isso, qualquer
+// operador logado apagava qualquer despesa (mesmo já paga) direto pelo
+// IPC, sem deixar rastro nenhum na Auditoria.
+// ---------------------------------------------------------------------
+
+test('remove recusa operador comum e não apaga a despesa', () => {
+  const { db, locationId, operadorId } = freshTestDb();
+  const { id } = expenseService.create({ categoria: 'outro', descricao: 'Conta', valor: 50, locationId, operadorId });
+
+  const result = expenseService.remove({ expenseId: id, operadorId });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /gerente|admin|suporte/i);
+
+  const aindaExiste = db.prepare('SELECT id FROM expenses WHERE id = ?').get(id);
+  assert.ok(aindaExiste, 'despesa não deveria ter sido apagada');
+});
+
+test('remove recusa quando nenhum operadorId é informado', () => {
+  const { db, locationId, operadorId } = freshTestDb();
+  const { id } = expenseService.create({ categoria: 'outro', descricao: 'Conta', valor: 50, locationId, operadorId });
+
+  const result = expenseService.remove({ expenseId: id });
+  assert.equal(result.ok, false);
+  assert.ok(db.prepare('SELECT id FROM expenses WHERE id = ?').get(id));
+});
+
+test('remove permite gerente, apaga a despesa e grava na auditoria', () => {
+  const { db, locationId, operadorId, gerenteId } = freshTestDb();
+  const { id } = expenseService.create({ categoria: 'outro', descricao: 'Conta de luz', valor: 75, locationId, operadorId });
+
+  const result = expenseService.remove({ expenseId: id, operadorId: gerenteId });
+  assert.equal(result.ok, true);
+  assert.equal(db.prepare('SELECT id FROM expenses WHERE id = ?').get(id), undefined);
+
+  const evento = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'despesa_removida' AND solicitante_id = ?`).get(gerenteId);
+  assert.ok(evento, 'deveria ter gravado um evento de auditoria');
+  assert.match(evento.motivo, /Conta de luz/);
+});
+
+test('remove permite suporte apagar uma despesa já paga, e o motivo registra isso', () => {
+  const { db, locationId, operadorId } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  const { id } = expenseService.create({ categoria: 'outro', descricao: 'Já paga', valor: 20, locationId, operadorId }); // sem vencimento = já paga na hora
+
+  const result = expenseService.remove({ expenseId: id, operadorId: suporteId });
+  assert.equal(result.ok, true);
+
+  const evento = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'despesa_removida' AND solicitante_id = ?`).get(suporteId);
+  assert.match(evento.motivo, /já estava paga/);
+});
+
+test('remove com despesa inexistente devolve erro', () => {
+  const { gerenteId } = freshTestDb();
+  const result = expenseService.remove({ expenseId: randomUUID(), operadorId: gerenteId });
+  assert.equal(result.ok, false);
 });

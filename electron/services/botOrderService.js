@@ -97,16 +97,23 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
       taxaFinal
     );
     for (const item of itensValidos) {
-      // Congela o preço que foi mostrado ao cliente agora, na criação
-      // do pedido -- se não veio explícito (quem chamou não sabia o
-      // preço), cai pro preço efetivo atual do produto como melhor
-      // esforço. Isso é o que vira sale_items.preco_unitario quando o
-      // pedido for convertido em venda de verdade na conclusão (ver
-      // updateOrderStatus) -- sem isso, o valor da venda saía zerado.
-      let preco = item.precoUnitario != null ? Number(item.precoUnitario) : null;
-      if (preco == null && item.productId) {
+      // Item com produto real NUNCA usa o preço que veio de quem
+      // chamou (WhatsApp bot, app do garçom, ou o próprio IPC de criação
+      // manual) -- sempre usa o preço efetivo atual do catálogo local,
+      // já considerando promoção por validade. Isso é o que vira
+      // sale_items.preco_unitario quando o pedido for convertido em
+      // venda de verdade na conclusão (ver updateOrderStatus /
+      // converterEmVendaSeAplicavel) -- sem essa checagem, um pedido
+      // malicioso conseguia mandar qualquer precoUnitario e fraudar o
+      // valor da venda. Só item sem produto (descrição livre) usa o
+      // preço informado, já que não existe preço de catálogo pra
+      // conferir contra.
+      let preco = null;
+      if (item.productId) {
         const produto = buscarProduto.get(item.productId);
-        if (produto) preco = precoEfetivo(produto);
+        preco = produto ? precoEfetivo(produto) : null;
+      } else {
+        preco = item.precoUnitario != null ? Number(item.precoUnitario) : null;
       }
       inserirItem.run(
         randomUUID(), id, item.productId || null, item.descricaoLivre || null,
@@ -568,10 +575,14 @@ function adicionarItensAoPedido({ orderId, itens }) {
   const buscarProduto = db.prepare('SELECT * FROM products WHERE id = ?');
   const transacao = db.transaction(() => {
     for (const item of itensValidos) {
-      let preco = item.precoUnitario != null ? Number(item.precoUnitario) : null;
-      if (preco == null && item.productId) {
+      // Mesma regra de createOrder: item com produto real nunca confia
+      // no preço de quem chamou, sempre usa o preço efetivo do catálogo.
+      let preco = null;
+      if (item.productId) {
         const produto = buscarProduto.get(item.productId);
-        if (produto) preco = precoEfetivo(produto);
+        preco = produto ? precoEfetivo(produto) : null;
+      } else {
+        preco = item.precoUnitario != null ? Number(item.precoUnitario) : null;
       }
       inserirItem.run(
         randomUUID(), orderId, item.productId || null, item.descricaoLivre || null,

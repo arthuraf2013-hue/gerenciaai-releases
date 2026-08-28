@@ -101,6 +101,36 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
     }
 
     db.prepare('UPDATE returns SET valor_devolvido = ? WHERE id = ?').run(valorTotal, returnId);
+
+    // Se a venda original teve algum valor pago em fiado, devolver um
+    // item também tem que abater a dívida do cliente -- sem isso, ele
+    // continua devendo o valor cheio por um item que já devolveu.
+    // Cap duplo: nunca abate mais do que foi de fato devolvido agora
+    // (valorTotal), nem mais do que ainda resta da dívida ESPECÍFICA
+    // dessa venda (dívida original menos o que devoluções anteriores
+    // dessa mesma venda já abateram) -- assim uma venda com pagamento
+    // misto (parte fiado, parte dinheiro) nunca abate além do que
+    // realmente entrou como fiado, mesmo com devoluções parciais em
+    // mais de uma vez.
+    const sale = db.prepare('SELECT customer_id FROM sales WHERE id = ?').get(saleId);
+    if (sale?.customer_id) {
+      const dividaOriginal = db.prepare(
+        `SELECT COALESCE(SUM(valor), 0) as total FROM customer_credit_movements WHERE tipo = 'divida' AND sale_id = ?`
+      ).get(saleId).total;
+      if (dividaOriginal > 0) {
+        const jaAbatidoPorDevolucoes = db.prepare(
+          `SELECT COALESCE(SUM(valor), 0) as total FROM customer_credit_movements WHERE tipo = 'pagamento' AND sale_id = ?`
+        ).get(saleId).total;
+        const restanteDestaVenda = dividaOriginal - jaAbatidoPorDevolucoes;
+        const abaterAgora = Math.min(valorTotal, restanteDestaVenda);
+        if (abaterAgora > 0) {
+          db.prepare(
+            `INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, sale_id, motivo, operador_id)
+             VALUES (?, ?, 'pagamento', ?, ?, 'Devolução de item(ns) da venda', ?)`
+          ).run(randomUUID(), sale.customer_id, abaterAgora, saleId, currentOperatorId);
+        }
+      }
+    }
   });
   tx();
 

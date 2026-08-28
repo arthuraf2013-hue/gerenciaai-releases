@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import Icon from '../common/Icon';
 
@@ -11,9 +12,14 @@ const TIPO_LABEL = {
   preco_item_alterado: 'Preço de item alterado',
   historico_venda_editado: 'Histórico de venda editado',
   produtos_mesclados: 'Produtos duplicados mesclados',
+  despesa_removida: 'Despesa excluída',
+  pin_resetado: 'PIN redefinido',
+  config_seguranca_alterada: 'Configuração de segurança alterada',
+  backup_restaurado: 'Backup restaurado',
 };
 
 export function AuditLog() {
+  const { currentUser } = useSession();
   const [offsetMs, setOffsetMs] = useState(0);
   const [periodo, setPeriodo] = useState('semana');
   const [dataInicio, setDataInicio] = useState('');
@@ -26,7 +32,7 @@ export function AuditLog() {
   async function handleExport() {
     setExportando(true);
     setExportMsg('');
-    const result = await window.pdv.report.exportAudit({ dataInicio, dataFim });
+    const result = await window.pdv.report.exportAudit({ dataInicio, dataFim, requestingUserId: currentUser.id });
     setExportando(false);
     if (result.canceled) return;
     setExportMsg(result.ok ? `${result.total} evento(s) exportado(s) com sucesso.` : `Erro: ${result.error}`);
@@ -51,7 +57,7 @@ export function AuditLog() {
 
   useEffect(() => {
     if (!dataInicio || !dataFim) return;
-    window.pdv.auth.listAuditLog({ dataInicio, dataFim }).then((list) => {
+    window.pdv.auth.listAuditLog({ dataInicio, dataFim, requestingUserId: currentUser.id }).then((list) => {
       if (!Array.isArray(list)) {
         setEventos([]);
         setLoadError(list?.error || 'Não foi possível carregar a auditoria.');

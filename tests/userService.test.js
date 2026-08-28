@@ -70,3 +70,15 @@ test('papel inválido é rejeitado', () => {
   const result = userService.create(adminId, { nome: 'X', role: 'super-admin', pin: '5555' });
   assert.equal(result.ok, false);
 });
+
+test('resetPin grava um evento de auditoria (dá acesso à conta de outra pessoa, precisa ficar rastreável)', () => {
+  const { db, adminId } = freshTestDb();
+  const alvo = userService.create(adminId, { nome: 'Operador Alvo', role: 'operador', pin: '1234' });
+
+  const reset = userService.resetPin(adminId, { userId: alvo.id, novoPin: '4321' });
+  assert.equal(reset.ok, true);
+
+  const evento = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'pin_resetado' AND solicitante_id = ?`).get(adminId);
+  assert.ok(evento, 'deveria ter gravado um evento de auditoria');
+  assert.match(evento.motivo, /Operador Alvo/);
+});

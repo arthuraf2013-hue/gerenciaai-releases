@@ -159,6 +159,18 @@ async function emitirNFCe(saleId) {
     return { ok: false, error: 'Só é possível emitir NFC-e de uma venda já finalizada (com pagamento).' };
   }
 
+  // Impede emitir uma SEGUNDA nota pra mesma venda -- um clique
+  // acidental no botão (ou dois PDVs tentando ao mesmo tempo) não pode
+  // gerar duas NFC-e transmitidas de verdade à SEFAZ. 'rejeitada' e
+  // 'cancelada' não bloqueiam: são exatamente os casos em que tentar de
+  // novo é o fluxo esperado (a nota anterior não vale/não existe mais).
+  const jaEmitida = db.prepare(
+    `SELECT id FROM nfce_emitidas WHERE sale_id = ? AND status IN ('pendente', 'autorizada') LIMIT 1`
+  ).get(saleId);
+  if (jaEmitida) {
+    return { ok: false, error: 'Esta venda já tem uma NFC-e emitida (pendente ou autorizada) — cancele a existente antes de emitir outra.' };
+  }
+
   const items = db.prepare(
     `SELECT si.*, p.nome, p.sku, p.codigo_barras, p.ncm, p.cfop, p.cst_csosn, p.origem_mercadoria, p.unidade
      FROM sale_items si JOIN products p ON p.id = si.product_id

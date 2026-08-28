@@ -57,8 +57,8 @@ function resetPin(requestingUserId, { userId, novoPin }) {
   if (!novoPin || String(novoPin).length < 4) return { ok: false, error: 'PIN precisa ter ao menos 4 dígitos.' };
 
   const db = getDb();
+  const alvo = db.prepare('SELECT id, nome, role FROM users WHERE id = ?').get(userId);
   if (guard.requestingRole === 'gerente') {
-    const alvo = db.prepare('SELECT role FROM users WHERE id = ?').get(userId);
     if (alvo?.role === 'admin' || alvo?.role === 'suporte') return { ok: false, error: 'Um gerente não pode alterar um administrador ou usuário de suporte.' };
   }
   // pin_temporario = 1 força a pessoa a trocar de novo no próximo login —
@@ -66,6 +66,18 @@ function resetPin(requestingUserId, { userId, novoPin }) {
   // esse valor temporariamente.
   db.prepare('UPDATE users SET pin_hash = ?, pin_temporario = 1, tentativas_falhas = 0, bloqueado_ate = NULL WHERE id = ?')
     .run(bcrypt.hashSync(String(novoPin), 10), userId);
+
+  // Ação sensível (dá acesso à conta de outra pessoa) -- precisa ficar
+  // rastreável na Auditoria, principalmente agora que 'suporte' também
+  // pode fazer isso (era todo o ponto de dar acesso rastreável ao
+  // suporte, em vez de acesso irrestrito e invisível).
+  try {
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso)
+       VALUES (?, 'pin_resetado', ?, ?, 1)`
+    ).run(randomUUID(), requestingUserId, `PIN de "${alvo?.nome || userId}" foi redefinido`);
+  } catch (err) { /* auditoria não deve travar a redefinição se falhar */ }
+
   return { ok: true };
 }
 

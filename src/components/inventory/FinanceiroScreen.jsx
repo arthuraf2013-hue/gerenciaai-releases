@@ -72,7 +72,8 @@ export function FinanceiroScreen() {
 
   async function handleExcluir(expenseId) {
     if (!confirm('Excluir essa despesa? Não pode ser desfeito.')) return;
-    await window.pdv.expenses.remove({ expenseId });
+    const result = await window.pdv.expenses.remove({ expenseId, operadorId: currentUser.id });
+    if (result && result.ok === false) return setErro(result.error);
     carregar();
   }
 

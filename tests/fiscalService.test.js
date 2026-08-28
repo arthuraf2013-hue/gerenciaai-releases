@@ -236,3 +236,56 @@ test('listNfcePendentesOuContingencia traz as duas situações, não só pendent
   assert.equal(lista.length, 2);
   assert.deepEqual(lista.map((n) => n.status).sort(), ['contingencia', 'pendente']);
 });
+
+// ---------------------------------------------------------------------
+// emitirNFCe recusa uma SEGUNDA emissão pra mesma venda quando já existe
+// uma NFC-e pendente/autorizada — um clique duplicado (ou dois PDVs)
+// não pode gerar duas notas transmitidas de verdade à SEFAZ. Config
+// completa preenchida do mesmo jeito do teste de config acima, pra
+// passar da checagem de "configuração incompleta" e chegar na regra
+// nova sem precisar de certificado de verdade.
+// ---------------------------------------------------------------------
+
+function configuracaoFiscalCompleta(adminId) {
+  fiscalService.updateFiscalConfig(adminId, {
+    cnpj: '00000000000191', inscricaoEstadual: '123456', uf: 'SP', regimeTributario: 'simples_nacional',
+    municipioCodigoIbge: '3550308', certificadoPath: '/tmp/certificado-inexistente.pfx',
+    endereco: { logradouro: 'Rua Teste', numero: '1', bairro: 'Centro', cep: '00000000', municipio: 'São Paulo' },
+  });
+}
+
+test('emitirNFCe recusa quando já existe NFC-e pendente pra essa venda', async () => {
+  const { db, adminId, operadorId } = freshTestDb();
+  configuracaoFiscalCompleta(adminId);
+  const nfceId = inserirNfceDeTeste(db, { operadorId, status: 'pendente' });
+  const saleId = db.prepare('SELECT sale_id FROM nfce_emitidas WHERE id = ?').get(nfceId).sale_id;
+
+  const result = await fiscalService.emitirNFCe(saleId);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /já tem uma NFC-e/i);
+});
+
+test('emitirNFCe recusa quando já existe NFC-e autorizada pra essa venda', async () => {
+  const { db, adminId, operadorId } = freshTestDb();
+  configuracaoFiscalCompleta(adminId);
+  const nfceId = inserirNfceDeTeste(db, { operadorId, status: 'autorizada' });
+  const saleId = db.prepare('SELECT sale_id FROM nfce_emitidas WHERE id = ?').get(nfceId).sale_id;
+
+  const result = await fiscalService.emitirNFCe(saleId);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /já tem uma NFC-e/i);
+});
+
+test('emitirNFCe NÃO bloqueia quando a NFC-e anterior foi rejeitada ou cancelada (fluxo esperado é tentar de novo)', async () => {
+  const { db, adminId, operadorId } = freshTestDb();
+  configuracaoFiscalCompleta(adminId);
+  const nfceId = inserirNfceDeTeste(db, { operadorId, status: 'rejeitada' });
+  const saleId = db.prepare('SELECT sale_id FROM nfce_emitidas WHERE id = ?').get(nfceId).sale_id;
+
+  const result = await fiscalService.emitirNFCe(saleId);
+  // Passa da checagem de duplicidade e só falha adiante por não ter um
+  // certificado de verdade no caminho configurado -- prova que não foi
+  // bloqueado pela regra de "já emitida".
+  assert.equal(result.ok, false);
+  assert.doesNotMatch(result.error, /já tem uma NFC-e/i);
+});

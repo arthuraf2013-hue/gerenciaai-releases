@@ -1,5 +1,6 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
+const { precoEfetivo } = require('./productService');
 
 /**
  * Recebe os pedidos que o PWA do garçom manda pra
@@ -41,15 +42,30 @@ function criarPedidoLocal({ locationId, garcomNome, mesaNumero, itens, observaco
 
     for (const item of itens || []) {
       const produto = item.productId
-        ? db.prepare('SELECT id, nome FROM products WHERE id = ? AND ativo = 1').get(item.productId)
+        ? db.prepare('SELECT * FROM products WHERE id = ? AND ativo = 1').get(item.productId)
         : null;
+
+      // Quantidade nunca pode ser zero/negativa -- `Number(x) || 1` só
+      // pegava 0/NaN, deixando passar quantidade negativa (ex: -5), que
+      // vira estoque "devolvido" fantasma quando esse pedido é
+      // convertido em venda de verdade. E o preço de item com produto
+      // real NUNCA vem do celular do garçom -- vem sempre do catálogo
+      // local (preço efetivo, já considerando promoção por validade).
+      // Sem essa checagem, um app do garçom comprometido (ou uma chamada
+      // direta ao Firestore driblando o app) mandava qualquer
+      // precoUnitario e ele ia direto pra dentro da venda quando esse
+      // pedido fosse convertido (ver
+      // botOrderService.converterEmVendaSeAplicavel).
+      const quantidade = Number(item.quantidade) > 0 ? Number(item.quantidade) : 1;
+      const preco = produto ? precoEfetivo(produto) : (item.precoUnitario != null ? Number(item.precoUnitario) : null);
+
       db.prepare(
         `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, preco_unitario)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(
         randomUUID(), orderId, produto ? produto.id : null,
         produto ? null : (item.nome || 'Item não identificado'),
-        Number(item.quantidade) || 1, item.precoUnitario ?? null,
+        quantidade, preco,
       );
     }
   });

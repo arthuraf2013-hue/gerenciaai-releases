@@ -120,3 +120,65 @@ test('criarPedidoLocal aceita item sem quantidade (assume 1) e sem nome (assume 
   assert.equal(item.quantidade, 1);
   assert.equal(item.descricao_livre, 'Item não identificado');
 });
+
+// ---------------------------------------------------------------------
+// Fraude de preço/quantidade: o que chega aqui vem do celular do garçom
+// (via Firestore) -- não pode ser confiado direto. Preço de item com
+// produto real tem que vir sempre do catálogo local, e quantidade
+// negativa não pode passar disfarçada de "devolução" quando o pedido
+// virar venda de verdade.
+// ---------------------------------------------------------------------
+
+test('criarPedidoLocal ignora o precoUnitario mandado pelo celular e usa o preço do catálogo quando o produto existe', () => {
+  const { db, locationId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Cerveja', preco: 12 });
+
+  const orderId = pedidoGarcomSyncService.criarPedidoLocal({
+    locationId, garcomNome: 'João',
+    itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 0.01 }], // preço fraudado
+  });
+
+  const item = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').get(orderId);
+  assert.equal(item.preco_unitario, 12, 'deveria ter usado o preço do catálogo, não o mandado pelo celular');
+});
+
+test('criarPedidoLocal usa o preço promocional vigente do catálogo (precoEfetivo), não o preço cheio nem o mandado pelo celular', () => {
+  const { db, locationId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Salgado', preco: 10 });
+  db.prepare('UPDATE products SET preco_promocional = 6, promocao_valida_ate = ? WHERE id = ?').run('2099-01-01', produtoId);
+
+  const orderId = pedidoGarcomSyncService.criarPedidoLocal({
+    locationId, garcomNome: 'João',
+    itens: [{ productId: produtoId, quantidade: 1, precoUnitario: 999 }],
+  });
+
+  const item = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').get(orderId);
+  assert.equal(item.preco_unitario, 6);
+});
+
+test('criarPedidoLocal usa o precoUnitario informado só quando o item não tem produto (descrição livre)', () => {
+  const { db, locationId } = freshTestDb();
+  const orderId = pedidoGarcomSyncService.criarPedidoLocal({
+    locationId, garcomNome: 'João',
+    itens: [{ productId: null, nome: 'Taxa de serviço combinada', quantidade: 1, precoUnitario: 5 }],
+  });
+  const item = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ?').get(orderId);
+  assert.equal(item.preco_unitario, 5);
+});
+
+test('criarPedidoLocal recusa quantidade negativa ou zero, assumindo 1 (não vira "devolução" fantasma na conversão pra venda)', () => {
+  const { db, locationId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Água', preco: 5 });
+
+  const orderId = pedidoGarcomSyncService.criarPedidoLocal({
+    locationId, garcomNome: 'João',
+    itens: [
+      { productId: produtoId, quantidade: -5 },
+      { productId: produtoId, quantidade: 0 },
+    ],
+  });
+
+  const itens = db.prepare('SELECT * FROM bot_order_items WHERE bot_order_id = ? ORDER BY rowid').all(orderId);
+  assert.equal(itens.length, 2);
+  assert.ok(itens.every((i) => i.quantidade === 1), 'quantidade negativa/zero deveria virar 1');
+});

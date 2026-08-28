@@ -144,6 +144,12 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
  */
 function excluirDoHistorico({ saleId, operadorId, motivo }) {
   const db = getDb();
+
+  const operador = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(operadorId);
+  if (!operador || !['gerente', 'admin', 'suporte'].includes(operador.role)) {
+    return { ok: false, error: 'Só gerente ou admin pode excluir uma venda do histórico.' };
+  }
+
   const sale = db.prepare('SELECT id FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
@@ -162,6 +168,12 @@ function excluirDoHistorico({ saleId, operadorId, motivo }) {
 /** Desfaz a exclusão — a venda volta a aparecer na lista normal. */
 function reexibirNoHistorico({ saleId, operadorId }) {
   const db = getDb();
+
+  const operador = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(operadorId);
+  if (!operador || !['gerente', 'admin', 'suporte'].includes(operador.role)) {
+    return { ok: false, error: 'Só gerente ou admin pode reexibir uma venda no histórico.' };
+  }
+
   db.prepare(
     `UPDATE sales SET oculta_historico = 0, oculta_historico_por_id = NULL, oculta_historico_em = NULL, oculta_historico_motivo = NULL WHERE id = ?`
   ).run(saleId);
@@ -524,6 +536,13 @@ function removePayment({ paymentId, saleId }) {
 function finalizeSale(saleId) {
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  // Sem isso, uma segunda chamada pro mesmo saleId (duplo clique que
+  // escapou do guard da tela, retry de IPC) reprocessava registrarDivida
+  // e acumularPontos de novo -- cliente ficava devendo em dobro e
+  // ganhando pontos em dobro pela MESMA venda.
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
+
   const pagamentos = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
   const pago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
   const totalAPagar = sale.total - sale.desconto - sale.desconto_gerente;

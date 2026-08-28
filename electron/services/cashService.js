@@ -44,13 +44,40 @@ function getSessionSummary(sessionId) {
   ).all(session.location_id, session.aberta_em);
 
   const totalDinheiro = porMetodo.find((m) => m.metodo === 'dinheiro')?.total || 0;
-  const valorEsperado = session.valor_abertura + totalDinheiro;
+
+  // Devoluções feitas durante esta sessão também tiram dinheiro do caixa
+  // físico (o cliente é reembolsado na hora) -- ignorar isso fazia o caixa
+  // "faltar" dinheiro sempre que havia uma devolução de venda paga (ao
+  // menos em parte) em dinheiro. Não existe campo de "método de
+  // reembolso" nas devoluções, então a estimativa é proporcional: se a
+  // venda original foi X% paga em dinheiro, assume-se que X% do valor
+  // devolvido saiu do caixa em dinheiro também.
+  const devolucoesDoPeriodo = db.prepare(
+    `SELECT r.sale_id, r.valor_devolvido FROM returns r
+     WHERE r.location_id = ? AND r.criado_em >= ?`
+  ).all(session.location_id, session.aberta_em);
+
+  let totalDevolvidoEmDinheiro = 0;
+  for (const devolucao of devolucoesDoPeriodo) {
+    if (!(devolucao.valor_devolvido > 0)) continue;
+    const pagamentosDaVenda = db.prepare(
+      `SELECT metodo, COALESCE(SUM(valor), 0) as total FROM payments WHERE sale_id = ? GROUP BY metodo`
+    ).all(devolucao.sale_id);
+    const totalPagoNaVenda = pagamentosDaVenda.reduce((soma, p) => soma + p.total, 0);
+    const totalPagoEmDinheiro = pagamentosDaVenda.find((p) => p.metodo === 'dinheiro')?.total || 0;
+    if (totalPagoNaVenda > 0 && totalPagoEmDinheiro > 0) {
+      totalDevolvidoEmDinheiro += devolucao.valor_devolvido * (totalPagoEmDinheiro / totalPagoNaVenda);
+    }
+  }
+
+  const valorEsperado = session.valor_abertura + totalDinheiro - totalDevolvidoEmDinheiro;
 
   return {
     session,
     porMetodo,
     valorAbertura: session.valor_abertura,
     totalVendasDinheiro: totalDinheiro,
+    totalDevolvidoEmDinheiro,
     valorEsperado,
   };
 }

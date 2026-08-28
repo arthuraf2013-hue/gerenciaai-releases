@@ -147,9 +147,15 @@ function authorizeManagerOverride({ candidateUserId, pin, currentOperatorId, tip
 
 /**
  * Trilha de auditoria — toda tentativa de cancelamento/devolução/desconto,
- * aprovada ou negada. Só admin acessa a tela que usa isso.
+ * aprovada ou negada. Só admin/suporte acessa a tela que usa isso (ver
+ * Dashboard.jsx) -- mas a checagem de UI sozinha não impede uma chamada
+ * direta pelo canal IPC (ver o comentário de requireRole acima), então
+ * precisa ser reforçada aqui também.
  */
-function listAuditLog({ dataInicio, dataFim }) {
+function listAuditLog({ dataInicio, dataFim, requestingUserId }) {
+  const guard = requireRole(requestingUserId, ['admin', 'suporte']);
+  if (!guard.ok) return guard;
+
   const db = getDb();
   // Sargable -- ver o mesmo comentário em dashboardService.js. Aqui
   // rende ainda mais porque tem ORDER BY criado_em DESC LIMIT 500 logo
@@ -215,12 +221,27 @@ function updateSecurityConfig(requestingUserId, { exigirAutorizacaoCancelamento,
 
   const db = getDb();
   const atual = getSecurityConfig();
+  const novoCancelamento = exigirAutorizacaoCancelamento !== undefined ? (exigirAutorizacaoCancelamento ? 1 : 0) : atual.exigir_autorizacao_cancelamento;
+  const novoDesconto = exigirAutorizacaoDesconto !== undefined ? (exigirAutorizacaoDesconto ? 1 : 0) : atual.exigir_autorizacao_desconto;
   db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = ?, exigir_autorizacao_desconto = ? WHERE id = ?')
-    .run(
-      exigirAutorizacaoCancelamento !== undefined ? (exigirAutorizacaoCancelamento ? 1 : 0) : atual.exigir_autorizacao_cancelamento,
-      exigirAutorizacaoDesconto !== undefined ? (exigirAutorizacaoDesconto ? 1 : 0) : atual.exigir_autorizacao_desconto,
-      'default'
-    );
+    .run(novoCancelamento, novoDesconto, 'default');
+
+  // Essa configuração é a trava de segurança central do sistema (ver o
+  // comentário de authorizeManagerOverride) -- desligá-la precisa ficar
+  // tão rastreável na Auditoria quanto um cancelamento em si, ainda mais
+  // agora que 'suporte' também pode mexer nela.
+  if (novoCancelamento !== atual.exigir_autorizacao_cancelamento || novoDesconto !== atual.exigir_autorizacao_desconto) {
+    try {
+      db.prepare(
+        `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso)
+         VALUES (?, 'config_seguranca_alterada', ?, ?, 1)`
+      ).run(
+        randomUUID(), requestingUserId,
+        `Exigir autorização — cancelamento: ${novoCancelamento ? 'ligado' : 'desligado'}, desconto: ${novoDesconto ? 'ligado' : 'desligado'}`
+      );
+    } catch (err) { /* auditoria não deve travar a alteração se falhar */ }
+  }
+
   return { ok: true };
 }
 

@@ -328,7 +328,10 @@ function registerIpcHandlers() {
     return reportService.exportSalesReport(filePath, { locationId, dataInicio, dataFim });
   });
 
-  safeHandle('report:exportAudit', async (_e, { dataInicio, dataFim }) => {
+  safeHandle('report:exportAudit', async (_e, { dataInicio, dataFim, requestingUserId }) => {
+    const guard = authService.requireRole(requestingUserId, ['admin', 'suporte']);
+    if (!guard.ok) return guard;
+
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: 'Exportar auditoria',
@@ -336,7 +339,7 @@ function registerIpcHandlers() {
       filters: [{ name: 'Planilha Excel', extensions: ['xlsx'] }],
     });
     if (canceled || !filePath) return { ok: false, canceled: true };
-    return reportService.exportAuditReport(filePath, { dataInicio, dataFim });
+    return reportService.exportAuditReport(filePath, { dataInicio, dataFim, requestingUserId });
   });
 
   safeHandle('report:exportPurchaseSuggestions', async (_e, { locationId }) => {

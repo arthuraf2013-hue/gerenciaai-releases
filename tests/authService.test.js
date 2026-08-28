@@ -156,13 +156,28 @@ test('updateSecurityConfig funciona pra suporte, igual admin', () => {
   assert.equal(authService.getSecurityConfig().exigir_autorizacao_cancelamento, 0);
 });
 
+test('updateSecurityConfig grava um evento de auditoria só quando algo de fato muda', () => {
+  const { db, adminId } = freshTestDb();
+
+  authService.updateSecurityConfig(adminId, { exigirAutorizacaoCancelamento: false });
+  const eventos1 = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'config_seguranca_alterada'`).all();
+  assert.equal(eventos1.length, 1, 'deveria ter gravado um evento na primeira mudança real');
+  assert.equal(eventos1[0].solicitante_id, adminId);
+
+  // Chamar de novo pedindo o mesmo valor que já está (nada muda de fato)
+  // não deveria poluir a auditoria com um evento repetido.
+  authService.updateSecurityConfig(adminId, { exigirAutorizacaoCancelamento: false });
+  const eventos2 = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'config_seguranca_alterada'`).all();
+  assert.equal(eventos2.length, 1, 'não deveria gravar de novo se o valor não mudou');
+});
+
 /**
  * listAuditLog foi reescrita pra usar um filtro sargable em vez de
  * `date(criado_em, '-3 hours') BETWEEN date(?) AND date(?)` -- trava o
  * comportamento nas fronteiras do dia local (UTC-3).
  */
 test('listAuditLog inclui só entradas dentro do intervalo local pedido', () => {
-  const { db, operadorId } = freshTestDb();
+  const { db, operadorId, adminId } = freshTestDb();
   const inserir = (criadoEm) => db.prepare(
     `INSERT INTO audit_log (id, tipo_evento, solicitante_id, sucesso, criado_em) VALUES (lower(hex(randomblob(16))), 'cancelamento_venda', ?, 1, ?)`
   ).run(operadorId, criadoEm);
@@ -172,6 +187,34 @@ test('listAuditLog inclui só entradas dentro do intervalo local pedido', () => 
   inserir('2026-09-01 02:59:59'); // dentro (31/08 23:59:59 local)
   inserir('2026-09-01 03:00:00'); // fora (01/09 local)
 
-  const resultado = authService.listAuditLog({ dataInicio: '2026-07-31', dataFim: '2026-08-31' });
+  const resultado = authService.listAuditLog({ dataInicio: '2026-07-31', dataFim: '2026-08-31', requestingUserId: adminId });
   assert.equal(resultado.length, 2);
+});
+
+// ---------------------------------------------------------------------
+// listAuditLog é a fonte da tela de Auditoria (só admin/suporte acessam
+// na UI -- ver Dashboard.jsx) -- mas o canal IPC aceitava a chamada de
+// qualquer usuário logado, já que a função nem recebia quem estava
+// pedindo. Isso deixava a trilha de auditoria inteira (inclusive
+// tentativas negadas de cancelamento/desconto) legível por um
+// operador ou garçom comum.
+// ---------------------------------------------------------------------
+
+test('listAuditLog recusa operador comum', () => {
+  const { operadorId } = freshTestDb();
+  const resultado = authService.listAuditLog({ dataInicio: '2020-01-01', dataFim: '2030-12-31', requestingUserId: operadorId });
+  assert.equal(resultado.ok, false);
+});
+
+test('listAuditLog recusa quando nenhum requestingUserId é informado', () => {
+  freshTestDb();
+  const resultado = authService.listAuditLog({ dataInicio: '2020-01-01', dataFim: '2030-12-31' });
+  assert.equal(resultado.ok, false);
+});
+
+test('listAuditLog permite admin e suporte', () => {
+  const { db, adminId } = freshTestDb();
+  const suporteId = createSuporteUser(db);
+  assert.ok(Array.isArray(authService.listAuditLog({ dataInicio: '2020-01-01', dataFim: '2030-12-31', requestingUserId: adminId })));
+  assert.ok(Array.isArray(authService.listAuditLog({ dataInicio: '2020-01-01', dataFim: '2030-12-31', requestingUserId: suporteId })));
 });
