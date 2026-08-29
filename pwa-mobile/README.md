@@ -55,25 +55,29 @@ firebase deploy --only hosting:garcom
 
 Isso publica em `https://gerenciaai-garcom.web.app` (ou o domínio que
 você configurar). **Antes do primeiro deploy**, publique também as
-regras e o índice do Firestore (ver raiz do repositório):
+regras do Firestore (ver raiz do repositório):
 
 ```bash
-firebase deploy --only firestore:rules,firestore:indexes
+firebase deploy --only firestore:rules
 ```
 
-O índice (`firestore.indexes.json`) é **obrigatório** — sem ele, a tela
-de pareamento falha ao digitar o código, com um erro de "query requires
-an index" (a busca do código é uma collection group query, que o
-Firestore não indexa sozinho por padrão).
+A busca do código de pareamento é uma collection group query
+(`where('codigo', '==', ...)` em `pareamentos`), mas é um único campo
+com igualdade simples — o Firestore cria esse índice sozinho
+automaticamente, sem precisar declarar nada em
+`firestore.indexes.json` (esse arquivo existe só como base pra um
+índice composto de verdade, se algum dia precisar de um; publicar um
+índice de campo único nele hoje é rejeitado pela API com "this index
+is not necessary").
 
 ### Outras opções
 
 Qualquer hospedagem de arquivo estático funciona -- é só copiar a pasta
 `pwa-mobile/` inteira (mantendo os caminhos relativos). Netlify: arraste
 a pasta pro painel. GitHub Pages: publique esta pasta como a raiz do
-site. Em qualquer uma delas, o índice do Firestore acima continua
-precisando ser publicado (via `firebase deploy --only firestore:indexes`
-ou pelo Console).
+site. Em qualquer uma delas, as regras do Firestore (não um índice --
+ver acima) continuam precisando ser publicadas separadamente (via
+`firebase deploy --only firestore:rules` ou pelo Console).
 
 ## Testando localmente
 

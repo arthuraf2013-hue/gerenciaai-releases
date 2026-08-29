@@ -4990,11 +4990,17 @@ precisa ser self-service. Ficou como um mecanismo à parte, mais simples.
   conferem o estado de ANTES da transação nos dois lados, então não dá
   pra ficar um código "gasto" sem um dispositivo de verdade, mesmo se a
   internet cair no meio.
-- `firestore.indexes.json` (novo): a tela de pareamento busca o código
-  por uma **collection group query** (o celular não sabe de qual loja é
-  o código até achar) — isso exige um índice publicado à parte
-  (`firebase deploy --only firestore:indexes`), senão a busca falha na
-  primeira tentativa de qualquer cliente.
+- `firestore.indexes.json`: a tela de pareamento busca o código por uma
+  **collection group query** (o celular não sabe de qual loja é o
+  código até achar), mas é um único campo com igualdade simples
+  (`where('codigo', '==', ...)`) — o Firestore cria esse índice sozinho
+  automaticamente, sem precisar declarar nada neste arquivo. CORREÇÃO
+  (testado num deploy real): a suposição original aqui estava errada —
+  chegamos a declarar um índice de campo único explícito pra isso, e o
+  deploy foi rejeitado pela API com "this index is not necessary,
+  configure using single field index controls". O arquivo ficou como
+  base vazia (`{"indexes": [], "fieldOverrides": []}`), só pra existir
+  caso algum dia precise de um índice composto de verdade.
 
 ### Testado
 

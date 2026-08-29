@@ -227,8 +227,11 @@ Peças do lado do Electron:
   publicada no projeto** (antes era tudo aberto). Só as 5 coleções
   novas do pareamento têm regra de verdade; o resto preserva o
   comportamento de hoje de propósito (ver comentário no topo do
-  arquivo). `firestore.indexes.json` é obrigatório junto (a busca do
-  código de pareamento é uma collection group query).
+  arquivo). `firestore.indexes.json` existe mas fica vazio de
+  propósito — a busca do código de pareamento é uma collection group
+  query, mas de campo único com igualdade simples, que o Firestore
+  indexa sozinho; declarar esse índice manualmente é rejeitado pela
+  API ("this index is not necessary"), confirmado num deploy real.
 
 Ver a entrada "App do garçom + consulta remota pelo celular" no
 README.md pro raciocínio completo, e `tests/firestoreRules.test.js`
