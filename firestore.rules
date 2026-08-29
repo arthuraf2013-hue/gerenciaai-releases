@@ -52,7 +52,19 @@ service cloud.firestore {
       }
     }
 
-    match /clientes/{clienteId} { allow read, write: if true; }
+    match /clientes/{clienteId} {
+      allow read, write: if true;
+
+      // Histórico de pagamentos (ver admin-panel "Ver histórico") --
+      // mesma superfície/mesmo nível de confiança do doc do cliente
+      // acima (aberto, admin-panel não tem autenticação hoje -- ver
+      // aviso no topo deste arquivo). Não é um dado novo mais sensível
+      // que o resto de clientes/ (valorMensalidade, ultimoPagamentoEm
+      // etc. já ficam expostos do mesmo jeito ali), só granular por
+      // pagamento em vez de um campo único.
+      match /pagamentos/{pagamentoId} { allow read, write: if true; }
+    }
+
     match /erros_reportados/{erroId} { allow read, write: if true; }
     match /acoes_log/{logId} { allow read, write: if true; }
     match /config/{docId} { allow read, write: if true; }

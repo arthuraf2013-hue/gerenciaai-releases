@@ -596,6 +596,8 @@
   let gruposSincronizacao = [];
   let acoesLog = [];
   const blocosAbertos = new Set(); // ids de cliente (ou 'sem-vinculo') que estão expandidos
+  const historicosAbertos = new Set(); // ids de cliente com o histórico de pagamentos expandido
+  const historicoPagamentosCache = new Map(); // clienteId -> array de pagamentos (busca sob demanda, ver alternarHistoricoPagamentos)
   let instalacaoParaVincular = null;
 
   loginForm.addEventListener('submit', async (e) => {
@@ -1087,18 +1089,138 @@
     }
   }
 
-  /** "Recebi o pagamento" — um clique, sem precisar calcular nem digitar
-   * data nenhuma. Marca hoje como o último pagamento; o status já passa
-   * a mostrar "Pago" até o próximo ciclo vencer sozinho. */
-  async function marcarPagoHoje(clienteId) {
+  /** Histórico completo de pagamentos (clientes/{id}/pagamentos) — a
+   * `ultimoPagamentoEm` no doc do cliente continua existindo e é quem
+   * `statusVencimento`/resumo de cobrança/CSV leem direto (rápido, sem
+   * precisar buscar a subcoleção); esta função grava o pagamento no
+   * histórico E mantém `ultimoPagamentoEm` sincronizado com o mais
+   * recente dos pagamentos, nos dois sentidos: nunca REGRIDE o status
+   * "pago" ao lançar um pagamento retroativo mais antigo que o já
+   * registrado (por isso o `Math.max` implícito na comparação abaixo). */
+  async function registrarPagamento(clienteId, { data, valor, origem = 'manual' }) {
     limparErro();
-    const hojeISO = new Date().toISOString().slice(0, 10);
     try {
-      await updateDoc(doc(db, 'clientes', clienteId), { ultimoPagamentoEm: hojeISO });
-      registrarAcao('marcar_cliente_pago', { clienteId, data: hojeISO });
+      await addDoc(collection(db, 'clientes', clienteId, 'pagamentos'), {
+        data, valor: valor ?? null, registradoEm: serverTimestamp(),
+      });
+      const cliente = clientes.find((c) => c.id === clienteId);
+      const maisRecente = (!cliente?.ultimoPagamentoEm || data > cliente.ultimoPagamentoEm) ? data : cliente.ultimoPagamentoEm;
+      await updateDoc(doc(db, 'clientes', clienteId), { ultimoPagamentoEm: maisRecente });
+      registrarAcao('registrar_pagamento_cliente', { clienteId, data, valor: valor ?? null, origem });
+      if (historicosAbertos.has(clienteId)) {
+        await carregarHistoricoPagamentos(clienteId, true);
+      } else {
+        historicoPagamentosCache.delete(clienteId);
+      }
+      render();
     } catch (err) {
-      mostrarErro(err, 'marcar esse cliente como pago');
+      mostrarErro(err, 'registrar o pagamento desse cliente');
     }
+  }
+
+  /** "Recebi o pagamento" — um clique, sem precisar calcular nem digitar
+   * data nenhuma. Registra hoje como pagamento (com o valor de
+   * mensalidade já cadastrado, se houver); o status já passa a mostrar
+   * "Pago" até o próximo ciclo vencer sozinho. */
+  async function marcarPagoHoje(clienteId) {
+    const cliente = clientes.find((c) => c.id === clienteId);
+    const hojeISO = new Date().toISOString().slice(0, 10);
+    await registrarPagamento(clienteId, { data: hojeISO, valor: cliente?.valorMensalidade ?? null, origem: 'um_clique' });
+  }
+
+  /** Pra pagamento retroativo ou com valor diferente do de costume —
+   * o "Marcar pago hoje" continua sendo o atalho pro caso comum, este
+   * aqui é só pra quando precisa ajustar data e/ou valor na hora. */
+  async function abrirRegistrarPagamentoComData(clienteId) {
+    const cliente = clientes.find((c) => c.id === clienteId);
+    const dataInformada = prompt('Data do pagamento (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
+    if (!dataInformada) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataInformada.trim())) {
+      alert('Data inválida — use o formato AAAA-MM-DD (ex: 2026-08-29).');
+      return;
+    }
+    const valorInformado = prompt('Valor pago (R$, deixe em branco se não quiser informar):',
+      cliente?.valorMensalidade != null ? String(cliente.valorMensalidade) : '');
+    if (valorInformado === null) return;
+    const valorTexto = valorInformado.trim().replace(',', '.');
+    const valor = valorTexto === '' ? null : Number(valorTexto);
+    if (valor != null && Number.isNaN(valor)) {
+      alert('Valor inválido.');
+      return;
+    }
+    await registrarPagamento(clienteId, { data: dataInformada.trim(), valor, origem: 'com_data' });
+  }
+
+  /** Busca a subcoleção de pagamentos do cliente sob demanda (só quando
+   * o histórico é expandido) e guarda em cache — evita abrir um
+   * listener por cliente à toa, já que a maioria fica fechado a maior
+   * parte do tempo (mesmo espírito de `escutarBackupsDaMaquinaSelecionada`). */
+  async function carregarHistoricoPagamentos(clienteId, forcar = false) {
+    if (!forcar && historicoPagamentosCache.has(clienteId)) return;
+    try {
+      const snap = await getDocs(query(collection(db, 'clientes', clienteId, 'pagamentos'), orderBy('data', 'desc')));
+      historicoPagamentosCache.set(clienteId, snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      mostrarErro(err, 'carregar o histórico de pagamentos desse cliente');
+    }
+  }
+
+  async function alternarHistoricoPagamentos(clienteId) {
+    if (historicosAbertos.has(clienteId)) {
+      historicosAbertos.delete(clienteId);
+      render();
+      return;
+    }
+    historicosAbertos.add(clienteId);
+    render();
+    if (!historicoPagamentosCache.has(clienteId)) {
+      await carregarHistoricoPagamentos(clienteId);
+      render();
+    }
+  }
+
+  /** Excluir um pagamento do histórico recalcula `ultimoPagamentoEm` a
+   * partir dos pagamentos que sobraram (o mais recente deles, ou null se
+   * não sobrar nenhum) — nunca só apaga o campo, senão excluir um
+   * pagamento antigo por engano apagaria também o status "pago" de um
+   * pagamento mais recente que continua válido. */
+  async function excluirPagamento(clienteId, pagamentoId) {
+    if (!confirm(
+      'Excluir esse pagamento do histórico? O status de cobrança desse cliente é recalculado a partir ' +
+      'dos pagamentos que sobrarem.'
+    )) return;
+    limparErro();
+    try {
+      await deleteDoc(doc(db, 'clientes', clienteId, 'pagamentos', pagamentoId));
+      const snap = await getDocs(collection(db, 'clientes', clienteId, 'pagamentos'));
+      const restantes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const maisRecente = restantes.reduce((max, p) => (!max || p.data > max ? p.data : max), null);
+      await updateDoc(doc(db, 'clientes', clienteId), { ultimoPagamentoEm: maisRecente });
+      historicoPagamentosCache.set(clienteId, restantes.sort((a, b) => (a.data < b.data ? 1 : -1)));
+      registrarAcao('excluir_pagamento_cliente', { clienteId, pagamentoId });
+      render();
+    } catch (err) {
+      mostrarErro(err, 'excluir esse pagamento');
+    }
+  }
+
+  function renderHistoricoPagamentos(clienteId) {
+    const pagamentos = historicoPagamentosCache.get(clienteId);
+    if (pagamentos === undefined) {
+      return '<p class="cliente-resumo">Carregando...</p>';
+    }
+    if (pagamentos.length === 0) {
+      return '<p class="cliente-resumo">Nenhum pagamento registrado ainda.</p>';
+    }
+    return pagamentos.map((p) => `
+      <div class="maquina-row">
+        <span>${new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
+        <span class="maquina-meta">${p.valor != null ? formatarMoeda(p.valor) : 'valor não informado'}</span>
+        <div class="maquina-acoes">
+          <button class="btn-danger btn-small" data-excluir-pagamento="${p.id}" data-excluir-pagamento-cliente="${clienteId}">Excluir</button>
+        </div>
+      </div>
+    `).join('');
   }
 
   /** Liga/desliga um módulo pago (Consulta remota, App do garçom) pra
@@ -2445,6 +2567,15 @@
             ${cliente.ultimoPagamentoEm ? `<span class="cliente-resumo">último pagamento: ${new Date(cliente.ultimoPagamentoEm + 'T00:00:00').toLocaleDateString('pt-BR')}</span>` : ''}
           </div>
           <div class="mensagem-cliente-wrap">
+            <button class="btn-secondary btn-small" data-registrar-pagamento-data="${cliente.id}">Registrar pagamento com data</button>
+            <button class="btn-secondary btn-small" data-ver-historico="${cliente.id}">${historicosAbertos.has(cliente.id) ? 'Ocultar histórico' : 'Ver histórico'}</button>
+          </div>
+          ${historicosAbertos.has(cliente.id) ? `
+            <div style="margin:2px 0 8px;">
+              ${renderHistoricoPagamentos(cliente.id)}
+            </div>
+          ` : ''}
+          <div class="mensagem-cliente-wrap">
             <span class="cliente-resumo" style="align-self:center;">Módulos pagos:</span>
             <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
               <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="consultaRemota"
@@ -2607,6 +2738,24 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         marcarPagoHoje(btn.dataset.marcarPago);
+      });
+    });
+    listaClientes.querySelectorAll('[data-registrar-pagamento-data]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        abrirRegistrarPagamentoComData(btn.dataset.registrarPagamentoData);
+      });
+    });
+    listaClientes.querySelectorAll('[data-ver-historico]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        alternarHistoricoPagamentos(btn.dataset.verHistorico);
+      });
+    });
+    listaClientes.querySelectorAll('[data-excluir-pagamento]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        excluirPagamento(btn.dataset.excluirPagamentoCliente, btn.dataset.excluirPagamento);
       });
     });
     listaClientes.querySelectorAll('[data-modulo-toggle]').forEach((input) => {
