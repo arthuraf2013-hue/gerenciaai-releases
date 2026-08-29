@@ -69,33 +69,11 @@ function mount(root, { onPareado }) {
         await authFns.signInAnonymously(auth);
       }
 
-      // Diagnóstico: força buscar um token novo (em vez de confiar no
-      // que já está em memória/persistido) e loga tudo que dá pra saber
-      // sobre a sessão ANTES de disparar a consulta -- se o uid vier
-      // vazio, ou isAnonymous vier false, ou a busca do token falhar
-      // aqui, o problema é a sessão de autenticação, não a regra do
-      // Firestore em si. Ver console do navegador (F12 -> Console).
-      console.log('[pairing][diag] auth.currentUser antes da consulta:', {
-        uid: auth.currentUser?.uid,
-        isAnonymous: auth.currentUser?.isAnonymous,
-        emulator: auth.currentUser ? null : 'SEM USUÁRIO -- signInAnonymously não deixou ninguém logado',
-      });
-      if (auth.currentUser) {
-        try {
-          const token = await auth.currentUser.getIdToken(/* forceRefresh */ true);
-          console.log('[pairing][diag] token novo obtido com sucesso, tamanho:', token.length);
-        } catch (tokenErr) {
-          console.error('[pairing][diag] getIdToken(forceRefresh) FALHOU -- problema é a sessão de auth, não a regra:', tokenErr);
-        }
-      }
-
       const q = firestoreFns.query(
         firestoreFns.collectionGroup(db, 'pareamentos'),
         firestoreFns.where('codigo', '==', codigo)
       );
-      console.log('[pairing][diag] disparando collectionGroup query, codigo =', JSON.stringify(codigo));
       const snap = await firestoreFns.getDocs(q);
-      console.log('[pairing][diag] getDocs OK, docs encontrados:', snap.size);
       if (snap.empty) {
         mostrarErro('Código não encontrado. Confira os números ou peça um código novo.');
         return;
