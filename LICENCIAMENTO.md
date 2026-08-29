@@ -35,6 +35,14 @@ seu, embutido em todo instalador, igual pra todo mundo).
    próprio e-mail e uma senha forte**. Esse é o login que você vai usar
    no painel — não dá acesso a mais ninguém além de quem você
    cadastrar aqui manualmente.
+5. Ainda em Authentication → Sign-in method, ative também o provedor
+   **Anônimo** (Anonymous). É o que o PWA do celular (garçom/consulta)
+   usa pra se autenticar sem pedir login nenhum ao funcionário — sem
+   isso ativado, o celular nem consegue carregar a tela de digitar o
+   código de pareamento, falha na hora com erro de conexão/login. Não
+   tem nada a ver com o e-mail/senha do passo 3 acima (aquele é só seu,
+   pro painel) — o app do desktop, por sua vez, nunca usa Firebase Auth
+   em nada, só o PWA do celular.
 
 ## Passo 2 — Pegar a configuração do projeto
 
@@ -47,201 +55,260 @@ seu, embutido em todo instalador, igual pra todo mundo).
 
 ## Passo 3 — Aplicar as regras de segurança
 
-Isso é importante: sem essas regras, qualquer instalação do app
-conseguiria se autoreativar direto no banco, ou qualquer pessoa na
-internet conseguiria ler/mexer nos dados. No Firebase, vá em
-**Firestore Database → Regras**, apague o que estiver lá e cole:
+**Importante**: o bloco abaixo é uma cópia do arquivo `firestore.rules`
+deste repositório — a fonte de verdade de verdade é sempre aquele
+arquivo (é o que já foi testado e publicado em produção nesta sessão).
+Se um dia este documento e o arquivo divergirem, confie no arquivo, não
+neste texto, e me avise pra eu corrigir aqui.
+
+Sem essas regras, o banco fica **totalmente aberto** pra qualquer um na
+internet ler ou escrever — a config do Firebase embutida em todo
+instalador não é secreta, então isso é um risco real. No Firebase, vá
+em **Firestore Database → Regras**, apague o que estiver lá e cole:
 
 ```
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // --------------------------------------------------------------
+    // PARTE 1 — superfície já existente, comportamento preservado
+    // --------------------------------------------------------------
+
     match /installations/{installId} {
-      // Qualquer instalação pode criar o próprio documento na primeira
-      // vez que fala com o servidor — sempre começando ativa e sem
-      // bloqueio (o congelamento ou bloqueio é sempre uma ação manual
-      // sua, depois, pelo painel).
-      allow create: if request.resource.data.ativo == true
-        && request.resource.data.bloqueioImediato == false;
+      allow read, write: if true;
 
-      // Qualquer um pode ler (só expõe status de licença, nada sensível)
-      allow read: if true;
-
-      // Uma instalação pode atualizar SÓ os campos de "sinal de vida"
-      // e de progresso da própria atualização obrigatória (nunca
-      // `ativo`, `bloqueioImediato`, `clienteId` ou `nomeNegocio`
-      // sozinha) — só um admin autenticado (você, logado no painel)
-      // pode mudar esses campos.
-      allow update: if (
-        request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly([
-            'ultimoContato', 'versaoApp', 'ultimoPing',
-            'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo',
-            'totalVendasHistorico', 'vendasUltimos30Dias', 'perfilAtivo', 'conflitosCodigoBarrasPendentes',
-            // Sinal de volta de uma restauração remota de backup pedida
-            // pela Central (ver Passo 3.5 e backupService.js) — a própria
-            // instalação escreve isso sozinha, sem login, avisando se deu
-            // certo ou não.
-            'restauracaoStatus', 'restauracaoErro', 'restauracaoConcluidaEm',
-            // Reporte (só informativo, pra "análise visual" na Central)
-            // de que a instalação tem uma pasta secundária de backup
-            // configurada — dispara sozinho assim que o cliente escolhe/
-            // troca ela na tela de Configurações, sem esperar o próximo
-            // sinal de vida periódico.
-            'backupPastaSecundariaConfigurada'
-          ])
-      ) || request.auth != null;
-      // Os campos que só a Central escreve (autenticada) -- congelar,
-      // bloquear, vincular a cliente, mensagem personalizada, grupo de
-      // sincronização, pedir backup agora (`backupSolicitadoEm`), pedir
-      // restauração remota (`restaurarBackupSolicitado`) e o override de
-      // versão por instalação (`versaoMinimaOverride`/`overrideAtivo`) --
-      // já caem no `|| request.auth != null` acima, sem precisar listar
-      // cada um: qualquer update feito por você, logado no painel, é
-      // sempre permitido.
-
-      allow delete: if request.auth != null;
-
-      // Metadados dos backups que essa instalação subiu pro Storage (ver
-      // Passo 3.5) — um documento por arquivo, criado pela PRÓPRIA
-      // instalação (sem login, mesmo modelo de confiança do documento pai:
-      // o installId é um UUID aleatório, não exposto em lugar nenhum
-      // público, então funciona como um "segredo" de fato). Só a Central
-      // (autenticada) lista esses documentos, na aba Backups do painel.
-      match /backups/{nomeArquivo} {
-        allow read: if request.auth != null;
-        allow create: if request.resource.data.keys().hasAll(['nomeArquivo', 'caminhoStorage', 'tamanhoBytes']);
-        allow update: if false; // nunca precisa editar, só criar ou apagar
-        allow delete: if true; // rotação automática -- mantém só os 10 mais recentes por instalação
+      match /backups/{arquivo} {
+        allow read, write: if true;
       }
     }
 
-    // "clientes" é só usado pelo painel administrativo — o app em si
-    // nunca lê nem escreve aqui, só agrupa instalações visualmente e
-    // permite ações em bloco (bloquear todas as máquinas de um dono
-    // de uma vez). Por isso é 100% restrito a admin autenticado.
     match /clientes/{clienteId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
+
+      // Histórico de pagamentos (ver admin-panel "Ver histórico") --
+      // mesma superfície/mesmo nível de confiança do doc do cliente
+      // acima (aberto, admin-panel não tem autenticação hoje -- ver
+      // aviso no topo deste arquivo). Não é um dado novo mais sensível
+      // que o resto de clientes/ (valorMensalidade, ultimoPagamentoEm
+      // etc. já ficam expostos do mesmo jeito ali), só granular por
+      // pagamento em vez de um campo único.
+      match /pagamentos/{pagamentoId} { allow read, write: if true; }
     }
 
-    // "acoes_log" — registro de auditoria da Central (congelar, bloquear,
-    // restaurar backup, publicar/desativar atualização obrigatória): quem
-    // fez, o quê e quando. Só o painel grava e lê aqui, o app do cliente
-    // nunca toca nisso — mesmo padrão de "clientes", 100% restrito a admin
-    // autenticado. Update/delete ficam bloqueados de propósito: um
-    // registro de auditoria não deveria dar pra editar ou apagar depois
-    // (nem sem querer, nem por engano) — só criar e ler.
-    match /acoes_log/{acaoId} {
-      allow read, create: if request.auth != null;
-      allow update, delete: if false;
-    }
+    match /erros_reportados/{erroId} { allow read, write: if true; }
+    match /acoes_log/{logId} { allow read, write: if true; }
+    match /config/{docId} { allow read, write: if true; }
+    match /config_publica/{docId} { allow read, write: if true; }
+    match /contas_google/{docId} { allow read, write: if true; }
 
-    // Cofre de senhas — igual "clientes": só o painel toca aqui, nunca
-    // o app do cliente. O conteúdo sensível (usuário/senha/endereço/
-    // notas) já vem CIFRADO do navegador antes de chegar até aqui (ver
-    // admin-panel/index.html) — essa regra só garante que ninguém sem
-    // login nem lê nem escreve, é uma segunda camada, não a única.
-    match /cofre_acessos/{acessoId} {
-      allow read, write: if request.auth != null;
-    }
-    // Guarda o salt e o "carimbo de verificação" (cifrado) usados pra
-    // conferir a senha-mestra no desbloqueio — nenhum dos dois é a
-    // senha em si, mas mesmo assim fica restrito a admin autenticado.
-    match /cofre_config/{docId} {
-      allow read, write: if request.auth != null;
-    }
+    // Cofre de senhas — recurso CONGELADO/obsoleto (ver CLAUDE.md).
+    // Regra aqui só preserva o comportamento de hoje; não desenvolver
+    // nem mexer nisso além do necessário pra essa preservação.
+    match /cofre_acessos/{docId} { allow read, write: if true; }
+    match /cofre_config/{docId} { allow read, write: if true; }
 
-    // Contas Google criadas pelo APP (tela Configurações -> Backup),
-    // não pelo painel -- por isso o padrão de permissão é diferente do
-    // resto do Cofre acima: a instalação escreve sozinha, sem login
-    // (mesmo modelo de confiança do documento pai em "installations"),
-    // mas só a Central autenticada consegue LER de volta. O campo
-    // `senhaCifradaRsa` já chega cifrado com a chave pública de contas
-    // Google (ver "config_publica" abaixo) -- só quem destrava o Cofre
-    // com a master key consegue decifrar de volta.
-    match /contas_google/{instalacaoId} {
-      allow read, delete: if request.auth != null;
-      allow write: if request.resource.data.keys().hasOnly(['email', 'senhaCifradaRsa', 'atualizadoEm'])
-                    && request.resource.data.email is string
-                    && request.resource.data.senhaCifradaRsa is string;
-    }
-
-    // Chave PÚBLICA usada pelos apps pra cifrar a senha da conta Google
-    // antes de mandar (ver acima) -- não é segredo (é só a metade
-    // pública do par), por isso pode ser lida por qualquer instalação
-    // sem login. Só a Central (autenticada) gera/publica essa chave,
-    // uma vez só, na aba Cofre de senhas.
-    match /config_publica/{docId} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // "config/atualizacao" e "config/mensagem" são documentos únicos
-    // onde o painel publica, respectivamente, a versão mínima
-    // obrigatória e o aviso/imagem da tela inicial — qualquer
-    // instalação precisa LER os dois (o "{configId}" abaixo cobre
-    // qualquer documento dentro de "config", não só um), mas só você
-    // (autenticado no painel) pode publicar ou desativar qualquer um
-    // dos dois. Não precisa de regra nova quando adicionar outro
-    // documento de config no futuro — essa já cobre.
-    match /config/{configId} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // "erros_reportados" — qualquer instalação pode CRIAR um relato de
-    // erro (é só texto técnico de diagnóstico, nunca dado de venda ou
-    // cliente) — mas só você (autenticado) pode ler ou apagar. Isso
-    // significa que ninguém consegue ver os erros de outra instalação,
-    // só criar os próprios.
-    match /erros_reportados/{erroId} {
-      allow create: if true;
-      allow read, delete: if request.auth != null;
-      allow update: if false; // um relato de erro nunca precisa ser editado, só criado ou apagado
-    }
-
-    // "grupos_sincronizacao" — agrupa instalações do MESMO negócio (ex:
-    // duas caixas da mesma loja) pra somarem vendas juntas no
-    // consolidado. Só você (autenticado no painel) cria/edita/apaga
-    // grupos — o app nunca escreve aqui, só nas "vendas" dentro dele.
     match /grupos_sincronizacao/{grupoId} {
+      allow read, write: if true;
+      match /produtos/{produtoId} { allow read, write: if true; }
+      match /vendas/{vendaId} { allow read, write: if true; }
+      match /estoque/{produtoId} { allow read, write: if true; }
+    }
+
+    // --------------------------------------------------------------
+    // PARTE 1.5 — módulos pagos (Consulta remota, App do garçom)
+    // --------------------------------------------------------------
+    //
+    // Cada CLIENTE (clientes/{clienteId}, ver painel de licenciamento)
+    // tem um mapa modulosAtivos: { consultaRemota: bool, appGarcom: bool }.
+    // Ausência do campo (cliente antigo, ou instalação sem clienteId
+    // vinculado ainda) conta como módulo DESATIVADO -- fail-closed, o
+    // padrão nunca dá acesso de graça por omissão.
+    //
+    // Usado abaixo (PARTE 2) pra bloquear pareamento/uso de um módulo
+    // que o cliente não paga -- tanto na hora de criar o vínculo quanto
+    // depois, pra cortar o acesso de quem já estava pareado assim que o
+    // módulo é desligado no painel (não só impedir pareamento novo).
+    //
+    // LIMITAÇÃO CONHECIDA (não fechada nesta rodada): a coleção
+    // clientes/ continua na PARTE 1 (read/write livre, ver aviso no
+    // topo deste arquivo) -- então esta checagem bloqueia o app normal
+    // (desktop e celular) de usar um módulo não pago, mas não impede
+    // alguém com acesso direto ao Firestore (fora do app) de editar o
+    // próprio doc de cliente e ligar o módulo sozinho. Fechar isso de
+    // vez exigiria autenticação de verdade no admin-panel (hoje ele
+    // também escreve em clientes/ sem login nenhum) -- fora do escopo
+    // desta mudança; ver CLAUDE.md.
+    function clienteIdDaInstalacao(installId) {
+      let ref = /databases/$(database)/documents/installations/$(installId);
+      return exists(ref) ? get(ref).data.get('clienteId', null) : null;
+    }
+
+    function moduloAtivoParaCliente(clienteId, modulo) {
+      let cRef = /databases/$(database)/documents/clientes/$(clienteId);
+      return exists(cRef) && get(cRef).data.get('modulosAtivos', {}).get(modulo, false) == true;
+    }
+
+    function moduloAtivo(installId, modulo) {
+      let clienteId = clienteIdDaInstalacao(installId);
+      return clienteId != null && moduloAtivoParaCliente(clienteId, modulo);
+    }
+
+    // 'garcom' → módulo "App do garçom"; qualquer outro tipo (só existe
+    // 'consulta' hoje) → módulo "Consulta remota".
+    function moduloDoTipoDePareamento(tipo) {
+      return tipo == 'garcom' ? 'appGarcom' : 'consultaRemota';
+    }
+
+    // --------------------------------------------------------------
+    // PARTE 2 — pareamento de celular (novo)
+    // --------------------------------------------------------------
+
+    match /installations/{installId}/pareamentos/{codigo} {
+      // O DESKTOP publica o código (mesmo nível de confiança sem
+      // autenticação que o resto do app já usa hoje pra escrever em
+      // installations/{installId}) -- mas só se o cliente pagar o
+      // módulo correspondente (ver PARTE 1.5 acima). O desktop também
+      // checa isso ANTES de chamar aqui (ver pairingService.gerarCodigo),
+      // então isto é a segunda trava, não a única.
+      allow create: if moduloAtivo(installId, moduloDoTipoDePareamento(request.resource.data.tipo));
+
+      // O CELULAR só pode ler depois de ao menos autenticar (anônimo
+      // já basta) — fecha a porta de alguém varrer códigos sem nem
+      // abrir o app. `list` aqui é o que permite o fluxo "digitar o
+      // código" (consulta por collectionGroup, sem saber o installId
+      // de antemão); é uma concessão deliberada à simplicidade pedida
+      // ("código de sincronização simples") — o código já expira em
+      // 10 minutos e só serve uma vez. Pra fechar essa janela de vez,
+      // ativar o Firebase App Check é a recomendação (não depende de
+      // mudar esta regra).
+      allow get, list: if request.auth != null;
+
+      // Resgate do código: só pode marcar usado=true, atribuindo a si
+      // mesmo, e só se ainda não tiver sido usado nem expirado. Mais
+      // nenhum campo pode mudar nesta operação.
+      allow update: if request.auth != null
+        && resource.data.usado == false
+        && resource.data.expiraEm > request.time
+        && request.resource.data.usado == true
+        && request.resource.data.usadoPorUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['usado', 'usadoPorUid', 'usadoEm']);
+
+      allow delete: if false;
+    }
+
+    match /installations/{installId}/dispositivos/{uid} {
+      // Ler quem está pareado é aberto (só revela tipo/nome/ativo, sem
+      // dado de negócio) — mesmo espírito do resto de installations/.
       allow read: if true;
-      allow create, update, delete: if request.auth != null;
 
-      // O app em si NUNCA se autentica (mesmo padrão de installations)
-      // — a validação é só pela forma dos campos, não por quem está
-      // escrevendo. Qualquer instalação com o grupoId certo consegue
-      // mandar o resumo da própria venda.
-      match /vendas/{vendaId} {
-        allow read: if true;
-        allow create, update: if request.resource.data.keys().hasAll(['installId', 'total', 'totalItens', 'finalizadaEm', 'diaISO'])
-                      && request.resource.data.total is number
-                      && request.resource.data.totalItens is number;
-        allow delete: if request.auth != null;
+      // Confere se `codigo` autoriza de fato criar/substituir um
+      // dispositivo com esse tipo/vínculo -- mesmo código não pode ter
+      // sido usado nem expirado, e tipo/vínculo batem com o que o
+      // código promete (fecha o "resgatei um código de garçom mas criei
+      // um dispositivo de consulta" e afins). Extraído numa função
+      // porque É USADO DUAS VEZES: create (dispositivo novo) e update
+      // (re-pareamento reaproveitando um uid que já tinha dispositivo
+      // aqui antes, ex: revogado e reemitido um código novo pra mesma
+      // pessoa -- Firestore trata isso como "update", não "create",
+      // porque o documento já existe).
+      function pareamentoAutoriza(tipo, vinculoUserId, codigo) {
+        let pRef = /databases/$(database)/documents/installations/$(installId)/pareamentos/$(codigo);
+        return exists(pRef)
+          && get(pRef).data.usado == false
+          && get(pRef).data.expiraEm > request.time
+          && get(pRef).data.tipo == tipo
+          && get(pRef).data.vinculoUserId == vinculoUserId
+          // Módulo pago ainda ativo pro cliente dessa instalação (ver
+          // PARTE 1.5) -- confere de novo aqui (não só na criação do
+          // código) porque o módulo pode ter sido desligado no painel
+          // DEPOIS que o código foi gerado mas ANTES do celular resgatar.
+          && moduloAtivo(installId, moduloDoTipoDePareamento(tipo));
       }
 
-      // "produtos" é o catálogo compartilhado entre os PDVs do grupo —
-      // nome, preço, categoria etc. NUNCA inclui estoque (isso é físico,
-      // sempre local de cada máquina, nunca sincronizado). Mesmo padrão
-      // de "vendas": o app nunca se autentica, valida só pela forma.
-      match /produtos/{produtoId} {
-        allow read: if true;
-        allow create, update: if request.resource.data.keys().hasAll(['nome', 'preco'])
-                      && request.resource.data.preco is number;
-        allow delete: if request.auth != null;
+      allow create: if request.auth != null && uid == request.auth.uid
+        && request.resource.data.tipo in ['garcom', 'consulta']
+        && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo);
+
+      // Depois de pareado, o próprio celular só pode tocar no seu
+      // "sinal de vida" (nome do aparelho, último acesso) -- OU
+      // re-parear de novo com um código novo válido (mesma checagem do
+      // create acima, só que aqui o documento já existe). Revogar
+      // (campo `ativo`) é feito pelo DESKTOP, sem autenticação -- mesmo
+      // nível de confiança de hoje, não uma regressão nova (ver aviso
+      // no topo do arquivo sobre a Parte 1).
+      allow update: if
+        (request.auth != null && uid == request.auth.uid && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso', 'nomeDispositivo'])
+          || (request.resource.data.tipo in ['garcom', 'consulta']
+              && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo))
+        ))
+        || (request.auth == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo']));
+
+      allow delete: if false;
+    }
+
+    // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.
+    match /installations/{installId}/pedidos_garcom/{pedidoId} {
+      // Só um dispositivo pareado como garçom, ATIVO, dessa loja
+      // específica, com o módulo "App do garçom" ainda pago (ver PARTE
+      // 1.5 -- corta o acesso na hora se o cliente parar de pagar, não
+      // só impede pareamento novo), pode criar pedido, e sempre como
+      // 'novo'.
+      allow create: if request.auth != null
+        && request.resource.data.garcomUid == request.auth.uid
+        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.tipo == 'garcom'
+        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true
+        && moduloAtivo(installId, 'appGarcom')
+        && request.resource.data.status == 'novo';
+
+      // O garçom só vê os PRÓPRIOS pedidos (pra acompanhar status).
+      allow read: if request.auth != null && resource.data.garcomUid == request.auth.uid;
+
+      // Só o desktop (sem autenticação, mesmo nível de confiança de
+      // hoje) atualiza status/erro depois de processar.
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'erro', 'processadoEm', 'bot_order_id', 'saleId']);
+
+      allow delete: if false;
+    }
+
+    // Retrato "ao vivo" da loja (resumo do dia + mesas/pedidos em
+    // andamento + catálogo de produtos pro garçom montar pedido) -- ver
+    // liveStatusSyncService.js. Ao contrário do resto, este dado É
+    // sensível de verdade (números reais de venda), então a leitura é
+    // restrita a quem está pareado e ativo com ESTA loja (garçom ou
+    // consulta -- o garçom precisa do catalogoProdutos daqui mesmo pra
+    // montar o pedido; não vale a pena separar num documento à parte só
+    // pra diferenciar os dois tipos).
+    match /installations/{installId}/status_ao_vivo/{docId} {
+      // Extraído numa função (em vez de inline) porque precisa ler o
+      // `tipo` do dispositivo pra saber QUAL módulo checar (garçom usa
+      // "appGarcom", consulta usa "consultaRemota") -- sem essa
+      // checagem de módulo, desligar o módulo de um cliente no painel
+      // não cortava o acesso de quem já estava pareado, só impedia
+      // pareamento novo.
+      function dispositivoPareadoEModuloAtivo(installId) {
+        let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+        return exists(dRef)
+          && get(dRef).data.ativo == true
+          && moduloAtivo(installId, moduloDoTipoDePareamento(get(dRef).data.tipo));
       }
 
-      // "estoque" é o contador compartilhado que impede duas máquinas
-      // venderem a mesma última unidade ao mesmo tempo — só a
-      // quantidade, nada de detalhe de venda. Qualquer instalação do
-      // grupo pode ler e debitar (isso é o que torna a checagem na
-      // hora de finalizar possível); só precisa ser um número.
-      match /estoque/{produtoId} {
-        allow read: if true;
-        allow create, update: if request.resource.data.keys().hasOnly(['quantidade', 'atualizadoEm'])
-                      && request.resource.data.quantidade is number;
-        allow delete: if request.auth != null;
-      }
+      allow read: if request.auth != null && dispositivoPareadoEModuloAtivo(installId);
+
+      allow write: if request.auth == null; // só o desktop publica
+    }
+
+    // Lista pessoal de lojas às quais um celular de CONSULTA está
+    // vinculado (dono de rede com mais de uma loja) -- só o próprio
+    // celular mexe nisso, nunca o desktop de nenhuma loja.
+    match /dispositivos_pareados/{uid} {
+      allow read, write: if request.auth != null && uid == request.auth.uid;
     }
   }
 }
@@ -249,87 +316,120 @@ service cloud.firestore {
 
 Clique em "Publicar".
 
-**⚠️ Se a versão do app está aparecendo travada no painel, mesmo depois
-de atualizar de verdade**: isso é quase certamente porque as regras
-publicadas ainda não têm os campos de métrica (`totalVendasHistorico`,
-`vendasUltimos30Dias`, `perfilAtivo`) na lista de permitidos — um erro
-meu, que esqueci de atualizar as regras junto quando adicionei essa
-funcionalidade. O Firestore recusa a escrita **inteira** (não só os
-campos novos) quando isso acontece — por isso nem o `ultimoContato`
-nem a versão conseguiam atualizar, mesmo o app rodando normal e
-tentando a cada 6h. **Republicar as regras com o bloco abaixo resolve
-isso de vez.**
+**Como este arquivo é estruturado** (pra entender o que você está
+colando):
 
-**Se você já tinha publicado as regras antigas** (antes do bloqueio
-imediato, dos clientes, da atualização obrigatória, dos erros
-reportados, do sinal de online/offline, ou das métricas existirem):
-precisa republicar com esse bloco novo de novo — sem isso, o campo
-`ultimoPing` novo não vai conseguir ser escrito pelo app, e o sinal de
-online do painel vai ficar sempre cinza/offline, mesmo com o cliente
-rodando normalmente.
+- **PARTE 1** preserva de propósito o comportamento ABERTO que o
+  sistema sempre teve pra tudo que já existia antes do pareamento de
+  celular (`installations` e seus `backups`, `clientes` e o histórico
+  de `pagamentos` dentro dele, `erros_reportados`, `acoes_log`,
+  `config`, `config_publica`, `contas_google`, o Cofre de senhas —
+  congelado/obsoleto, não mexer além do necessário pra preservar o
+  comportamento — e `grupos_sincronizacao`). Não é a solução ideal de
+  segurança (é tudo `read, write: if true`), é a base necessária pra
+  publicar isto sem quebrar nada que já está rodando em produção.
+  Migrar cada coleção pra uma regra de verdade fica pra depois, com
+  calma.
+- **PARTE 1.5** são as funções auxiliares dos módulos pagos (Consulta
+  remota / App do garçom) — confere se o cliente da instalação tem o
+  módulo ligado em `clientes/{clienteId}.modulosAtivos`, usado pela
+  PARTE 2 abaixo. Cliente sem `clienteId` vinculado ainda, ou sem o
+  campo `modulosAtivos`, conta como módulo desativado (fail-closed).
+- **PARTE 2** é regra de verdade (não read/write livre) pro que é
+  novo: pareamento de celular (`pareamentos`, `dispositivos`), pedidos
+  do app do garçom (`pedidos_garcom`), o retrato "ao vivo" da loja pro
+  celular consultar (`status_ao_vivo`), e a lista pessoal de lojas de
+  um celular de consulta (`dispositivos_pareados`) — aqui quem escreve
+  pode ser o CELULAR de um funcionário, autenticado anonimamente (ver
+  Passo 1 — o provedor "Anônimo" precisa estar ativado em
+  Authentication → Sign-in method, senão o celular nem consegue
+  autenticar pra chegar até essas regras), não só as máquinas da
+  própria loja.
 
-**Se você já tinha publicado as regras antes dos recursos de backup na
-nuvem, override de versão por instalação e vencimento de cliente
-existirem**: republique de novo com o bloco atual — ele já inclui a
-subcoleção `backups` e os campos `restauracaoStatus`/`restauracaoErro`/
-`restauracaoConcluidaEm`. Os campos que só a Central escreve
-(`backupSolicitadoEm`, `restaurarBackupSolicitado`,
-`versaoMinimaOverride`, `overrideAtivo`, `vencimento` em `clientes`)
-não precisam de nada extra na regra — qualquer escrita autenticada já
-é permitida. E não esqueça do **Passo 3.5**, que é uma regra nova (do
-Storage, não do Firestore) — sem publicar aquela também, o upload do
-backup pra nuvem falha com `storage/unauthorized`.
+**⚠️ Se você já tinha publicado uma versão anterior destas regras**
+(antes do Cofre de senhas, do histórico de pagamentos por cliente, dos
+módulos pagos, ou do pareamento de celular/app do garçom/consulta
+remota existirem): republique com o bloco atual. Sem isso:
 
-**Se você já tinha publicado as regras antes do Cofre de senhas
-existir**: republique de novo — o bloco atual inclui as coleções novas
-`cofre_acessos` e `cofre_config` (sem elas, o painel nem consegue
-abrir a tela do cofre, dá erro de permissão na hora de checar se já
-existe uma senha-mestra).
+- Faltam as coleções `pareamentos`, `dispositivos`, `pedidos_garcom`,
+  `status_ao_vivo` e `dispositivos_pareados` → parear um celular falha
+  com "Permissão insuficiente" (`Missing or insufficient permissions`)
+  mesmo com o app funcionando normal.
+- Falta a subcoleção `clientes/{clienteId}/pagamentos` → o botão "Ver
+  histórico" de pagamentos no admin-panel falha ao carregar.
+- Faltam as funções de módulo pago (`moduloAtivo` e companhia) →
+  mesmo com as coleções acima presentes, gerar ou resgatar um
+  pareamento é recusado incondicionalmente (a checagem de módulo nunca
+  encontra a função pra chamar).
 
-**Nota histórica**: existiu por um tempo um campo de texto livre "conta
-de nuvem pessoal" na tela de Configurações → Backup, com os campos
-`backupContaNuvemPessoal`/`backupContaNuvemPessoalAtualizadaEm`
-correspondentes na regra. Foi removido por ser redundante com o
-recurso "Criar conta Google" logo abaixo (que faz a mesma coisa, só
-que estruturado e com a senha protegida) — se você publicou uma versão
-antiga das regras que ainda tinha esses dois campos, não tem problema
-nenhum, eles só ficam sem uso. O bloco atual já não os inclui mais.
+**Antes de confiar nisso em produção**: teste pelo simulador de regras
+do próprio Firebase (aba "Regras" → "Simulador") — por exemplo, simule
+uma escrita não-autenticada tentando mudar `modulosAtivos` de um
+cliente pra `true` sem passar pelo painel, ou um `get` num pareamento
+sem autenticação nenhuma; os dois devem ser negados. **Não esqueça
+também do Passo 3.5 logo abaixo** — sem o índice configurado lá, o
+pareamento falha do mesmo jeito ("Permissão insuficiente") mesmo com
+as regras 100% corretas e publicadas; foi exatamente essa combinação
+que causou o erro mais difícil de diagnosticar desta rodada.
 
-**Se você já tinha publicado as regras antes do recurso "Criar conta
-Google" existir** (botão na tela Configurações → Backup do app +
-seção "Contas Google vinculadas" na aba Cofre da Central): republique
-de novo — o bloco atual inclui as coleções novas `contas_google`
-(onde o app grava o e-mail e a senha já cifrada) e `config_publica`
-(onde a Central publica a chave pública que os apps usam pra cifrar).
-Sem isso, o botão "Salvar conta" no app falha (não consegue nem ler a
-chave pública, nem gravar o resultado), com um erro explicando o
-motivo na própria tela. Lembre também de gerar a chave de proteção
-uma vez, na aba Cofre → "Contas Google vinculadas" → "Gerar chave de
-proteção" — sem isso feito, o mesmo botão falha do mesmo jeito, mesmo
-com as regras já publicadas.
+## Passo 3.5 — Publicar o índice do Firestore (obrigatório pro pareamento funcionar)
 
-**Se você já tinha publicado as regras antes da aba "🕐 Auditoria"
-existir**: republique de novo — o bloco atual inclui a coleção nova
-`acoes_log`, onde a Central grava um registro toda vez que você
-congela, bloqueia, restaura um backup remoto ou publica/desativa uma
-atualização obrigatória. Sem essa regra, cada uma dessas ações
-continua funcionando normalmente (o registro de auditoria é só um
-`addDoc` de melhor esforço, feito depois da ação principal), mas
-falha silenciosamente ao tentar gravar o log — a aba Auditoria fica
-sempre vazia e o console do navegador mostra `[auditoria] falha ao
-registrar ação`. Repare que a regra bloqueia `update` e `delete` de
-propósito (só `create` e `read`): um registro de auditoria não deveria
-dar pra editar ou apagar depois, nem sem querer.
+O celular encontra o código de pareamento digitado através de uma
+consulta **collectionGroup** — `pareamentos` de QUALQUER loja, já que
+o celular ainda não sabe o `installId` antes de digitar o código —
+filtrando pelo campo `codigo` (ver `pwa-mobile/pairing.js`). A
+indexação automática do Firestore só cobre consultas no escopo de uma
+única COLEÇÃO; pra esse mesmo campo funcionar também no escopo
+COLLECTION_GROUP (entre lojas), precisa configurar manualmente. Sem
+isso, a consulta falha — às vezes com o aviso claro "the query requires
+an index", às vezes (se o campo nunca foi tocado antes) com o mesmo
+"Missing or insufficient permissions" que parece erro de regra de
+segurança, mas não é.
 
-**Antes de confiar nisso em produção**: eu não tenho como testar essas
-regras ao vivo aqui (não tenho acesso a um projeto Firebase de
-verdade) — eu escrevi com cuidado e segui o padrão documentado do
-Firestore, mas teste você mesmo antes de depender disso: tente, pelo
-simulador de regras do próprio Firebase (aba "Regras" → "Simulador"),
-simular uma escrita não-autenticada tentando mudar `ativo` — deve ser
-negada.
+**Pelo Console** (Firestore Database → aba **Índices** → sub-aba
+**Único campo**):
 
-## Passo 3.5 — Regras do Storage (backup na nuvem)
+1. Clique em algo como "Adicionar isenção de índice" / "Add exemption"
+   (o texto exato varia com o idioma da conta).
+2. ID da coleção: `pareamentos`. Campo: `codigo`.
+3. Ative a ordem "Crescente" tanto pro escopo **Coleção** quanto pro
+   escopo **Grupo de coleções** — os dois, não só um (é fácil marcar só
+   um por engano).
+4. Salvar. Leva de 1 a poucos minutos pra terminar de compilar (a tela
+   mostra "Compilando..." até ficar pronto).
+
+**Pela CLI**, se preferir: o arquivo `firestore.indexes.json` deste
+repositório já vem com essa configuração pronta, no formato certo
+(`fieldOverrides`, **não** uma entrada em `indexes[]` — uma composta
+pra isso é REJEITADA pelo próprio Firebase com "this index is not
+necessary, configure using single field index controls"):
+
+```json
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "pareamentos",
+      "fieldPath": "codigo",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}
+```
+
+`firebase deploy --only firestore:indexes` publica esse arquivo direto.
+
+**Como eu confirmei isso**: descobri esse detalhe testando de verdade
+nesta sessão, não por documentação — a consulta collectionGroup só
+passou a funcionar depois desse índice existir; antes disso, mesmo com
+a regra de segurança certinha, já publicada e confirmada ("released
+rules... to cloud.firestore" no terminal), o celular continuava
+recebendo "Missing or insufficient permissions" ao digitar o código.
+
+## Passo 3.6 — Regras do Storage (backup na nuvem)
 
 O `storageBucket` já vem preenchido no `firebaseConfig` desde o
 início, mas até agora nada usava o Storage de verdade — por isso ele
@@ -440,7 +540,7 @@ de qualquer navegador, faz login com o e-mail/senha do Passo 1.
 ## Passo 7 (opcional) — Backup extra por cliente, numa nuvem pessoal (Google Drive, OneDrive...)
 
 Além do backup automático que já sobe pro Storage do projeto de
-licenciamento (Passo 3.5), dá pra ter uma **segunda cópia fora da
+licenciamento (Passo 3.6), dá pra ter uma **segunda cópia fora da
 máquina**, numa conta de nuvem pessoal — sem precisar escrever
 código nenhum, reaproveitando o campo "pasta secundária" que o app já
 tem em Configurações → Backups.
