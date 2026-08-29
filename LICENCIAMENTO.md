@@ -61,6 +61,17 @@ arquivo (é o que já foi testado e publicado em produção nesta sessão).
 Se um dia este documento e o arquivo divergirem, confie no arquivo, não
 neste texto, e me avise pra eu corrigir aqui.
 
+**⚠️ Se você chegou aqui vindo de um diagnóstico de "Missing or
+insufficient permissions"**: se em algum momento você trocou, direto no
+Console (Firestore Database → Regras), a linha `allow get, list: if
+request.auth != null;` (dentro de `match
+/installations/{installId}/pareamentos/{codigo}`) por `allow get,
+list: if true;` só pra testar — **apague tudo que está publicado
+agora e cole o bloco completo abaixo de novo, do zero**, depois clique
+em "Publicar". Não edite só aquela linha manualmente: é mais seguro
+substituir o arquivo inteiro de uma vez, pra garantir que nenhuma outra
+edição feita durante os testes fique esquecida lá.
+
 Sem essas regras, o banco fica **totalmente aberto** pra qualquer um na
 internet ler ou escrever — a config do Firebase embutida em todo
 instalador não é secreta, então isso é um risco real. No Firebase, vá
