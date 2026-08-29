@@ -1,5 +1,6 @@
 const { randomUUID, randomInt } = require('crypto');
 const { getDb } = require('../db/database');
+const timeService = require('./timeService');
 
 const DURACAO_CODIGO_MINUTOS = 10;
 
@@ -92,11 +93,18 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
   const codigo = gerarCodigoNumerico();
   const criadoEmMs = Date.now();
   const expiraEmMs = criadoEmMs + DURACAO_CODIGO_MINUTOS * 60 * 1000;
-  const expiraEmIso = new Date(expiraEmMs).toISOString();
+  // Formato "YYYY-MM-DD HH:MM:SS" (mesmo de NOW_SYNCED()/nowSyncedUTCString,
+  // ver timeService.js) -- NUNCA `.toISOString()` puro aqui: essa coluna é
+  // TEXT e o SQLite compara `>`/`<` byte a byte, não como data de verdade.
+  // ISO com "T"/"Z" (ex: "2026-08-29T07:40:21.000Z") sempre soa "maior"
+  // que "2026-08-29 07:44:19" (formato do NOW_SYNCED()) na mesma data, só
+  // pelo caractere "T" > " " -- o código nunca expirava de verdade na
+  // consulta de listarCodigosPendentes enquanto fosse o mesmo dia UTC.
+  const expiraEmSql = new Date(expiraEmMs).toISOString().slice(0, 19).replace('T', ' ');
 
   db.prepare(
     `INSERT INTO pairing_codes (id, tipo, vinculo_user_id, criado_por_id, expira_em) VALUES (?, ?, ?, ?, ?)`
-  ).run(codigo, tipo, vinculoUserId, requestingUserId, expiraEmIso);
+  ).run(codigo, tipo, vinculoUserId, requestingUserId, expiraEmSql);
 
   try {
     const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
@@ -124,17 +132,21 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
     return { ok: false, error: 'Não foi possível publicar o código agora — confira a conexão com a internet e tente de novo.' };
   }
 
-  return { ok: true, codigo, expiraEm: expiraEmIso, tipo, vinculoNome: vinculo.nome };
+  return { ok: true, codigo, expiraEm: expiraEmSql, tipo, vinculoNome: vinculo.nome };
 }
 
 /** Códigos gerados por esta instalação ainda dentro da validade e não
- * usados -- pra tela de Configurações mostrar "aguardando o celular". */
+ * usados -- pra tela de Configurações mostrar "aguardando o celular".
+ * Usa NOW_SYNCED() (não `datetime('now')` puro) pra comparar contra o
+ * mesmo relógio sincronizado que o resto do app usa, não o horário cru
+ * do sistema operacional -- mesma convenção documentada em
+ * timeService.js. */
 function listarCodigosPendentes() {
   const db = getDb();
   return db.prepare(
     `SELECT pc.*, u.nome as vinculo_nome FROM pairing_codes pc
      JOIN users u ON u.id = pc.vinculo_user_id
-     WHERE pc.usado = 0 AND pc.expira_em > datetime('now')
+     WHERE pc.usado = 0 AND pc.expira_em > NOW_SYNCED()
      ORDER BY pc.criado_em DESC`
   ).all();
 }

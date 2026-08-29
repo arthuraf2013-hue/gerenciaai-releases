@@ -52,6 +52,30 @@ test('listarCodigosPendentes só traz código não usado e ainda não expirado',
   assert.equal(pendentes[0].id, '111111');
 });
 
+// Regressão: gerarCodigo chegou a gravar expira_em com `.toISOString()`
+// puro ("2026-08-29T07:40:21.000Z") -- expira_em é TEXT, e o SQLite
+// compara `>`/`<` byte a byte, não como data de verdade. "T" (0x54) é
+// sempre "maior" que o espaço (0x20) do formato usado por NOW_SYNCED()/
+// datetime('now'), então no MESMO dia um código expirado continuava
+// aparecendo como pendente pra sempre (só sumia quando virasse o dia).
+// O teste acima não pegava isso porque grava direto com
+// datetime('now', ...), que já nasce no formato certo -- aqui simula o
+// formato de verdade que gerarCodigo grava hoje (ver pairingService.js).
+test('listarCodigosPendentes expira de verdade um código no formato que gerarCodigo grava (regressão do bug do "T"/"Z")', () => {
+  const { db, adminId, gerenteId } = freshTestDb();
+  const formatoDeVerdade = (ms) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+  db.prepare(
+    `INSERT INTO pairing_codes (id, tipo, vinculo_user_id, criado_por_id, expira_em) VALUES ('444444', 'garcom', ?, ?, ?)`
+  ).run(gerenteId, adminId, formatoDeVerdade(Date.now() - 60_000));
+  db.prepare(
+    `INSERT INTO pairing_codes (id, tipo, vinculo_user_id, criado_por_id, expira_em) VALUES ('555555', 'garcom', ?, ?, ?)`
+  ).run(gerenteId, adminId, formatoDeVerdade(Date.now() + 60_000));
+
+  const ids = pairingService.listarCodigosPendentes().map((p) => p.id);
+  assert.ok(!ids.includes('444444'), 'código já expirado (formato de verdade) não deveria aparecer como pendente');
+  assert.ok(ids.includes('555555'));
+});
+
 test('espelharDispositivoPareado cria dispositivo novo quando ainda não existe localmente', () => {
   const { db, gerenteId } = freshTestDb();
   pairingService.espelharDispositivoPareado({

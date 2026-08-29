@@ -1615,7 +1615,10 @@ export function SettingsScreen() {
               <div key={c.id} className="pdv-number-badge" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, letterSpacing: 3 }}>{c.id}</span>
                 <span>{c.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'} — {c.vinculo_nome}</span>
-                <span className="screen-hint" style={{ marginLeft: 'auto' }}>expira {new Date(c.expira_em).toLocaleTimeString('pt-BR')}</span>
+                {/* expira_em é UTC "naive" (sem Z, ver pairingService.js/timeService.js) --
+                    precisa do 'Z' aqui pro Date interpretar como UTC, não como hora local
+                    (mesma convenção já usada em AuditLog.jsx pra criado_em). */}
+                <span className="screen-hint" style={{ marginLeft: 'auto' }}>expira {new Date(`${c.expira_em}Z`).toLocaleTimeString('pt-BR')}</span>
               </div>
             ))}
           </div>
