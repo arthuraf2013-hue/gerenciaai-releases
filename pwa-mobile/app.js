@@ -4,6 +4,13 @@ import * as pairing from './pairing.js';
 import * as garcom from './garcom.js';
 import * as consulta from './consulta.js';
 
+// Diagnóstico TEMPORÁRIO (investigação do permission-denied no
+// pareamento) -- expõe auth no console pra dar pra pegar um ID token
+// de verdade manualmente (window.debugAuth.currentUser.getIdToken())
+// e testar direto contra a REST API do Firestore, sem passar pelo SDK
+// nem pelo navegador. Remover depois que o mistério for resolvido.
+window.debugAuth = auth;
+
 const root = document.getElementById('app');
 let desmontarAtual = () => {};
 
