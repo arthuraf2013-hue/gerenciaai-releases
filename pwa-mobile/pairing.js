@@ -96,7 +96,14 @@ function mount(root, { onPareado }) {
       renderConfirmacao(dados);
     } catch (err) {
       console.error('[pairing] falha ao buscar código', err);
-      mostrarErro('Não foi possível conectar agora. Confira sua internet e tente de novo.');
+      // Mostra o código de erro de verdade (permission-denied,
+      // unauthenticated, failed-precondition, unavailable...) na
+      // própria tela -- sem isso, toda falha aqui vira a mesma
+      // mensagem genérica e cada rodada de diagnóstico exige pedir
+      // pra alguém abrir o F12/console remoto de novo. Com o código
+      // na tela, dá pra ler direto de um print de celular.
+      const detalhe = err?.code ? ` (código: ${err.code})` : '';
+      mostrarErro(`Não foi possível conectar agora${detalhe}. Confira sua internet e tente de novo.`);
     } finally {
       btn.disabled = false;
       btn.textContent = 'Continuar';

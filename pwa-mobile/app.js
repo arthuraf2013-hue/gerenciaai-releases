@@ -45,7 +45,11 @@ async function iniciar() {
     abrirLojaAtiva();
   }, (err) => {
     console.error('[app] falha na autenticação', err);
-    root.innerHTML = `<div class="tela-erro-fatal"><p>Não foi possível conectar. Confira sua internet e recarregue a página.</p></div>`;
+    // Código de erro na tela (não só no console) pelo mesmo motivo de
+    // pairing.js -- reduz uma rodada inteira de "abre o F12 e me manda
+    // o que aparece" pra só um print de celular.
+    const detalhe = err?.code ? ` (código: ${err.code})` : '';
+    root.innerHTML = `<div class="tela-erro-fatal"><p>Não foi possível conectar${detalhe}. Confira sua internet e recarregue a página.</p></div>`;
   });
 
   if (!auth.currentUser) {
@@ -56,8 +60,12 @@ async function iniciar() {
       // Se já tem loja salva localmente, ainda vale tentar mostrar a
       // tela mesmo sem confirmar auth (o Firestore vai recusar escrita,
       // mas os dados em cache/offline continuam visíveis).
-      if (getLojaAtiva()) abrirLojaAtiva();
-      else root.innerHTML = `<div class="tela-erro-fatal"><p>Sem internet pra parear pela primeira vez. Conecte e tente de novo.</p></div>`;
+      if (getLojaAtiva()) {
+        abrirLojaAtiva();
+      } else {
+        const detalhe = err?.code ? ` (código: ${err.code})` : '';
+        root.innerHTML = `<div class="tela-erro-fatal"><p>Sem internet pra parear pela primeira vez${detalhe}. Conecte e tente de novo.</p></div>`;
+      }
     }
   }
 }
