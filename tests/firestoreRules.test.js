@@ -314,6 +314,65 @@ test('gestao_usuarios: escrita negada pra qualquer cliente autenticado (só o de
   await assertFails(celular.doc('installations/install-U6/gestao_usuarios/atual').set({ usuarios: [] }));
 });
 
+// ---------------------------------------------------------------------
+// historico_vendas (resumo de vendas dos últimos 7/30 dias pra consulta
+// remota) -- mesma restrição de gestao_usuarios e pelo MESMO motivo
+// (compartilha a função dispositivoConsultaAtiva em firestore.rules):
+// só dispositivo tipo === 'consulta', nunca 'garcom'.
+// ---------------------------------------------------------------------
+
+test('historico_vendas: leitura permitida pra dispositivo pareado como consulta e ativo', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-H2');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-H2/historico_vendas/atual').set({ ultimos7: {}, ultimos30: {} });
+    await db.doc('installations/install-H2/dispositivos/uid-consulta-ok').set({ tipo: 'consulta', ativo: true, vinculoUserId: 'user-admin-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-consulta-ok').firestore();
+  await assertSucceeds(celular.doc('installations/install-H2/historico_vendas/atual').get());
+});
+
+test('historico_vendas: leitura NEGADA pra dispositivo pareado como garçom (histórico financeiro não é dele)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-H3');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-H3/historico_vendas/atual').set({ ultimos7: {}, ultimos30: {} });
+    await db.doc('installations/install-H3/dispositivos/uid-garcom-ok').set({ tipo: 'garcom', ativo: true, vinculoUserId: 'user-garcom-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-garcom-ok').firestore();
+  await assertFails(celular.doc('installations/install-H3/historico_vendas/atual').get());
+});
+
+test('historico_vendas: leitura negada pra dispositivo consulta já desativado (revogado)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-H4');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-H4/historico_vendas/atual').set({ ultimos7: {}, ultimos30: {} });
+    await db.doc('installations/install-H4/dispositivos/uid-consulta-revogado').set({ tipo: 'consulta', ativo: false, vinculoUserId: 'user-admin-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-consulta-revogado').firestore();
+  await assertFails(celular.doc('installations/install-H4/historico_vendas/atual').get());
+});
+
+test('historico_vendas: leitura negada sem autenticação nenhuma', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-H5');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-H5/historico_vendas/atual').set({ ultimos7: {}, ultimos30: {} });
+  });
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertFails(semAuth.doc('installations/install-H5/historico_vendas/atual').get());
+});
+
+test('historico_vendas: escrita negada pra qualquer cliente autenticado (só o desktop publica)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const celular = testEnv.authenticatedContext('uid-qualquer-3').firestore();
+  await assertFails(celular.doc('installations/install-H6/historico_vendas/atual').set({ ultimos7: {}, ultimos30: {} }));
+});
+
 test('dispositivos_pareados: só o próprio uid lê/escreve o próprio documento', { skip: !RODAR && SKIP_MSG }, async () => {
   await setupTestEnv();
   const dono = testEnv.authenticatedContext('uid-dono-1').firestore();

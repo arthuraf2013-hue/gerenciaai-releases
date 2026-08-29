@@ -254,6 +254,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .valor-metrica { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .titulo-secao { font-size: 15px; margin: 20px 0 10px; }
+.subtitulo-secao { font-size: 13px; font-weight: 600; color: var(--color-text-muted); margin: 16px 0 8px; }
+
+.seletor-periodo { display: flex; gap: 8px; margin-bottom: 12px; }
+.btn-periodo {
+  flex: 1; background: var(--color-surface); color: var(--color-text-muted); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 10px; font-weight: 600; font-size: 13px; transition: background-color 0.15s ease;
+}
+.btn-periodo-ativo { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+
 .grid-mesas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 8px; }
 .cartao-mesa {
   background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);

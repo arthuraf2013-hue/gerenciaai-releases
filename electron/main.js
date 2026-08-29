@@ -170,6 +170,10 @@ app.whenReady().then(() => {
   // "Consulta remota" -- ver userStatusSyncService.js e a seção
   // "Usuários" em pwa-mobile/consulta.js.
   require('./services/userStatusSyncService').iniciarPublicacaoContinua();
+  // Histórico de vendas (últimos 7/30 dias) pra quem parear como
+  // "Consulta remota" -- ver historySyncService.js e a seção
+  // "Histórico" em pwa-mobile/consulta.js.
+  require('./services/historySyncService').iniciarPublicacaoContinua();
   // Reconecta sozinho no chatbot de WhatsApp se esta máquina já tinha
   // sido pareada antes e a aba "Separação" está ativada — sem isso, o
   // bot só voltaria a responder depois de alguém abrir Configurações

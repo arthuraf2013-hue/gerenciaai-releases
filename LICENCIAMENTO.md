@@ -172,6 +172,23 @@ service cloud.firestore {
       return tipo == 'garcom' ? 'appGarcom' : 'consultaRemota';
     }
 
+    // Dispositivo pareado como "Consulta remota" (nunca "garçom"),
+    // ativo, com o módulo ainda pago -- usada pelas coleções de dado
+    // sensível de gestão (gestao_usuarios, historico_vendas) que não
+    // fazem sentido nenhum pro app do garçom ver (ele nunca teve
+    // visibilidade de outros funcionários nem de histórico financeiro,
+    // nem no desktop -- ver AppShell.jsx, o menu "Usuários"/"Painel" não
+    // aparece pra role 'garcom'). Extraída aqui (em vez de duplicada em
+    // cada match) porque as duas coleções abaixo repetem exatamente essa
+    // checagem.
+    function dispositivoConsultaAtiva(installId) {
+      let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+      return exists(dRef)
+        && get(dRef).data.tipo == 'consulta'
+        && get(dRef).data.ativo == true
+        && moduloAtivo(installId, 'consultaRemota');
+    }
+
     // --------------------------------------------------------------
     // PARTE 2 — pareamento de celular (novo)
     // --------------------------------------------------------------
@@ -339,15 +356,20 @@ service cloud.firestore {
     // aqui exige explicitamente tipo == 'consulta', não só "pareado e
     // ativo" como a de cima.
     match /installations/{installId}/gestao_usuarios/{docId} {
-      function dispositivoConsultaAtivo(installId) {
-        let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
-        return exists(dRef)
-          && get(dRef).data.tipo == 'consulta'
-          && get(dRef).data.ativo == true
-          && moduloAtivo(installId, 'consultaRemota');
-      }
+      allow read: if request.auth != null && dispositivoConsultaAtiva(installId);
 
-      allow read: if request.auth != null && dispositivoConsultaAtivo(installId);
+      allow write: if request.auth == null; // só o desktop publica
+    }
+
+    // Histórico de vendas (últimos 7/30 dias: faturamento por dia,
+    // produtos mais vendidos, vendas por operador) -- ver
+    // historySyncService.js. Mesma restrição de gestao_usuarios (só
+    // "Consulta remota", nunca garçom) e pelo MESMO motivo de
+    // status_ao_vivo já ser tratado como sensível: aqui é histórico
+    // financeiro de verdade, ainda mais dado pra vazar sem necessidade
+    // pro app do garçom do que o resumo "hoje" que ele nem usa.
+    match /installations/{installId}/historico_vendas/{docId} {
+      allow read: if request.auth != null && dispositivoConsultaAtiva(installId);
 
       allow write: if request.auth == null; // só o desktop publica
     }
@@ -401,7 +423,13 @@ colando):
   autorizar consultas **collectionGroup** (a busca do celular, que
   varre `pareamentos` de todas as lojas de uma vez); a regra de
   subcoleção comum não vale pra esse tipo de consulta, só pra
-  `get`/consulta já restrita a uma loja só.
+  `get`/consulta já restrita a uma loja só. Também tem `gestao_usuarios`
+  (lista de funcionários) e `historico_vendas` (últimos 7/30 dias) —
+  as duas usam a função `dispositivoConsultaAtiva`, exigindo
+  explicitamente tipo `'consulta'`, porque esse dado (quem trabalha na
+  loja, histórico financeiro) não deveria vazar pro app do garçom, ao
+  contrário de `status_ao_vivo` (que os dois tipos podem ler, já que o
+  garçom precisa do catálogo de produtos de lá).
 
 **⚠️ Se você já tinha publicado uma versão anterior destas regras**
 (antes do Cofre de senhas, do histórico de pagamentos por cliente, dos
@@ -424,6 +452,13 @@ remota existirem): republique com o bloco atual. Sem isso:
   simplesmente negada e o app trata isso como "zero usuários", não como
   falha) — se a lista sempre aparecer vazia mesmo com funcionários
   cadastrados, confira essa regra primeiro.
+- Falta o bloco `match /installations/{installId}/historico_vendas/{docId}`
+  → a seção "Histórico" da consulta remota (vendas dos últimos 7/30
+  dias) fica sempre zerada no celular ("R$ 0,00", "0 vendas"), do mesmo
+  jeito silencioso do item acima — a leitura é negada e o app trata
+  como "sem dados no período", não como falha. Se o histórico nunca sai
+  do zero mesmo com vendas registradas no período, confira essa regra
+  antes de suspeitar do `historySyncService`.
 - Falta o bloco `match /{caminho=**}/pareamentos/{codigo}` (regra com
   curinga recursivo, separada da regra normal de `installations/
   {installId}/pareamentos/{codigo}`) → o celular encontra o código

@@ -12,6 +12,18 @@ function hojeLocalISO() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
 
+/** "Hoje menos N dias" no fuso de São Paulo, mesmo critério de
+ * hojeLocalISO() acima (e de timeService.diasAPartirDeHojeLocalISO no
+ * desktop) -- usada só pra montar o intervalo de datas do histórico do
+ * GRUPO (a consulta solo já vem pronta de historico_vendas/atual, ver
+ * historySyncService.js, não precisa calcular intervalo aqui). */
+function diaLocalISOAtras(diasAtras) {
+  const [ano, mes, dia] = hojeLocalISO().split('-').map(Number);
+  return new Date(Date.UTC(ano, mes - 1, dia - diasAtras)).toISOString().slice(0, 10);
+}
+
+const PERIODOS_HISTORICO = { ultimos7: 7, ultimos30: 30 };
+
 const ROTULO_PAPEL = {
   operador: 'Operador de caixa', gerente: 'Gerente', admin: 'Administrador',
   garcom: 'Garçom', suporte: 'Suporte',
@@ -24,6 +36,52 @@ function formatarRelativo(ms) {
   const minutos = Math.floor(segundos / 60);
   if (minutos < 60) return `há ${minutos} min`;
   return `há ${Math.floor(minutos / 60)} h`;
+}
+
+/** Agrega os documentos crus de grupos_sincronizacao/{grupoId}/vendas
+ * (ver salesSyncService.pushSale/republicarHistoricoCompleto -- cada um
+ * é UMA venda, com itens e nome do operador) no MESMO formato que
+ * historySyncService.getResumoPeriodo já publica pro terminal solo em
+ * historico_vendas/atual -- assim a seção "Histórico" do render()
+ * abaixo usa o mesmo template pros dois casos, sem duplicar HTML.
+ * DELIBERADAMENTE sem custo/margem, mesmo critério de historySyncService. */
+function agregarVendasDoGrupo(vendas) {
+  let totalFaturado = 0;
+  const porDia = new Map();
+  const porProduto = new Map();
+  const porOperador = new Map();
+
+  for (const v of vendas) {
+    const total = v.total || 0;
+    totalFaturado += total;
+
+    const dia = porDia.get(v.diaISO) || { dia: v.diaISO, total: 0 };
+    dia.total += total;
+    porDia.set(v.diaISO, dia);
+
+    const chaveOperador = v.operadorNome || '—';
+    const operador = porOperador.get(chaveOperador) || { operador: chaveOperador, totalVendas: 0, totalVendido: 0 };
+    operador.totalVendas += 1;
+    operador.totalVendido += total;
+    porOperador.set(chaveOperador, operador);
+
+    for (const item of v.itens || []) {
+      const p = porProduto.get(item.nome) || { nome: item.nome, quantidade: 0, valorTotal: 0 };
+      p.quantidade += item.quantidade || 0;
+      p.valorTotal += (item.quantidade || 0) * (item.precoUnitario || 0);
+      porProduto.set(item.nome, p);
+    }
+  }
+
+  const totalVendas = vendas.length;
+  return {
+    totalVendas,
+    totalFaturado,
+    ticketMedio: totalVendas > 0 ? totalFaturado / totalVendas : 0,
+    vendasPorDia: [...porDia.values()].sort((a, b) => a.dia.localeCompare(b.dia)),
+    topProdutos: [...porProduto.values()].sort((a, b) => b.quantidade - a.quantidade).slice(0, 8),
+    porOperador: [...porOperador.values()].sort((a, b) => b.totalVendido - a.totalVendido),
+  };
 }
 
 /** Tela de consulta remota (Adm/Gerente): resumo financeiro do dia +
@@ -48,6 +106,15 @@ function formatarRelativo(ms) {
  * sincronização de mesas/pedidos entre terminais do grupo, só de
  * estoque/produtos/vendas), então agregá-lo ficaria fora do escopo
  * desta mudança; a seção deixa isso explícito no rótulo.
+ *
+ * HISTÓRICO (últimos 7/30 dias, com seletor de período): terminal SOLO
+ * lê installations/{id}/historico_vendas/atual (publicado a cada ~10min
+ * pelo desktop, ver historySyncService.js) -- é a forma que funciona
+ * pra QUALQUER instalação, mesmo sem grupo de sincronização (a maioria
+ * das lojas é solo e nunca escreve em grupos_sincronizacao/). Com grupo
+ * de verdade, agrega direto de grupos_sincronizacao/{grupoId}/vendas
+ * filtrando por diaISO (mesma coleção/leitura aberta que o resumo "hoje"
+ * já usa acima) -- ver agregarVendasDoGrupo().
  */
 function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja }) {
   let status = null;
@@ -57,6 +124,9 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   let resumoGrupo = null; // { faturamentoHoje, totalVendasHoje, ticketMedioHoje, porLoja: Map<installId, {nomeNegocio, faturamento, vendas}> }
   let usuarios = []; // [{id, nome, role, ativo}] -- ver installations/{id}/gestao_usuarios/atual
   let dispositivos = []; // [{id (uid), tipo, nomeDispositivo, ativo, vinculoUserId}] -- ver installations/{id}/dispositivos
+  let historicoSolo = null; // { ultimos7, ultimos30, atualizadoEm } -- ver installations/{id}/historico_vendas/atual
+  let periodoHistorico = 'ultimos7'; // 'ultimos7' | 'ultimos30' -- seletor da seção Histórico
+  let historicoGrupoCache = {}; // { ultimos7: {...}|null, ultimos30: {...}|null } -- preenchido sob demanda quando há grupo de verdade (ver carregarHistoricoGrupo)
 
   root.innerHTML = `
     <div class="app-shell">
@@ -73,6 +143,19 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   `;
 
   montarMenuTopo();
+
+  // Delegado no container (não nos botões em si, que são recriados a
+  // cada render()) -- troca de período só muda estado local e re-renderiza;
+  // pro terminal solo os dois períodos já vêm prontos no mesmo documento
+  // (historicoSolo), pro grupo os dois já foram pré-carregados em
+  // descobrirGrupo() (ver carregarHistoricoGrupo), então nenhum dos dois
+  // casos precisa de uma consulta nova ao trocar de período aqui.
+  root.querySelector('#conteudo-consulta').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-periodo]');
+    if (!btn) return;
+    periodoHistorico = btn.dataset.periodo;
+    render();
+  });
 
   function montarMenuTopo() {
     const btnMenu = root.querySelector('#btn-menu-topo');
@@ -138,6 +221,13 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     const mesasOcupadas = mesas.filter((m) => m.status === 'ocupada');
     const pedidos = status.pedidosEmAndamento || [];
 
+    // Solo: os dois períodos já vêm prontos no mesmo doc (historicoSolo).
+    // Grupo: pré-carregado sob demanda (ver descobrirGrupo/carregarHistoricoGrupo);
+    // undefined = ainda carregando, null = falhou ao carregar.
+    const historico = temGrupoDeVerdade()
+      ? (historicoGrupoCache[periodoHistorico] || null)
+      : (historicoSolo ? historicoSolo[periodoHistorico] : null);
+
     conteudo.innerHTML = `
       ${temGrupoDeVerdade() ? `<p class="subtexto" style="margin-bottom:8px;">Resumo financeiro agregado de ${lojasDoGrupo.length} terminais deste grupo.</p>` : ''}
       <div class="grid-resumo">
@@ -194,6 +284,52 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
           </div>
         `).join('')}
       </div>
+
+      <h2 class="titulo-secao">Histórico${temGrupoDeVerdade() ? ' — todos os terminais do grupo' : ''}</h2>
+      <div class="seletor-periodo">
+        <button class="btn-periodo ${periodoHistorico === 'ultimos7' ? 'btn-periodo-ativo' : ''}" data-periodo="ultimos7">7 dias</button>
+        <button class="btn-periodo ${periodoHistorico === 'ultimos30' ? 'btn-periodo-ativo' : ''}" data-periodo="ultimos30">30 dias</button>
+      </div>
+      ${!historico ? `<p class="estado-vazio">${temGrupoDeVerdade() ? 'Carregando histórico do grupo...' : 'Sem histórico ainda -- aguarde a próxima sincronização do computador da loja (a cada ~10 min).'}</p>` : `
+        <div class="grid-resumo">
+          <div class="cartao-metrica">
+            <div class="rotulo-metrica">Faturado no período</div>
+            <div class="valor-metrica">${formatarMoeda(historico.totalFaturado)}</div>
+          </div>
+          <div class="cartao-metrica">
+            <div class="rotulo-metrica">Vendas no período</div>
+            <div class="valor-metrica">${historico.totalVendas}</div>
+          </div>
+          <div class="cartao-metrica">
+            <div class="rotulo-metrica">Ticket médio</div>
+            <div class="valor-metrica">${formatarMoeda(historico.ticketMedio)}</div>
+          </div>
+        </div>
+
+        ${historico.topProdutos && historico.topProdutos.length > 0 ? `
+          <h3 class="subtitulo-secao">Mais vendidos no período</h3>
+          <div class="lista-pedidos-andamento">
+            ${historico.topProdutos.slice(0, 5).map((p) => `
+              <div class="cartao-pedido">
+                <div>${escapeHtml(p.nome)}</div>
+                <div class="subtexto">${p.quantidade} un · ${formatarMoeda(p.valorTotal)}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        ${historico.porOperador && historico.porOperador.length > 0 ? `
+          <h3 class="subtitulo-secao">Por operador no período</h3>
+          <div class="lista-pedidos-andamento">
+            ${historico.porOperador.map((o) => `
+              <div class="cartao-pedido">
+                <div>${escapeHtml(o.operador)}</div>
+                <div class="subtexto">${o.totalVendas} venda${o.totalVendas === 1 ? '' : 's'} · ${formatarMoeda(o.totalVendido)}</div>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      `}
 
       <h2 class="titulo-secao">Usuários (${usuarios.length})</h2>
       <div class="lista-pedidos-andamento">
@@ -275,6 +411,21 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     (err) => console.error('[consulta] escuta de usuários falhou', err)
   );
 
+  // Histórico de vendas (últimos 7/30 dias) do terminal SOLO -- ver
+  // historySyncService.js. Mesma regra restrita de gestao_usuarios
+  // (dispositivo tipo === 'consulta', ver firestore.rules); publicado a
+  // cada ~10min, então pode demorar pra refletir uma venda bem recente.
+  // Ignorado quando há grupo de verdade (nesse caso usa-se
+  // historicoGrupoCache, ver descobrirGrupo/carregarHistoricoGrupo).
+  const pararEscutaHistorico = firestoreFns.onSnapshot(
+    firestoreFns.doc(db, 'installations', loja.installId, 'historico_vendas', 'atual'),
+    (snap) => {
+      historicoSolo = snap.exists() ? snap.data() : null;
+      render();
+    },
+    (err) => console.error('[consulta] escuta de histórico falhou', err)
+  );
+
   // Dispositivos pareados (garçom + consulta) -- mesma coleção que o
   // desktop já mostra em Configurações → Celular; leitura já era aberta
   // nas regras (allow read: if true), então não precisou de regra nova.
@@ -295,6 +446,35 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
 
   let pararEscutaVendas = null;
 
+  /** Histórico do GRUPO pra um período (7 ou 30 dias) -- consulta única
+   * (não onSnapshot: um relatório de histórico não precisa ser tempo
+   * real, e ficar reagregando a cada nova venda em tempo real custaria
+   * uma leitura de documento por venda toda vez) contra
+   * grupos_sincronizacao/{grupoId}/vendas, filtrando por diaISO (mesmo
+   * campo/mesmo padrão de intervalo que salesSyncService.getGroupHistory
+   * já usa no desktop). Guarda em cache por período pra trocar de 7↔30
+   * dias sem nova consulta -- ver descobrirGrupo(), que chama isso pros
+   * dois períodos assim que confirma um grupo com mais de 1 terminal. */
+  async function carregarHistoricoGrupo(periodoChave) {
+    if (!grupoId) return;
+    const dias = PERIODOS_HISTORICO[periodoChave];
+    const dataFim = hojeLocalISO();
+    const dataInicio = diaLocalISOAtras(dias - 1);
+    try {
+      const q = firestoreFns.query(
+        firestoreFns.collection(db, 'grupos_sincronizacao', grupoId, 'vendas'),
+        firestoreFns.where('diaISO', '>=', dataInicio),
+        firestoreFns.where('diaISO', '<=', dataFim)
+      );
+      const snap = await firestoreFns.getDocs(q);
+      historicoGrupoCache[periodoChave] = agregarVendasDoGrupo(snap.docs.map((d) => d.data()));
+    } catch (err) {
+      console.error('[consulta] falha ao carregar histórico do grupo', err);
+      historicoGrupoCache[periodoChave] = null;
+    }
+    render();
+  }
+
   /** Descobre se este terminal pertence a um grupo de sincronização e,
    * se pertencer a um com MAIS de um membro, liga a escuta agregada de
    * vendas do dia (grupos_sincronizacao/{grupoId}/vendas) -- leitura
@@ -314,6 +494,12 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
       lojasDoGrupo = snap.docs.map((d) => ({ installId: d.id, nomeNegocio: d.data().nomeNegocio || 'Loja' }));
 
       if (lojasDoGrupo.length <= 1) return; // "grupo" de 1 só -- nada a agregar
+
+      // Histórico (7/30 dias) agregado do grupo -- pré-carrega os dois
+      // períodos de uma vez (ver carregarHistoricoGrupo) pra trocar de
+      // aba sem esperar nova consulta.
+      carregarHistoricoGrupo('ultimos7');
+      carregarHistoricoGrupo('ultimos30');
 
       const hoje = hojeLocalISO();
       const nomesPorInstall = new Map(lojasDoGrupo.map((l) => [l.installId, l.nomeNegocio]));
@@ -355,6 +541,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   return () => {
     pararEscutaStatus();
     pararEscutaUsuarios();
+    pararEscutaHistorico();
     pararEscutaDispositivos();
     if (pararEscutaVendas) pararEscutaVendas();
     clearInterval(intervaloRelativo);
