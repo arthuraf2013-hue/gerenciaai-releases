@@ -255,6 +255,65 @@ test('status_ao_vivo: escrita negada pra qualquer cliente autenticado (só o des
   await assertFails(celular.doc('installations/install-L/status_ao_vivo/atual').set({ resumoHoje: {} }));
 });
 
+// ---------------------------------------------------------------------
+// gestao_usuarios (lista de funcionários pra consulta remota) --
+// DELIBERADAMENTE mais restrita que status_ao_vivo: só dispositivo
+// tipo === 'consulta', nunca 'garcom' (ver comentário em
+// firestore.rules e em userStatusSyncService.js).
+// ---------------------------------------------------------------------
+
+test('gestao_usuarios: leitura permitida pra dispositivo pareado como consulta e ativo', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-U2');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-U2/gestao_usuarios/atual').set({ usuarios: [{ id: 'u1', nome: 'Fulano', role: 'gerente', ativo: true }] });
+    await db.doc('installations/install-U2/dispositivos/uid-consulta-ok').set({ tipo: 'consulta', ativo: true, vinculoUserId: 'user-admin-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-consulta-ok').firestore();
+  await assertSucceeds(celular.doc('installations/install-U2/gestao_usuarios/atual').get());
+});
+
+test('gestao_usuarios: leitura NEGADA pra dispositivo pareado como garçom (não deve enxergar outros funcionários)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-U3');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-U3/gestao_usuarios/atual').set({ usuarios: [{ id: 'u1', nome: 'Fulano', role: 'gerente', ativo: true }] });
+    await db.doc('installations/install-U3/dispositivos/uid-garcom-ok').set({ tipo: 'garcom', ativo: true, vinculoUserId: 'user-garcom-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-garcom-ok').firestore();
+  await assertFails(celular.doc('installations/install-U3/gestao_usuarios/atual').get());
+});
+
+test('gestao_usuarios: leitura negada pra dispositivo consulta já desativado (revogado)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-U4');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-U4/gestao_usuarios/atual').set({ usuarios: [] });
+    await db.doc('installations/install-U4/dispositivos/uid-consulta-revogado').set({ tipo: 'consulta', ativo: false, vinculoUserId: 'user-admin-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-consulta-revogado').firestore();
+  await assertFails(celular.doc('installations/install-U4/gestao_usuarios/atual').get());
+});
+
+test('gestao_usuarios: leitura negada sem autenticação nenhuma', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-U5');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-U5/gestao_usuarios/atual').set({ usuarios: [] });
+  });
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertFails(semAuth.doc('installations/install-U5/gestao_usuarios/atual').get());
+});
+
+test('gestao_usuarios: escrita negada pra qualquer cliente autenticado (só o desktop publica)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const celular = testEnv.authenticatedContext('uid-qualquer-2').firestore();
+  await assertFails(celular.doc('installations/install-U6/gestao_usuarios/atual').set({ usuarios: [] }));
+});
+
 test('dispositivos_pareados: só o próprio uid lê/escreve o próprio documento', { skip: !RODAR && SKIP_MSG }, async () => {
   await setupTestEnv();
   const dono = testEnv.authenticatedContext('uid-dono-1').firestore();

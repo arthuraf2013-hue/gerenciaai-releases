@@ -327,6 +327,31 @@ service cloud.firestore {
       allow write: if request.auth == null; // só o desktop publica
     }
 
+    // Lista de funcionários (nome/papel/status) -- ver
+    // userStatusSyncService.js. DELIBERADAMENTE um documento separado de
+    // status_ao_vivo (não um campo a mais lá): a regra de status_ao_vivo
+    // acima autoriza QUALQUER dispositivo pareado e ativo, garçom OU
+    // consulta, porque o garçom precisa do catalogoProdutos de lá. A
+    // lista de funcionários é diferente -- não deveria vazar pra um
+    // celular pareado como garçom (hoje esse papel não enxerga nada
+    // sobre outros usuários, nem no desktop: o menu "Usuários" nem
+    // aparece pra role 'garcom', ver AppShell.jsx) -- por isso a checagem
+    // aqui exige explicitamente tipo == 'consulta', não só "pareado e
+    // ativo" como a de cima.
+    match /installations/{installId}/gestao_usuarios/{docId} {
+      function dispositivoConsultaAtivo(installId) {
+        let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+        return exists(dRef)
+          && get(dRef).data.tipo == 'consulta'
+          && get(dRef).data.ativo == true
+          && moduloAtivo(installId, 'consultaRemota');
+      }
+
+      allow read: if request.auth != null && dispositivoConsultaAtivo(installId);
+
+      allow write: if request.auth == null; // só o desktop publica
+    }
+
     // Lista pessoal de lojas às quais um celular de CONSULTA está
     // vinculado (dono de rede com mais de uma loja) -- só o próprio
     // celular mexe nisso, nunca o desktop de nenhuma loja.
@@ -393,6 +418,12 @@ remota existirem): republique com o bloco atual. Sem isso:
   mesmo com as coleções acima presentes, gerar ou resgatar um
   pareamento é recusado incondicionalmente (a checagem de módulo nunca
   encontra a função pra chamar).
+- Falta o bloco `match /installations/{installId}/gestao_usuarios/{docId}`
+  → a seção "Usuários" da consulta remota (lista de funcionários) fica
+  sempre vazia no celular, sem erro nenhum visível (a leitura é
+  simplesmente negada e o app trata isso como "zero usuários", não como
+  falha) — se a lista sempre aparecer vazia mesmo com funcionários
+  cadastrados, confira essa regra primeiro.
 - Falta o bloco `match /{caminho=**}/pareamentos/{codigo}` (regra com
   curinga recursivo, separada da regra normal de `installations/
   {installId}/pareamentos/{codigo}`) → o celular encontra o código

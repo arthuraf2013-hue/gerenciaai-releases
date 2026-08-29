@@ -166,6 +166,10 @@ app.whenReady().then(() => {
   require('./services/pairingService').iniciarEscutaPareamentos();
   require('./services/liveStatusSyncService').iniciarPublicacaoContinua();
   require('./services/pedidoGarcomSyncService').iniciarEscutaPedidosGarcom();
+  // Lista de funcionários (nome/papel/status) pra quem parear como
+  // "Consulta remota" -- ver userStatusSyncService.js e a seção
+  // "Usuários" em pwa-mobile/consulta.js.
+  require('./services/userStatusSyncService').iniciarPublicacaoContinua();
   // Reconecta sozinho no chatbot de WhatsApp se esta máquina já tinha
   // sido pareada antes e a aba "Separação" está ativada — sem isso, o
   // bot só voltaria a responder depois de alguém abrir Configurações

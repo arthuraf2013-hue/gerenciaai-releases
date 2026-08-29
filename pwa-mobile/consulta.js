@@ -12,6 +12,11 @@ function hojeLocalISO() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
 
+const ROTULO_PAPEL = {
+  operador: 'Operador de caixa', gerente: 'Gerente', admin: 'Administrador',
+  garcom: 'Garçom', suporte: 'Suporte',
+};
+
 function formatarRelativo(ms) {
   if (!ms) return '';
   const segundos = Math.max(0, Math.floor((Date.now() - ms) / 1000));
@@ -50,6 +55,8 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   let grupoId = null;
   let lojasDoGrupo = null; // [{installId, nomeNegocio}] -- null enquanto não descobriu, [] se não tem grupo
   let resumoGrupo = null; // { faturamentoHoje, totalVendasHoje, ticketMedioHoje, porLoja: Map<installId, {nomeNegocio, faturamento, vendas}> }
+  let usuarios = []; // [{id, nome, role, ativo}] -- ver installations/{id}/gestao_usuarios/atual
+  let dispositivos = []; // [{id (uid), tipo, nomeDispositivo, ativo, vinculoUserId}] -- ver installations/{id}/dispositivos
 
   root.innerHTML = `
     <div class="app-shell">
@@ -187,7 +194,43 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
           </div>
         `).join('')}
       </div>
+
+      <h2 class="titulo-secao">Usuários (${usuarios.length})</h2>
+      <div class="lista-pedidos-andamento">
+        ${usuarios.length === 0 ? '<p class="estado-vazio">Nenhum usuário cadastrado.</p>' : usuarios.map((u) => `
+          <div class="cartao-pedido">
+            <div>
+              <div>${escapeHtml(u.nome)}</div>
+              <div class="subtexto">${escapeHtml(ROTULO_PAPEL[u.role] || u.role)}</div>
+            </div>
+            <span class="pilula ${u.ativo ? 'status-ok' : 'status-erro'}">${u.ativo ? 'Ativo' : 'Inativo'}</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <h2 class="titulo-secao">Dispositivos pareados (${dispositivos.length})</h2>
+      <div class="lista-pedidos-andamento">
+        ${dispositivos.length === 0 ? '<p class="estado-vazio">Nenhum dispositivo pareado.</p>' : dispositivos.map((d) => `
+          <div class="cartao-pedido">
+            <div>
+              <div>${escapeHtml(d.nomeDispositivo || 'Celular')}</div>
+              <div class="subtexto">${d.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'} · ${escapeHtml(nomeDoVinculo(d.vinculoUserId))}</div>
+            </div>
+            <span class="pilula ${d.ativo ? 'status-ok' : 'status-erro'}">${d.ativo ? 'Ativo' : 'Desconectado'}</span>
+          </div>
+        `).join('')}
+      </div>
     `;
+  }
+
+  /** Resolve o nome de exibição de um vinculoUserId cruzando com a
+   * lista de usuários (gestao_usuarios/atual) -- o doc de dispositivos
+   * só guarda o id (uid da tabela `users` do SQLite), não o nome. Some
+   * "—" se a lista de usuários ainda não chegou, ou se o usuário
+   * vinculado já foi removido/não existe mais. */
+  function nomeDoVinculo(vinculoUserId) {
+    const usuario = usuarios.find((u) => u.id === vinculoUserId);
+    return usuario ? usuario.nome : '—';
   }
 
   function rotuloStatusMesa(status) {
@@ -216,6 +259,33 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   );
 
   const intervaloRelativo = setInterval(atualizarTempoRelativo, 1000);
+
+  // Lista de funcionários (nome/papel/status) -- ver
+  // userStatusSyncService.js. Documento separado de status_ao_vivo, com
+  // regra própria restrita a dispositivo tipo === 'consulta' (nunca
+  // garçom) -- ver firestore.rules. Publicado a cada ~60s pelo desktop,
+  // então pode demorar um pouco pra aparecer/atualizar depois de criar
+  // ou desativar alguém.
+  const pararEscutaUsuarios = firestoreFns.onSnapshot(
+    firestoreFns.doc(db, 'installations', loja.installId, 'gestao_usuarios', 'atual'),
+    (snap) => {
+      usuarios = snap.exists() ? (snap.data().usuarios || []) : [];
+      render();
+    },
+    (err) => console.error('[consulta] escuta de usuários falhou', err)
+  );
+
+  // Dispositivos pareados (garçom + consulta) -- mesma coleção que o
+  // desktop já mostra em Configurações → Celular; leitura já era aberta
+  // nas regras (allow read: if true), então não precisou de regra nova.
+  const pararEscutaDispositivos = firestoreFns.onSnapshot(
+    firestoreFns.collection(db, 'installations', loja.installId, 'dispositivos'),
+    (snap) => {
+      dispositivos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      render();
+    },
+    (err) => console.error('[consulta] escuta de dispositivos pareados falhou', err)
+  );
 
   firestoreFns.setDoc(
     firestoreFns.doc(db, 'installations', loja.installId, 'dispositivos', auth.currentUser.uid),
@@ -284,6 +354,8 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
 
   return () => {
     pararEscutaStatus();
+    pararEscutaUsuarios();
+    pararEscutaDispositivos();
     if (pararEscutaVendas) pararEscutaVendas();
     clearInterval(intervaloRelativo);
   };
