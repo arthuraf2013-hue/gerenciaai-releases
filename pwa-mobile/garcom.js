@@ -1,4 +1,5 @@
 import { auth, db, firestoreFns } from './firebase-config.js';
+import { icon } from './icons.js';
 
 const formatarMoeda = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -27,7 +28,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
           <div class="nome-loja">${escapeHtml(status.nomeNegocio)}</div>
           <div class="subtexto">Garçom: ${escapeHtml(loja.vinculoNome)}</div>
         </div>
-        <button id="btn-menu-topo" class="btn-icone" aria-label="Menu">⋮</button>
+        <button id="btn-menu-topo" class="btn-icone" aria-label="Menu">${icon('menu')}</button>
       </header>
       <div id="menu-topo" class="menu-suspenso" hidden></div>
 
@@ -265,9 +266,9 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     const totalValor = [...carrinho.values()].reduce((s, i) => s + i.quantidade * i.produto.preco, 0);
     el.innerHTML = `
       <button id="btn-abrir-carrinho" class="btn-carrinho">
-        <span>${totalItens} ${totalItens === 1 ? 'item' : 'itens'}</span>
+        <span style="display:flex; align-items:center; gap:8px;">${icon('cart', 20)} ${totalItens} ${totalItens === 1 ? 'item' : 'itens'}</span>
         <span>${formatarMoeda(totalValor)}</span>
-        <span>Ver pedido →</span>
+        <span style="display:flex; align-items:center; gap:2px;">Ver pedido ${icon('chevronRight', 16)}</span>
       </button>
     `;
     el.querySelector('#btn-abrir-carrinho').addEventListener('click', renderModalCarrinho);
@@ -283,9 +284,9 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
           <div class="subtexto">${formatarMoeda(produto.preco)} un.</div>
         </div>
         <div class="controles-qtd">
-          <button data-menos="${escapeHtml(produto.id)}">−</button>
+          <button data-menos="${escapeHtml(produto.id)}" aria-label="Diminuir quantidade de ${escapeHtml(produto.nome)}">−</button>
           <span>${quantidade}</span>
-          <button data-mais="${escapeHtml(produto.id)}">+</button>
+          <button data-mais="${escapeHtml(produto.id)}" aria-label="Aumentar quantidade de ${escapeHtml(produto.nome)}">+</button>
         </div>
       </div>
     `).join('');

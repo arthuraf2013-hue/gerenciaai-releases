@@ -1,4 +1,5 @@
 import { auth, db, firestoreFns } from './firebase-config.js';
+import { icon } from './icons.js';
 
 const formatarMoeda = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -57,7 +58,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
           <div class="nome-loja">${escapeHtml(loja.nomeNegocio)}</div>
           <div class="subtexto">${escapeHtml(loja.vinculoNome)} · <span id="tempo-atualizacao">--</span></div>
         </div>
-        <button id="btn-menu-topo" class="btn-icone" aria-label="Menu">⋮</button>
+        <button id="btn-menu-topo" class="btn-icone" aria-label="Menu">${icon('menu')}</button>
       </header>
       <div id="menu-topo" class="menu-suspenso" hidden></div>
       <div id="conteudo-consulta"><p class="estado-vazio">Carregando...</p></div>
