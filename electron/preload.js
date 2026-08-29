@@ -159,6 +159,7 @@ contextBridge.exposeInMainWorld('pdv', {
     listarCodigosPendentes: invoke('pairing:listarCodigosPendentes'),
     listarDispositivosPareados: invoke('pairing:listarDispositivosPareados'),
     revogarDispositivo: invoke('pairing:revogarDispositivo'),
+    reativarDispositivo: invoke('pairing:reativarDispositivo'),
   },
   io: {
     exportProducts: invoke('io:exportProducts'),

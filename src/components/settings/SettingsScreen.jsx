@@ -258,8 +258,14 @@ export function SettingsScreen() {
   }
 
   async function handleRevogarDispositivo(deviceId) {
-    if (!confirm('Revogar o acesso deste dispositivo? Ele para de conseguir enviar pedidos ou consultar dados desta loja.')) return;
+    if (!confirm('Desconectar este dispositivo? Ele para de conseguir enviar pedidos ou consultar dados desta loja até ser reconectado.')) return;
     const result = await window.pdv.pairing.revogarDispositivo({ deviceId, requestingUserId: currentUser.id });
+    if (!result.ok) { setPairingErro(result.error); return; }
+    window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
+  }
+
+  async function handleReativarDispositivo(deviceId) {
+    const result = await window.pdv.pairing.reativarDispositivo({ deviceId, requestingUserId: currentUser.id });
     if (!result.ok) { setPairingErro(result.error); return; }
     window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
   }
@@ -1638,11 +1644,15 @@ export function SettingsScreen() {
                     <td>{d.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'}</td>
                     <td>{d.vinculo_nome}</td>
                     <td>{new Date(d.criado_em).toLocaleString('pt-BR')}</td>
-                    <td>{d.ativo ? 'Ativo' : <span className="badge-warning">Revogado</span>}</td>
+                    <td>{d.ativo ? 'Ativo' : <span className="badge-warning">Desconectado</span>}</td>
                     <td>
-                      {d.ativo === 1 && (
+                      {d.ativo === 1 ? (
                         <button className="btn-link-danger" onClick={() => handleRevogarDispositivo(d.id)}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Revogar</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="plug" size={14} /> Desconectar</span>
+                        </button>
+                      ) : (
+                        <button className="btn-link" onClick={() => handleReativarDispositivo(d.id)}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="link" size={14} /> Reconectar</span>
                         </button>
                       )}
                     </td>

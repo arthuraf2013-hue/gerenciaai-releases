@@ -196,6 +196,28 @@ function espelharDispositivoPareado({ uid, tipo, vinculoUserId, nomeDispositivo,
  * `ativo` antes de liberar qualquer coisa). Nunca apaga o registro
  * (mantém o histórico de quem já usou o quê).
  */
+/** Espelha localmente e tenta propagar pro Firestore a troca de `ativo`
+ * de um dispositivo -- mesma escrita usada tanto por revogar (desconectar)
+ * quanto por reativar (reconectar), só o valor booleano muda. Local
+ * sempre aplica na hora; se a propagação falhar por rede, o celular só
+ * vai perceber um pouco mais tarde (na próxima reconciliação) -- não é
+ * crítico o bastante pra bloquear a ação local. */
+async function alterarAtivoDispositivo(deviceId, ativo) {
+  const db = getDb();
+  db.prepare('UPDATE paired_devices SET ativo = ? WHERE id = ?').run(ativo ? 1 : 0, deviceId);
+
+  try {
+    const licenseService = require('./licenseService');
+    const pdvRegistryService = require('./pdvRegistryService');
+    const { doc, setDoc } = require('firebase/firestore');
+    const firestore = licenseService.getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+    await setDoc(doc(firestore, 'installations', installId, 'dispositivos', deviceId), { ativo }, { merge: true });
+  } catch (err) {
+    console.error(`[pairingService] falha ao propagar ${ativo ? 'reativação' : 'revogação'} pro Firestore:`, err.message);
+  }
+}
+
 async function revogarDispositivo({ deviceId, requestingUserId }) {
   const guard = requireGerenteOuAdmin(requestingUserId);
   if (!guard.ok) return guard;
@@ -204,24 +226,27 @@ async function revogarDispositivo({ deviceId, requestingUserId }) {
   const dispositivo = db.prepare('SELECT * FROM paired_devices WHERE id = ?').get(deviceId);
   if (!dispositivo) return { ok: false, error: 'Dispositivo não encontrado.' };
 
-  db.prepare('UPDATE paired_devices SET ativo = 0 WHERE id = ?').run(deviceId);
+  await alterarAtivoDispositivo(deviceId, false);
+  return { ok: true };
+}
 
-  try {
-    const licenseService = require('./licenseService');
-    const pdvRegistryService = require('./pdvRegistryService');
-    const { doc, setDoc } = require('firebase/firestore');
-    const firestore = licenseService.getLicenseFirestore();
-    const installId = pdvRegistryService.getOrCreateDeviceUid();
-    await setDoc(doc(firestore, 'installations', installId, 'dispositivos', deviceId), { ativo: false }, { merge: true });
-  } catch (err) {
-    // Revogado localmente já impede reflexo de novos dados na próxima
-    // sincronização deste desktop; se a rede falhar aqui, o celular só
-    // vai perceber a revogação um pouco mais tarde (quando a escrita
-    // conseguir ir, via reconciliação -- não crítico o bastante pra
-    // bloquear a ação local por causa de rede instável).
-    console.error('[pairingService] falha ao propagar revogação pro Firestore:', err.message);
-  }
+/**
+ * Reconecta um dispositivo revogado anteriormente -- sem precisar gerar
+ * código novo nem o celular digitar nada, já que o vínculo (tipo +
+ * usuário) continua o mesmo, só o acesso tinha sido cortado. As regras
+ * do Firestore já permitem essa via de mão dupla (o desktop, sem
+ * autenticação, só pode tocar no campo `ativo` de um dispositivo, pra
+ * qualquer um dos dois valores -- ver firestore.rules).
+ */
+async function reativarDispositivo({ deviceId, requestingUserId }) {
+  const guard = requireGerenteOuAdmin(requestingUserId);
+  if (!guard.ok) return guard;
 
+  const db = getDb();
+  const dispositivo = db.prepare('SELECT * FROM paired_devices WHERE id = ?').get(deviceId);
+  if (!dispositivo) return { ok: false, error: 'Dispositivo não encontrado.' };
+
+  await alterarAtivoDispositivo(deviceId, true);
   return { ok: true };
 }
 
@@ -282,6 +307,7 @@ function iniciarEscutaPareamentos() {
 
 module.exports = {
   gerarCodigo, listarCodigosPendentes, listarDispositivosPareados, revogarDispositivo,
+  reativarDispositivo,
   iniciarEscutaPareamentos,
   // Exportados só pra teste (a parte que não depende de rede).
   marcarCodigoComoUsado, espelharDispositivoPareado,
