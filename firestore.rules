@@ -133,6 +133,29 @@ service cloud.firestore {
     // PARTE 2 — pareamento de celular (novo)
     // --------------------------------------------------------------
 
+    // O CELULAR encontra o código via consulta collectionGroup (sem
+    // saber o installId de antemão -- ver pwa-mobile/pairing.js). Regra
+    // de subcoleção comum (match /installations/{installId}/pareamentos/...
+    // logo abaixo) NÃO vale pra esse tipo de consulta -- o Firestore só
+    // aplica esse tipo de regra a um `get` de documento específico ou a
+    // uma consulta já restrita a UMA loja só. Pra uma consulta
+    // collectionGroup (que varre `pareamentos` de TODAS as lojas de uma
+    // vez) valer, precisa de um match separado com curinga recursivo
+    // `{path=**}`, senão a consulta cai em "Missing or insufficient
+    // permissions" mesmo com a regra de baixo em `if true` -- foi
+    // exatamente isso que causou a rodada mais longa de diagnóstico
+    // desta sessão: a regra de baixo nunca era sequer consultada pra
+    // essa operação.
+    match /{caminho=**}/pareamentos/{codigo} {
+      // Só pode ler depois de ao menos autenticar (anônimo já basta) —
+      // fecha a porta de alguém varrer códigos sem nem abrir o app; é
+      // uma concessão deliberada à simplicidade pedida ("código de
+      // sincronização simples") — o código já expira em 10 minutos e só
+      // serve uma vez. Pra fechar essa janela de vez, ativar o Firebase
+      // App Check é a recomendação (não depende de mudar esta regra).
+      allow get, list: if request.auth != null;
+    }
+
     match /installations/{installId}/pareamentos/{codigo} {
       // O DESKTOP publica o código (mesmo nível de confiança sem
       // autenticação que o resto do app já usa hoje pra escrever em
@@ -141,17 +164,6 @@ service cloud.firestore {
       // checa isso ANTES de chamar aqui (ver pairingService.gerarCodigo),
       // então isto é a segunda trava, não a única.
       allow create: if moduloAtivo(installId, moduloDoTipoDePareamento(request.resource.data.tipo));
-
-      // O CELULAR só pode ler depois de ao menos autenticar (anônimo
-      // já basta) — fecha a porta de alguém varrer códigos sem nem
-      // abrir o app. `list` aqui é o que permite o fluxo "digitar o
-      // código" (consulta por collectionGroup, sem saber o installId
-      // de antemão); é uma concessão deliberada à simplicidade pedida
-      // ("código de sincronização simples") — o código já expira em
-      // 10 minutos e só serve uma vez. Pra fechar essa janela de vez,
-      // ativar o Firebase App Check é a recomendação (não depende de
-      // mudar esta regra).
-      allow get, list: if request.auth != null;
 
       // Resgate do código: só pode marcar usado=true, atribuindo a si
       // mesmo, e só se ainda não tiver sido usado nem expirado. Mais

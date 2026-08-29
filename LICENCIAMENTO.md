@@ -176,6 +176,29 @@ service cloud.firestore {
     // PARTE 2 — pareamento de celular (novo)
     // --------------------------------------------------------------
 
+    // O CELULAR encontra o código via consulta collectionGroup (sem
+    // saber o installId de antemão -- ver pwa-mobile/pairing.js). Regra
+    // de subcoleção comum (match /installations/{installId}/pareamentos/...
+    // logo abaixo) NÃO vale pra esse tipo de consulta -- o Firestore só
+    // aplica esse tipo de regra a um `get` de documento específico ou a
+    // uma consulta já restrita a UMA loja só. Pra uma consulta
+    // collectionGroup (que varre `pareamentos` de TODAS as lojas de uma
+    // vez) valer, precisa de um match separado com curinga recursivo
+    // `{path=**}`, senão a consulta cai em "Missing or insufficient
+    // permissions" mesmo com a regra de baixo em `if true` -- foi
+    // exatamente isso que causou a rodada mais longa de diagnóstico
+    // desta sessão: a regra de baixo nunca era sequer consultada pra
+    // essa operação.
+    match /{caminho=**}/pareamentos/{codigo} {
+      // Só pode ler depois de ao menos autenticar (anônimo já basta) —
+      // fecha a porta de alguém varrer códigos sem nem abrir o app; é
+      // uma concessão deliberada à simplicidade pedida ("código de
+      // sincronização simples") — o código já expira em 10 minutos e só
+      // serve uma vez. Pra fechar essa janela de vez, ativar o Firebase
+      // App Check é a recomendação (não depende de mudar esta regra).
+      allow get, list: if request.auth != null;
+    }
+
     match /installations/{installId}/pareamentos/{codigo} {
       // O DESKTOP publica o código (mesmo nível de confiança sem
       // autenticação que o resto do app já usa hoje pra escrever em
@@ -184,17 +207,6 @@ service cloud.firestore {
       // checa isso ANTES de chamar aqui (ver pairingService.gerarCodigo),
       // então isto é a segunda trava, não a única.
       allow create: if moduloAtivo(installId, moduloDoTipoDePareamento(request.resource.data.tipo));
-
-      // O CELULAR só pode ler depois de ao menos autenticar (anônimo
-      // já basta) — fecha a porta de alguém varrer códigos sem nem
-      // abrir o app. `list` aqui é o que permite o fluxo "digitar o
-      // código" (consulta por collectionGroup, sem saber o installId
-      // de antemão); é uma concessão deliberada à simplicidade pedida
-      // ("código de sincronização simples") — o código já expira em
-      // 10 minutos e só serve uma vez. Pra fechar essa janela de vez,
-      // ativar o Firebase App Check é a recomendação (não depende de
-      // mudar esta regra).
-      allow get, list: if request.auth != null;
 
       // Resgate do código: só pode marcar usado=true, atribuindo a si
       // mesmo, e só se ainda não tiver sido usado nem expirado. Mais
@@ -355,7 +367,16 @@ colando):
   Passo 1 — o provedor "Anônimo" precisa estar ativado em
   Authentication → Sign-in method, senão o celular nem consegue
   autenticar pra chegar até essas regras), não só as máquinas da
-  própria loja.
+  própria loja. Repare que existem **dois** blocos `match` separados
+  pra `pareamentos`: um com curinga recursivo (`match
+  /{caminho=**}/pareamentos/{codigo}`, só com `get`/`list`) e outro
+  específico (`match /installations/{installId}/pareamentos/{codigo}`,
+  com `create`/`update`/`delete`). Não é duplicação por engano — o
+  Firestore exige o formato com curinga recursivo especificamente pra
+  autorizar consultas **collectionGroup** (a busca do celular, que
+  varre `pareamentos` de todas as lojas de uma vez); a regra de
+  subcoleção comum não vale pra esse tipo de consulta, só pra
+  `get`/consulta já restrita a uma loja só.
 
 **⚠️ Se você já tinha publicado uma versão anterior destas regras**
 (antes do Cofre de senhas, do histórico de pagamentos por cliente, dos
@@ -372,16 +393,29 @@ remota existirem): republique com o bloco atual. Sem isso:
   mesmo com as coleções acima presentes, gerar ou resgatar um
   pareamento é recusado incondicionalmente (a checagem de módulo nunca
   encontra a função pra chamar).
+- Falta o bloco `match /{caminho=**}/pareamentos/{codigo}` (regra com
+  curinga recursivo, separada da regra normal de `installations/
+  {installId}/pareamentos/{codigo}`) → o celular encontra o código
+  digitado através de uma consulta **collectionGroup**, que só é
+  autorizada por esse bloco específico. Sem ele, o pareamento falha
+  com "Permissão insuficiente" **mesmo que a regra de subcoleção
+  esteja perfeita (até um `if true` sem condição nenhuma não resolve)**
+  — foi essa lacuna, não percebida por horas de diagnóstico nesta
+  sessão, que causou o erro mais difícil de rastrear desta rodada. O
+  Simulador do Firebase não ajuda a pegar isso porque ele só testa
+  `get`/`create`/`update`/`delete` num caminho específico, nunca uma
+  consulta `list`/collectionGroup de verdade.
 
 **Antes de confiar nisso em produção**: teste pelo simulador de regras
 do próprio Firebase (aba "Regras" → "Simulador") — por exemplo, simule
 uma escrita não-autenticada tentando mudar `modulosAtivos` de um
 cliente pra `true` sem passar pelo painel, ou um `get` num pareamento
-sem autenticação nenhuma; os dois devem ser negados. **Não esqueça
-também do Passo 3.5 logo abaixo** — sem o índice configurado lá, o
-pareamento falha do mesmo jeito ("Permissão insuficiente") mesmo com
-as regras 100% corretas e publicadas; foi exatamente essa combinação
-que causou o erro mais difícil de diagnosticar desta rodada.
+sem autenticação nenhuma; os dois devem ser negados. Só não dá pra
+confirmar a consulta collectionGroup por lá (ver acima) — pra essa
+parte, o teste de verdade é abrir o PWA num celular e tentar parear.
+**Não esqueça também do Passo 3.5 logo abaixo** — sem o índice
+configurado lá, o pareamento falha do mesmo jeito ("Permissão
+insuficiente") mesmo com as regras 100% corretas e publicadas.
 
 ## Passo 3.5 — Publicar o índice do Firestore (obrigatório pro pareamento funcionar)
 

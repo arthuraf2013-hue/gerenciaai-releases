@@ -105,6 +105,38 @@ test('celular autenticado (mesmo anônimo) consegue ler um código de pareamento
   await assertSucceeds(celular.doc('installations/install-C/pareamentos/111111').get());
 });
 
+// Regressão: os testes de `.doc(...).get()` acima passam mesmo com uma
+// regra que só existe dentro de `match /installations/{installId}/
+// pareamentos/{codigo}` -- só que o app de verdade NUNCA lê por
+// caminho direto, sempre por uma consulta collectionGroup (o celular
+// não sabe o installId antes de digitar o código -- ver
+// pwa-mobile/pairing.js). Regra de subcoleção comum não vale pra
+// collectionGroup; precisa do match com curinga recursivo
+// `{path=**}/pareamentos/{codigo}` (ver firestore.rules) -- sem esses
+// dois testes abaixo, a suíte inteira passava "verde" mesmo com essa
+// regra faltando, porque nenhum teste exercitava o tipo de consulta
+// que o app realmente faz. Foi exatamente essa lacuna que causou a
+// rodada mais longa de diagnóstico desta sessão (permission-denied no
+// celular mesmo com a regra de `get` certinha e testada).
+test('celular consegue achar um código de pareamento via collectionGroup (fluxo real de pairing.js)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await seed('install-U');
+  const celular = testEnv.authenticatedContext('uid-busca-1').firestore();
+  const snap = await assertSucceeds(
+    celular.collectionGroup('pareamentos').where('codigo', '==', '111111').get()
+  );
+  assert.equal(snap.size, 1);
+});
+
+test('celular sem autenticar não consegue achar código nenhum via collectionGroup', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await seed('install-V');
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertFails(
+    semAuth.collectionGroup('pareamentos').where('codigo', '==', '111111').get()
+  );
+});
+
 test('celular consegue resgatar um código válido (marcar usado, se atribuindo)', { skip: !RODAR && SKIP_MSG }, async () => {
   await setupTestEnv();
   await seed('install-D');
