@@ -288,7 +288,14 @@ service cloud.firestore {
         || (request.auth == null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo']));
 
-      allow delete: if false;
+      // Excluir de vez o vínculo (diferente de revogar, que só zera
+      // `ativo` via update acima e mantém o registro) -- só o DESKTOP,
+      // sem autenticação, mesmo nível de confiança do resto da Parte 1
+      // e do próprio `allow update` acima pro campo `ativo`. O celular
+      // NUNCA exclui o próprio vínculo (nem "esquecer loja" no app faz
+      // isso -- ver comentário em pairing.js/consulta.js/garcom.js: some
+      // só da lista local do celular, não do servidor).
+      allow delete: if request.auth == null;
     }
 
     // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.
@@ -459,6 +466,16 @@ remota existirem): republique com o bloco atual. Sem isso:
   como "sem dados no período", não como falha. Se o histórico nunca sai
   do zero mesmo com vendas registradas no período, confira essa regra
   antes de suspeitar do `historySyncService`.
+- A regra de `installations/{installId}/dispositivos/{uid}` ainda tem
+  `allow delete: if false;` (versão antiga, de antes do botão "Excluir"
+  existir em Configurações → Celular) → excluir um dispositivo some da
+  lista no desktop na hora (o registro local já foi apagado), mas o
+  vínculo continua existindo no Firestore pra sempre, e o celular
+  continua com acesso normal. Se um dispositivo "excluído" reaparecer
+  sozinho na lista (a escuta em tempo real volta a espelhar o
+  documento que nunca foi removido de verdade) ou continuar
+  funcionando no celular depois de excluído, republique com o bloco
+  atual (`allow delete: if request.auth == null;`).
 - Falta o bloco `match /{caminho=**}/pareamentos/{codigo}` (regra com
   curinga recursivo, separada da regra normal de `installations/
   {installId}/pareamentos/{codigo}`) → o celular encontra o código

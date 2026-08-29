@@ -270,6 +270,13 @@ export function SettingsScreen() {
     window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
   }
 
+  async function handleExcluirDispositivo(deviceId) {
+    if (!confirm('Excluir este dispositivo de vez? Diferente de "Desconectar", isso apaga o vínculo por completo -- se ele ainda estiver ativo, o acesso é cortado na mesma hora, e pra usar de novo vai precisar de um código de pareamento novo. Esta ação não pode ser desfeita.')) return;
+    const result = await window.pdv.pairing.excluirDispositivo({ deviceId, requestingUserId: currentUser.id });
+    if (!result.ok) { setPairingErro(result.error); return; }
+    window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
+  }
+
   async function handleLocationSave(e) {
     e.preventDefault();
     await window.pdv.settings.updateLocationName({ locationId, nome: locationName });
@@ -1651,15 +1658,20 @@ export function SettingsScreen() {
                     <td>{new Date(d.criado_em).toLocaleString('pt-BR')}</td>
                     <td>{d.ativo ? 'Ativo' : <span className="badge-warning">Desconectado</span>}</td>
                     <td>
-                      {d.ativo === 1 ? (
-                        <button className="btn-link-danger" onClick={() => handleRevogarDispositivo(d.id)}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="plug" size={14} /> Desconectar</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+                        {d.ativo === 1 ? (
+                          <button className="btn-link-danger" onClick={() => handleRevogarDispositivo(d.id)}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="plug" size={14} /> Desconectar</span>
+                          </button>
+                        ) : (
+                          <button className="btn-link" onClick={() => handleReativarDispositivo(d.id)}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="link" size={14} /> Reconectar</span>
+                          </button>
+                        )}
+                        <button className="btn-link-danger" onClick={() => handleExcluirDispositivo(d.id)}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Excluir</span>
                         </button>
-                      ) : (
-                        <button className="btn-link" onClick={() => handleReativarDispositivo(d.id)}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="link" size={14} /> Reconectar</span>
-                        </button>
-                      )}
+                      </span>
                     </td>
                   </tr>
                 ))}

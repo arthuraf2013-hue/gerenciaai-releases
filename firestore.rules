@@ -245,7 +245,14 @@ service cloud.firestore {
         || (request.auth == null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ativo']));
 
-      allow delete: if false;
+      // Excluir de vez o vínculo (diferente de revogar, que só zera
+      // `ativo` via update acima e mantém o registro) -- só o DESKTOP,
+      // sem autenticação, mesmo nível de confiança do resto da Parte 1
+      // e do próprio `allow update` acima pro campo `ativo`. O celular
+      // NUNCA exclui o próprio vínculo (nem "esquecer loja" no app faz
+      // isso -- ver comentário em pairing.js/consulta.js/garcom.js: some
+      // só da lista local do celular, não do servidor).
+      allow delete: if request.auth == null;
     }
 
     // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.

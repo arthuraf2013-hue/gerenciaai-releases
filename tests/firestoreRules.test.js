@@ -228,6 +228,31 @@ test('re-parear um dispositivo existente falha se o código novo não correspond
   }));
 });
 
+// Excluir de vez o vínculo (botão "Excluir" em Configurações → Celular,
+// ver pairingService.excluirDispositivo) -- diferente de revogar (só
+// zera `ativo` via update, testado acima), isto some com o documento.
+// Só o DESKTOP (sem autenticação) pode; o próprio celular NUNCA exclui
+// seu vínculo (nem "esquecer loja" no PWA faz isso, só limpa a lista
+// local do aparelho).
+
+test('dispositivos: exclusão permitida sem autenticação (é o desktop quem exclui)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-X1/dispositivos/uid-para-excluir').set({ tipo: 'consulta', ativo: true, vinculoUserId: 'user-admin-1' });
+  });
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(semAuth.doc('installations/install-X1/dispositivos/uid-para-excluir').delete());
+});
+
+test('dispositivos: exclusão negada pro próprio celular autenticado, mesmo sendo o dono do vínculo', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-X2/dispositivos/uid-dono').set({ tipo: 'consulta', ativo: true, vinculoUserId: 'user-admin-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-dono').firestore();
+  await assertFails(celular.doc('installations/install-X2/dispositivos/uid-dono').delete());
+});
+
 test('status_ao_vivo: leitura negada pra celular sem dispositivo pareado nesta loja', { skip: !RODAR && SKIP_MSG }, async () => {
   await setupTestEnv();
   await testEnv.withSecurityRulesDisabled(async (context) => {

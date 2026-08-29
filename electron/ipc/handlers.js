@@ -221,6 +221,7 @@ function registerIpcHandlers() {
   safeHandle('pairing:listarDispositivosPareados', () => pairingService.listarDispositivosPareados());
   safeHandle('pairing:revogarDispositivo', (_e, payload) => pairingService.revogarDispositivo(payload));
   safeHandle('pairing:reativarDispositivo', (_e, payload) => pairingService.reativarDispositivo(payload));
+  safeHandle('pairing:excluirDispositivo', (_e, payload) => pairingService.excluirDispositivo(payload));
 
   // --- Importação/exportação de planilhas de estoque ---
   safeHandle('io:exportProducts', async (_e, { locationId }) => {

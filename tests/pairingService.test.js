@@ -186,3 +186,28 @@ test('listarDispositivosPareados traz ativos primeiro e junto o nome do vínculo
   assert.equal(lista[0].id, 'uid-b'); // ativo primeiro
   assert.equal(lista[0].vinculo_nome, 'Administrador'); // nome vem do JOIN com users
 });
+
+// Só os dois retornos ANTES de tocar em rede: recusa por permissão e
+// "não encontrado". Passar dos dois cai no `DELETE` local seguido de
+// `deleteDoc` contra licenseService/Firestore de verdade -- mesma
+// exclusão documentada no topo do arquivo pra revogarDispositivo/
+// reativarDispositivo (que também dependem da rede depois do local).
+
+test('excluirDispositivo recusa (sem tocar no banco nem em rede) pra quem não é gerente/admin/suporte', async () => {
+  const { operadorId } = freshTestDb();
+  pairingService.espelharDispositivoPareado({ uid: 'uid-c', tipo: 'consulta', vinculoUserId: operadorId, ativo: true });
+
+  const resultado = await pairingService.excluirDispositivo({ deviceId: 'uid-c', requestingUserId: operadorId });
+  assert.equal(resultado.ok, false);
+
+  // Continua lá -- a recusa foi antes de qualquer DELETE.
+  const lista = pairingService.listarDispositivosPareados();
+  assert.equal(lista.some((d) => d.id === 'uid-c'), true);
+});
+
+test('excluirDispositivo devolve erro pra um deviceId que não existe localmente', async () => {
+  const { adminId } = freshTestDb();
+  const resultado = await pairingService.excluirDispositivo({ deviceId: 'uid-inexistente', requestingUserId: adminId });
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.error, /não encontrado/);
+});

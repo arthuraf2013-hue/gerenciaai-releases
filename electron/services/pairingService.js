@@ -259,6 +259,50 @@ async function reativarDispositivo({ deviceId, requestingUserId }) {
   return { ok: true };
 }
 
+/**
+ * Exclui de vez o vínculo de um dispositivo -- diferente de revogar
+ * (só corta o acesso, mantendo o registro pra histórico e permitindo
+ * reconectar sem código novo), isto REMOVE o registro por completo,
+ * local e do Firestore. Pensado pra limpar a lista de "Configurações →
+ * Celular" de aparelhos que nunca mais vão voltar (celular perdido,
+ * trocado, funcionário que saiu) -- pra só cortar o acesso mantendo o
+ * histórico, revogar continua sendo a opção certa.
+ *
+ * Excluir também corta o acesso na mesma hora, mesmo que o dispositivo
+ * ainda estivesse ativo (toda checagem de módulo/pareamento em
+ * firestore.rules começa com `exists(dRef)`, que passa a falhar assim
+ * que o documento some) -- não precisa revogar antes de excluir.
+ *
+ * Local é removido SEMPRE (mesmo critério best-effort de
+ * alterarAtivoDispositivo); se a propagação pro Firestore falhar por
+ * rede, o documento remoto fica pra trás até a próxima tentativa -- ele
+ * já não aparece mais nesta tela, mas só desaparece de vez do servidor
+ * quando a exclusão for repetida com internet.
+ */
+async function excluirDispositivo({ deviceId, requestingUserId }) {
+  const guard = requireGerenteOuAdmin(requestingUserId);
+  if (!guard.ok) return guard;
+
+  const db = getDb();
+  const dispositivo = db.prepare('SELECT * FROM paired_devices WHERE id = ?').get(deviceId);
+  if (!dispositivo) return { ok: false, error: 'Dispositivo não encontrado.' };
+
+  db.prepare('DELETE FROM paired_devices WHERE id = ?').run(deviceId);
+
+  try {
+    const licenseService = require('./licenseService');
+    const pdvRegistryService = require('./pdvRegistryService');
+    const { doc, deleteDoc } = require('firebase/firestore');
+    const firestore = licenseService.getLicenseFirestore();
+    const installId = pdvRegistryService.getOrCreateDeviceUid();
+    await deleteDoc(doc(firestore, 'installations', installId, 'dispositivos', deviceId));
+  } catch (err) {
+    console.error('[pairingService] falha ao propagar exclusão pro Firestore:', err.message);
+  }
+
+  return { ok: true };
+}
+
 let pararEscutaPareamentos = null;
 let pararEscutaDispositivos = null;
 
@@ -316,7 +360,7 @@ function iniciarEscutaPareamentos() {
 
 module.exports = {
   gerarCodigo, listarCodigosPendentes, listarDispositivosPareados, revogarDispositivo,
-  reativarDispositivo,
+  reativarDispositivo, excluirDispositivo,
   iniciarEscutaPareamentos,
   // Exportados só pra teste (a parte que não depende de rede).
   marcarCodigoComoUsado, espelharDispositivoPareado,
