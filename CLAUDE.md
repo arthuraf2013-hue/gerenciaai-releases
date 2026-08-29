@@ -227,11 +227,15 @@ Peças do lado do Electron:
   publicada no projeto** (antes era tudo aberto). Só as 5 coleções
   novas do pareamento têm regra de verdade; o resto preserva o
   comportamento de hoje de propósito (ver comentário no topo do
-  arquivo). `firestore.indexes.json` existe mas fica vazio de
-  propósito — a busca do código de pareamento é uma collection group
-  query, mas de campo único com igualdade simples, que o Firestore
-  indexa sozinho; declarar esse índice manualmente é rejeitado pela
-  API ("this index is not necessary"), confirmado num deploy real.
+  arquivo). `firestore.indexes.json` também precisa ser publicado
+  junto (`firebase deploy --only firestore:indexes`) — a busca do
+  código de pareamento é uma collection group query, e mesmo sendo
+  campo único com igualdade simples, precisa de uma **field override**
+  habilitando escopo COLLECTION_GROUP (não um índice composto normal —
+  isso a API rejeita com "this index is not necessary"; e não dá pra
+  simplesmente omitir também, senão o pareamento falha de verdade).
+  Ambas as pegadinhas só apareceram num deploy real, sem rota de rede
+  até o Firebase nesta sandbox de desenvolvimento pra testar antes.
 
 Ver a entrada "App do garçom + consulta remota pelo celular" no
 README.md pro raciocínio completo, e `tests/firestoreRules.test.js`

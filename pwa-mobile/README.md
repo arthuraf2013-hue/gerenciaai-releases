@@ -55,29 +55,34 @@ firebase deploy --only hosting:garcom
 
 Isso publica em `https://gerenciaai-garcom.web.app` (ou o domínio que
 você configurar). **Antes do primeiro deploy**, publique também as
-regras do Firestore (ver raiz do repositório):
+regras e o índice do Firestore (ver raiz do repositório):
 
 ```bash
-firebase deploy --only firestore:rules
+firebase deploy --only firestore:rules,firestore:indexes
 ```
 
 A busca do código de pareamento é uma collection group query
-(`where('codigo', '==', ...)` em `pareamentos`), mas é um único campo
-com igualdade simples — o Firestore cria esse índice sozinho
-automaticamente, sem precisar declarar nada em
-`firestore.indexes.json` (esse arquivo existe só como base pra um
-índice composto de verdade, se algum dia precisar de um; publicar um
-índice de campo único nele hoje é rejeitado pela API com "this index
-is not necessary").
+(`where('codigo', '==', ...)` em `pareamentos`) -- por padrão o
+Firestore só mantém índice automático de campo único em escopo de
+COLEÇÃO, não de collection group, então essa busca precisa mesmo de
+configuração explícita. A pegadinha: **não é** um índice composto
+normal (declarar assim em `indexes[]` é rejeitado pela API com "this
+index is not necessary, configure using single field index
+controls") -- é uma *field override* de campo único habilitando o
+escopo COLLECTION_GROUP, que é o que `fieldOverrides[]` em
+`firestore.indexes.json` já faz. Sem publicar isso, o pareamento falha
+com "Não foi possível conectar agora" na hora de digitar o código
+(erro genérico na tela; o real, visível no console do navegador, é
+"the query requires an index").
 
 ### Outras opções
 
 Qualquer hospedagem de arquivo estático funciona -- é só copiar a pasta
 `pwa-mobile/` inteira (mantendo os caminhos relativos). Netlify: arraste
 a pasta pro painel. GitHub Pages: publique esta pasta como a raiz do
-site. Em qualquer uma delas, as regras do Firestore (não um índice --
-ver acima) continuam precisando ser publicadas separadamente (via
-`firebase deploy --only firestore:rules` ou pelo Console).
+site. Em qualquer uma delas, as regras e o índice do Firestore acima
+continuam precisando ser publicados separadamente (via `firebase
+deploy --only firestore:rules,firestore:indexes` ou pelo Console).
 
 ## Testando localmente
 

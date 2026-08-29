@@ -4992,15 +4992,24 @@ precisa ser self-service. Ficou como um mecanismo à parte, mais simples.
   internet cair no meio.
 - `firestore.indexes.json`: a tela de pareamento busca o código por uma
   **collection group query** (o celular não sabe de qual loja é o
-  código até achar), mas é um único campo com igualdade simples
-  (`where('codigo', '==', ...)`) — o Firestore cria esse índice sozinho
-  automaticamente, sem precisar declarar nada neste arquivo. CORREÇÃO
-  (testado num deploy real): a suposição original aqui estava errada —
-  chegamos a declarar um índice de campo único explícito pra isso, e o
-  deploy foi rejeitado pela API com "this index is not necessary,
-  configure using single field index controls". O arquivo ficou como
-  base vazia (`{"indexes": [], "fieldOverrides": []}`), só pra existir
-  caso algum dia precise de um índice composto de verdade.
+  código até achar) — por padrão o Firestore só mantém índice
+  automático de campo único em escopo de COLEÇÃO, não de collection
+  group, então isso exige configuração explícita. DUAS CORREÇÕES,
+  ambas descobertas só testando contra o projeto de verdade (nenhuma
+  das duas dava pra prever sem isso, já que o ambiente de
+  desenvolvimento não tinha rota de rede até o Firebase):
+  1. A suposição original era um índice COMPOSTO de campo único em
+     `indexes[]` com `queryScope: COLLECTION_GROUP` — a API rejeitou
+     no deploy com "this index is not necessary, configure using
+     single field index controls".
+  2. Só tirar o índice dali (deixando `indexes`/`fieldOverrides` os
+     dois vazios) também estava errado — sem NENHUMA configuração, o
+     pareamento falhava de verdade no celular ("query requires an
+     index", visível só no console do navegador; a tela só mostra
+     "Não foi possível conectar agora"). O jeito certo é uma **field
+     override** (`fieldOverrides[]`, não `indexes[]`) no campo
+     `codigo` da collection group `pareamentos`, habilitando o escopo
+     COLLECTION_GROUP além do COLLECTION padrão.
 
 ### Testado
 
