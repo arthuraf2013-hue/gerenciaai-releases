@@ -76,6 +76,31 @@ test('listarCodigosPendentes expira de verdade um código no formato que gerarCo
   assert.ok(ids.includes('555555'));
 });
 
+// Regressão #2: mesmo depois da correção acima, códigos JÁ GRAVADOS
+// antes dela continuam no banco no formato ISO puro de verdade (com
+// "T", milissegundos e "Z", ex: "2026-08-29T07:40:21.000Z") -- são
+// dados legados, não hipotéticos: foi exatamente isso que apareceu na
+// tela de Configurações → Celular como "expira Invalid Date" e nunca
+// sumia. A query precisa normalizar os dois formatos antes de comparar
+// (ver substr(replace(...)) em listarCodigosPendentes), senão um
+// código desses fica pendente pra sempre, mesmo expirado há muito
+// tempo -- o teste de cima usa o formato JÁ CORRIGIDO, então não pegava
+// esse caso.
+test('listarCodigosPendentes expira código legado gravado no formato ISO puro de antes da correção (regressão #2 do bug do "T"/"Z")', () => {
+  const { db, adminId, gerenteId } = freshTestDb();
+  const formatoIsoLegado = (ms) => new Date(ms).toISOString(); // "...T....000Z", sem correção nenhuma
+  db.prepare(
+    `INSERT INTO pairing_codes (id, tipo, vinculo_user_id, criado_por_id, expira_em) VALUES ('666666', 'garcom', ?, ?, ?)`
+  ).run(gerenteId, adminId, formatoIsoLegado(Date.now() - 60_000));
+  db.prepare(
+    `INSERT INTO pairing_codes (id, tipo, vinculo_user_id, criado_por_id, expira_em) VALUES ('777777', 'garcom', ?, ?, ?)`
+  ).run(gerenteId, adminId, formatoIsoLegado(Date.now() + 60_000));
+
+  const ids = pairingService.listarCodigosPendentes().map((p) => p.id);
+  assert.ok(!ids.includes('666666'), 'código legado (formato ISO puro) já expirado deveria sumir da lista');
+  assert.ok(ids.includes('777777'), 'código legado (formato ISO puro) ainda válido deveria continuar aparecendo');
+});
+
 test('espelharDispositivoPareado cria dispositivo novo quando ainda não existe localmente', () => {
   const { db, gerenteId } = freshTestDb();
   pairingService.espelharDispositivoPareado({

@@ -1623,8 +1623,13 @@ export function SettingsScreen() {
                 <span>{c.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'} — {c.vinculo_nome}</span>
                 {/* expira_em é UTC "naive" (sem Z, ver pairingService.js/timeService.js) --
                     precisa do 'Z' aqui pro Date interpretar como UTC, não como hora local
-                    (mesma convenção já usada em AuditLog.jsx pra criado_em). */}
-                <span className="screen-hint" style={{ marginLeft: 'auto' }}>expira {new Date(`${c.expira_em}Z`).toLocaleTimeString('pt-BR')}</span>
+                    (mesma convenção já usada em AuditLog.jsx pra criado_em). Só concatena
+                    'Z' se ainda não tiver um -- códigos gerados antes da correção do bug
+                    do "T"/"Z" já vinham no formato ISO completo (com Z), e colar outro Z
+                    em cima quebrava o parse (virava "Invalid Date" na tela). */}
+                <span className="screen-hint" style={{ marginLeft: 'auto' }}>
+                  expira {new Date(c.expira_em.endsWith('Z') ? c.expira_em : `${c.expira_em}Z`).toLocaleTimeString('pt-BR')}
+                </span>
               </div>
             ))}
           </div>

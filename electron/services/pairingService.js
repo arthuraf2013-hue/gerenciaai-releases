@@ -143,10 +143,19 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
  * timeService.js. */
 function listarCodigosPendentes() {
   const db = getDb();
+  // substr(replace(...), 1, 19) normaliza expira_em antes de comparar --
+  // cobre tanto o formato certo de hoje ("YYYY-MM-DD HH:MM:SS", 19
+  // caracteres, replace vira no-op) quanto códigos ANTIGOS gravados
+  // antes da correção do bug do "T"/"Z" (formato ISO puro, tipo
+  // "2026-08-29T07:40:21.000Z"): troca o "T" por espaço e corta os
+  // milissegundos/"Z", virando o mesmo formato de 19 caracteres. Sem
+  // isso, um código antigo no formato errado nunca comparava como
+  // "menor" que NOW_SYNCED() no mesmo dia UTC e ficava pendente pra
+  // sempre na tela, mesmo já tendo expirado de verdade há muito tempo.
   return db.prepare(
     `SELECT pc.*, u.nome as vinculo_nome FROM pairing_codes pc
      JOIN users u ON u.id = pc.vinculo_user_id
-     WHERE pc.usado = 0 AND pc.expira_em > NOW_SYNCED()
+     WHERE pc.usado = 0 AND substr(replace(pc.expira_em, 'T', ' '), 1, 19) > NOW_SYNCED()
      ORDER BY pc.criado_em DESC`
   ).all();
 }
