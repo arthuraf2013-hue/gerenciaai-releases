@@ -707,6 +707,98 @@ as regras estão certas. Se continuar vazio, confira o console (F12 →
 aba Console) da própria instalação: um erro `storage/unauthorized`
 significa que essa regra ainda não foi publicada certinho.
 
+## Passo 3.7 — Ativar o Firebase App Check (recomendado, opcional)
+
+Hoje, quem consegue chamar o Firestore diretamente (com a mesma config
+pública deste projeto — não é segredo, já vai embutida no instalador e
+no `pwa-mobile/`) consegue tentar as mesmas operações que o app de
+verdade faria, sem passar pelo pwa-mobile ou pelo admin-panel nenhuma
+vez — as regras de segurança (Passo 3) continuam sendo a única trava
+de verdade contra ISSO. O App Check é uma camada A MAIS: verifica que
+quem está chamando é mesmo uma página do seu `pwa-mobile`/admin-panel
+rodando num navegador de verdade (via reCAPTCHA v3, invisível pro
+usuário), não um script batendo direto na API. O exemplo concreto onde
+isso importa mais aqui: a consulta que o celular faz pra achar um
+código de pareamento digitado (`match /{caminho=**}/pareamentos/` em
+`firestore.rules`) hoje só exige "estar autenticado" (até anônimo
+serve) — um script sem App Check também consegue se autenticar assim
+e varrer/adivinhar códigos entre lojas.
+
+**Não dá pra usar isso no app desktop** — o reCAPTCHA v3 (e qualquer
+outro provedor de App Check pra web) precisa rodar numa página de
+navegador de verdade; as chamadas ao Firestore do desktop rodam no
+processo principal do Electron (`electron/services/*.js`), Node puro,
+sem `window`/`document` nenhum por perto. O desktop continua com o
+mesmo modelo de confiança de hoje (escreve sem se autenticar, com o
+`installId` fazendo esse papel) — isso não piora nada, só não dá pra
+melhorar por aqui sem redesenhar como o desktop se autentica, um
+projeto bem maior. Por isso este passo é só pro `pwa-mobile/` e pro
+`admin-panel/`.
+
+Já deixei o código dos dois preparado (`pwa-mobile/firebase-config.js`
+e `admin-panel/index.html`) — falta só você fazer a parte que só você
+consegue fazer (registrar o site key não é algo que dá pra automatizar
+daqui):
+
+1. No Console do Firebase, vá em **App Check** (menu lateral, ícone de
+   escudo) → "Começar" → registre seu app Web (o mesmo `appId` do
+   Passo 2) → escolha o provedor **reCAPTCHA v3** → o próprio Firebase
+   cria a site key pra você e já deixa vinculada (mais simples que
+   registrar direto em google.com/recaptcha/admin à parte).
+2. Copie a **site key** (não é segredo, pode ficar direto no código,
+   igual o `firebaseConfig`).
+3. Cole essa chave em DOIS lugares, substituindo o placeholder
+   `'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR'`:
+   - `pwa-mobile/firebase-config.js`, constante `RECAPTCHA_V3_SITE_KEY`.
+   - `admin-panel/index.html`, mesma constante, dentro do
+     `<script type="module">` principal.
+   - Se `pwa-mobile/` e `admin-panel/` forem publicados em domínios
+     diferentes, o Console do Firebase pode pedir pra registrar cada
+     domínio separadamente dentro do mesmo app Web (reCAPTCHA v3 é
+     vinculado por domínio) — se aparecer um aviso de domínio não
+     autorizado no console do navegador (F12), é isso.
+4. Republique o `pwa-mobile/` (Passo 6, mesmo processo do admin-panel,
+   ou a hospedagem que você já usa) e o `admin-panel/` (Passo 6
+   abaixo).
+5. **Espere e confira antes do próximo passo**: volte no Console →
+   App Check → aba do seu app → acompanhe as métricas por alguns dias
+   de uso real. Você quer ver as chamadas chegando como "Verificado"
+   ("Verified"), não "Não verificado" nem erro — isso confirma que a
+   site key está certa e que todo mundo já está na versão nova (cache
+   de navegador e PWA instalado demoram pra atualizar sozinhos).
+
+**Só depois disso** — nunca antes, senão qualquer um ainda na versão
+antiga fica bloqueado na hora — o passo final é opcional e manual:
+abra `firestore.rules`, ache o comentário em
+`match /{caminho=**}/pareamentos/{codigo}` (é o único lugar que já
+está documentado e comprovadamente seguro pra isso: o app desktop
+nunca usa essa regra), e troque
+
+```
+allow get, list: if request.auth != null;
+```
+
+por
+
+```
+allow get, list: if request.auth != null && request.app != null;
+```
+
+e publique de novo (Passo 3). Não estenda `request.app != null` pra
+outras regras sem antes confirmar, uma por uma, que nenhum caminho do
+desktop passa por ali — a maioria das regras deste arquivo tem um
+branch explícito `request.auth == null` justamente pro desktop, e esse
+branch nunca vai ter `request.app` (o desktop não roda App Check,
+como explicado acima).
+
+**Debug/teste local**: se algum dia precisar testar o `pwa-mobile/` ou
+o `admin-panel/` localmente sem passar pelo reCAPTCHA de verdade, o
+Console → App Check tem uma opção de gerar um "token de depuração"
+(debug token) por app — não é algo que configurei aqui por não ter
+ambiente de teste local pra isso nesta sessão; a documentação oficial
+do Firebase ("App Check → Debug providers") cobre o passo a passo se
+precisar.
+
 ## Passo 4 — Preencher a configuração no app
 
 Abra `electron/services/licenseService.js` e substitua o bloco

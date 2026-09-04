@@ -478,6 +478,9 @@
     getFirestore, collection, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
     writeBatch, query, orderBy, where, limit, serverTimestamp,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
+  import {
+    initializeAppCheck, ReCaptchaV3Provider,
+  } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check.js';
 
   // Ícones próprios da Central — mesmo espírito dos ícones do app
   // GerenciaAI (duotone, currentColor, adapta sozinho ao tema claro/
@@ -503,6 +506,21 @@
   }
 
   const app = initializeApp(firebaseConfig);
+
+  // ⚠️ App Check (reCAPTCHA v3) -- ver LICENCIAMENTO.md, Passo 3.7. Não é
+  // segredo (site keys do reCAPTCHA são públicas por natureza -- só a
+  // "secret key", que fica do lado do Google, é privada), mesmo espírito
+  // do firebaseConfig acima. Até você preencher a site key de verdade,
+  // isto não faz nada (nem quebra nada) -- a Central continua exatamente
+  // como hoje, sem token de App Check anexado nas chamadas ao Firestore.
+  const RECAPTCHA_V3_SITE_KEY = 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR';
+  if (RECAPTCHA_V3_SITE_KEY && RECAPTCHA_V3_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
+    initializeAppCheck(app, {
+      provider: new ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
+      isTokenAutoRefreshEnabled: true,
+    });
+  }
+
   const auth = getAuth(app);
   const db = getFirestore(app);
 

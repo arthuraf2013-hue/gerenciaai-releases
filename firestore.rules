@@ -30,7 +30,15 @@ rules_version = '2';
 //   PARTE 2 — regras de verdade pro que é novo (pareamento de celular,
 //   pedidos do garçom, status ao vivo), porque aqui quem escreve pode
 //   ser o CELULAR de um funcionário, não mais só as máquinas da
-//   própria loja.
+//   própria loja. App Check (reCAPTCHA v3) já está preparado no
+//   pwa-mobile e no admin-panel (ver comentário em `pareamentos` logo
+//   abaixo e LICENCIAMENTO.md Passo 3.7) -- é a próxima migração
+//   pendente, ainda sem enforcement nas regras de propósito (depende
+//   de um passo manual seu primeiro). NÃO é viável pro app desktop: as
+//   chamadas ao Firestore rodam no processo principal do Electron
+//   (Node puro, sem DOM), e o reCAPTCHA v3 exige um contexto de
+//   navegador de verdade -- o desktop continua com o mesmo modelo de
+//   confiança de hoje (sem autenticação nenhuma), sem regressão.
 //
 // COMO TESTAR ANTES DE PUBICAR (recomendado, não fiz isso aqui porque
 // este ambiente não tem rota de rede até o downloads do emulador):
@@ -237,8 +245,23 @@ service cloud.firestore {
       // fecha a porta de alguém varrer códigos sem nem abrir o app; é
       // uma concessão deliberada à simplicidade pedida ("código de
       // sincronização simples") — o código já expira em 10 minutos e só
-      // serve uma vez. Pra fechar essa janela de vez, ativar o Firebase
-      // App Check é a recomendação (não depende de mudar esta regra).
+      // serve uma vez. `request.auth != null` sozinho não impede um
+      // SCRIPT (sem app nenhum, só a lib do Firestore + a mesma config
+      // pública) de logar anônimo e varrer/adivinhar códigos em massa
+      // entre lojas via esta mesma consulta collectionGroup -- só um
+      // humano tentando na hora, sem automação, é bloqueado por hoje já
+      // exigir pelo menos um login anônimo.
+      //
+      // App Check (reCAPTCHA v3) já está preparado no pwa-mobile e no
+      // admin-panel (LICENCIAMENTO.md Passo 3.7) pra fechar essa janela
+      // de vez, mas a ENFORCEMENT aqui na regra (`&& request.app !=
+      // null`) é um passo À PARTE, deliberadamente não feito ainda:
+      // só é seguro depois de (a) preencher a site key nos dois
+      // arquivos, (b) republicar o pwa-mobile e o admin-panel, e (c)
+      // confirmar no Console → App Check que o tráfego real já chega
+      // "Verificado" -- senão qualquer celular ainda rodando a versão
+      // antiga (cache do navegador, PWA instalado sem atualizar) fica
+      // bloqueado na hora. Ver Passo 3.7 pro passo a passo completo.
       allow get, list: if request.auth != null;
     }
 

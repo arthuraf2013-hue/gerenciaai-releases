@@ -29,8 +29,26 @@ const authMod = await import(
 const firestoreMod = await import(
   `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`
 );
+const appCheckMod = await import(
+  `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app-check.js`
+);
 
 const app = initializeApp(FIREBASE_CONFIG);
+
+// ⚠️ App Check (reCAPTCHA v3) -- ver LICENCIAMENTO.md, Passo 3.7. Não é
+// segredo (site keys do reCAPTCHA são públicas por natureza -- só a
+// "secret key", que fica do lado do Google, é privada), mesmo espírito
+// do FIREBASE_CONFIG acima. Até você preencher a site key de verdade,
+// isto não faz nada (nem quebra nada) -- o app continua exatamente como
+// hoje, sem token de App Check anexado nas chamadas ao Firestore.
+const RECAPTCHA_V3_SITE_KEY = 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR';
+if (RECAPTCHA_V3_SITE_KEY && RECAPTCHA_V3_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
+  appCheckMod.initializeAppCheck(app, {
+    provider: new appCheckMod.ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
+
 const auth = authMod.getAuth(app);
 
 // Cache local persistente (IndexedDB) -- é isso que dá a "fila offline"
