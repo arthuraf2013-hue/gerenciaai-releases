@@ -15,7 +15,17 @@ rules_version = '2';
 //   pra tudo que já existia antes do pareamento de celular, de
 //   propósito, pra não quebrar nada em produção ao publicar isto pela
 //   primeira vez. Não é a solução ideal — é a base seguro pra migrar
-//   depois, com calma, cada coleção pra uma regra de verdade.
+//   depois, com calma, cada coleção pra uma regra de verdade. UMA
+//   migração dessas já foi feita dentro da própria Parte 1: as
+//   coleções que só o admin-panel usa (clientes/cobrança, log de
+//   auditoria, config, contas Google, erros reportados) agora exigem
+//   `ehAdminAutenticado()` -- o login e-mail/senha do admin-panel já
+//   existia (ver LICENCIAMENTO.md Passo 3), mas até esta mudança ele
+//   não protegia dado nenhum de verdade. `installations/` e
+//   `grupos_sincronizacao/` continuam com leitura/escrita livre de
+//   propósito -- são escritos pelo DESKTOP sem nenhuma autenticação, e
+//   restringir isso exigiria dar ao desktop uma identidade autenticada
+//   própria, uma mudança bem maior, fora do escopo desta rodada.
 //
 //   PARTE 2 — regras de verdade pro que é novo (pareamento de celular,
 //   pedidos do garçom, status ao vivo), porque aqui quem escreve pode
@@ -44,6 +54,23 @@ service cloud.firestore {
     // PARTE 1 — superfície já existente, comportamento preservado
     // --------------------------------------------------------------
 
+    // O admin-panel (admin-panel/index.html) já pede e-mail/senha pra
+    // entrar (Firebase Auth, ver LICENCIAMENTO.md Passo 3) -- mas até
+    // agora isso era só uma tela bonita: as regras abaixo liberavam
+    // `read, write: if true` pra QUALQUER UM, logado ou não, então o
+    // login nunca protegeu o dado de verdade (bastava saber o
+    // projectId, que nem é secreto -- ver aviso no topo deste arquivo).
+    // Esta função distingue uma sessão REAL do admin-panel (login
+    // e-mail/senha) de uma sessão anônima do celular (pareamento/
+    // consulta remota/app do garçom) -- as duas batem `request.auth !=
+    // null`, mas só a primeira deveria enxergar dado de cobrança/cliente.
+    // `sign_in_provider` vem no token de qualquer usuário autenticado e
+    // diz COMO ele logou; 'password' é exclusivo de
+    // signInWithEmailAndPassword, nunca aparece num login anônimo.
+    function ehAdminAutenticado() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
     match /installations/{installId} {
       allow read, write: if true;
 
@@ -52,24 +79,66 @@ service cloud.firestore {
       }
     }
 
+    // O DESKTOP escuta este documento em tempo real, sem autenticação,
+    // pra saber se os módulos pagos do cliente vinculado estão ativos
+    // (ver modulosPagosService.js) -- por isso a LEITURA continua
+    // aberta. Só quem PODE ESCREVER aqui (cadastrar cliente, mudar
+    // mensalidade, ativar/desativar módulo) passa a exigir uma sessão
+    // de verdade do admin-panel -- antes, qualquer um com o projectId
+    // conseguia editar cobrança e módulos pagos de qualquer cliente.
     match /clientes/{clienteId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
 
       // Histórico de pagamentos (ver admin-panel "Ver histórico") --
-      // mesma superfície/mesmo nível de confiança do doc do cliente
-      // acima (aberto, admin-panel não tem autenticação hoje -- ver
-      // aviso no topo deste arquivo). Não é um dado novo mais sensível
-      // que o resto de clientes/ (valorMensalidade, ultimoPagamentoEm
-      // etc. já ficam expostos do mesmo jeito ali), só granular por
-      // pagamento em vez de um campo único.
-      match /pagamentos/{pagamentoId} { allow read, write: if true; }
+      // usado só pelo admin-panel (o desktop nunca lê nem escreve
+      // aqui, só o doc do cliente acima) -- pode ficar restrito dos
+      // dois lados.
+      match /pagamentos/{pagamentoId} { allow read, write: if ehAdminAutenticado(); }
     }
 
-    match /erros_reportados/{erroId} { allow read, write: if true; }
-    match /acoes_log/{logId} { allow read, write: if true; }
-    match /config/{docId} { allow read, write: if true; }
-    match /config_publica/{docId} { allow read, write: if true; }
-    match /contas_google/{docId} { allow read, write: if true; }
+    // O DESKTOP só CRIA um relatório de erro novo (nunca lê, atualiza
+    // ou apaga -- ver errorReportService.js); ler a lista e limpar os
+    // antigos é coisa exclusiva do admin-panel (tela "Erros").
+    match /erros_reportados/{erroId} {
+      allow create: if true;
+      allow read, delete: if ehAdminAutenticado();
+    }
+
+    // Log de auditoria do PRÓPRIO admin-panel (ações feitas ali) --
+    // nunca tocado pelo desktop, então fica restrito dos dois lados.
+    match /acoes_log/{logId} { allow read, write: if ehAdminAutenticado(); }
+
+    // config/atualizacao e config/mensagem: o DESKTOP escuta os dois em
+    // tempo real sem autenticação (ver updateService.js/messageService.js),
+    // então a leitura continua aberta -- só publicar/mudar isso exige
+    // sessão do admin-panel agora.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
+    }
+
+    // Chave PÚBLICA do par RSA usado no backup de contas Google (ver
+    // backupService.js) -- é pública por natureza (a metade privada
+    // fica em cofre_config, cifrada, nunca aqui), então a leitura do
+    // DESKTOP continua aberta; só gerar o par (admin-panel) passa a
+    // exigir sessão.
+    match /config_publica/{docId} {
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
+    }
+
+    // Cada instalação grava aqui sua PRÓPRIA conta Google (e-mail +
+    // senha cifrada com RSA -- ver backupService.salvarContaGoogle),
+    // sem autenticação, mesmo modelo de confiança de installations/
+    // acima -- por isso a ESCRITA continua aberta. LER a lista inteira
+    // (e-mails + segredo cifrado de todas as instalações de uma vez)
+    // já não tem por que ficar aberto pra qualquer um -- só o
+    // admin-panel precisa enxergar isso.
+    match /contas_google/{docId} {
+      allow read: if ehAdminAutenticado();
+      allow write: if true;
+    }
 
     // Cofre de senhas — recurso CONGELADO/obsoleto (ver CLAUDE.md).
     // Regra aqui só preserva o comportamento de hoje; não desenvolver

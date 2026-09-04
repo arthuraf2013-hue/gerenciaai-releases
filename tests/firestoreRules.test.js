@@ -525,3 +525,101 @@ test('status_ao_vivo: leitura é cortada quando o módulo é desligado, mesmo pr
   const celular = testEnv.authenticatedContext('uid-consulta-cortado').firestore();
   await assertFails(celular.doc('installations/install-T/status_ao_vivo/atual').get());
 });
+
+// ---------------------------------------------------------------------
+// Coleções exclusivas do admin-panel (clientes/cobrança, log de
+// auditoria, config, contas Google, erros reportados) -- ver
+// ehAdminAutenticado() em firestore.rules. O admin-panel já pedia
+// e-mail/senha pra entrar antes desta mudança, mas as regras nunca
+// conferiam isso; agora exigem uma sessão REAL (Firebase Auth
+// e-mail/senha, `firebase.sign_in_provider == 'password'`) -- uma
+// sessão anônima do celular (mesmo autenticada) não passa.
+// ---------------------------------------------------------------------
+
+function adminContext(uid = 'uid-admin-teste') {
+  return testEnv.authenticatedContext(uid, { firebase: { sign_in_provider: 'password' } }).firestore();
+}
+
+test('clientes: leitura permitida sem autenticação (o desktop escuta em tempo real pra saber se o módulo pago está ativo)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('clientes/cliente-A1').set({ nome: 'Loja A' });
+  });
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(semAuth.doc('clientes/cliente-A1').get());
+});
+
+test('clientes: escrita negada sem autenticação nenhuma', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertFails(semAuth.doc('clientes/cliente-A2').set({ nome: 'Loja B' }));
+});
+
+test('clientes: escrita negada pra uma sessão anônima (celular pareado), mesmo autenticado', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const celular = testEnv.authenticatedContext('uid-celular-qualquer').firestore();
+  await assertFails(celular.doc('clientes/cliente-A3').set({ nome: 'Loja C' }));
+});
+
+test('clientes: escrita permitida pra uma sessão de verdade do admin-panel (login e-mail/senha)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await assertSucceeds(adminContext().doc('clientes/cliente-A4').set({ nome: 'Loja D' }));
+});
+
+test('clientes/pagamentos: leitura e escrita negadas sem sessão do admin-panel', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('clientes/cliente-A5/pagamentos/pag-1').set({ valor: 100 });
+  });
+  const celular = testEnv.authenticatedContext('uid-celular-qualquer-2').firestore();
+  await assertFails(celular.doc('clientes/cliente-A5/pagamentos/pag-1').get());
+  await assertFails(celular.collection('clientes/cliente-A5/pagamentos').add({ valor: 50 }));
+});
+
+test('erros_reportados: criação permitida sem autenticação (é o desktop quem reporta um erro novo)', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(semAuth.collection('erros_reportados').add({ mensagem: 'algo quebrou' }));
+});
+
+test('erros_reportados: leitura (listar) negada sem sessão do admin-panel', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const celular = testEnv.authenticatedContext('uid-celular-qualquer-3').firestore();
+  await assertFails(celular.collection('erros_reportados').get());
+});
+
+test('erros_reportados: leitura e exclusão permitidas pro admin-panel', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('erros_reportados/erro-1').set({ mensagem: 'x' });
+  });
+  const admin = adminContext();
+  await assertSucceeds(admin.collection('erros_reportados').get());
+  await assertSucceeds(admin.doc('erros_reportados/erro-1').delete());
+});
+
+test('acoes_log: leitura e escrita negadas pra sessão anônima, permitidas pro admin-panel', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const celular = testEnv.authenticatedContext('uid-celular-qualquer-4').firestore();
+  await assertFails(celular.collection('acoes_log').add({ acao: 'x' }));
+  await assertSucceeds(adminContext().collection('acoes_log').add({ acao: 'y' }));
+});
+
+test('config: leitura permitida sem autenticação (desktop escuta atualização obrigatória/mensagem global); escrita exige admin-panel', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('config/atualizacao').set({ obrigatoria: false });
+  });
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(semAuth.doc('config/atualizacao').get());
+  await assertFails(semAuth.doc('config/atualizacao').set({ obrigatoria: true }));
+  await assertSucceeds(adminContext().doc('config/mensagem').set({ ativa: true, texto: 'oi' }));
+});
+
+test('contas_google: escrita permitida sem autenticação (cada instalação grava a própria conta), mas leitura exige admin-panel', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  const semAuth = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(semAuth.doc('contas_google/install-CG1').set({ email: 'x@y.com', senhaCifradaRsa: 'abc' }));
+  await assertFails(semAuth.doc('contas_google/install-CG1').get());
+  await assertSucceeds(adminContext().doc('contas_google/install-CG1').get());
+});

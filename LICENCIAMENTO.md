@@ -34,7 +34,12 @@ seu, embutido em todo instalador, igual pra todo mundo).
 4. Em Authentication → aba "Users" → "Add user" → cadastre **seu
    próprio e-mail e uma senha forte**. Esse é o login que você vai usar
    no painel — não dá acesso a mais ninguém além de quem você
-   cadastrar aqui manualmente.
+   cadastrar aqui manualmente. Desde a versão atual das regras (Passo
+   3 mais abaixo), esse login não é só pra entrar na TELA — as regras
+   do Firestore conferem ele de verdade antes de deixar ler/editar
+   cliente, cobrança, log de auditoria e afins, então sem cadastrar
+   esse usuário aqui você não consegue nem entrar no painel nem editar
+   nada disso por fora.
 5. Ainda em Authentication → Sign-in method, ative também o provedor
    **Anônimo** (Anonymous). É o que o PWA do celular (garçom/consulta)
    usa pra se autenticar sem pedir login nenhum ao funcionário — sem
@@ -87,6 +92,23 @@ service cloud.firestore {
     // PARTE 1 — superfície já existente, comportamento preservado
     // --------------------------------------------------------------
 
+    // O admin-panel (admin-panel/index.html) já pede e-mail/senha pra
+    // entrar (Firebase Auth, ver LICENCIAMENTO.md Passo 3) -- mas até
+    // agora isso era só uma tela bonita: as regras abaixo liberavam
+    // `read, write: if true` pra QUALQUER UM, logado ou não, então o
+    // login nunca protegeu o dado de verdade (bastava saber o
+    // projectId, que nem é secreto -- ver aviso no topo deste arquivo).
+    // Esta função distingue uma sessão REAL do admin-panel (login
+    // e-mail/senha) de uma sessão anônima do celular (pareamento/
+    // consulta remota/app do garçom) -- as duas batem `request.auth !=
+    // null`, mas só a primeira deveria enxergar dado de cobrança/cliente.
+    // `sign_in_provider` vem no token de qualquer usuário autenticado e
+    // diz COMO ele logou; 'password' é exclusivo de
+    // signInWithEmailAndPassword, nunca aparece num login anônimo.
+    function ehAdminAutenticado() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
     match /installations/{installId} {
       allow read, write: if true;
 
@@ -95,24 +117,66 @@ service cloud.firestore {
       }
     }
 
+    // O DESKTOP escuta este documento em tempo real, sem autenticação,
+    // pra saber se os módulos pagos do cliente vinculado estão ativos
+    // (ver modulosPagosService.js) -- por isso a LEITURA continua
+    // aberta. Só quem PODE ESCREVER aqui (cadastrar cliente, mudar
+    // mensalidade, ativar/desativar módulo) passa a exigir uma sessão
+    // de verdade do admin-panel -- antes, qualquer um com o projectId
+    // conseguia editar cobrança e módulos pagos de qualquer cliente.
     match /clientes/{clienteId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
 
       // Histórico de pagamentos (ver admin-panel "Ver histórico") --
-      // mesma superfície/mesmo nível de confiança do doc do cliente
-      // acima (aberto, admin-panel não tem autenticação hoje -- ver
-      // aviso no topo deste arquivo). Não é um dado novo mais sensível
-      // que o resto de clientes/ (valorMensalidade, ultimoPagamentoEm
-      // etc. já ficam expostos do mesmo jeito ali), só granular por
-      // pagamento em vez de um campo único.
-      match /pagamentos/{pagamentoId} { allow read, write: if true; }
+      // usado só pelo admin-panel (o desktop nunca lê nem escreve
+      // aqui, só o doc do cliente acima) -- pode ficar restrito dos
+      // dois lados.
+      match /pagamentos/{pagamentoId} { allow read, write: if ehAdminAutenticado(); }
     }
 
-    match /erros_reportados/{erroId} { allow read, write: if true; }
-    match /acoes_log/{logId} { allow read, write: if true; }
-    match /config/{docId} { allow read, write: if true; }
-    match /config_publica/{docId} { allow read, write: if true; }
-    match /contas_google/{docId} { allow read, write: if true; }
+    // O DESKTOP só CRIA um relatório de erro novo (nunca lê, atualiza
+    // ou apaga -- ver errorReportService.js); ler a lista e limpar os
+    // antigos é coisa exclusiva do admin-panel (tela "Erros").
+    match /erros_reportados/{erroId} {
+      allow create: if true;
+      allow read, delete: if ehAdminAutenticado();
+    }
+
+    // Log de auditoria do PRÓPRIO admin-panel (ações feitas ali) --
+    // nunca tocado pelo desktop, então fica restrito dos dois lados.
+    match /acoes_log/{logId} { allow read, write: if ehAdminAutenticado(); }
+
+    // config/atualizacao e config/mensagem: o DESKTOP escuta os dois em
+    // tempo real sem autenticação (ver updateService.js/messageService.js),
+    // então a leitura continua aberta -- só publicar/mudar isso exige
+    // sessão do admin-panel agora.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
+    }
+
+    // Chave PÚBLICA do par RSA usado no backup de contas Google (ver
+    // backupService.js) -- é pública por natureza (a metade privada
+    // fica em cofre_config, cifrada, nunca aqui), então a leitura do
+    // DESKTOP continua aberta; só gerar o par (admin-panel) passa a
+    // exigir sessão.
+    match /config_publica/{docId} {
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
+    }
+
+    // Cada instalação grava aqui sua PRÓPRIA conta Google (e-mail +
+    // senha cifrada com RSA -- ver backupService.salvarContaGoogle),
+    // sem autenticação, mesmo modelo de confiança de installations/
+    // acima -- por isso a ESCRITA continua aberta. LER a lista inteira
+    // (e-mails + segredo cifrado de todas as instalações de uma vez)
+    // já não tem por que ficar aberto pra qualquer um -- só o
+    // admin-panel precisa enxergar isso.
+    match /contas_google/{docId} {
+      allow read: if ehAdminAutenticado();
+      allow write: if true;
+    }
 
     // Cofre de senhas — recurso CONGELADO/obsoleto (ver CLAUDE.md).
     // Regra aqui só preserva o comportamento de hoje; não desenvolver
@@ -398,15 +462,29 @@ colando):
 
 - **PARTE 1** preserva de propósito o comportamento ABERTO que o
   sistema sempre teve pra tudo que já existia antes do pareamento de
-  celular (`installations` e seus `backups`, `clientes` e o histórico
-  de `pagamentos` dentro dele, `erros_reportados`, `acoes_log`,
-  `config`, `config_publica`, `contas_google`, o Cofre de senhas —
+  celular (`installations` e seus `backups`, o Cofre de senhas —
   congelado/obsoleto, não mexer além do necessário pra preservar o
-  comportamento — e `grupos_sincronizacao`). Não é a solução ideal de
-  segurança (é tudo `read, write: if true`), é a base necessária pra
-  publicar isto sem quebrar nada que já está rodando em produção.
-  Migrar cada coleção pra uma regra de verdade fica pra depois, com
-  calma.
+  comportamento — e `grupos_sincronizacao`, incluindo suas
+  subcoleções). Essas continuam `read, write: if true` porque é o
+  próprio DESKTOP (sem nenhuma autenticação) quem escreve nelas —
+  restringir exigiria dar ao desktop uma identidade autenticada
+  própria, fora do escopo desta rodada. Migrar essas pra uma regra de
+  verdade fica pra depois, com calma.
+  Dentro da própria Parte 1, as coleções que só o **admin-panel**
+  usa (`clientes` e o histórico de `pagamentos` dentro dele,
+  `erros_reportados`, `acoes_log`, `config`, `config_publica`,
+  `contas_google`) já foram migradas: passam a exigir a função
+  `ehAdminAutenticado()` pra ESCREVER (e pra `erros_reportados`,
+  `acoes_log` e `contas_google`, também pra LER) — o login e-mail/senha
+  do admin-panel (Passo 3 abaixo) já existia, mas até esta mudança as
+  regras não conferiam ele pra nada; qualquer um que soubesse o
+  projectId conseguia ler/editar cobrança de cliente direto pelo
+  Firestore, sem passar pela tela de login nenhuma vez. Onde o próprio
+  DESKTOP também precisa ler o dado (o doc de `clientes/{clienteId}`
+  pra saber se um módulo pago está ativo, ou `config/atualizacao` e
+  `config/mensagem` pra checar atualização obrigatória/mensagem
+  global), a LEITURA continua aberta — só a ESCRITA (exclusiva do
+  admin-panel nesses casos) ficou restrita.
 - **PARTE 1.5** são as funções auxiliares dos módulos pagos (Consulta
   remota / App do garçom) — confere se o cliente da instalação tem o
   módulo ligado em `clientes/{clienteId}.modulosAtivos`, usado pela
@@ -476,6 +554,18 @@ remota existirem): republique com o bloco atual. Sem isso:
   documento que nunca foi removido de verdade) ou continuar
   funcionando no celular depois de excluído, republique com o bloco
   atual (`allow delete: if request.auth == null;`).
+- `clientes`, `erros_reportados`, `acoes_log`, `config`, `config_publica`
+  e `contas_google` ainda estão com `allow read, write: if true;` puro
+  (versão de antes da função `ehAdminAutenticado()`) → o admin-panel
+  continua funcionando NORMALMENTE mesmo assim (o login e-mail/senha
+  segue pedindo e aceitando certo), então não tem nenhum sintoma óbvio
+  na tela -- o problema é silencioso: qualquer um que souber o
+  projectId (não é secreto) continua conseguindo ler/editar clientes,
+  cobrança, log de auditoria e contas Google direto pelo Firestore,
+  sem passar pelo login nenhuma vez. Se você quer ter certeza de que
+  essa regra está valendo, o Simulador do Firebase (aba "Regras") deixa
+  simular uma leitura de `clientes/algum-id` SEM autenticação e
+  conferir que agora nega.
 - Falta o bloco `match /{caminho=**}/pareamentos/{codigo}` (regra com
   curinga recursivo, separada da regra normal de `installations/
   {installId}/pareamentos/{codigo}`) → o celular encontra o código
