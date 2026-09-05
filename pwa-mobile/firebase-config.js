@@ -46,7 +46,7 @@ const app = initializeApp(FIREBASE_CONFIG);
 // gera. Até você preencher a site key de verdade, isto não faz nada
 // (nem quebra nada) -- o app continua exatamente como hoje, sem token
 // de App Check anexado nas chamadas ao Firestore.
-const RECAPTCHA_ENTERPRISE_SITE_KEY = 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR';
+const RECAPTCHA_ENTERPRISE_SITE_KEY = '6Lfl46otAAAAAOm70sNp8ZCdAqTZma6acynM4Dle';
 if (RECAPTCHA_ENTERPRISE_SITE_KEY && RECAPTCHA_ENTERPRISE_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
   appCheckMod.initializeAppCheck(app, {
     provider: new appCheckMod.ReCaptchaEnterpriseProvider(RECAPTCHA_ENTERPRISE_SITE_KEY),
