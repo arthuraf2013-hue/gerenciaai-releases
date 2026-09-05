@@ -3,6 +3,72 @@ import { useProfile } from '../../context/ProfileContext';
 import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
 
+let proximoIdLocalMaterial = 1;
+function novoIdLocalMaterial() {
+  return `material-${proximoIdLocalMaterial++}`;
+}
+function linhaMaterialVazia() {
+  return { idLocal: novoIdLocalMaterial(), materialId: null, nome: '', unidade: 'un', quantidade: '', cobraNoPreco: true, busca: '', resultados: [] };
+}
+
+/** Uma linha de material consumido por um SERVIÇO — busca (produtos de
+ * verdade só, nunca outro serviço) igual à do item personalizado no
+ * PDV (ver CustomItemBuilder.jsx), mais quantidade e se esse material
+ * entra no preço do serviço ou só desconta do estoque. */
+function MaterialServicoLine({ linha, onChange, onRemover }) {
+  const debounceRef = useRef(null);
+
+  function buscar(texto) {
+    onChange({ ...linha, busca: texto, materialId: texto ? linha.materialId : null });
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (texto.trim().length < 2) {
+      onChange((atual) => ({ ...atual, busca: texto, resultados: [] }));
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      const resultados = await window.pdv.serviceMaterial.buscarMateriais({ query: texto.trim() });
+      onChange((atual) => ({ ...atual, resultados: Array.isArray(resultados) ? resultados : [] }));
+    }, 200);
+  }
+
+  function selecionar(opcao) {
+    onChange({ ...linha, materialId: opcao.id, nome: opcao.nome, unidade: opcao.unidade, busca: opcao.nome, resultados: [] });
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <div className="custom-item-linha-busca" style={{ flex: 2, minWidth: 180 }}>
+        <input type="text" placeholder="Buscar produto..." value={linha.busca} onChange={(e) => buscar(e.target.value)} />
+        {linha.resultados.length > 0 && (
+          <ul className="product-search-results">
+            {linha.resultados.map((opcao) => (
+              <li key={opcao.id}>
+                <button type="button" onClick={() => selecionar(opcao)}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="box" size={15} /> {opcao.nome}</span>
+                  <span className="product-search-price">{opcao.unidade}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <input
+        type="number" step="0.01" min="0" placeholder="Quantidade" style={{ flex: 1, minWidth: 90 }}
+        value={linha.quantidade}
+        onChange={(e) => onChange({ ...linha, quantidade: e.target.value })}
+      />
+      <span className="screen-hint" style={{ alignSelf: 'center' }}>{linha.unidade}</span>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'center' }}>
+        <input type="checkbox" checked={linha.cobraNoPreco} onChange={(e) => onChange({ ...linha, cobraNoPreco: e.target.checked })} />
+        Cobrar no preço
+      </label>
+      <button type="button" className="btn-link-danger" onClick={onRemover}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={14} /> Remover</span>
+      </button>
+    </div>
+  );
+}
+
 const emptyProduct = {
   id: null, sku: '', codigoBarras: '', nome: '', categoria: '', tipo: 'produto',
   preco: '', custo: '', unidade: 'un', codigoBalanca: '', estoqueMinimo: '', customFields: {},
@@ -28,6 +94,9 @@ export function ProductForm({ product, onSaved, onCancel }) {
   const [custoCalculado, setCustoCalculado] = useState(0);
   const [margemPercentual, setMargemPercentual] = useState('');
   const [fichaSalva, setFichaSalva] = useState('');
+  const [materiaisServico, setMateriaisServico] = useState([]); // linhas do editor de materiais (tipo='servico')
+  const [mostrarMateriais, setMostrarMateriais] = useState(false);
+  const [materiaisSalvo, setMateriaisSalvo] = useState('');
   const [barcodeBusy, setBarcodeBusy] = useState(false);
   const barcodeCanvasRef = useRef(null);
 
@@ -90,11 +159,25 @@ export function ProductForm({ product, onSaved, onCancel }) {
         setReceita(Array.isArray(list) ? list.map((r) => ({ ingredientId: r.ingredient_id, quantidade: r.quantidade })) : []);
       });
       window.pdv.ingredient.computeDishCost({ productId: product.id }).then(setCustoCalculado);
+      if (product.tipo === 'servico') {
+        window.pdv.serviceMaterial.getMateriais({ servicoId: product.id }).then((list) => {
+          setMateriaisServico(Array.isArray(list) && list.length > 0
+            ? list.map((m) => ({
+              idLocal: novoIdLocalMaterial(), materialId: m.materialId, nome: m.materialNome,
+              unidade: m.materialUnidade || 'un', quantidade: String(m.quantidade), cobraNoPreco: !!m.cobraNoPreco,
+              busca: m.materialNome, resultados: [],
+            }))
+            : []);
+        });
+      } else {
+        setMateriaisServico([]);
+      }
     } else {
       setForm(emptyProduct);
       setFotoDataUrl(null);
       setHistoricoPreco([]);
       setReceita([]);
+      setMateriaisServico([]);
     }
   }, [product]);
 
@@ -200,6 +283,30 @@ export function ProductForm({ product, onSaved, onCancel }) {
     const custo = await window.pdv.ingredient.computeDishCost({ productId: form.id });
     setCustoCalculado(custo);
     setFichaSalva('Ficha técnica salva.');
+  }
+
+  function adicionarLinhaMaterial() {
+    setMateriaisServico((prev) => [...prev, linhaMaterialVazia()]);
+  }
+
+  function atualizarLinhaMaterial(idLocal, atualizacaoOuFn) {
+    setMateriaisServico((prev) => prev.map((l) => {
+      if (l.idLocal !== idLocal) return l;
+      return typeof atualizacaoOuFn === 'function' ? atualizacaoOuFn(l) : atualizacaoOuFn;
+    }));
+  }
+
+  function removerLinhaMaterial(idLocal) {
+    setMateriaisServico((prev) => prev.filter((l) => l.idLocal !== idLocal));
+  }
+
+  async function salvarMateriais() {
+    setMateriaisSalvo('');
+    const materiais = materiaisServico
+      .filter((l) => l.materialId && Number(l.quantidade) > 0)
+      .map((l) => ({ materialId: l.materialId, quantidade: Number(l.quantidade), cobraNoPreco: l.cobraNoPreco }));
+    await window.pdv.serviceMaterial.setMateriais({ servicoId: form.id, materiais });
+    setMateriaisSalvo('Materiais salvos.');
   }
 
   async function handleSubmit(e) {
@@ -493,6 +600,41 @@ export function ProductForm({ product, onSaved, onCancel }) {
                 </button>
               </div>
               {fichaSalva && <p className="io-message" style={{ marginTop: 8 }}>{fichaSalva}</p>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {form.id && form.tipo === 'servico' && (
+        <div style={{ gridColumn: '1 / -1', marginTop: 12 }}>
+          <button type="button" className="btn-link" onClick={() => setMostrarMateriais((v) => !v)}>
+            {mostrarMateriais ? 'Esconder' : 'Ver'} materiais usados
+          </button>
+          {mostrarMateriais && (
+            <div style={{ marginTop: 8, border: '1px solid var(--color-border)', borderRadius: 8, padding: 12 }}>
+              <p className="screen-hint" style={{ margin: '0 0 10px' }}>
+                Produtos que este serviço costuma gastar da loja (ex: tintura numa coloração) — descontados do
+                estoque automaticamente a cada venda, na quantidade abaixo (ajustável depois, se usar mais ou
+                menos, em Produtos → Personalizados). Marque "Cobrar no preço" pra somar o custo desse material
+                ao preço do serviço na hora da venda; desmarque se o preço fixo do serviço já cobre isso.
+              </p>
+              {materiaisServico.map((linha) => (
+                <MaterialServicoLine
+                  key={linha.idLocal}
+                  linha={linha}
+                  onChange={(atualizacaoOuFn) => atualizarLinhaMaterial(linha.idLocal, atualizacaoOuFn)}
+                  onRemover={() => removerLinhaMaterial(linha.idLocal)}
+                />
+              ))}
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button type="button" className="btn-secondary" onClick={adicionarLinhaMaterial}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Adicionar material</span>
+                </button>
+                <button type="button" className="btn-secondary" onClick={salvarMateriais}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar materiais</span>
+                </button>
+              </div>
+              {materiaisSalvo && <p className="io-message" style={{ marginTop: 8 }}>{materiaisSalvo}</p>}
             </div>
           )}
         </div>

@@ -120,6 +120,11 @@ contextBridge.exposeInMainWorld('pdv', {
     listarParaAjuste: invoke('customItem:listarParaAjuste'),
     ajustar: invoke('customItem:ajustar'),
   },
+  serviceMaterial: {
+    getMateriais: invoke('serviceMaterial:getMateriais'),
+    setMateriais: invoke('serviceMaterial:setMateriais'),
+    buscarMateriais: invoke('serviceMaterial:buscarMateriais'),
+  },
   waste: {
     suggestCost: invoke('waste:suggestCost'),
     register: invoke('waste:register'),

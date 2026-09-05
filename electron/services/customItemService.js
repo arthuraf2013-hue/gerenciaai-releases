@@ -185,18 +185,26 @@ function reverterLinhasDoItem(saleItemId, ctx) {
   }
 }
 
-/** Itens personalizados recentes (janela de `dias`) que ainda podem
- * receber a quantidade final ajustada — mostrado na aba "Personalizados"
- * dentro de Produtos > Insumos. Não filtra só os "não ajustados ainda"
- * porque um ajuste pode ser corrigido de novo depois. */
+/** Itens recentes (janela de `dias`) que ainda podem receber a
+ * quantidade final ajustada de seus componentes — mostrado na aba
+ * "Personalizados" dentro de Produtos. Cobre os DOIS casos que geram
+ * linhas em custom_item_lines: itens personalizados (eh_personalizado=1)
+ * e serviços vendidos com material associado (eh_personalizado=0, mas
+ * com linhas geradas por serviceMaterialService/saleService.addItem) —
+ * por isso o filtro é "tem alguma linha", não só o flag de personalizado.
+ * Não filtra só os "não ajustados ainda" porque um ajuste pode ser
+ * corrigido de novo depois. */
 function listItensParaAjuste({ locationId, dias = 7 } = {}) {
   const db = getDb();
   const itens = db.prepare(
-    `SELECT si.id as sale_item_id, si.nome_personalizado, si.quantidade, si.criado_em, si.sale_id
+    `SELECT si.id as sale_item_id, COALESCE(si.nome_personalizado, p.nome) as nome_personalizado,
+            si.quantidade, si.criado_em, si.sale_id
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
-     WHERE si.eh_personalizado = 1 AND si.cancelado = 0 AND s.location_id = ?
+     JOIN products p ON p.id = si.product_id
+     WHERE si.cancelado = 0 AND s.location_id = ?
        AND date(si.criado_em) >= date('now', ?)
+       AND EXISTS (SELECT 1 FROM custom_item_lines cil WHERE cil.sale_item_id = si.id)
      ORDER BY si.criado_em DESC`
   ).all(locationId, `-${Number(dias) || 7} days`);
 
@@ -274,6 +282,7 @@ module.exports = {
   PRODUTO_PERSONALIZADO_ID,
   garantirProdutoPersonalizado,
   buscarInsumosEProdutos,
+  custoUnitarioProduto,
   sugerirPreco,
   gravarEDescontarLinhas,
   reverterLinhasDoItem,

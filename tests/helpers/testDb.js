@@ -34,11 +34,11 @@ function createSuporteUser(db, { nome = 'Suporte Teste', pin = '9999' } = {}) {
   return id;
 }
 
-function createProduct(db, { nome = 'Produto Teste', preco = 10, estoqueMinimo = 5, categoria = null, tipo = 'produto' } = {}) {
+function createProduct(db, { nome = 'Produto Teste', preco = 10, custo = 0, estoqueMinimo = 5, categoria = null, tipo = 'produto' } = {}) {
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO products (id, nome, preco, estoque_minimo, unidade, categoria, tipo) VALUES (?, ?, ?, ?, 'un', ?, ?)`
-  ).run(id, nome, preco, estoqueMinimo, categoria, tipo);
+    `INSERT INTO products (id, nome, preco, custo, estoque_minimo, unidade, categoria, tipo) VALUES (?, ?, ?, ?, ?, 'un', ?, ?)`
+  ).run(id, nome, preco, custo, estoqueMinimo, categoria, tipo);
   return id;
 }
 

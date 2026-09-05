@@ -185,11 +185,44 @@ CREATE TABLE IF NOT EXISTS dish_ingredients (
 );
 CREATE INDEX IF NOT EXISTS idx_dish_ingredients_product ON dish_ingredients(product_id);
 
--- Linhas de um "produto personalizado" (prato/produto montado na hora,
--- ex: pizza meio-a-meio, drink combinado) — sale_items.eh_personalizado=1
--- aponta pra um grupo dessas linhas via sale_item_id. Cada linha usa OU
--- um insumo direto OU um produto do catálogo como componente (nunca os
--- dois), em dois modos possíveis:
+-- Materiais da LOJA que um SERVIÇO consome por padrão (ex: um serviço
+-- de coloração usa 40g de um produto "Tintura X" que a loja também
+-- vende no varejo). Diferente de dish_ingredients acima: aqui o
+-- material é um `product` do próprio catálogo (com estoque de verdade,
+-- por local, em stock_movements) — não um insumo separado — porque em
+-- negócios de serviço (salão, oficina, petshop) o material usado é
+-- tipicamente o MESMO item revendido, não uma matéria-prima à parte.
+-- Isto é só o PADRÃO (quanto normalmente se usa por 1 unidade do
+-- serviço); a quantidade real de cada venda vira uma linha em
+-- custom_item_lines (tipo='produto'), ajustável depois — ver
+-- serviceMaterialService.js e saleService.addItem.
+-- cobra_no_preco: quando 1, o custo deste material (quantidade x
+-- products.custo) é somado ao preço do serviço na venda; quando 0, o
+-- material só é descontado do estoque, sem afetar o preço (o serviço
+-- já cobra um valor fixo que cobre isso).
+CREATE TABLE IF NOT EXISTS service_material_defaults (
+  id             TEXT PRIMARY KEY,
+  servico_id     TEXT NOT NULL REFERENCES products(id),
+  material_id    TEXT NOT NULL REFERENCES products(id),
+  quantidade     REAL NOT NULL,
+  cobra_no_preco INTEGER NOT NULL DEFAULT 1,
+  criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_service_material_defaults_servico ON service_material_defaults(servico_id);
+
+-- Linhas de componentes de um item de venda, em DOIS casos possíveis
+-- (o resto do sistema trata os dois de forma idêntica — mesma tabela,
+-- mesmo desconto de estoque, mesma tela de ajuste):
+--   1) "produto personalizado" (prato/produto montado na hora, ex:
+--      pizza meio-a-meio, drink combinado) — sale_items.eh_personalizado=1
+--      aponta pra um grupo dessas linhas via sale_item_id.
+--   2) material consumido por um SERVIÇO vendido (ex: tintura usada
+--      numa coloração) — geradas automaticamente por saleService.addItem
+--      a partir de service_material_defaults; sale_items.eh_personalizado
+--      continua 0 nesse caso (o item de venda em si não é "personalizado",
+--      só tem material associado). Ver serviceMaterialService.js.
+-- Cada linha usa OU um insumo direto OU um produto do catálogo como
+-- componente (nunca os dois), em dois modos possíveis:
 --   'quantidade'  -> quantidade absoluta (na unidade do insumo/produto)
 --   'percentual'  -> fração de UMA unidade inteira do produto (só faz
 --                    sentido pra tipo='produto' — ex: pizza 50% sabor A)

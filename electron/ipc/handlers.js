@@ -10,6 +10,7 @@ const messageService = require('../services/messageService');
 const tableService = require('../services/tableService');
 const ingredientService = require('../services/ingredientService');
 const customItemService = require('../services/customItemService');
+const serviceMaterialService = require('../services/serviceMaterialService');
 const wasteService = require('../services/wasteService');
 const stockService = require('../services/stockService');
 const saleService = require('../services/saleService');
@@ -190,6 +191,11 @@ function registerIpcHandlers() {
   safeHandle('customItem:sugerirPreco', (_e, payload) => customItemService.sugerirPreco(payload));
   safeHandle('customItem:listarParaAjuste', (_e, opts) => customItemService.listItensParaAjuste(opts));
   safeHandle('customItem:ajustar', (_e, payload) => customItemService.ajustarLinhas(payload));
+
+  // --- Materiais consumidos por serviço ---
+  safeHandle('serviceMaterial:getMateriais', (_e, { servicoId }) => serviceMaterialService.getMateriais(servicoId));
+  safeHandle('serviceMaterial:setMateriais', (_e, { servicoId, materiais }) => serviceMaterialService.setMateriais(servicoId, materiais));
+  safeHandle('serviceMaterial:buscarMateriais', (_e, opts) => serviceMaterialService.buscarMateriais(opts));
 
   // --- Desperdício ---
   safeHandle('waste:suggestCost', (_e, payload) => wasteService.suggestCost(payload));

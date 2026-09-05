@@ -9,6 +9,7 @@ const profileService = require('./profileService');
 const salesSyncService = require('./salesSyncService');
 const ingredientService = require('./ingredientService');
 const customItemService = require('./customItemService');
+const serviceMaterialService = require('./serviceMaterialService');
 
 function openSale({ locationId, operadorId }) {
   const db = getDb();
@@ -322,7 +323,13 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
 
   const custom = JSON.parse(product.custom_fields || '{}');
   const avisoReceita = !!(custom.controlado && custom.exige_receita);
-  const precoDeVenda = precoEfetivo(product); // usa o promocional (desconto por validade) se ainda estiver válido
+  // Serviço com materiais cadastrados (ver serviceMaterialService) soma
+  // o custo desses materiais ao preço de mão de obra do serviço — "preço
+  // final = mão de obra fixa + custo do material usado". Só materiais
+  // marcados cobra_no_preco=1 entram aqui; os demais só descontam
+  // estoque (ver dentro da transação abaixo), sem afetar o preço.
+  const custoMaterialPorUnidade = ehServico ? serviceMaterialService.custoMaterialPorUnidade(productId) : 0;
+  const precoDeVenda = precoEfetivo(product) + custoMaterialPorUnidade; // usa o promocional (desconto por validade) se ainda estiver válido
 
   // Se o mesmo produto já está no carrinho (ainda não cancelado), soma
   // na linha existente em vez de criar uma linha nova — bipar o mesmo
@@ -361,6 +368,22 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       // Serviço nunca tem ficha técnica (não existe "produção" pra
       // consumir insumo).
       ingredientService.descontarPorVenda(productId, quantidade);
+    }
+
+    // Serviço com materiais cadastrados: gera as linhas de consumo
+    // (custom_item_lines) equivalentes à quantidade sendo adicionada
+    // AGORA (não o total acumulado do item, pra nunca descontar em
+    // dobro quando o mesmo serviço é somado de novo no carrinho — ver
+    // gerarLinhasParaQuantidade) e já desconta o estoque de cada
+    // material, reaproveitando o mesmo mecanismo de item personalizado.
+    // Essas linhas também aparecem em Produtos > Personalizados pra
+    // corrigir a quantidade real usada depois (ver
+    // customItemService.listItensParaAjuste).
+    if (ehServico) {
+      const linhasMaterial = serviceMaterialService.gerarLinhasParaQuantidade(productId, quantidade);
+      if (linhasMaterial.length > 0) {
+        customItemService.gravarEDescontarLinhas(itemId, linhasMaterial, { locationId, saleId, saleItemId: itemId, operadorId, deviceId });
+      }
     }
 
     db.prepare(
@@ -670,13 +693,17 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
       ingredientService.reverterPorVenda(item.product_id, item.quantidade);
     }
 
-    // Item personalizado: devolve o estoque de cada insumo/produto usado
-    // na composição dele (ver customItemService) — o item.product_id
-    // acima é só o produto-âncora compartilhado, sem ficha técnica
-    // própria, então reverterPorVenda não faz nada por si só.
-    if (item.eh_personalizado) {
-      customItemService.reverterLinhasDoItem(saleItemId, { locationId, saleId, saleItemId, operadorId: currentOperatorId, deviceId });
-    }
+    // Devolve o estoque de cada insumo/produto usado como componente
+    // deste item, se houver — cobre DOIS casos (ver comentário de
+    // custom_item_lines em schema.sql): item personalizado (o
+    // item.product_id acima é só o produto-âncora compartilhado, sem
+    // ficha técnica própria, então reverterPorVenda não faz nada por si
+    // só) e serviço vendido com material associado. Chamada sempre,
+    // incondicional: quando o item não tem linha nenhuma (caso comum,
+    // produto normal ou serviço sem material), a busca por
+    // sale_item_id não acha nada e a função não faz nada — sem custo
+    // real de chamar à toa.
+    customItemService.reverterLinhasDoItem(saleItemId, { locationId, saleId, saleItemId, operadorId: currentOperatorId, deviceId });
 
     db.prepare(`UPDATE sales SET total = total - ? WHERE id = ?`).run(item.preco_unitario * item.quantidade, saleId);
   });
@@ -741,9 +768,11 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
         ingredientService.reverterPorVenda(item.product_id, item.quantidade);
       }
 
-      if (item.eh_personalizado) {
-        customItemService.reverterLinhasDoItem(item.id, { locationId, saleId, saleItemId: item.id, operadorId: autorizadoPor?.id || currentOperatorId, deviceId });
-      }
+      // Devolve o estoque de componentes deste item, se houver (item
+      // personalizado OU serviço com material associado — ver
+      // cancelSaleItem acima, mesmo raciocínio). Chamada incondicional,
+      // sem custo real quando não há linha nenhuma.
+      customItemService.reverterLinhasDoItem(item.id, { locationId, saleId, saleItemId: item.id, operadorId: autorizadoPor?.id || currentOperatorId, deviceId });
 
       db.prepare(`UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED() WHERE id = ?`)
         .run(autorizadoPor?.id || currentOperatorId, item.id);

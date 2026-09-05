@@ -3,10 +3,12 @@ import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
 
 /**
- * Aba "Personalizados" — depois que um prato/produto personalizado foi
- * vendido (ex: pizza meio-a-meio, porção montada na hora), quase nunca
- * a quantidade de insumo usada foi uma medida exata, só uma estimativa.
- * Aqui dá pra corrigir a quantidade FINAL de cada linha — só a
+ * Aba "Ajustes" — cobre dois casos onde a quantidade de material usada
+ * raramente é uma medida exata na hora da venda, só uma estimativa: um
+ * prato/produto personalizado (ex: pizza meio-a-meio, porção montada na
+ * hora) ou um SERVIÇO vendido com material associado (ex: quanto de
+ * tintura entrou numa coloração — ver serviceMaterialService.js). Aqui
+ * dá pra corrigir a quantidade FINAL de cada componente — só a
  * diferença é aplicada no estoque, não o valor inteiro de novo.
  */
 export function PersonalizedItemsAdjustment() {
@@ -54,10 +56,11 @@ export function PersonalizedItemsAdjustment() {
 
   return (
     <div className="screen">
-      <h1><Icon name="palette" size={18} /> Personalizados</h1>
+      <h1><Icon name="palette" size={18} /> Ajustes</h1>
       <p className="screen-hint">
-        Itens personalizados (montados na hora) recentes — informe aqui a quantidade FINAL de cada insumo/produto
-        usado, quando ela ficou diferente do estimado no momento da venda. Só a diferença é ajustada no estoque.
+        Itens personalizados (montados na hora) e serviços vendidos com material associado, recentes — informe
+        aqui a quantidade FINAL de cada insumo/produto usado, quando ela ficou diferente do estimado no momento
+        da venda. Só a diferença é ajustada no estoque.
       </p>
 
       <div className="period-selector">
@@ -69,7 +72,7 @@ export function PersonalizedItemsAdjustment() {
       </div>
 
       {itens === null && <p className="empty-state">Carregando...</p>}
-      {itens !== null && itens.length === 0 && <p className="empty-state">Nenhum item personalizado nesse período.</p>}
+      {itens !== null && itens.length === 0 && <p className="empty-state">Nenhum item pra ajustar nesse período.</p>}
 
       {itens && itens.map((item) => (
         <div key={item.saleItemId} className="modal-card" style={{ maxWidth: 720, marginBottom: 20 }}>
