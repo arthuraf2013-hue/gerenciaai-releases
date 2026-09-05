@@ -732,51 +732,57 @@ Node puro, sem `window`/`document` nenhum por perto. O desktop
 continua com o mesmo modelo de confiança de hoje (escreve sem se
 autenticar, com o `installId` fazendo esse papel) — isso não piora
 nada, só não dá pra melhorar por aqui sem redesenhar como o desktop se
-autentica, um projeto bem maior. Por isso este passo é só pro
-`pwa-mobile/` e pro `admin-panel/`.
+autentica, um projeto bem maior.
 
-Já deixei o código dos dois preparado (`pwa-mobile/firebase-config.js`
-e `admin-panel/index.html`) — falta só você fazer a parte que só você
-consegue fazer (criar a site key não é algo que dá pra automatizar
-daqui). **Importante**: diferente do que eu tinha escrito numa versão
-anterior deste passo, o Console do Firebase HOJE não cria mais a site
-key pra você na hora de registrar o app — ele só aceita colar uma
-chave do reCAPTCHA **Enterprise** já existente (o provedor clássico
-"reCAPTCHA v3" foi descontinuado pra novas integrações). É grátis
-(nível "Essentials", até 10 mil verificações/mês, sem precisar
-cadastrar cartão nem ativar faturamento no projeto) — só o caminho pra
-criar a chave é em outro lugar:
+**E, na prática, também só pro `pwa-mobile/` — não pro `admin-panel/`
+enquanto ele rodar do jeito A do Passo 6** (abrir `index.html` direto
+no navegador, `file://...`): reCAPTCHA também exige um domínio
+http/https de verdade, e um arquivo aberto local não tem isso —
+o próprio Cloud Console recusa cadastrar `file://` como domínio.
+Deixei o código do admin-panel já preparado (comentado) pra esse dia
+em que você publicar ele de verdade (Passo 6, opção B) e quiser essa
+camada a mais, mas não é prioridade: quem protege o dado de
+cliente/cobrança ali é o login e-mail/senha + as regras do Firestore
+que já exigem esse login (`ehAdminAutenticado()`), não o App Check.
+O alvo que valia a pena de verdade é o `pwa-mobile/`, que fica exposto
+pra qualquer um na internet, não só você — é nele que os passos abaixo
+se aplicam de verdade.
+
+Já deixei o código do `pwa-mobile/firebase-config.js` preparado —
+falta só você fazer a parte que só você consegue fazer (criar a site
+key não é algo que dá pra automatizar daqui). **Importante**:
+diferente do que eu tinha escrito numa versão anterior deste passo, o
+Console do Firebase HOJE não cria mais a site key pra você na hora de
+registrar o app — ele só aceita colar uma chave do reCAPTCHA
+**Enterprise** já existente (o provedor clássico "reCAPTCHA v3" foi
+descontinuado pra novas integrações). É grátis (nível "Essentials",
+até 10 mil verificações/mês, sem precisar cadastrar cartão nem ativar
+faturamento no projeto) — só o caminho pra criar a chave é em outro
+lugar:
 
 1. Crie a chave primeiro no **Google Cloud Console**, não no Firebase:
    acesse [console.cloud.google.com/security/recaptcha](https://console.cloud.google.com/security/recaptcha)
    (confirme que o projeto certo, `gerenciaai-licencas`, está
-   selecionado no topo) → aba **Keys** → "Create key" → dê um nome
-   qualquer → tipo de aplicativo **Web** → em "Domain list" adicione
-   o(s) domínio(s) onde `pwa-mobile/` e `admin-panel/` ficam
-   publicados (a URL que aparece no navegador ao abrir cada um —
-   ex.: algo terminando em `.web.app` se for Firebase Hosting, ou seu
-   domínio próprio se tiver um) → deixe **"Disable domain
-   verification" DESLIGADO** (mantém a chave restrita a esses
-   domínios) → deixe o tipo **baseado em pontuação** (não marque
-   "checkbox challenge" — isso é o modo antigo, com mais fricção pro
-   usuário) → "Create key". Copie a site key gerada.
+   selecionado no topo) → aba **Chaves** ("Keys") → "Criar chave"
+   ("Create key") → dê um nome qualquer → tipo de aplicativo **Web** →
+   em "Domain list" adicione o domínio onde o `pwa-mobile/` fica
+   publicado, **sem** `https://` na frente nem `/` no final (ex.:
+   `gerenciaai-garcom.web.app`, não `https://gerenciaai-garcom.web.app/`)
+   → deixe **"Disable domain verification" DESLIGADO** (mantém a
+   chave restrita a esse domínio) → deixe o tipo **baseado em
+   pontuação** (não marque "checkbox challenge" — isso é o modo
+   antigo, com mais fricção pro usuário) → "Create key". Copie a site
+   key gerada.
 2. Volte no Console do Firebase → **App Check** (menu lateral, ícone
    de escudo) → aba **Apps** → registre seu app Web (o mesmo `appId`
    do Passo 2) → provedor **reCAPTCHA Enterprise** → cole a site key
    do passo 1 no campo pedido → Salvar.
-3. Cole essa MESMA chave em DOIS lugares no código, substituindo o
-   placeholder `'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR'`:
-   - `pwa-mobile/firebase-config.js`, constante
-     `RECAPTCHA_ENTERPRISE_SITE_KEY`.
-   - `admin-panel/index.html`, mesma constante, dentro do
-     `<script type="module">` principal.
-   - Se `pwa-mobile/` e `admin-panel/` forem publicados em domínios
-     diferentes, volte no passo 1 e adicione TODOS os domínios na
-     mesma chave (até 250 domínios numa chave só) — não precisa criar
-     uma chave por domínio.
-4. Republique o `pwa-mobile/` (Passo 6, mesmo processo do admin-panel,
-   ou a hospedagem que você já usa) e o `admin-panel/` (Passo 6
-   abaixo).
+3. Cole essa MESMA chave em `pwa-mobile/firebase-config.js`, constante
+   `RECAPTCHA_ENTERPRISE_SITE_KEY`, no lugar do placeholder
+   `'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR'`. (Deixe a constante
+   equivalente em `admin-panel/index.html` como está, sem preencher —
+   ver acima o porquê.)
+4. Republique o `pwa-mobile/` (Passo 6).
 5. **Espere e confira antes do próximo passo**: volte no Console →
    App Check → aba do seu app → acompanhe as métricas por alguns dias
    de uso real. Você quer ver as chamadas chegando como "Verificado"
