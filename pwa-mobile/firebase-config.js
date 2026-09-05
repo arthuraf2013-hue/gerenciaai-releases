@@ -35,16 +35,21 @@ const appCheckMod = await import(
 
 const app = initializeApp(FIREBASE_CONFIG);
 
-// ⚠️ App Check (reCAPTCHA v3) -- ver LICENCIAMENTO.md, Passo 3.7. Não é
-// segredo (site keys do reCAPTCHA são públicas por natureza -- só a
-// "secret key", que fica do lado do Google, é privada), mesmo espírito
-// do FIREBASE_CONFIG acima. Até você preencher a site key de verdade,
-// isto não faz nada (nem quebra nada) -- o app continua exatamente como
-// hoje, sem token de App Check anexado nas chamadas ao Firestore.
-const RECAPTCHA_V3_SITE_KEY = 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR';
-if (RECAPTCHA_V3_SITE_KEY && RECAPTCHA_V3_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
+// ⚠️ App Check (reCAPTCHA Enterprise -- o Console do Firebase hoje só
+// oferece esse provedor pra registrar um app Web novo, o clássico v3
+// foi descontinuado pra novas integrações) -- ver LICENCIAMENTO.md,
+// Passo 3.7. Não é segredo (site keys do reCAPTCHA são públicas por
+// natureza -- só a "secret key", que fica do lado do Google, é
+// privada), mesmo espírito do FIREBASE_CONFIG acima. Grátis até 10 mil
+// verificações/mês (nível "Essentials", sem precisar de cartão/
+// faturamento no projeto Google Cloud) -- bem acima do que este app
+// gera. Até você preencher a site key de verdade, isto não faz nada
+// (nem quebra nada) -- o app continua exatamente como hoje, sem token
+// de App Check anexado nas chamadas ao Firestore.
+const RECAPTCHA_ENTERPRISE_SITE_KEY = 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR';
+if (RECAPTCHA_ENTERPRISE_SITE_KEY && RECAPTCHA_ENTERPRISE_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
   appCheckMod.initializeAppCheck(app, {
-    provider: new appCheckMod.ReCaptchaV3Provider(RECAPTCHA_V3_SITE_KEY),
+    provider: new appCheckMod.ReCaptchaEnterpriseProvider(RECAPTCHA_ENTERPRISE_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
   });
 }

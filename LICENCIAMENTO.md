@@ -716,47 +716,64 @@ verdade faria, sem passar pelo pwa-mobile ou pelo admin-panel nenhuma
 vez — as regras de segurança (Passo 3) continuam sendo a única trava
 de verdade contra ISSO. O App Check é uma camada A MAIS: verifica que
 quem está chamando é mesmo uma página do seu `pwa-mobile`/admin-panel
-rodando num navegador de verdade (via reCAPTCHA v3, invisível pro
-usuário), não um script batendo direto na API. O exemplo concreto onde
-isso importa mais aqui: a consulta que o celular faz pra achar um
+rodando num navegador de verdade (via reCAPTCHA Enterprise, invisível
+pro usuário), não um script batendo direto na API. O exemplo concreto
+onde isso importa mais aqui: a consulta que o celular faz pra achar um
 código de pareamento digitado (`match /{caminho=**}/pareamentos/` em
 `firestore.rules`) hoje só exige "estar autenticado" (até anônimo
 serve) — um script sem App Check também consegue se autenticar assim
 e varrer/adivinhar códigos entre lojas.
 
-**Não dá pra usar isso no app desktop** — o reCAPTCHA v3 (e qualquer
-outro provedor de App Check pra web) precisa rodar numa página de
-navegador de verdade; as chamadas ao Firestore do desktop rodam no
-processo principal do Electron (`electron/services/*.js`), Node puro,
-sem `window`/`document` nenhum por perto. O desktop continua com o
-mesmo modelo de confiança de hoje (escreve sem se autenticar, com o
-`installId` fazendo esse papel) — isso não piora nada, só não dá pra
-melhorar por aqui sem redesenhar como o desktop se autentica, um
-projeto bem maior. Por isso este passo é só pro `pwa-mobile/` e pro
-`admin-panel/`.
+**Não dá pra usar isso no app desktop** — o reCAPTCHA (Enterprise ou
+qualquer outro provedor de App Check pra web) precisa rodar numa
+página de navegador de verdade; as chamadas ao Firestore do desktop
+rodam no processo principal do Electron (`electron/services/*.js`),
+Node puro, sem `window`/`document` nenhum por perto. O desktop
+continua com o mesmo modelo de confiança de hoje (escreve sem se
+autenticar, com o `installId` fazendo esse papel) — isso não piora
+nada, só não dá pra melhorar por aqui sem redesenhar como o desktop se
+autentica, um projeto bem maior. Por isso este passo é só pro
+`pwa-mobile/` e pro `admin-panel/`.
 
 Já deixei o código dos dois preparado (`pwa-mobile/firebase-config.js`
 e `admin-panel/index.html`) — falta só você fazer a parte que só você
-consegue fazer (registrar o site key não é algo que dá pra automatizar
-daqui):
+consegue fazer (criar a site key não é algo que dá pra automatizar
+daqui). **Importante**: diferente do que eu tinha escrito numa versão
+anterior deste passo, o Console do Firebase HOJE não cria mais a site
+key pra você na hora de registrar o app — ele só aceita colar uma
+chave do reCAPTCHA **Enterprise** já existente (o provedor clássico
+"reCAPTCHA v3" foi descontinuado pra novas integrações). É grátis
+(nível "Essentials", até 10 mil verificações/mês, sem precisar
+cadastrar cartão nem ativar faturamento no projeto) — só o caminho pra
+criar a chave é em outro lugar:
 
-1. No Console do Firebase, vá em **App Check** (menu lateral, ícone de
-   escudo) → "Começar" → registre seu app Web (o mesmo `appId` do
-   Passo 2) → escolha o provedor **reCAPTCHA v3** → o próprio Firebase
-   cria a site key pra você e já deixa vinculada (mais simples que
-   registrar direto em google.com/recaptcha/admin à parte).
-2. Copie a **site key** (não é segredo, pode ficar direto no código,
-   igual o `firebaseConfig`).
-3. Cole essa chave em DOIS lugares, substituindo o placeholder
-   `'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR'`:
-   - `pwa-mobile/firebase-config.js`, constante `RECAPTCHA_V3_SITE_KEY`.
+1. Crie a chave primeiro no **Google Cloud Console**, não no Firebase:
+   acesse [console.cloud.google.com/security/recaptcha](https://console.cloud.google.com/security/recaptcha)
+   (confirme que o projeto certo, `gerenciaai-licencas`, está
+   selecionado no topo) → aba **Keys** → "Create key" → dê um nome
+   qualquer → tipo de aplicativo **Web** → em "Domain list" adicione
+   o(s) domínio(s) onde `pwa-mobile/` e `admin-panel/` ficam
+   publicados (a URL que aparece no navegador ao abrir cada um —
+   ex.: algo terminando em `.web.app` se for Firebase Hosting, ou seu
+   domínio próprio se tiver um) → deixe **"Disable domain
+   verification" DESLIGADO** (mantém a chave restrita a esses
+   domínios) → deixe o tipo **baseado em pontuação** (não marque
+   "checkbox challenge" — isso é o modo antigo, com mais fricção pro
+   usuário) → "Create key". Copie a site key gerada.
+2. Volte no Console do Firebase → **App Check** (menu lateral, ícone
+   de escudo) → aba **Apps** → registre seu app Web (o mesmo `appId`
+   do Passo 2) → provedor **reCAPTCHA Enterprise** → cole a site key
+   do passo 1 no campo pedido → Salvar.
+3. Cole essa MESMA chave em DOIS lugares no código, substituindo o
+   placeholder `'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR'`:
+   - `pwa-mobile/firebase-config.js`, constante
+     `RECAPTCHA_ENTERPRISE_SITE_KEY`.
    - `admin-panel/index.html`, mesma constante, dentro do
      `<script type="module">` principal.
    - Se `pwa-mobile/` e `admin-panel/` forem publicados em domínios
-     diferentes, o Console do Firebase pode pedir pra registrar cada
-     domínio separadamente dentro do mesmo app Web (reCAPTCHA v3 é
-     vinculado por domínio) — se aparecer um aviso de domínio não
-     autorizado no console do navegador (F12), é isso.
+     diferentes, volte no passo 1 e adicione TODOS os domínios na
+     mesma chave (até 250 domínios numa chave só) — não precisa criar
+     uma chave por domínio.
 4. Republique o `pwa-mobile/` (Passo 6, mesmo processo do admin-panel,
    ou a hospedagem que você já usa) e o `admin-panel/` (Passo 6
    abaixo).

@@ -30,13 +30,13 @@ rules_version = '2';
 //   PARTE 2 — regras de verdade pro que é novo (pareamento de celular,
 //   pedidos do garçom, status ao vivo), porque aqui quem escreve pode
 //   ser o CELULAR de um funcionário, não mais só as máquinas da
-//   própria loja. App Check (reCAPTCHA v3) já está preparado no
+//   própria loja. App Check (reCAPTCHA Enterprise) já está preparado no
 //   pwa-mobile e no admin-panel (ver comentário em `pareamentos` logo
 //   abaixo e LICENCIAMENTO.md Passo 3.7) -- é a próxima migração
 //   pendente, ainda sem enforcement nas regras de propósito (depende
 //   de um passo manual seu primeiro). NÃO é viável pro app desktop: as
 //   chamadas ao Firestore rodam no processo principal do Electron
-//   (Node puro, sem DOM), e o reCAPTCHA v3 exige um contexto de
+//   (Node puro, sem DOM), e o reCAPTCHA Enterprise exige um contexto de
 //   navegador de verdade -- o desktop continua com o mesmo modelo de
 //   confiança de hoje (sem autenticação nenhuma), sem regressão.
 //
@@ -252,7 +252,7 @@ service cloud.firestore {
       // humano tentando na hora, sem automação, é bloqueado por hoje já
       // exigir pelo menos um login anônimo.
       //
-      // App Check (reCAPTCHA v3) já está preparado no pwa-mobile e no
+      // App Check (reCAPTCHA Enterprise) já está preparado no pwa-mobile e no
       // admin-panel (LICENCIAMENTO.md Passo 3.7) pra fechar essa janela
       // de vez, mas a ENFORCEMENT aqui na regra (`&& request.app !=
       // null`) é um passo À PARTE, deliberadamente não feito ainda:
