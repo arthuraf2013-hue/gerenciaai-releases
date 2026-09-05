@@ -485,6 +485,38 @@ function listFullMenu() {
   });
 }
 
+/** Todos os SERVIÇOS com "tipo de serviço" definido (perfil salão de
+ * beleza e outros que vendam serviço) — usado na tabela de preços de
+ * serviços (config/preview/export) e na consulta rápida em app. Mesmo
+ * princípio do listFullMenu acima, mas filtrando tipo='servico' e o
+ * campo extra "tipo_servico" em vez de "tipo_prato" (ver
+ * service_price_table_config em schema.sql).
+ *
+ * precoVariavel: true quando o serviço tem pelo menos um material
+ * padrão que soma custo ao preço (ver service_material_defaults /
+ * serviceMaterialService.js) — o preço listado é só o de mão de obra,
+ * o valor final pode ficar maior dependendo do material realmente
+ * usado. A tela/HTML mostra "a partir de" nesse caso. */
+function listServicePriceTable() {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT p.id, p.nome, p.preco, p.custom_fields,
+            EXISTS(
+              SELECT 1 FROM service_material_defaults smd
+              WHERE smd.servico_id = p.id AND smd.cobra_no_preco = 1
+            ) as preco_variavel
+     FROM products p
+     WHERE p.ativo = 1 AND p.tipo = 'servico'
+       AND json_extract(p.custom_fields, '$.tipo_servico') IS NOT NULL
+       AND json_extract(p.custom_fields, '$.tipo_servico') != ''
+     ORDER BY p.nome`
+  ).all();
+  return rows.map((r) => {
+    const custom = JSON.parse(r.custom_fields || '{}');
+    return { id: r.id, nome: r.nome, preco: r.preco, tipo: custom.tipo_servico || '', precoVariavel: !!r.preco_variavel };
+  });
+}
+
 /**
  * Limpa o catálogo inteiro — pensado pra trocar de dado de teste (ex:
  * de farmácia pra padaria) sem carregar produto antigo junto, e sem
@@ -773,4 +805,4 @@ function removerDescontoValidade(productId) {
   return { ok: true };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, listServicePriceTable, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };

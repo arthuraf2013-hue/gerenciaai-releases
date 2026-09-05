@@ -46,6 +46,12 @@ function validateCamposExtras(camposExtras) {
   for (const c of camposExtras) {
     if (!c.campo || !c.label) return 'Todo campo extra precisa de uma chave e um rótulo.';
     if (!['texto', 'numero', 'data', 'boolean'].includes(c.tipo)) return `Tipo de campo inválido: ${c.tipo}`;
+    // aplicaA é opcional (default 'produto' quando ausente, ver
+    // ProductForm) -- decide se o campo aparece no cadastro de produto,
+    // de serviço, ou nos dois. Ver tipo_servico do salão de beleza.
+    if (c.aplicaA !== undefined && !['produto', 'servico', 'ambos'].includes(c.aplicaA)) {
+      return `Valor inválido em "aplica a": ${c.aplicaA}`;
+    }
   }
   return null;
 }
@@ -137,4 +143,8 @@ function updateLocationName(locationId, nome) {
 module.exports = {
   listAvailableProfiles, getActiveProfile, setActiveProfile, createProfile, updateProfile,
   duplicateProfile, deleteProfile, getSettings, updateLocationName,
+  // Exportado pra teste direto (tests/servicePriceTableService.test.js,
+  // cobre o valor novo "aplicaA") -- as demais funções já cobrem isso
+  // indiretamente via createProfile/updateProfile.
+  validateCamposExtras,
 };

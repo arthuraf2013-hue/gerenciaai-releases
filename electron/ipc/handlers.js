@@ -3,6 +3,7 @@ const authService = require('../services/authService');
 const productService = require('../services/productService');
 const productSyncService = require('../services/productSyncService');
 const digitalMenuService = require('../services/digitalMenuService');
+const servicePriceTableService = require('../services/servicePriceTableService');
 const weightBarcodeService = require('../services/weightBarcodeService');
 const scaleHardwareService = require('../services/scaleHardwareService');
 const licenseService = require('../services/licenseService');
@@ -518,6 +519,7 @@ function registerIpcHandlers() {
   safeHandle('print:listPrinters', () => printService.listPrinters());
   safeHandle('print:testPage', () => printService.printTestPage());
   safeHandle('product:listDailyMenu', () => productService.listDailyMenu());
+  safeHandle('product:listServicePriceTable', () => productService.listServicePriceTable());
 
   // --- Cardápio digital (restaurante/padaria) ---
   safeHandle('digitalMenu:getConfig', () => digitalMenuService.getConfig());
@@ -542,6 +544,33 @@ function registerIpcHandlers() {
     const path = require('path');
     const tmpPath = path.join(os.tmpdir(), 'gerenciaai-cardapio-preview.html');
     fs.writeFileSync(tmpPath, digitalMenuService.generateHtml(), 'utf-8');
+    shell.openPath(tmpPath);
+    return { ok: true };
+  });
+
+  // --- Tabela de preços de serviços (salão de beleza e afins) ---
+  safeHandle('servicePriceTable:getConfig', () => servicePriceTableService.getConfig());
+  safeHandle('servicePriceTable:updateConfig', (_e, payload) => servicePriceTableService.updateConfig(payload));
+  safeHandle('servicePriceTable:generateHtml', () => servicePriceTableService.generateHtml());
+  safeHandle('servicePriceTable:exportHtml', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Exportar tabela de preços',
+      defaultPath: 'tabela-precos.html',
+      filters: [{ name: 'Página HTML', extensions: ['html'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    const fs = require('fs');
+    fs.writeFileSync(filePath, servicePriceTableService.generateHtml(), 'utf-8');
+    return { ok: true, filePath };
+  });
+  safeHandle('servicePriceTable:openInBrowser', () => {
+    const { shell } = require('electron');
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpPath = path.join(os.tmpdir(), 'gerenciaai-tabela-precos-preview.html');
+    fs.writeFileSync(tmpPath, servicePriceTableService.generateHtml(), 'utf-8');
     shell.openPath(tmpPath);
     return { ok: true };
   });

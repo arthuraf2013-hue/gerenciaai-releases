@@ -35,6 +35,7 @@ const BotOrdersScreen = lazy(() => import('../pos/BotOrdersScreen').then((m) => 
 const KitchenDisplayScreen = lazy(() => import('../pos/KitchenDisplayScreen').then((m) => ({ default: m.KitchenDisplayScreen })));
 const QuotesScreen = lazy(() => import('../pos/QuotesScreen').then((m) => ({ default: m.QuotesScreen })));
 const AgendaScreen = lazy(() => import('../pos/AgendaScreen').then((m) => ({ default: m.AgendaScreen })));
+const ServicePriceScreen = lazy(() => import('../pos/ServicePriceScreen').then((m) => ({ default: m.ServicePriceScreen })));
 const ReservasScreen = lazy(() => import('../pos/ReservasScreen').then((m) => ({ default: m.ReservasScreen })));
 const ReturnFlow = lazy(() => import('../pos/ReturnFlow').then((m) => ({ default: m.ReturnFlow })));
 
@@ -49,6 +50,11 @@ const CHAVE_SECOES_FECHADAS = 'gerenciaai:secoes-fechadas';
 // Padaria também, já que ela também monta receita com insumos
 // (farinha, fermento etc.) e pode ter itens tipo "prato do dia".
 const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
+
+// Perfis que vendem serviço com tabela de preços/consulta rápida (ver
+// ProductsScreen.jsx PERFIS_SERVICO_COM_MATERIAL, mesmo espírito —
+// qualquer perfil novo que passe a usar "tipo_servico" entra aqui).
+const PERFIS_TABELA_SERVICOS = ['salao_beleza'];
 
 // Rótulo dos status "ativos" (na fila) pro balão de consulta rápida no
 // contador da barra lateral — concluído/cancelado não aparecem aqui
@@ -66,6 +72,7 @@ const NAV_ITEMS = [
   { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
   { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
   { id: 'agenda', icon: 'calendar', label: 'Agenda', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: 'salao_beleza', section: 'Vendas' },
+  { id: 'servicePrices', icon: 'card', label: 'Preços de Serviço', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_TABELA_SERVICOS, section: 'Vendas' },
   { id: 'reservations', icon: 'book', label: 'Reservas', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
 
   // Setor à parte, fora de qualquer perfil de negócio — só aparece
@@ -111,6 +118,7 @@ const NAV_ICON_COLOR = {
   truck: '#4dd0e1',
   clipboard: '#7986cb',
   calendar: '#f06292',
+  card: '#26a69a',
   book: '#ab47bc',
   box: '#ffa726',
   tag: '#ff7043',
@@ -435,6 +443,7 @@ export function AppShell() {
           {screen === 'delivery' && <DeliveryScreen />}
           {screen === 'quotes' && <QuotesScreen />}
           {screen === 'agenda' && <AgendaScreen />}
+          {screen === 'servicePrices' && <ServicePriceScreen />}
           {screen === 'reservations' && <ReservasScreen />}
           {screen === 'returns' && (
             <ReturnFlow preselectSaleId={returnPreselectId} onPreselectConsumed={() => setReturnPreselectId(null)} />

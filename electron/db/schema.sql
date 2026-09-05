@@ -576,6 +576,22 @@ CREATE TABLE IF NOT EXISTS digital_menu_config (
   rodape_texto    TEXT
 );
 
+-- Tabela de preços de serviços (salão de beleza e outros perfis que
+-- vendem serviço) — mesmo espírito do cardápio digital acima: aparência
+-- customizável, exportável como página HTML própria (tablet na
+-- recepção, ou link/arquivo pro cliente). Mostra todo `product` com
+-- tipo='servico' que tiver o campo extra "tipo_servico" preenchido no
+-- cadastro (ver productService.listServicePriceTable), agrupado por
+-- esse tipo (ex: Corte, Coloração, Pigmentação). Diferente do cardápio,
+-- aqui não existe opção de "esconder preço" — o preço É o conteúdo.
+CREATE TABLE IF NOT EXISTS service_price_table_config (
+  id              TEXT PRIMARY KEY DEFAULT 'default',
+  titulo          TEXT DEFAULT 'Tabela de Preços',
+  subtitulo       TEXT,
+  cor_tema        TEXT DEFAULT '#0f6e63',
+  rodape_texto    TEXT
+);
+
 -- Formato da etiqueta de peso variável impressa pela balança — varia
 -- por marca/modelo/configuração (não existe "o" formato único, cada
 -- fabricante tem os seus). "formato" escolhe entre os padrões mais

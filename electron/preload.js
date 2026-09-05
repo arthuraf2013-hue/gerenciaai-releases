@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('pdv', {
     generateInternalBarcode: invoke('product:generateInternalBarcode'),
     listPriceHistory: invoke('product:listPriceHistory'),
     listDailyMenu: invoke('product:listDailyMenu'),
+    listServicePriceTable: invoke('product:listServicePriceTable'),
     setFoto: invoke('product:setFoto'),
     removeFoto: invoke('product:removeFoto'),
     getFotoDataUrl: invoke('product:getFotoDataUrl'),
@@ -40,6 +41,13 @@ contextBridge.exposeInMainWorld('pdv', {
     generateHtml: invoke('digitalMenu:generateHtml'),
     exportHtml: invoke('digitalMenu:exportHtml'),
     openInBrowser: invoke('digitalMenu:openInBrowser'),
+  },
+  servicePriceTable: {
+    getConfig: invoke('servicePriceTable:getConfig'),
+    updateConfig: invoke('servicePriceTable:updateConfig'),
+    generateHtml: invoke('servicePriceTable:generateHtml'),
+    exportHtml: invoke('servicePriceTable:exportHtml'),
+    openInBrowser: invoke('servicePriceTable:openInBrowser'),
   },
   weightBarcode: {
     getConfig: invoke('weightBarcode:getConfig'),

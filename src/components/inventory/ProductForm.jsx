@@ -81,6 +81,13 @@ const emptyProduct = {
 export function ProductForm({ product, onSaved, onCancel }) {
   const { profile } = useProfile();
   const { currentUser } = useSession();
+  // Campos extras do perfil se dividem por aplicaA: sem essa chave (ou
+  // 'produto') é sobre um item físico (lote, validade...) e só faz
+  // sentido pro cadastro de produto; 'servico' ou 'ambos' é sobre o
+  // serviço em si (ex: tipo_servico do salão de beleza, usado na
+  // tabela de preços) e aparece no cadastro de serviço.
+  const camposExtrasProduto = (profile?.camposExtras || []).filter((c) => (c.aplicaA || 'produto') !== 'servico');
+  const camposExtrasServico = (profile?.camposExtras || []).filter((c) => c.aplicaA === 'servico' || c.aplicaA === 'ambos');
   const [form, setForm] = useState(emptyProduct);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -316,14 +323,14 @@ export function ProductForm({ product, onSaved, onCancel }) {
     if (!form.nome.trim()) return setError('Informe o nome do produto.');
     if (form.preco === '' || isNaN(Number(form.preco))) return setError('Informe um preço válido.');
 
-    // Campos extras do perfil (lote, validade, princípio ativo...) são
-    // sobre um item físico — não fazem sentido pra serviço (consulta,
-    // mão de obra, taxa), então não bloqueiam o cadastro dele.
-    if (form.tipo !== 'servico') {
-      for (const campo of profile?.camposExtras || []) {
-        if (campo.obrigatorio && !form.customFields[campo.campo]) {
-          return setError(`O campo "${campo.label}" é obrigatório para o perfil ${profile.nome}.`);
-        }
+    // Campos extras do perfil que sejam sobre um item físico (lote,
+    // validade, princípio ativo...) não fazem sentido pra serviço, então
+    // não bloqueiam o cadastro dele -- só os marcados aplicaA:'servico'/
+    // 'ambos' (ex: tipo_servico) valem aqui. Ver camposExtrasProduto/
+    // camposExtrasServico acima.
+    for (const campo of form.tipo === 'servico' ? camposExtrasServico : camposExtrasProduto) {
+      if (campo.obrigatorio && !form.customFields[campo.campo]) {
+        return setError(`O campo "${campo.label}" é obrigatório para o perfil ${profile.nome}.`);
       }
     }
 
@@ -525,11 +532,39 @@ export function ProductForm({ product, onSaved, onCancel }) {
         </>
       )}
 
-      {form.tipo !== 'servico' && profile?.camposExtras?.length > 0 && (
+      {form.tipo !== 'servico' && camposExtrasProduto.length > 0 && (
         <>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
           <div className="form-grid">
-            {profile.camposExtras.map((campo) => (
+            {camposExtrasProduto.map((campo) => (
+              <label key={campo.campo}>
+                {campo.label}{campo.obrigatorio ? ' *' : ''}
+                {campo.tipo === 'boolean' ? (
+                  <select
+                    value={form.customFields[campo.campo] ? 'sim' : 'não'}
+                    onChange={(e) => setCustomField(campo.campo, e.target.value === 'sim')}
+                  >
+                    <option value="não">Não</option>
+                    <option value="sim">Sim</option>
+                  </select>
+                ) : (
+                  <input
+                    type={campo.tipo === 'data' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'}
+                    value={form.customFields[campo.campo] || ''}
+                    onChange={(e) => setCustomField(campo.campo, e.target.value)}
+                  />
+                )}
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+
+      {form.tipo === 'servico' && camposExtrasServico.length > 0 && (
+        <>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
+          <div className="form-grid">
+            {camposExtrasServico.map((campo) => (
               <label key={campo.campo}>
                 {campo.label}{campo.obrigatorio ? ' *' : ''}
                 {campo.tipo === 'boolean' ? (

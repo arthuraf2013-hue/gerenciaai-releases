@@ -260,6 +260,33 @@ function atualizarCheckRoleParaIncluirSuporte(database) {
   }
 }
 
+/**
+ * Garante que um campo extra específico exista em custom_profiles.campos_extras_json
+ * de um perfil já existente -- sem isso, adicionar um campo novo a um
+ * seedProfileIfMissing() só valeria pra instalação NOVA (seedProfileIfMissing
+ * não faz nada se o perfil já existe), deixando o campo faltando pra
+ * sempre em qualquer banco que já tivesse esse perfil de antes (ex: o
+ * campo "tipo_servico" do salão de beleza, adicionado depois do perfil
+ * já existir -- ver service_price_table_config em schema.sql).
+ *
+ * Idempotente: não faz nada se o perfil não existir (usuário pode ter
+ * apagado) ou se o campo já estiver lá -- e nunca sobrescreve/reordena
+ * campos que o usuário já tenha customizado via ProfileManager.
+ */
+function garantirCampoExtraNoPerfil(database, perfilId, novoCampo) {
+  const row = database.prepare('SELECT campos_extras_json FROM custom_profiles WHERE id = ?').get(perfilId);
+  if (!row) return;
+  let campos;
+  try {
+    campos = JSON.parse(row.campos_extras_json || '[]');
+  } catch {
+    return; // JSON corrompido -- não arrisca sobrescrever, deixa como está
+  }
+  if (!Array.isArray(campos) || campos.some((c) => c.campo === novoCampo.campo)) return;
+  campos.push(novoCampo);
+  database.prepare('UPDATE custom_profiles SET campos_extras_json = ? WHERE id = ?').run(JSON.stringify(campos), perfilId);
+}
+
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
@@ -378,6 +405,11 @@ function migrateColumnsIfNeeded(database) {
   atualizarCheckOrigemParaIncluirAppGarcom(database);
   atualizarCheckRoleParaIncluirSuporte(database);
 
+  // Tabela de preços de serviços (ver comentário de garantirCampoExtraNoPerfil).
+  garantirCampoExtraNoPerfil(database, 'salao_beleza', {
+    campo: 'tipo_servico', label: 'Tipo de serviço (corte, coloração, pigmentação...)', tipo: 'texto', obrigatorio: false, aplicaA: 'servico',
+  });
+
   // Correção pontual: produtos desativados de antes dessa correção
   // (excluir não liberava o código de barras/SKU) ficaram "segurando"
   // o código pra sempre, invisíveis na busca mas bloqueando qualquer
@@ -455,6 +487,10 @@ function seedIfEmpty(database) {
   seedProfileIfMissing('salao_beleza', 'Salão de Beleza / Cabelo', [
     { campo: 'validade', label: 'Validade', tipo: 'data', obrigatorio: false },
     { campo: 'uso_profissional', label: 'Uso profissional (não é pra revenda)', tipo: 'boolean', obrigatorio: false },
+    // aplicaA: 'servico' -- diferente dos dois campos acima (que são
+    // sobre um item físico em estoque), este é sobre um SERVIÇO -- ver
+    // o filtro por aplicaA no ProductForm e productService.listServicePriceTable.
+    { campo: 'tipo_servico', label: 'Tipo de serviço (corte, coloração, pigmentação...)', tipo: 'texto', obrigatorio: false, aplicaA: 'servico' },
   ], { alertaValidadeProxima: true, diasAlertaValidade: 180, diasAlertaValidadeCritico: 30 });
 
   seedProfileIfMissing('padaria', 'Padaria / Confeitaria', [
@@ -517,6 +553,11 @@ function seedIfEmpty(database) {
   const digitalMenuConfigCount = database.prepare('SELECT COUNT(*) as c FROM digital_menu_config').get().c;
   if (digitalMenuConfigCount === 0) {
     database.prepare(`INSERT INTO digital_menu_config (id) VALUES ('default')`).run();
+  }
+
+  const servicePriceTableConfigCount = database.prepare('SELECT COUNT(*) as c FROM service_price_table_config').get().c;
+  if (servicePriceTableConfigCount === 0) {
+    database.prepare(`INSERT INTO service_price_table_config (id) VALUES ('default')`).run();
   }
 
   const scaleBarcodeConfigCount = database.prepare('SELECT COUNT(*) as c FROM scale_barcode_config').get().c;
@@ -586,6 +627,8 @@ module.exports = {
   atualizarCheckOrigemParaIncluirAppGarcom,
   // Idem, pra tests/migracaoRoleSuporte.test.js.
   atualizarCheckRoleParaIncluirSuporte,
+  // Idem, pra tests/servicePriceTableService.test.js (migração do campo tipo_servico).
+  garantirCampoExtraNoPerfil,
 };
 
 function getDbPath() {
