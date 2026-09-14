@@ -68,6 +68,36 @@ test('devolução parcial acumulada não pode passar do total vendido', () => {
   assert.equal(terceira.ok, true);
 });
 
+/**
+ * findFinalizedSales aplicava o LIMIT 50 na consulta SQL e só DEPOIS
+ * filtrava pela busca em JS -- uma venda existente, mas fora das 50 mais
+ * recentes, simplesmente sumia da busca (auditoria, seção 4, Padrão 3).
+ * Este teste crava uma venda bem mais antiga que as outras 50 e confere
+ * que a busca ainda encontra ela.
+ */
+test('findFinalizedSales encontra venda fora das 50 mais recentes quando a busca bate com ela', () => {
+  const ctx = freshTestDb();
+  const idAntiga = randomUUID();
+  ctx.db.prepare(
+    `INSERT INTO sales (id, location_id, operador_id, status, finalizada_em)
+     VALUES (?, ?, ?, 'finalizada', datetime(NOW_SYNCED(), '-1000 minutes'))`
+  ).run(idAntiga, ctx.locationId, ctx.operadorId);
+
+  for (let i = 0; i < 55; i++) {
+    ctx.db.prepare(
+      `INSERT INTO sales (id, location_id, operador_id, status, finalizada_em)
+       VALUES (?, ?, ?, 'finalizada', datetime(NOW_SYNCED(), '-' || ? || ' minutes'))`
+    ).run(randomUUID(), ctx.locationId, ctx.operadorId, i);
+  }
+
+  const semBusca = returnService.findFinalizedSales({ locationId: ctx.locationId });
+  assert.equal(semBusca.length, 50, 'sem busca, continua limitado a 50 (comportamento original preservado)');
+  assert.ok(!semBusca.some((s) => s.id === idAntiga), 'a venda antiga não deveria estar entre as 50 mais recentes');
+
+  const comBusca = returnService.findFinalizedSales({ locationId: ctx.locationId, query: idAntiga.slice(0, 8) });
+  assert.ok(comBusca.some((s) => s.id === idAntiga), 'a busca deveria encontrar a venda antiga mesmo fora das 50 mais recentes');
+});
+
 test('devolução autorizada devolve o estoque corretamente', () => {
   const ctx = vendaFinalizadaComItem(freshTestDb(), { quantidadeVenda: 2 });
   const antes = stockService.getCurrentStock(ctx.productId, ctx.locationId); // 10 - 2 = 8

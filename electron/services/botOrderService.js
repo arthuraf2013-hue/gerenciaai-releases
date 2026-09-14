@@ -154,6 +154,16 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
   const operadorVenda = operadorId || pedido.separado_por;
   if (!operadorVenda) return; // não deveria acontecer (em_separacao já grava separado_por), mas nunca deixa a venda sem operador
 
+  // descontarPorVenda cuida do estoque de INSUMO (ficha técnica) de
+  // cada produto -- essa função monta a venda "na mão" (INSERT direto
+  // em stock_movements, sem passar por saleService.addItem), então
+  // nunca chamava isso. Todo pedido de retirada/entrega vindo do bot
+  // com um prato que tem ficha técnica deixava o estoque de insumo
+  // parado no valor antigo pra sempre (nunca descontava de verdade),
+  // enquanto o estoque do PRODUTO em si (stock_movements) já era
+  // debitado certo (auditoria, seção 4).
+  const ingredientService = require('./ingredientService');
+
   const saleId = randomUUID();
   const transacao = db.transaction(() => {
     db.prepare(
@@ -172,6 +182,7 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
          VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
       ).run(randomUUID(), item.product_id, pedido.location_id, -Math.abs(item.quantidade), saleId, saleItemId, operadorVenda, 'bot_orders');
+      ingredientService.descontarPorVenda(item.product_id, item.quantidade);
       total += preco * item.quantidade;
     }
     db.prepare('UPDATE sales SET total = ? WHERE id = ?').run(total, saleId);
@@ -258,6 +269,13 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
   // lançar do que precisava. Mesmo comportamento de antes: um item sem
   // estoque só loga o erro e não interrompe os demais (nada aqui lança
   // exceção, então a transação sempre chega ao fim e comita normalmente).
+  //
+  // O que MUDOU: antes, um item que não entrava (ex: sem estoque) só
+  // virava um console.error -- ninguém no atendimento ficava sabendo, e
+  // o cliente do WhatsApp achava que o item tinha sido lançado normal.
+  // Agora isso volta no resultado (itensNaoLancados), pra tela avisar
+  // quem lançou (auditoria, seção 4).
+  const itensNaoLancados = [];
   const lancarItens = db.transaction(() => {
     for (const item of itensComProduto) {
       const resultado = saleService.addItem({
@@ -266,6 +284,10 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
       });
       if (!resultado.ok) {
         console.error('[botOrderService] item do pedido de mesa não entrou na comanda', item.id, resultado.error);
+        const produto = db.prepare('SELECT nome FROM products WHERE id = ?').get(item.product_id);
+        itensNaoLancados.push({
+          itemId: item.id, nome: produto?.nome || item.descricao_livre || 'item', motivo: resultado.error,
+        });
       }
     }
   });
@@ -275,7 +297,7 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
     `UPDATE bot_orders SET status = 'concluido', sale_id = ?, separado_por = COALESCE(separado_por, ?), concluido_em = COALESCE(concluido_em, NOW_SYNCED()) WHERE id = ?`
   ).run(saleId, operadorId, orderId);
 
-  return { ok: true, saleId };
+  return { ok: true, saleId, itensNaoLancados };
 }
 
 /** Fila de pedidos — já vem com a contagem de itens/itens separados

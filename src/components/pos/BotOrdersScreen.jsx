@@ -210,6 +210,15 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
     setLancandoMesa(false);
     if (!resultado?.ok) { setErro(resultado?.error || 'Não consegui lançar o pedido na mesa.'); return; }
     onAtualizado();
+    // Item sem estoque (ou outro motivo) não entra na comanda -- antes
+    // isso só ficava no log do sistema, e quem lançou achava que tinha
+    // ido tudo. Agora avisa aqui e MANTÉM o modal aberto pra pessoa ler
+    // antes de fechar (auditoria, seção 4).
+    if (resultado.itensNaoLancados?.length > 0) {
+      const lista = resultado.itensNaoLancados.map((i) => `${i.nome} (${i.motivo})`).join('; ');
+      setErro(`Comanda aberta na mesa, mas ${resultado.itensNaoLancados.length} item(ns) não entraram: ${lista}`);
+      return;
+    }
     onClose();
   }
 

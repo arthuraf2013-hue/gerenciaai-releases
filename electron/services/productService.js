@@ -75,7 +75,7 @@ function normalizarTexto(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
-function list({ query, categoria, tipo, limit, offset, cursorNome, cursorId } = {}) {
+function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, cursorId } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
@@ -97,9 +97,10 @@ function list({ query, categoria, tipo, limit, offset, cursorNome, cursorId } = 
     // simplesmente não devolver nada.
     const queryNormalizada = normalizarTexto(query);
     const queryLower = query.toLowerCase();
-    const todosAtivos = tipo
-      ? db.prepare('SELECT * FROM products WHERE ativo = 1 AND tipo = ?').all(tipo)
-      : db.prepare('SELECT * FROM products WHERE ativo = 1').all();
+    const filtroTipoSql = tipo ? ' AND tipo = ?' : '';
+    const filtroConflitoSql = comConflito ? ' AND conflito_codigo_barras_pendente IS NOT NULL' : '';
+    const argsFiltro = tipo ? [tipo] : [];
+    const todosAtivos = db.prepare(`SELECT * FROM products WHERE ativo = 1${filtroTipoSql}${filtroConflitoSql}`).all(...argsFiltro);
 
     const comecamComOTermo = [];
     const outrosMatches = [];
@@ -164,6 +165,16 @@ function list({ query, categoria, tipo, limit, offset, cursorNome, cursorId } = 
     sql += ' AND tipo = ?';
     params.push(tipo);
   }
+  // Filtra por conflito de código de barras pendente já aqui no SQL —
+  // antes, a tela de Produtos carregava as páginas normais (rolagem
+  // infinita, sem esse filtro) e só DEPOIS escondia da tela quem não
+  // tinha conflito, sobre o que já tinha sido carregado. Isso fazia a
+  // pessoa rolar o catálogo inteiro pra encontrar os poucos produtos
+  // com conflito (e o "Fim da lista" contava produtos errados,
+  // incluindo os escondidos pelo filtro) — auditoria, seção 5.
+  if (comConflito) {
+    sql += ' AND conflito_codigo_barras_pendente IS NOT NULL';
+  }
 
   // Paginação por CURSOR (baseada no último item visto), não por
   // OFFSET (posição numérica) — offset sozinho, mesmo com desempate
@@ -227,7 +238,7 @@ function countConflitosCodigoBarrasPendentes() {
   ).get().total;
 }
 
-function count({ query, categoria, tipo } = {}) {
+function count({ query, categoria, tipo, comConflito } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
@@ -235,7 +246,7 @@ function count({ query, categoria, tipo } = {}) {
     // começa com o termo, só cai pro resto quando não tem nenhum
     // assim) — senão a paginação da tela de Produtos "acha" que tem
     // mais resultado do que list() realmente devolve, ou o contrário.
-    return list({ query, tipo }).length;
+    return list({ query, tipo, comConflito }).length;
   }
 
   const params = [];
@@ -247,6 +258,9 @@ function count({ query, categoria, tipo } = {}) {
   if (tipo) {
     sql += ' AND tipo = ?';
     params.push(tipo);
+  }
+  if (comConflito) {
+    sql += ' AND conflito_codigo_barras_pendente IS NOT NULL';
   }
   return db.prepare(sql).get(...params).total;
 }
@@ -292,8 +306,8 @@ function upsert(product) {
   const tipo = product.tipo === 'servico' ? 'servico' : 'produto';
 
   db.prepare(
-    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields, codigo_balanca, tipo)
-     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields, @codigoBalanca, @tipo)
+    `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, ncm, cest, cfop, cst_csosn, origem_mercadoria, custom_fields, codigo_balanca, tipo, fornecedor_id)
+     VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @ncm, @cest, @cfop, @cstCsosn, @origemMercadoria, @customFields, @codigoBalanca, @tipo, @fornecedorId)
      ON CONFLICT(id) DO UPDATE SET
        sku=excluded.sku, codigo_barras=excluded.codigo_barras, nome=excluded.nome,
        categoria=excluded.categoria, preco=excluded.preco, custo=excluded.custo,
@@ -301,7 +315,7 @@ function upsert(product) {
        ncm=excluded.ncm, cest=excluded.cest, cfop=excluded.cfop,
        cst_csosn=excluded.cst_csosn, origem_mercadoria=excluded.origem_mercadoria,
        custom_fields=excluded.custom_fields, codigo_balanca=excluded.codigo_balanca,
-       tipo=excluded.tipo,
+       tipo=excluded.tipo, fornecedor_id=excluded.fornecedor_id,
        conflito_codigo_barras_pendente=NULL`
   ).run({
     id,
@@ -321,6 +335,12 @@ function upsert(product) {
     origemMercadoria: product.origemMercadoria || '0',
     customFields,
     tipo,
+    // Sem isso, o formulário de produto nunca gravava o fornecedor
+    // vinculado -- "Lista de compra sugerida" (supplierService.
+    // suggestPurchases) ficava sempre vazia pra qualquer produto
+    // cadastrado/editado manualmente na tela, só funcionando pros que
+    // vieram de importação de planilha (auditoria, seção 3).
+    fornecedorId: product.fornecedorId || null,
   });
 
   if (existente && existente.preco !== precoNovo) {
@@ -636,9 +656,14 @@ function findDuplicateProducts() {
      WHERE p.ativo = 1 GROUP BY p.id`
   ).all();
 
+  // normalizarTexto tira acento além de maiúscula/minúscula -- sem
+  // isso "Café" e "Cafe" (erro de digitação comum, ou import de outro
+  // sistema sem acentuação) não batiam como duplicado nenhum, mesmo
+  // sendo claramente o mesmo produto cadastrado duas vezes (auditoria,
+  // seção 3).
   const porNomeNormalizado = new Map();
   for (const p of produtos) {
-    const chave = p.nome.trim().toUpperCase();
+    const chave = normalizarTexto(p.nome);
     if (!porNomeNormalizado.has(chave)) porNomeNormalizado.set(chave, []);
     porNomeNormalizado.get(chave).push(p);
   }

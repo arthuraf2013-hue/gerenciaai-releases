@@ -462,15 +462,41 @@ function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, de
   return { ok: true, itemId, precoUnitario: precoNumerico };
 }
 
-/** Registra um ou mais pagamentos (suporta pagamento misto/split). */
+/**
+ * Registra um ou mais pagamentos (suporta pagamento misto/split).
+ *
+ * Só 'dinheiro' pode passar do que falta — é o único método com troco
+ * de verdade (o PaymentPanel já limita os outros no campo, mas isso é
+ * só front: um valor mandado direto por IPC, ou um clique que escapou
+ * da validação da tela, não tinha NENHUM teto aqui no backend). Pra
+ * 'fiado' isso não é só um valor "errado" que sobra — era dívida de
+ * verdade registrada em cima do cliente (customerService.registrarDivida
+ * usa esse valor direto), inflando o saldo devedor acima do total real
+ * da venda, sem chance de estorno automático (auditoria, seção 3).
+ */
 function addPayment({ saleId, metodo, valor, detalhes }) {
   const db = getDb();
 
-  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
   if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta — não é possível registrar pagamento.' };
 
   if (!(valor > 0)) return { ok: false, error: 'Valor do pagamento precisa ser maior que zero.' };
+
+  if (metodo !== 'dinheiro') {
+    const jaPago = db.prepare('SELECT COALESCE(SUM(valor), 0) as t FROM payments WHERE sale_id = ?').get(saleId).t;
+    // Taxa de serviço (se a mesa tiver uma ativa) precisa entrar aqui --
+    // senão um pagamento em cartão/pix que cobre exatamente o que a tela
+    // mostrou pro cliente (subtotal + taxa) era rejeitado por "passar do
+    // que falta", porque esse teto só olhava sale.total sem a taxa.
+    const subtotalComDesconto = sale.total - sale.desconto - sale.desconto_gerente;
+    const valorTaxaServico = sale.taxa_servico_percentual > 0 ? subtotalComDesconto * (sale.taxa_servico_percentual / 100) : 0;
+    const totalAPagar = subtotalComDesconto + valorTaxaServico;
+    const restante = totalAPagar - jaPago;
+    if (valor > restante + 0.005) {
+      return { ok: false, error: `Esse valor passa do que falta na venda (R$ ${Math.max(0, restante).toFixed(2)}). Só pagamento em dinheiro pode gerar troco.` };
+    }
+  }
 
   const id = randomUUID();
   db.prepare(
@@ -479,7 +505,6 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
   return { ok: true, id };
 }
 
-/** Remove um pagamento adicionado por engano — só antes de finalizar. */
 /** Observação livre de um item (ex: "sem cebola") — some junto na
  * próxima impressão da comanda pra cozinha, mesmo que o item já tenha
  * sido enviado antes (a observação nova precisa chegar até a cozinha). */
@@ -543,7 +568,15 @@ function setItemPrice({ saleId, saleItemId, novoPreco, motivo, currentOperatorId
   return { ok: true, novoPreco: preco };
 }
 
-function removePayment({ paymentId, saleId }) {
+// Remover um pagamento já lançado é, na prática, tão sensível quanto
+// cancelar um item ou a venda inteira -- apaga dinheiro que já tinha
+// entrado. Antes disso não pedia autorização nem deixava rastro
+// nenhum (era a única exceção no domínio, que em todo o resto exige
+// aprovação de gerente + audit_log pra qualquer reversão financeira,
+// ver cancelSaleItem/cancelSale/applyManagerDiscount) -- reaproveita a
+// mesma flag de configuração de cancelamento (exigir_autorizacao_cancelamento)
+// em vez de criar uma terceira opção só pra isso.
+function removePayment({ paymentId, saleId, currentOperatorId, candidateManagerId, pin, motivo }) {
   const db = getDb();
   const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
@@ -552,8 +585,29 @@ function removePayment({ paymentId, saleId }) {
   const payment = db.prepare('SELECT * FROM payments WHERE id = ? AND sale_id = ?').get(paymentId, saleId);
   if (!payment) return { ok: false, error: 'Pagamento não encontrado.' };
 
+  const exigeAutorizacao = getSecurityConfig().exigir_autorizacao_cancelamento === 1;
+
+  let autorizadoPorId = null;
+  if (exigeAutorizacao) {
+    const auth = authorizeManagerOverride({
+      candidateUserId: candidateManagerId,
+      pin,
+      currentOperatorId,
+      tipoEvento: 'remocao_pagamento',
+      saleId,
+      motivo,
+    });
+    if (!auth.ok) return auth;
+    autorizadoPorId = auth.autorizadoPor.id;
+  } else {
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, autorizado_por_id, motivo, sucesso)
+       VALUES (?, 'remocao_pagamento_sem_autorizacao_configurada', ?, ?, NULL, ?, 1)`
+    ).run(randomUUID(), saleId, currentOperatorId || null, `${payment.metodo}: R$ ${payment.valor.toFixed(2)}${motivo ? ' — ' + motivo : ''}`);
+  }
+
   db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
-  return { ok: true };
+  return { ok: true, autorizadoPorId };
 }
 
 function finalizeSale(saleId) {
@@ -568,7 +622,17 @@ function finalizeSale(saleId) {
 
   const pagamentos = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
   const pago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-  const totalAPagar = sale.total - sale.desconto - sale.desconto_gerente;
+  const subtotalComDesconto = sale.total - sale.desconto - sale.desconto_gerente;
+  // Taxa de serviço de mesa (opcional, ver setServiceCharge) nunca entrava
+  // no total oficial da venda -- ficava só um percentual mostrado na tela
+  // pro cliente, sem exigir que o pagamento cobrisse ela e sem aparecer
+  // no recibo nem em nenhum relatório de faturamento. Agora ela é exigida
+  // aqui (igual o subtotal) e, uma vez que a venda fecha, é somada direto
+  // em sales.total -- dali em diante todo lugar que já lia
+  // `total - desconto - desconto_gerente` (recibo, dashboard, relatórios)
+  // passa a incluir ela automaticamente, sem precisar mexer em cada um.
+  const valorTaxaServico = sale.taxa_servico_percentual > 0 ? subtotalComDesconto * (sale.taxa_servico_percentual / 100) : 0;
+  const totalAPagar = subtotalComDesconto + valorTaxaServico;
 
   if (pago + 0.005 < totalAPagar) {
     return { ok: false, error: `Pagamento incompleto. Faltam R$ ${(totalAPagar - pago).toFixed(2)}.` };
@@ -580,6 +644,9 @@ function finalizeSale(saleId) {
   }
 
   const tx = db.transaction(() => {
+    if (valorTaxaServico > 0) {
+      db.prepare('UPDATE sales SET total = total + ? WHERE id = ?').run(valorTaxaServico, saleId);
+    }
     db.prepare(`UPDATE sales SET status = 'finalizada', finalizada_em = NOW_SYNCED() WHERE id = ?`).run(saleId);
 
     if (valorFiado > 0) {
@@ -608,7 +675,11 @@ function finalizeSale(saleId) {
   const saleAtualizada = db.prepare('SELECT finalizada_em FROM sales WHERE id = ?').get(saleId);
   salesSyncService.pushSale({
     saleId,
-    total: sale.total - sale.desconto - sale.desconto_gerente,
+    // Usa totalAPagar (já com a taxa de serviço somada) em vez de
+    // recalcular a partir de `sale`, que é a leitura de ANTES do fold
+    // da taxa em sales.total lá em cima -- reler `sale.total` aqui
+    // mandaria pro grupo o valor sem a taxa de serviço.
+    total: totalAPagar,
     totalItens,
     itens: itensDetalhados.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario })),
     metodosPagamento,

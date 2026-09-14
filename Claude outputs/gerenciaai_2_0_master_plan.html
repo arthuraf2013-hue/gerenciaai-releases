@@ -1,0 +1,958 @@
+<title>GerenciaAI 2.0 — Master Plan</title>
+<style>
+:root{
+  --bg:#faf8f4; --surface:#ffffff; --surface-2:#f2efe8; --border:#e2ddd0;
+  --ink:#1c1a16; --ink-dim:#5a564c; --ink-faint:#8a8578;
+  --accent:#0e6b8f; --accent-ink:#ffffff; --teal:#0e7a72; --teal-bg:#e4f3f1;
+  --amber:#a5720a; --amber-bg:#faf0da; --red:#a3311f; --red-bg:#fbe9e5;
+  --green:#3f7d3a; --green-bg:#eaf3e6; --gray-bg:#eeece5; --violet:#6a4c93; --violet-bg:#efe9f5;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --serif:'Fraunces',Georgia,serif; --sans:'Public Sans',system-ui,sans-serif;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12151a; --surface:#191d24; --surface-2:#20252d; --border:#333a45;
+    --ink:#e8ebef; --ink-dim:#adb6c2; --ink-faint:#77808d;
+    --accent:#5fb8dd; --accent-ink:#0a1720; --teal:#5fc9bf; --teal-bg:#142523;
+    --amber:#e8c26a; --amber-bg:#28220f; --red:#e08772; --red-bg:#2a1712;
+    --green:#8fcf82; --green-bg:#152316; --gray-bg:#1e232b; --violet:#b39ddb; --violet-bg:#241f30;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12151a; --surface:#191d24; --surface-2:#20252d; --border:#333a45;
+  --ink:#e8ebef; --ink-dim:#adb6c2; --ink-faint:#77808d;
+  --accent:#5fb8dd; --accent-ink:#0a1720; --teal:#5fc9bf; --teal-bg:#142523;
+  --amber:#e8c26a; --amber-bg:#28220f; --red:#e08772; --red-bg:#2a1712;
+  --green:#8fcf82; --green-bg:#152316; --gray-bg:#1e232b; --violet:#b39ddb; --violet-bg:#241f30;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;margin:0;font-size:15.5px}
+h1,h2,h3,h4{font-family:var(--serif);font-weight:600;color:var(--ink);text-wrap:balance;letter-spacing:-0.01em}
+a{color:var(--accent)}
+.layout{display:flex;max-width:1520px;margin:0 auto}
+nav.toc{width:270px;flex:0 0 270px;position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;padding:28px 18px 40px 24px;border-right:1px solid var(--border)}
+nav.toc .brand{font-family:var(--serif);font-size:1.05rem;font-weight:700;margin-bottom:2px}
+nav.toc .brand small{display:block;font-family:var(--sans);font-weight:400;color:var(--ink-faint);font-size:.72rem;margin-top:3px;letter-spacing:.04em;text-transform:uppercase}
+nav.toc ol{list-style:none;margin:20px 0 0;padding:0;counter-reset:sec}
+nav.toc li{counter-increment:sec;margin-bottom:1px}
+nav.toc a{display:block;color:var(--ink-dim);text-decoration:none;font-size:.8rem;padding:5px 8px;border-radius:7px}
+nav.toc a::before{content:counter(sec) ". ";color:var(--ink-faint);font-family:var(--mono);font-size:.72rem}
+nav.toc a:hover{background:var(--surface-2);color:var(--ink)}
+main{flex:1;min-width:0;padding:40px 56px 120px;max-width:1180px}
+header.cover{padding:20px 0 44px;border-bottom:1px solid var(--border);margin-bottom:44px}
+header.cover .eyebrow{font-family:var(--mono);text-transform:uppercase;letter-spacing:.12em;font-size:.72rem;color:var(--accent)}
+header.cover h1{font-size:2.5rem;margin:10px 0 8px;line-height:1.1}
+header.cover p.sub{font-size:1.08rem;color:var(--ink-dim);max-width:66ch;margin:0}
+section{margin-bottom:60px;scroll-margin-top:20px}
+section>h2{font-size:1.6rem;display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+section>h2 .num{font-family:var(--mono);color:var(--accent);font-size:1.05rem}
+section>p.lede{color:var(--ink-dim);max-width:78ch;margin-top:0}
+h3{font-size:1.15rem;margin-top:30px}
+h4{font-size:.98rem;margin-top:20px;color:var(--ink)}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.85rem}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);font-weight:500;border-bottom:2px solid var(--border)}
+tr:hover td{background:var(--surface-2)}
+.twrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.twrap table{margin:0}
+.twrap th:first-child,.twrap td:first-child{padding-left:16px}
+.badge{display:inline-block;font-family:var(--mono);font-size:.65rem;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.b-manter{background:var(--green-bg);color:var(--green)} .b-mudar{background:var(--red-bg);color:var(--red)}
+.b-alta{background:var(--red-bg);color:var(--red)} .b-media{background:var(--amber-bg);color:var(--amber)} .b-baixa{background:var(--gray-bg);color:var(--ink-dim)}
+.b-agora{background:var(--red-bg);color:var(--red)} .b-espera{background:var(--amber-bg);color:var(--amber)} .b-escala{background:var(--gray-bg);color:var(--ink-dim)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin:14px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.stat .n{font-family:var(--serif);font-size:1.8rem;color:var(--accent);display:block;line-height:1}
+.stat .l{font-size:.78rem;color:var(--ink-dim);margin-top:4px}
+details{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin:10px 0;overflow:hidden}
+details>summary{cursor:pointer;padding:14px 18px;font-family:var(--serif);font-size:1.05rem;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px}
+details>summary::-webkit-details-marker{display:none}
+details>summary::after{content:'+';font-family:var(--mono);color:var(--accent);font-size:1.2rem}
+details[open]>summary::after{content:'–'}
+details>summary:hover{background:var(--surface-2)}
+details .inner{padding:0 18px 18px}
+code,.mono{font-family:var(--mono);font-size:.85em;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+blockquote{border-left:3px solid var(--accent);margin:14px 0;padding:2px 0 2px 16px;color:var(--ink-dim);font-style:italic}
+.pill-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.pill{font-family:var(--mono);font-size:.7rem;padding:3px 9px;border-radius:99px;background:var(--surface-2);color:var(--ink-dim);border:1px solid var(--border)}
+hr.sep{border:none;border-top:1px solid var(--border);margin:36px 0}
+.flow{display:flex;flex-direction:column;gap:0;margin:16px 0;max-width:620px}
+.flow .step{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 16px;font-family:var(--mono);font-size:.82rem;text-align:center}
+.flow .arrow{text-align:center;color:var(--accent);font-family:var(--mono);padding:2px 0}
+.gate{border-color:var(--teal)!important;background:var(--teal-bg)!important;color:var(--teal);font-weight:600}
+.score{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.footnote{font-size:.78rem;color:var(--ink-faint)}
+.init-card{border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);padding:20px 22px;margin:16px 0}
+.init-card h4{margin-top:0;font-size:1.15rem;font-family:var(--serif)}
+.init-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 24px;margin-top:12px;font-size:.85rem}
+.init-grid dt{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;color:var(--ink-faint);letter-spacing:.04em;margin-top:8px}
+.init-grid dd{margin:2px 0 0}
+@media(max-width:800px){.init-grid{grid-template-columns:1fr}}
+.bet{border-left:4px solid var(--violet)}
+::selection{background:var(--accent);color:var(--accent-ink)}
+@media(max-width:1100px){nav.toc{display:none} main{padding:28px 20px 100px;max-width:100%}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div class="layout">
+<nav class="toc">
+  <div class="brand">GerenciaAI 2.0<small>Master Plan</small></div>
+  <ol>
+    <li><a href="#s1">Diagnóstico estratégico</a></li>
+    <li><a href="#s2">Nova visão do produto</a></li>
+    <li><a href="#s3">DNA do GerenciaAI</a></li>
+    <li><a href="#s4">Problemas críticos (blindagem)</a></li>
+    <li><a href="#s5">Trust Layer</a></li>
+    <li><a href="#s6">Arquitetura futura</a></li>
+    <li><a href="#s7">Data Layer</a></li>
+    <li><a href="#s8">Intelligence</a></li>
+    <li><a href="#s9">Insight Engine</a></li>
+    <li><a href="#s10">Recommendation Engine</a></li>
+    <li><a href="#s11">Gerente Digital</a></li>
+    <li><a href="#s12">Mobile</a></li>
+    <li><a href="#s13">Multiloja</a></li>
+    <li><a href="#s14">Diagnostics</a></li>
+    <li><a href="#s15">Self-healing</a></li>
+    <li><a href="#s16">UX</a></li>
+    <li><a href="#s17">Performance</a></li>
+    <li><a href="#s18">Segurança</a></li>
+    <li><a href="#s19">Diferenciação</a></li>
+    <li><a href="#s20">Moat</a></li>
+    <li><a href="#s21">Monetização</a></li>
+    <li><a href="#s22">Top 10 iniciativas</a></li>
+    <li><a href="#s23">Top 5 apostas</a></li>
+    <li><a href="#s24">MVP</a></li>
+    <li><a href="#s25">Roadmap 12 meses</a></li>
+    <li><a href="#s26">Dependências</a></li>
+    <li><a href="#s27">Testes</a></li>
+    <li><a href="#s28">Feature flags</a></li>
+    <li><a href="#s29">O que NÃO fazer</a></li>
+    <li><a href="#s30">Critérios de sucesso</a></li>
+    <li><a href="#s31">Arquitetura final</a></li>
+    <li><a href="#s32">Ordem exata de execução</a></li>
+    <li><a href="#s33">Autocrítica do CTO</a></li>
+  </ol>
+</nav>
+<main>
+
+<header class="cover">
+  <div class="eyebrow">GerenciaAI 2.0 — Master Product &amp; Technical Plan</div>
+  <h1>Do sistema que registra ao sistema que entende</h1>
+  <p class="sub">O trabalho que um CTO faz depois de receber a auditoria: não uma lista maior de funcionalidades, mas uma decisão sobre o que construir, na ordem certa, para transformar dado acumulado em decisão. Nenhuma linha de código é alterada nesta etapa — este é o plano que precisa ser aprovado antes de qualquer implementação.</p>
+</header>
+
+<section id="s1">
+<h2><span class="num">01</span> Diagnóstico estratégico</h2>
+<p class="lede">A pergunta que precisa ser respondida antes de qualquer roadmap: o GerenciaAI precisa de mais funcionalidades, ou precisa transformar melhor as que já tem?</p>
+
+<h3>Resposta: a hipótese está correta, com uma ressalva importante</h3>
+<p>A auditoria confirma a hipótese — mas não por ausência de contra-exemplos, e é preciso nomear os contra-exemplos para a resposta ter crédito. O GerenciaAI tem 67 tabelas, ~76 serviços e cobre 21 domínios funcionais reais (PDV, estoque, financeiro, fiscal, clientes, WhatsApp, fidelidade, mesas, cozinha, delivery, agendamento, orçamento, pet, óptica, cardápio, multi-PDV, backup, licenciamento, mobile, IA, configurações). Isso não é um sistema com lacuna de superfície — é um sistema com lacuna de <strong>integração e confiança</strong>.</p>
+<p>Três evidências concretas, todas do código real, sustentam isso:</p>
+<ul>
+<li><strong>O produto já tem 6 funções de IA em produção</strong> — e a maior barreira para o usuário perceber isso não é técnica, é de composição e comunicação: um único toggle mal rotulado esconde metade do valor que já existe.</li>
+<li><strong>A fidelidade não é creditada em vendas do WhatsApp</strong> não porque falte a funcionalidade de fidelidade — ela existe e funciona no PDV — mas porque dois módulos que já existem (bot de pedidos e programa de pontos) nunca foram conectados pelo dado que os liga (<code>customer_id</code>). É um problema de integração, não de feature ausente.</li>
+<li><strong>O dashboard mostra número, nunca motivo</strong> — todo o dado necessário para explicar uma queda de faturamento (hora, produto, ruptura de estoque, operador do turno) já está no banco. Falta a camada que junta as peças, não a captura de mais uma peça.</li>
+</ul>
+<p>A ressalva: existem, sim, lacunas reais de funcionalidade — sangria de caixa, transferência de estoque entre lojas, NFS-e para perfis de serviço, contagem de inventário em lote. Nenhuma delas, porém, é do tamanho ou da natureza que justificaria um próximo ano de "adicionar telas". São correções pontuais, não uma nova onda de construção.</p>
+
+<h3>Conclusão que orienta todo este plano</h3>
+<div class="grid3">
+<div class="stat"><span class="n">~80%</span><div class="l">do esforço dos próximos 12 meses deveria ir para confiabilidade + interpretação do que já existe</div></div>
+<div class="stat"><span class="n">~15%</span><div class="l">para fechar lacunas pontuais de funcionalidade já identificadas na auditoria</div></div>
+<div class="stat"><span class="n">~5%</span><div class="l">para expansão genuinamente nova (ecossistema, seção 21 da auditoria) — e só depois da base estar sólida</div></div>
+</div>
+<p>Isso não é uma opinião de produto — é uma leitura de risco. Construir "GerenciaAI Intelligence" sobre uma sincronização de estoque que sobrescreve dado de outra loja, ou sobre um IPC que não verifica quem está de fato chamando, produziria uma inteligência que soa confiante enquanto está sutilmente errada. Isso é pior do que não ter a funcionalidade.</p>
+</section>
+
+<section id="s2">
+<h2><span class="num">02</span> Nova visão do produto</h2>
+<p class="lede">A evolução proposta — sistema de gestão → sistema inteligente de gestão → sistema que entende o negócio — é a direção certa, e a auditoria já fornece a evidência de que a base para o terceiro estágio existe. Esta seção define como essa visão se traduz em decisão concreta em cada dimensão do produto.</p>
+<div class="twrap"><table>
+<tr><th>Dimensão</th><th>Como a visão muda a decisão</th></tr>
+<tr><td><strong>Arquitetura</strong></td><td>Duas camadas novas entram entre o dado bruto e a tela: Trust Layer (seção 5) e Data/Metrics Layer (seção 7). Nenhuma tela de Intelligence lê a tabela transacional diretamente — sempre passa por essas camadas primeiro.</td></tr>
+<tr><td><strong>UX</strong></td><td>Princípio "ação antes da informação" (seção 16) — toda tela que mostra um número precisa responder "o usuário só precisa saber ou precisa agir?". Se precisa agir, o botão de ação vem junto, não numa tela separada.</td></tr>
+<tr><td><strong>Módulos</strong></td><td>Parar de pensar em módulo como tela isolada e passar a pensar em módulo como fonte de sinal para a Intelligence. Todo módulo novo (ou revisão de módulo existente) responde: "que sinal este módulo alimenta na camada central?"</td></tr>
+<tr><td><strong>IA</strong></td><td>Deixa de ser um toggle e uma lista de funções soltas, e passa a ser uma camada composta (seção 8) com um papel bem definido: interpretar e narrar, nunca calcular número financeiro/fiscal/estoque sozinha (seção 9 do DNA).</td></tr>
+<tr><td><strong>Dashboard</strong></td><td>Deixa de ser uma coleção de gráficos e passa a ser "o que importa hoje" (seção 16.2) — adaptado por perfil, horário e situação, não um painel fixo igual para todo mundo.</td></tr>
+<tr><td><strong>Mobile</strong></td><td>Deixa de ser "o app" genérico e passa a ser cinco experiências de papel específico (seção 12), todas alimentadas pela mesma Intelligence central.</td></tr>
+<tr><td><strong>Notificações</strong></td><td>Deixa de ser "todo evento gera um alerta" e passa a ter prioridade, deduplicação, cooldown e aprendizagem (seção 11.3) — o sistema precisa saber quando não interromper.</td></tr>
+<tr><td><strong>Monetização</strong></td><td>O eixo de valor migra de "quantos módulos você tem acesso" para "quanto o sistema já decide por você" — a camada Intelligence se torna o divisor de preço mais defensável (seção 21).</td></tr>
+<tr><td><strong>Posicionamento comercial</strong></td><td>De "sistema de PDV completo" para "o sócio que entende seu negócio" — só sustentável comercialmente depois que a Trust Layer garante que o que o sistema diz é verdade.</td></tr>
+</table></div>
+</section>
+
+<section id="s3">
+<h2><span class="num">03</span> DNA do GerenciaAI</h2>
+<p class="lede">Oito princípios não-negociáveis. Servem como filtro de decisão: toda funcionalidade nova, antes de entrar em qualquer roadmap, precisa passar por eles.</p>
+<ol>
+<li><strong>O sistema ajuda a decidir, não só registra o que já aconteceu.</strong> Todo dado capturado deveria, em algum ponto, alimentar uma decisão — não só um relatório histórico.</li>
+<li><strong>Toda conclusão de IA explica sua origem.</strong> Nenhum insight aparece como oráculo; sempre é possível perguntar "por quê" e receber dado, período e cálculo, não só a frase (seção 12 da auditoria original, formalizada na seção 9 deste plano).</li>
+<li><strong>IA nunca inventa número financeiro, fiscal ou de estoque.</strong> Cálculo é sempre determinístico; a IA generativa só interpreta e narra o resultado de um cálculo que já existe (seção 9 deste plano).</li>
+<li><strong>Integridade de dado vem antes de inteligência sobre o dado.</strong> Nenhuma funcionalidade de Intelligence é construída sobre uma fonte que a Trust Layer não classificou como confiável.</li>
+<li><strong>Complexidade é absorvida pelo sistema, nunca exposta ao operador de balcão.</strong> Um caixa ou garçom nunca deveria precisar entender a arquitetura por trás de uma recomendação para se beneficiar dela.</li>
+<li><strong>Toda automação existe para reduzir esforço do usuário, nunca para gerar mais tela.</strong> Se uma automação nova precisa de uma nova tela para ser operada, o design está errado.</li>
+<li><strong>Nenhuma ação automática toca dinheiro, estoque, fiscal ou permissão sem aprovação humana.</strong> Self-healing e automação têm limite absoluto aqui (seção 15).</li>
+<li><strong>Uma funcionalidade nova só entra se: economiza dinheiro, evita um problema, encontra uma oportunidade, ou ajuda a decidir.</strong> Se não atende a nenhum desses quatro, é feature creep (seção 29), não importa quão interessante pareça no papel.</li>
+</ol>
+</section>
+
+<section id="s4">
+<h2><span class="num">04</span> Problemas críticos — plano de blindagem</h2>
+<p class="lede">Nada do resto deste plano é seguro de construir antes destes cinco pontos estarem fechados. Não é uma questão de prioridade de produto — é pré-requisito técnico.</p>
+
+<h3>4.1 — Sessão real no IPC</h3>
+<div class="twrap"><table>
+<tr><th>Etapa</th><th>Conteúdo</th></tr>
+<tr><td><strong>Problema</strong></td><td>Cada chamada IPC recebe um <code>requestingUserId</code> enviado pelo próprio processo de renderização — um dado, não uma prova de identidade. <code>requireRole</code> verifica a que papel aquele ID pertence, nunca se quem está chamando é de fato essa pessoa.</td></tr>
+<tr><td><strong>Arquitetura atual</strong></td><td><code>safeHandle</code> é só um wrapper de try/catch. Não existe conceito de sessão no processo principal. <code>SessionContext</code> no renderer guarda o usuário logado em estado React puro — nunca comunicado de volta ao processo principal como fonte de verdade.</td></tr>
+<tr><td><strong>Arquitetura segura</strong></td><td>Um <em>session store</em> em memória no processo principal, mapeando <code>webContents.id → {userId, papel, loginEm, expiraEm}</code>, populado exclusivamente por <code>auth:login</code> (que já verifica PIN via bcrypt) e limpo por <code>auth:logout</code> ou fechamento da janela. Toda função de serviço passa a resolver identidade via <code>resolverSessao(event.sender)</code>, nunca via campo do payload. <code>requireRole</code> passa a receber a sessão resolvida, não um ID declarado.</td></tr>
+<tr><td><strong>Impacto</strong></td><td>Fecha de uma vez os ~15 canais hoje vulneráveis (reset de PIN, restauração de backup, configuração de segurança, livro de controlados, despesas, etc.) sem precisar corrigir cada um individualmente — a correção é estrutural, não pontual.</td></tr>
+<tr><td><strong>Riscos</strong></td><td>Fluxos legítimos de troca rápida de usuário no mesmo terminal (comum em turno de caixa) precisam ser mapeados antes da migração, para não quebrar um caso de uso real. Expiração de sessão por inatividade precisa de UX cuidadosa para não deslogar o operador no meio de uma venda.</td></tr>
+<tr><td><strong>Testes</strong></td><td>Teste de que uma chamada IPC sem sessão ativa é sempre rejeitada, independentemente do payload; teste de que trocar de usuário invalida a sessão anterior no mesmo <code>webContents</code>; teste de regressão em todos os ~15 canais hoje desprotegidos, confirmando que passam a exigir sessão + papel correto.</td></tr>
+</table></div>
+
+<h3>4.2 — Sincronização de estoque multi-PDV</h3>
+<p>Comparação de abordagens antes da escolha:</p>
+<div class="twrap"><table>
+<tr><th>Abordagem</th><th>Por que serve ou não para o GerenciaAI</th></tr>
+<tr><td>Snapshot (o que existe hoje)</td><td>Simples, mas destrutivo sob concorrência — é exatamente o bug encontrado na auditoria. Descartado.</td></tr>
+<tr><td>Versionamento otimista (compare-and-swap)</td><td>Resolve conflito de escrita simultânea no mesmo instante, mas não resolve o problema real aqui, que é <em>agregação</em> de decrementos de múltiplas origens ao longo do tempo, não colisão pontual.</td></tr>
+<tr><td>Delta puro (incrementar/decrementar em vez de sobrescrever)</td><td>Correto na direção, mas insuficiente sozinho — não dá rastreabilidade de quem gerou cada delta nem permite reconciliação após período offline.</td></tr>
+<tr><td><strong>Event-based + ledger (escolhida)</strong></td><td>Cada máquina publica <em>eventos</em> de movimentação de estoque (o mesmo formato que já grava em <code>stock_movements</code> localmente), não um total recalculado. O Firestore acumula esses eventos como um ledger distribuído; o "estoque atual" do grupo é sempre <code>SUM</code> dos eventos, nunca um valor sobrescrito. É a mesma filosofia que já rege <code>stock_movements</code> localmente — a correção é estender o princípio já comprovado do ledger local para o nível de sincronização, não inventar um paradigma novo.</td></tr>
+</table></div>
+<p><strong>Idempotência e retry:</strong> cada evento carrega um ID determinístico (ex.: hash de <code>product_id+location_id+stock_movement_id local</code>), permitindo reenvio seguro após falha de rede sem duplicar o efeito. <strong>Reconciliação:</strong> job periódico compara <code>SUM(eventos publicados)</code> por produto contra o snapshot mais recente já materializado e sinaliza divergência (alimenta o Diagnostics, seção 14) em vez de corrigir silenciosamente. <strong>Offline:</strong> eventos gerados offline entram numa fila local e publicam na reconexão, na ordem em que ocorreram — sem exigir que a máquina esteja "servidor" para ter autoridade sobre o dado.</p>
+
+<h3>4.3 — Fiscal (cálculo de imposto fora do Simples Nacional)</h3>
+<div class="twrap"><table>
+<tr><th>Item</th><th>Conteúdo</th></tr>
+<tr><td>Escopo</td><td>Afeta exclusivamente XML de NFC-e para produtos com CST/CSOSN de tributação integral ou com crédito (fora dos CSOSN 102/300/400/500 do Simples Nacional já corretamente tratados).</td></tr>
+<tr><td>Risco</td><td>Passivo fiscal real — nota autorizada declarando zero de imposto devido. <em>Necessita validação fiscal/documental</em> antes de qualquer implementação: alíquota de ICMS/PIS/COFINS por NCM/UF varia por legislação estadual e não deve ser assumida pelo time de engenharia.</td></tr>
+<tr><td>Arquitetura</td><td>Nova tabela de alíquotas (por NCM, UF de destino, CST) como dado de configuração — nunca hardcoded no gerador de XML. O gerador de XML deixa de assumir zero e passa a exigir que a alíquota exista antes de permitir emissão para aquele produto/regime.</td></tr>
+<tr><td>Separação de responsabilidades</td><td>Cálculo de imposto isolado num serviço próprio (<code>taxCalculationService</code>), testável independentemente da geração/assinatura/transmissão do XML — hoje essas responsabilidades estão implicitamente misturadas no mesmo gerador.</td></tr>
+<tr><td>Validação</td><td>Bloquear emissão (não só logar <code>&lt;!-- REVISAR --&gt;</code>) quando o regime do lojista exige alíquota não configurada — falha visível e segura é sempre preferível a nota fiscalmente incorreta silenciosa.</td></tr>
+<tr><td>Testes</td><td>Casos de teste por regime tributário (Simples, Presumido, Real) e por CSOSN/CST, incluindo o caso hoje quebrado (CST 00 sem crédito).</td></tr>
+<tr><td>Documentação</td><td>Tela de Configurações Fiscais passa a declarar explicitamente qual regime está coberto e qual não está, em vez do texto atualmente incorreto sobre cancelamento/contingência.</td></tr>
+</table></div>
+
+<h3>4.4 — Padrão global contra "falso sucesso"</h3>
+<div class="flow">
+<div class="step">AÇÃO (usuário clica salvar)</div>
+<div class="arrow">↓</div>
+<div class="step">VALIDAÇÃO (campo obrigatório, formato, papel do solicitante)</div>
+<div class="arrow">↓</div>
+<div class="step">PERSISTÊNCIA (chamada IPC → processo principal → banco)</div>
+<div class="arrow">↓</div>
+<div class="step gate">RESULTADO REAL (result.ok checado, sempre)</div>
+<div class="arrow">↓</div>
+<div class="step">FEEDBACK (sucesso só se result.ok; senão, erro específico e acionável)</div>
+</div>
+<p>Este padrão vira um <em>hook/wrapper</em> reutilizável (ex.: <code>useSavedAction()</code> no lado do renderer) que qualquer tela de configuração passa a usar — hoje o padrão correto já existe em pontos isolados do próprio <code>SettingsScreen.jsx</code> (<code>handleInutilizar</code>, <code>handleTestarImpressao</code>); a mudança é generalizar o que já funciona, não inventar algo novo. Nenhuma tela nova deveria poder mostrar "salvo" sem passar por esse wrapper — o objetivo é tornar o padrão errado estruturalmente difícil de escrever de novo, não só corrigir as ocorrências já encontradas.</p>
+
+<h3>4.5 — Outros problemas críticos da auditoria (nenhum fica de fora)</h3>
+<div class="twrap"><table>
+<tr><th>Problema</th><th>Correção conceitual</th></tr>
+<tr><td>Rollback de orçamento → venda vaza estoque de insumo</td><td>Substituir o <code>DELETE</code> bruto do rollback manual pelo mesmo mecanismo de estorno já correto e existente em <code>cancelSaleItem</code>/<code>cancelSale</code> — reaproveitar, não reinventar.</td></tr>
+<tr><td>Segurança do WhatsApp/Baileys</td><td>Tratar como risco operacional permanente, não bug pontual: throttle de envio, fallback de canal quando desconecta, contador de volume visível ao dono, e reposicionamento estratégico como "manter e mitigar", não "aprofundar" (ver seção 19/29).</td></tr>
+<tr><td>Pagamentos sem teto/duplo clique</td><td>Validação server-side de teto de valor por método (hoje só dinheiro tem) + desabilitar botão de ação durante chamada assíncrona em todos os fluxos de pagamento, não só nos já corrigidos.</td></tr>
+<tr><td>Busca com corte silencioso (devolução, filtro de produto)</td><td>Padrão de busca corrigido: filtro sempre aplicado na query, nunca sobre uma página já cortada; mensagem de "nada encontrado" sempre distinta de "corte de paginação".</td></tr>
+<tr><td>Estoque negativo (bot de pedidos, conversão de orçamento)</td><td>Toda gravação de venda — qualquer canal — passa a checar disponibilidade contra o mesmo <code>getCurrentStock</code> usado no PDV, sem exceção por origem do pedido.</td></tr>
+<tr><td>DevTools acessível em produção</td><td>Bloqueio explícito de atalhos de inspeção fora de ambiente de desenvolvimento — fecha o vetor prático que torna o problema 4.1 explorável sem nenhuma ferramenta externa.</td></tr>
+</table></div>
+</section>
+
+<section id="s5">
+<h2><span class="num">05</span> GerenciaAI Trust Layer</h2>
+<p class="lede">Antes de qualquer Intelligence, uma camada conceitual que garante que o dado usado é confiável. É o pré-requisito não-negociável da seção 1: inteligência sobre dado ruim é pior que nenhuma inteligência.</p>
+
+<h3>O que a Trust Layer verifica antes de qualquer leitura por Intelligence</h3>
+<div class="twrap"><table>
+<tr><th>Dimensão</th><th>O que é verificado</th></tr>
+<tr><td>Integridade</td><td>O total lido bate com a soma do ledger de origem (ex.: estoque de produto = <code>SUM(stock_movements)</code>, nunca um cache que pode ter divergido)</td></tr>
+<tr><td>Consistência</td><td>Não há conflito não resolvido pendente (ex.: <code>conflito_codigo_barras_pendente</code>) que invalidaria a leitura</td></tr>
+<tr><td>Sincronização</td><td>Para dado compartilhado entre PDVs, qual a última publicação bem-sucedida e há quanto tempo</td></tr>
+<tr><td>Timestamps</td><td>O dado usa o relógio sincronizado (<code>timeService</code>), não o relógio local da máquina — pontos ainda não migrados (seção 17 da auditoria) são sinalizados como fonte de baixa confiança até corrigidos</td></tr>
+<tr><td>Origem</td><td>O dado veio de escrita local direta, de sincronização remota, ou de restauração de backup — cada origem carrega um nível de confiança diferente</td></tr>
+<tr><td>Qualidade</td><td>Campos obrigatórios preenchidos, sem placeholder ou valor de correção manual não documentado (ex.: edição de histórico de venda sem recalcular itens)</td></tr>
+<tr><td>Reconciliação</td><td>Se há divergência conhecida e ainda não resolvida (ex.: o job de reconciliação de estoque da seção 4.2 encontrou desvio), o dado é marcado como suspeito até resolvido</td></tr>
+</table></div>
+
+<h3>Como isso se manifesta tecnicamente</h3>
+<p>Toda consulta que alimenta a Intelligence passa por uma função de leitura "confiável" (não a tabela crua diretamente), que devolve o dado junto com um rótulo — <code>confiável</code>, <code>desatualizado</code> ou <code>suspeito</code> — e um motivo quando não é <code>confiável</code>. A Analytics/Rules Engine (seção 8) nunca gera insight a partir de dado <code>suspeito</code>; no máximo, gera um insight sobre a própria suspeita ("não consigo confirmar seu estoque de X porque a última sincronização falhou há 6 horas" — que é, em si, um insight de Diagnostics, seção 14).</p>
+</section>
+
+<section id="s6">
+<h2><span class="num">06</span> Arquitetura futura</h2>
+<p class="lede">A arquitetura local-first (Electron + SQLite, nuvem só onde precisa) continua sendo a escolha certa — a mudança não é de tecnologia de base, é de camadas adicionadas sobre ela.</p>
+<div class="twrap"><table>
+<tr><th>Camada</th><th>Estado hoje</th><th>Estado futuro</th></tr>
+<tr><td>Sessão</td><td>Estado React no renderer, sem verificação no processo principal</td><td>Session store real no processo principal (seção 4.1)</td></tr>
+<tr><td>Sincronização</td><td>Snapshot destrutivo (estoque) / aditivo correto (vendas, catálogo)</td><td>Event-based + ledger, generalizado para todo dado compartilhado (seção 4.2)</td></tr>
+<tr><td>Confiança</td><td>Inexistente — toda leitura é tratada como igualmente confiável</td><td>Trust Layer como porta de entrada obrigatória para Intelligence (seção 5)</td></tr>
+<tr><td>Agregação</td><td>Inexistente — toda consulta de relatório/dashboard é ad-hoc contra a tabela transacional</td><td>Data/Metrics Layer com agregação diária incremental (seção 7)</td></tr>
+<tr><td>Interpretação</td><td>Seis funções de IA soltas, cada uma resolvendo um problema isolado</td><td>Rules Engine (determinístico) + Analytics Engine + camada de geração de linguagem, compostos (seção 8)</td></tr>
+<tr><td>Observabilidade</td><td>Relato de erro cru para a Central, sem diagnóstico estruturado</td><td>GerenciaAI Diagnostics (seção 14)</td></tr>
+</table></div>
+<p>Nenhuma dessas camadas exige abandonar SQLite ou Firebase — todas são construídas em cima do que já existe, como composição, não substituição. A avaliação explícita de manter essa base tecnológica está detalhada na seção 31.</p>
+</section>
+
+<section id="s7">
+<h2><span class="num">07</span> Data / Metrics Layer</h2>
+<p class="lede">A peça de infraestrutura que mais falta hoje: nada entre a tabela transacional e a tela. Sem ela, Intelligence seria só mais uma consulta SQL lenta disfarçada de inteligência.</p>
+<div class="twrap"><table>
+<tr><th>Componente</th><th>Função</th></tr>
+<tr><td><code>daily_metrics</code> (nova)</td><td>Agregação incremental por loja/dia: faturamento, ticket médio, margem estimada, cancelamentos, descontos, diferença de caixa — calculada uma vez por job noturno, não recalculada a cada tela aberta</td></tr>
+<tr><td><code>product_daily_metrics</code> (nova)</td><td>Faturamento, margem, quantidade vendida e eventos de ruptura por produto/dia — base para classificação ABC, detecção de produto parado e previsão de ruptura em dias</td></tr>
+<tr><td><code>operator_daily_metrics</code> (nova)</td><td>Cancelamentos, descontos, ticket médio, tempo de checkout por operador/dia — base da detecção de anomalia sem acusação (seção 9)</td></tr>
+<tr><td><code>stock_event_log</code> (nova, ligada à seção 4.2)</td><td>Ledger distribuído de eventos de estoque entre PDVs — fonte de verdade para reconciliação de grupo</td></tr>
+<tr><td><code>insight_log</code> (nova, seção 9)</td><td>Todo insight gerado, persistido com origem/confiança/período — nunca recalculado silenciosamente, sempre auditável</td></tr>
+</table></div>
+<p>O job de agregação roda localmente (mesmo processo Electron, sem servidor novo), de forma incremental — só recalcula o que mudou desde a última execução, para não pesar em bases grandes. Enquanto o job não roda pela primeira vez numa instalação nova, a Trust Layer marca esses dados como indisponíveis, não como zero — distinção importante para não gerar insight de "nada aconteceu" quando na verdade é "ainda não temos histórico".</p>
+</section>
+
+<section id="s8">
+<h2><span class="num">08</span> GerenciaAI Intelligence</h2>
+<p class="lede">A arquitetura proposta pelo usuário é a correta na essência; esta seção a refina com dois ajustes que a tornam segura de construir: um portão de confiança explícito e um ciclo de retroalimentação.</p>
+<div class="flow" style="max-width:100%">
+<div class="step">VENDAS · ESTOQUE · CAIXA · FINANCEIRO · CLIENTES · PRODUTOS · FUNCIONÁRIOS · HORÁRIOS · LOJAS</div>
+<div class="arrow">↓</div>
+<div class="step gate">GERENCIAAI TRUST LAYER (seção 5) — barra dado suspeito aqui, não depois</div>
+<div class="arrow">↓</div>
+<div class="step">DATA / METRICS LAYER (seção 7) — agregação já pronta, não ad-hoc</div>
+<div class="arrow">↓</div>
+<div class="step">RULES ENGINE — cálculo determinístico: médias, desvios, comparações, limiares</div>
+<div class="arrow">↓</div>
+<div class="step">ANALYTICS ENGINE — estatística sobre o resultado do Rules Engine: tendência, correlação, classificação</div>
+<div class="arrow">↓</div>
+<div class="step">ANOMALY DETECTION — desvio do próprio histórico ou do grupo, nunca acusação (seção 9.2)</div>
+<div class="arrow">↓</div>
+<div class="step">RECOMMENDATION ENGINE (seção 10) — ação sugerida, sempre com "por quê"</div>
+<div class="arrow">↓</div>
+<div class="step">CAMADA DE LINGUAGEM (LLM) — só aqui a IA generativa entra: narra o resultado determinístico acima, não o substitui</div>
+<div class="arrow">↓</div>
+<div class="step">GERENCIAAI INTELLIGENCE (persistida em <code>insight_log</code>, seção 7)</div>
+<div class="arrow">↓</div>
+<div class="step">DASHBOARD · ALERTAS · GERENTE DIGITAL · MOBILE · WHATSAPP</div>
+</div>
+<p>Os dois ajustes sobre a proposta original: <strong>(1)</strong> a Trust Layer é um portão explícito antes de qualquer cálculo, não uma etapa opcional; <strong>(2)</strong> um insight gerado é persistido com metadado de confiança (seção 9) e, quando o usuário interage com ele (ignora, age, corrige), essa reação retroalimenta o Rules Engine — insight ignorado repetidamente perde prioridade, ação tomada reforça o padrão de recomendação daquele tipo. Sem esse ciclo, o sistema nunca aprende o que é ruído para aquele lojista específico.</p>
+</section>
+
+<section id="s9">
+<h2><span class="num">09</span> Insight Engine</h2>
+<p class="lede">Regra absoluta: Intelligence não é chatbot. Dado confiável → cálculo determinístico → análise → contexto → só então IA. O LLM nunca calcula número financeiro, fiscal ou de estoque — só interpreta o que o Rules/Analytics Engine já determinou.</p>
+
+<h3>Cadeia causal do motor de insights</h3>
+<div class="flow">
+<div class="step">FATURAMENTO CAIU 12% (Rules Engine, determinístico)</div>
+<div class="arrow">↓</div>
+<div class="step">Comparação histórica (mesma janela, últimas N semanas)</div>
+<div class="arrow">↓</div>
+<div class="step">Quebra por horário — onde a queda se concentra?</div>
+<div class="arrow">↓</div>
+<div class="step">Quebra por produto — quais itens caíram mais?</div>
+<div class="arrow">↓</div>
+<div class="step">Cruzamento com <code>stock_event_log</code> — houve ruptura na janela?</div>
+<div class="arrow">↓</div>
+<div class="step">Cruzamento com <code>product_price_history</code> — houve mudança de preço?</div>
+<div class="arrow">↓</div>
+<div class="step">Cruzamento com <code>operator_daily_metrics</code> — mudança de equipe/turno?</div>
+<div class="arrow">↓</div>
+<div class="step">Causa provável (Analytics Engine, com nível de confiança)</div>
+<div class="arrow">↓</div>
+<div class="step">Camada de linguagem narra + Recommendation Engine sugere ação</div>
+</div>
+
+<h3>Padrão de qualidade exigido</h3>
+<p>Rejeitado: <em>"Seu faturamento caiu 8%."</em> Exigido: <em>"Seu faturamento caiu 8% ontem em relação à média das últimas quatro quartas-feiras. A queda se concentrou entre 14h e 18h e coincidiu com a ruptura do produto X. Recomendo priorizar a reposição desse item."</em> Todo insight publicado passa por essa barra — número sozinho nunca é considerado insight terminado, é só um dado intermediário do Rules Engine.</p>
+
+<h3>Metadado de confiança (auditável, mesmo quando a UI simplifica)</h3>
+<div class="twrap"><table>
+<tr><th>Campo</th><th>Conteúdo</th></tr>
+<tr><td>Origem dos dados</td><td>Quais tabelas/agregações alimentaram o insight</td></tr>
+<tr><td>Período analisado</td><td>Janela exata usada na comparação</td></tr>
+<tr><td>Métricas utilizadas</td><td>Quais cálculos do Rules/Analytics Engine sustentam a conclusão</td></tr>
+<tr><td>Nível de confiança</td><td>Alto/médio/baixo, derivado da classificação da Trust Layer + robustez estatística (ex.: amostra pequena = confiança menor)</td></tr>
+<tr><td>Hipótese</td><td>A causa provável identificada, sempre no condicional — nunca apresentada como certeza absoluta</td></tr>
+<tr><td>Recomendação</td><td>Ação sugerida, com link direto para executá-la quando aplicável (seção 16)</td></tr>
+<tr><td>Data de geração</td><td>Quando o insight foi calculado — nunca reapresentado como atual sem recomputar</td></tr>
+</table></div>
+
+<h3>9.2 — AI Never Accuses</h3>
+<p>Política formal, sem exceção: a IA pode <strong>detectar, sinalizar, comparar, explicar e recomendar investigação</strong>. Nunca pode <strong>acusar, punir, bloquear ou alterar permissão automaticamente</strong>. Rejeitado: <em>"João está fraudando."</em> Exigido: <em>"Os cancelamentos deste operador estão acima do padrão histórico dele. Vale revisar."</em> A comparação é preferencialmente contra o próprio histórico do operador antes de contra a média do time — mais preciso e menos ameaçador. Nenhuma ação de sistema (bloqueio, redução de permissão, notificação a terceiros fora da cadeia gerencial) decorre automaticamente de uma detecção de anomalia — a decisão de agir é sempre humana.</p>
+</section>
+
+<section id="s10">
+<h2><span class="num">10</span> Recommendation Engine</h2>
+<p class="lede">Toda recomendação, em qualquer área, carrega obrigatoriamente o "por quê" — nunca aparece como sugestão sem justificativa rastreável ao Rules/Analytics Engine.</p>
+<div class="twrap"><table>
+<tr><th>Área</th><th>Tipo de recomendação</th><th>Base determinística</th></tr>
+<tr><td>Estoque</td><td>Comprar / não comprar / redistribuir / priorizar</td><td><code>previsaoDeRuptura</code>, <code>product_daily_metrics</code>, lead time aprendido de fornecedor</td></tr>
+<tr><td>Vendas</td><td>Promoção / ajuste de preço / produto / horário</td><td>Elasticidade observada em <code>product_price_history</code>, classificação ABC, padrão de venda por horário</td></tr>
+<tr><td>Financeiro</td><td>Despesa fora do padrão / risco de fluxo de caixa</td><td>Média móvel por categoria/fornecedor, projeção de saldo 30 dias</td></tr>
+<tr><td>Operação</td><td>Gargalo / equipe / atendimento</td><td><code>operator_daily_metrics</code>, tempo médio de preparo/checkout, mesa parada</td></tr>
+<tr><td>Clientes</td><td>Reconquista / fidelização / oportunidade</td><td>Segmentação RFM, histórico de compra por cliente</td></tr>
+</table></div>
+<p>Cada recomendação, ao ser mostrada, sempre expõe (mesmo que em um segundo clique, "por que estou vendo isso") a métrica e o período que a geraram — mesma exigência da seção 9, aplicada especificamente a recomendação de ação, não só a explicação de evento passado.</p>
+</section>
+
+<section id="s11">
+<h2><span class="num">11</span> Gerente Digital</h2>
+<p class="lede">Extensão do <code>askTutor</code> já existente — de "responde dúvida sobre o sistema" para "responde pergunta sobre o negócio", sempre em cima do pipeline determinístico da seção 8, nunca consultando o banco livremente.</p>
+
+<h3>Para cada pergunta: dados → cálculos → análise → resposta</h3>
+<div class="twrap"><table>
+<tr><th>Pergunta</th><th>Dados utilizados</th><th>Cálculo (determinístico)</th><th>Papel da IA</th></tr>
+<tr><td>"Como foi minha loja hoje?"</td><td><code>daily_metrics</code>, caixa, NFC-e pendente</td><td>Comparação com média do mesmo dia da semana</td><td>Compor a frase-resumo</td></tr>
+<tr><td>"Por que vendemos menos ontem?"</td><td><code>daily_metrics</code>, <code>product_daily_metrics</code>, <code>stock_event_log</code></td><td>Cadeia causal da seção 9</td><td>Narrar a causa provável</td></tr>
+<tr><td>"Qual produto está me dando mais lucro?"</td><td><code>product_daily_metrics</code></td><td>Ranking por margem×volume</td><td>Explicar o porquê do topo do ranking</td></tr>
+<tr><td>"O que está parado no estoque?"</td><td><code>product_daily_metrics</code></td><td>Sem saída em N dias × valor de custo parado</td><td>Priorizar e sugerir ação</td></tr>
+<tr><td>"O que preciso comprar?"</td><td><code>previsaoDeRuptura</code>, lead time de fornecedor</td><td>Recommendation Engine (seção 10, Estoque)</td><td>Compor lista priorizada em linguagem natural</td></tr>
+<tr><td>"Qual loja está performando melhor?"</td><td><code>daily_metrics</code> por loja (pós Trust Layer multi-loja, seção 13)</td><td>Ranking + decomposição de causa</td><td>Narrar comparação sem soar acusatório às demais lojas</td></tr>
+<tr><td>"Tem alguma coisa estranha acontecendo?"</td><td>Anomaly Detection (seção 9.2)</td><td>Desvio de padrão sinalizado</td><td>Apresentar em tom de "vale revisar", nunca alarmista</td></tr>
+<tr><td>"Onde estou perdendo dinheiro?"</td><td><code>operator_daily_metrics</code>, devoluções, diferença de caixa, despesas fora do padrão</td><td>Ranking de "vazamentos" conhecidos</td><td>Priorizar por valor e recorrência</td></tr>
+<tr><td>"O que você recomenda que eu faça hoje?"</td><td>Todos os insights + recomendações pendentes do dia</td><td>Recommendation Engine consolidado</td><td>Sintetizar em 3-5 itens, nunca uma lista exaustiva</td></tr>
+</table></div>
+<p class="footnote">O MVP (seção 24) não implementa as nove de uma vez — implementa duas, deliberadamente, como validação da tese antes de expandir.</p>
+
+<h3>11.1 — "Bom dia, aqui está o que você precisa saber"</h3>
+<p>Job agendado (configurável, padrão 8h) compõe um resumo priorizado — nunca mais de 5 itens, cada um com uma cor de urgência, seguindo o próprio exemplo do usuário como padrão de qualidade:</p>
+<blockquote>🟢 Faturamento: ontem fechou 9% acima da média.<br>🔴 Estoque: produto X deve romper em 2 dias.<br>🟡 Financeiro: duas despesas vencem hoje.<br>🟡 Operação: houve aumento incomum de cancelamentos.<br>🔵 Oportunidade: produto Y está vendendo acima do padrão e possui margem elevada.</blockquote>
+<p><strong>Algoritmo de priorização:</strong> cada insight pendente do <code>insight_log</code> recebe um score de urgência×impacto financeiro; os 5 de maior score entram no resumo, nunca mais — o resto fica disponível sob demanda ("ver todos"), não empurrado. <strong>UX:</strong> notificação nativa do app + resumo por WhatsApp (reaproveitando <code>whatsappAutomationService</code>) + card no topo do Dashboard, mesmo conteúdo em todos os canais. <strong>Horário:</strong> configurável por instalação, nunca fixo — negócio de padaria (abre 6h) e de casa noturna (abre 18h) precisam de horários diferentes. <strong>Personalização:</strong> por papel — gerente recebe uma versão operacional (turno, mesa parada), dono recebe a versão executiva acima.</p>
+
+<h3>11.2 — Sistema de não-intrusão</h3>
+<div class="twrap"><table>
+<tr><th>Mecanismo</th><th>Como funciona</th></tr>
+<tr><td>Prioridade</td><td>Score de urgência×impacto (seção 11.1) determina o que é notificação ativa vs. o que fica só disponível sob consulta</td></tr>
+<tr><td>Deduplicação</td><td>O mesmo insight (mesma causa, mesmo período) nunca gera duas notificações</td></tr>
+<tr><td>Cooldown</td><td>Um tipo de alerta já mostrado não repete antes de um intervalo mínimo, mesmo que a condição persista</td></tr>
+<tr><td>Agrupamento</td><td>Múltiplos insights de baixa urgência no mesmo período viram um resumo único, não N notificações separadas</td></tr>
+<tr><td>Preferências</td><td>Usuário pode silenciar uma categoria de insight (ex.: "não me avise sobre desconto de operador, só sobre estoque") sem desligar o sistema inteiro</td></tr>
+<tr><td>Aprendizagem</td><td>Insight de um tipo repetidamente ignorado (nunca clicado, nunca agido) perde prioridade automaticamente — implementação do ciclo de retroalimentação da seção 8</td></tr>
+</table></div>
+</section>
+
+<section id="s12">
+<h2><span class="num">12</span> Mobile</h2>
+<p class="lede">A infraestrutura de PWA pareada via Firebase já existe e já funciona sem tocar SQLite diretamente. O trabalho não é "criar um app" — é desenhar cinco experiências específicas sobre o transporte que já está pronto.</p>
+<div class="twrap"><table>
+<tr><th>Perfil</th><th>Experiência central</th><th>Depende de</th></tr>
+<tr><td>Dono</td><td>Resumo de 8h (seção 11.1) + Gerente Digital + aprovação remota de desconto/alteração de pedido</td><td>Intelligence Foundation + Gerente Digital MVP</td></tr>
+<tr><td>Gerente</td><td>Painel de "o que precisa da minha aprovação agora" + alerta de anomalia em tempo real</td><td>Anomaly Detection + fila de aprovação pendente</td></tr>
+<tr><td>Garçom</td><td>Pedido direto na mesa + notificação de item pronto</td><td><code>pedidoGarcomSyncService</code> já existente — só falta expandir a superfície</td></tr>
+<tr><td>Estoquista</td><td>Contagem de inventário por foto, rodando no celular sem depender do terminal fixo</td><td>Infraestrutura de IA já existente (<code>identificarProdutoPorFoto</code>), adaptada para lote</td></tr>
+<tr><td>Financeiro</td><td>Aprovação de despesa + fluxo de caixa projetado para quem não fica o dia todo na loja</td><td>Recommendation Engine (Financeiro)</td></tr>
+</table></div>
+<p>Cada experiência é construída como uma superfície fina sobre a mesma Intelligence central — nenhuma lógica de negócio nova é implementada no mobile; ele consome o mesmo <code>insight_log</code> e as mesmas recomendações que o desktop.</p>
+</section>
+
+<section id="s13">
+<h2><span class="num">13</span> Multiloja Intelligence</h2>
+<p class="lede">Só construída depois da correção da sincronização (seção 4.2) — antes disso, qualquer comparação entre lojas estaria comparando números que podem estar sutilmente errados.</p>
+<h3>O padrão de qualidade exigido</h3>
+<p>Rejeitado: <em>"A loja A está vendendo 22% mais que a loja B."</em> Exigido: <em>"A loja B está 22% abaixo da loja A. A diferença está concentrada no período da noite e nos produtos X e Y."</em> E, quando aplicável, acionável: <em>"A loja A possui estoque parado do produto X enquanto a loja B deve ficar sem estoque em 3 dias. Sugiro transferência."</em></p>
+<div class="twrap"><table>
+<tr><th>Capacidade</th><th>Como é construída</th></tr>
+<tr><td>Ranking com causa</td><td>Mesmo Rules/Analytics Engine da seção 8, particionado por loja, com decomposição de causa obrigatória — nunca só o número</td></tr>
+<tr><td>Previsão</td><td><code>previsaoDeRuptura</code> aplicada por loja, cruzada entre lojas do mesmo grupo</td></tr>
+<tr><td>Redistribuição sugerida</td><td>Recommendation Engine cruza "capital parado" de uma loja com ruptura prevista em outra</td></tr>
+<tr><td>Metas</td><td>Conceito novo — meta por loja com alerta automático de desvio (não existe no schema hoje, ver seção 22, iniciativa 9)</td></tr>
+<tr><td>Comparação</td><td>Benchmark interno entre lojas do mesmo perfil de negócio, sempre com decomposição de causa</td></tr>
+<tr><td>Anomalias</td><td>Mesma política "AI Never Accuses" (seção 9.2) aplicada entre lojas — nunca "a loja B está fraudando", sempre "o padrão da loja B diverge do grupo, vale revisar"</td></tr>
+</table></div>
+</section>
+
+<section id="s14">
+<h2><span class="num">14</span> GerenciaAI Diagnostics</h2>
+<p class="lede">O próprio sistema deveria ajudar o suporte (hoje, só Arthur) a descobrir problema antes de precisar investigar do zero a cada chamado.</p>
+<div class="twrap"><table>
+<tr><th>Área diagnosticada</th><th>O que é verificado automaticamente</th></tr>
+<tr><td>Banco local</td><td>Integridade do arquivo SQLite, espaço em disco, última migração aplicada</td></tr>
+<tr><td>Sincronização</td><td>Última publicação bem-sucedida por serviço de sync, divergências pendentes de reconciliação (seção 4.2)</td></tr>
+<tr><td>Conexão</td><td>Status de rede, latência ao Firebase, modo offline há quanto tempo</td></tr>
+<tr><td>Impressora / balança</td><td>Última resposta bem-sucedida do hardware conectado</td></tr>
+<tr><td>NFC-e</td><td>Certificado válido/vencendo, notas pendentes/em contingência há quanto tempo</td></tr>
+<tr><td>Licenciamento</td><td>Status de carência, última verificação bem-sucedida</td></tr>
+<tr><td>WhatsApp</td><td>Sessão Baileys conectada, tempo desde a última desconexão</td></tr>
+<tr><td>IA</td><td>Chave configurada, últimas N chamadas com erro, custo estimado do período</td></tr>
+<tr><td>IPC / sessão</td><td>Tentativas de chamada sem sessão válida (sinal de tentativa de exploração ou de bug de cliente desatualizado)</td></tr>
+<tr><td>Integridade de serviço</td><td>Serviços que falharam ao iniciar, exceções não tratadas recorrentes</td></tr>
+</table></div>
+<p>Resultado prático: quando algo dá errado, o app já monta um pacote de diagnóstico ("O GerenciaAI detectou um problema e já preparou um diagnóstico para o suporte") — reduz o tempo entre "usuário liga reclamando" e "causa identificada" de horas para minutos, especialmente relevante para um produto mantido por uma pessoa só.</p>
+</section>
+
+<section id="s15">
+<h2><span class="num">15</span> Self-healing</h2>
+<p class="lede">Limite estrito, alinhado ao princípio 7 do DNA (seção 3): o sistema pode se corrigir sozinho onde o erro é reversível e não sensível; nunca onde toca dinheiro, estoque, dado sensível ou permissão.</p>
+<div class="grid2">
+<div class="card"><h4>Pode corrigir sozinho</h4><ul>
+<li>Limpar cache corrompido e reconstruir</li>
+<li>Reenfileirar evento de sincronização que falhou por rede (fila seguindeal, seção 4.2)</li>
+<li>Reiniciar um serviço interno que travou, preservando estado</li>
+<li>Retry automático com backoff em chamada de IA/rede que falhou por timeout</li>
+<li>Reprocessar fila de sincronização pendente ao reconectar</li>
+</ul></div>
+<div class="card"><h4>Precisa de aprovação humana</h4><ul>
+<li>Qualquer alteração de valor financeiro ou fiscal</li>
+<li>Qualquer ajuste de estoque, mesmo para "corrigir" uma divergência detectada</li>
+<li>Exclusão de qualquer registro</li>
+<li>Alteração de permissão/papel de usuário</li>
+<li>Restauração de backup</li>
+<li>Qualquer ação sobre dado classificado como sensível pela Trust Layer</li>
+</ul></div>
+</div>
+<p class="footnote">Nota de prudência tratada com mais profundidade na autocrítica (seção 33): self-healing tem custo de manutenção real para um time pequeno — uma correção automática que mascara sintoma sem resolver causa é uma dívida técnica silenciosa. Este plano recomenda implementar a lista da esquerda de forma conservadora e só depois do Diagnostics (seção 14) estar maduro o suficiente para não precisar de correção automática para enxergar problema.</p>
+</section>
+
+<section id="s16">
+<h2><span class="num">16</span> UX</h2>
+<p class="lede">Princípio central: "o usuário precisa apenas saber disso ou precisa fazer alguma coisa?" — toda tela responde essa pergunta antes de ser considerada pronta.</p>
+<h3>Ação antes da informação</h3>
+<p>Rejeitado: mostrar "Produto deve romper em 2 dias" e deixar o usuário decidir sozinho o que fazer com isso. Exigido: informação seguida de ação direta — <code>[Criar compra]</code> <code>[Ver fornecedor]</code> <code>[Transferir estoque]</code> — no mesmo lugar onde a informação aparece, nunca exigindo navegar para outra tela para agir sobre o que acabou de ser mostrado.</p>
+<h3>Dashboard que sabe o que importa hoje</h3>
+<p>Não um painel fixo de gráficos igual para todo mundo — um painel que se adapta a perfil (o que um garçom vê é diferente do que o dono vê), negócio (perfil de negócio determina quais métricas fazem sentido), horário (o resumo de abertura é diferente do resumo de fechamento), situação (se há uma anomalia ativa, ela sobe ao topo, deslocando conteúdo de rotina) e oportunidade (um insight positivo não fica escondido atrás só de alertas de problema). Tecnicamente, isso significa que o Dashboard deixa de renderizar componentes fixos e passa a renderizar itens do <code>insight_log</code> priorizados, com o gráfico tradicional disponível como detalhe, não como conteúdo principal.</p>
+</section>
+
+<section id="s17">
+<h2><span class="num">17</span> Performance</h2>
+<p class="lede">Sem otimização prematura — cada item classificado por quando de fato precisa ser feito, baseado nos achados concretos da auditoria.</p>
+<div class="twrap"><table>
+<tr><th>Item</th><th>Quando</th><th>Por quê</th></tr>
+<tr><td>Filtro de <code>ProductList</code> aplicado pós-paginação (resultado incompleto, não só lento)</td><td><span class="badge b-agora">Agora</span></td><td>É bug de correção, não só performance — resultado errado, não só lento</td></tr>
+<tr><td>Recalculo completo de estoque a cada push de sincronização</td><td><span class="badge b-agora">Agora</span></td><td>Resolvido junto com a correção da seção 4.2 — mesma mudança</td></tr>
+<tr><td>Envio de automação de WhatsApp em loop síncrono sem espaçamento</td><td><span class="badge b-agora">Agora</span></td><td>Soma-se ao risco de banimento (seção 4.5) — não é só performance, é risco de negócio</td></tr>
+<tr><td>Histórico de conversa do tutor reenviado inteiro a cada pergunta</td><td><span class="badge b-espera">Pode esperar</span></td><td>Custo cresce, mas não quebra nada — resolver junto com a extensão do Gerente Digital (seção 11), não antes</td></tr>
+<tr><td>Reextração de IA sem cache em anexo já processado</td><td><span class="badge b-espera">Pode esperar</span></td><td>Desperdício de custo, não de correção — baixa urgência</td></tr>
+<tr><td>Paginação por cursor generalizada (clientes, despesas, dropdown de 300 produtos)</td><td><span class="badge b-espera">Pode esperar</span></td><td>Só dói em base grande — não é o caso da maioria das instalações hoje</td></tr>
+<tr><td>Consultas de dashboard/relatório totalmente ad-hoc</td><td><span class="badge b-escala">Só na escala</span></td><td>Resolvido estruturalmente pela Data/Metrics Layer (seção 7) — não faz sentido otimizar a consulta antiga se ela está sendo substituída</td></tr>
+<tr><td>Volume de agregação diária em grupo multi-loja grande</td><td><span class="badge b-escala">Só na escala</span></td><td>Só relevante quando houver clientes de rede com muitas lojas — não otimizar para um caso que ainda não existe</td></tr>
+</table></div>
+</section>
+
+<section id="s18">
+<h2><span class="num">18</span> Segurança</h2>
+<p class="lede">Consolidação do que já foi detalhado nas seções 4 e 5 como postura de segurança de estado final — não uma lista nova, uma síntese do que "seguro" passa a significar para o GerenciaAI 2.0.</p>
+<ul>
+<li><strong>Identidade nunca é auto-declarada</strong> — sessão real resolvida no processo principal (seção 4.1), fim do <code>requestingUserId</code> como fonte de verdade.</li>
+<li><strong>Nenhum canal IPC sensível fica sem <code>requireRole</code></strong> aplicado contra a sessão real, não contra um ID de payload.</li>
+<li><strong>DevTools bloqueado em produção</strong> — fecha o vetor prático de exploração local.</li>
+<li><strong>Segredo nunca em texto puro sem aviso</strong> — quando <code>safeStorage</code> não está disponível, o usuário é avisado ativamente, não silenciosamente degradado.</li>
+<li><strong>Backup completo criptografado</strong> antes do upload, não só os campos individuais.</li>
+<li><strong>Auditoria com integridade verificável</strong> — hash-chain e espelhamento externo, para que uma restauração de backup não possa apagar evidência de incidente silenciosamente.</li>
+<li><strong>Dado sensível (saúde, controlados) com controle de acesso equivalente à sensibilidade</strong> — não só escondido no menu, também protegido no backend.</li>
+</ul>
+</section>
+
+<section id="s19">
+<h2><span class="num">19</span> Diferenciação</h2>
+<p class="lede">A pergunta certa não é "quais funcionalidades temos", é "o que um concorrente conseguiria copiar em 30 dias, em 6 meses, e o que levaria anos".</p>
+<div class="twrap"><table>
+<tr><th>Horizonte</th><th>O que é copiável nesse prazo</th></tr>
+<tr><td><strong>30 dias</strong></td><td>Qualquer tela isolada — PDV, cadastro de produto, tela de mesa, bot de WhatsApp básico. Interface é a camada mais fácil de replicar; qualquer concorrente com orçamento consegue clonar a superfície.</td></tr>
+<tr><td><strong>6 meses</strong></td><td>Arquitetura multi-perfil de negócio (11 perfis, 1 base de código), pipeline fiscal de NFC-e completo, modelo de permissão com PIN e autorização de gerente. Exige disciplina de engenharia, mas é replicável por uma equipe competente em meio ano.</td></tr>
+<tr><td><strong>Anos (ou nunca, sem os mesmos dados)</strong></td><td>GerenciaAI Intelligence madura — depende de histórico acumulado real, não só do motor de regras; Gerente Digital calibrado ao vocabulário e padrão de cada negócio; Multiloja Intelligence com benchmark de rede; a combinação dos três anteriores num único produto coeso, não módulos isolados.</td></tr>
+</table></div>
+<p>Conclusão estratégica: investir em UI bonita é investimento no horizonte de 30 dias — qualquer vantagem ali é temporária. O único investimento que produz vantagem de anos é a Intelligence construída sobre dado histórico real e sobre a disciplina de nunca escorregar de volta para número cru (seção 9).</p>
+</section>
+
+<section id="s20">
+<h2><span class="num">20</span> GerenciaAI Moat</h2>
+<p class="lede">Quais ativos formam vantagem competitiva defensável — não uma lista de funcionalidades, uma classificação de <em>por que</em> cada uma é difícil de atacar.</p>
+<div class="twrap"><table>
+<tr><th>Categoria</th><th>Ativo</th><th>Por que é (ou não é) moat</th></tr>
+<tr><td>Fácil de copiar</td><td>Telas de PDV, cadastro, UI em geral</td><td>Não é moat — qualquer concorrente replica em semanas</td></tr>
+<tr><td>Médio</td><td>Arquitetura multi-perfil de negócio, pipeline fiscal completo</td><td>Exige tempo e disciplina de engenharia, mas nenhum segredo estrutural impede a cópia</td></tr>
+<tr><td>Difícil</td><td>Trust Layer + Data Layer + Rules/Analytics Engine compostos corretamente</td><td>Exige acertar uma arquitetura de várias camadas coerentes, não só uma feature — a maioria dos concorrentes de pequeno porte nunca chega a investir nisso</td></tr>
+<tr><td>Estrutural</td><td>Ledger auditável desde a base (estoque, vendas) alimentando tudo acima</td><td>Reescrever isso depois, sobre uma base que não nasceu assim, é migração cara — vantagem de quem já nasceu disciplinado</td></tr>
+<tr><td>Efeito de rede</td><td>Multiloja Intelligence, benchmark entre lojas do mesmo perfil de negócio</td><td>Quanto mais instalações do mesmo perfil, melhor o benchmark fica para todos — vantagem que cresce com a base instalada, não com o código</td></tr>
+<tr><td>Dados históricos</td><td>Histórico de venda/estoque/comportamento acumulado por instalação</td><td>Um concorrente novo nunca alcança de imediato — é o ativo que mais separa GerenciaAI de um clone recém-lançado, mesmo que o clone copie o código inteiro</td></tr>
+<tr><td>Experiência acumulada</td><td>Calibração de insight ao vocabulário/padrão de cada negócio (ciclo de retroalimentação, seção 8)</td><td>Quanto mais tempo um lojista usa, mais afiado o sistema fica <em>para aquele lojista</em> — custo de troca sobe com o tempo de uso, não só com a quantidade de dado</td></tr>
+</table></div>
+</section>
+
+<section id="s21">
+<h2><span class="num">21</span> Monetização</h2>
+<p class="lede">A estrutura de camadas da auditoria original permanece correta; aqui ela é amarrada explicitamente aos marcos deste plano, para que o time comercial saiba exatamente o que pode vender e quando.</p>
+<div class="twrap"><table>
+<tr><th>Camada</th><th>Liberada quando</th><th>Eixo de valor</th></tr>
+<tr><td>Essencial</td><td>Já hoje — não depende de nada deste plano</td><td>Substitui caderno/planilha com confiabilidade real</td></tr>
+<tr><td>Profissional</td><td>Após blindagem (seção 4) — vender NFC-e/WhatsApp sem a correção fiscal e de sessão seria vender sobre risco não revelado</td><td>Fiscal correto, canal de WhatsApp com risco mitigado, primeiros resumos de IA</td></tr>
+<tr><td>Negócio+ (Intelligence)</td><td>Após Intelligence Foundation + Gerente Digital MVP (seções 8, 11, 24)</td><td>O produto que "se paga sozinho" mostrando onde o dinheiro está vazando</td></tr>
+<tr><td>Rede/Franquia</td><td>Após sincronização corrigida (seção 4.2) + Multiloja Intelligence (seção 13)</td><td>Único concorrente do porte com essa camada — ticket mais alto, maior retenção</td></tr>
+</table></div>
+<p>Implicação direta: vender a camada "Negócio+" antes da Intelligence Foundation estar pronta seria a maior ameaça comercial deste plano — o primeiro cliente que perceber um insight errado destrói a credibilidade de toda a categoria de produto, não só daquela feature.</p>
+</section>
+
+<section id="s22">
+<h2><span class="num">22</span> Top 10 iniciativas</h2>
+<p class="lede">Tudo o que veio antes, consolidado em dez blocos de trabalho concretos — a unidade real de planejamento deste documento.</p>
+
+<div class="init-card"><h4>1. Blindagem de Sessão &amp; Autorização</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>IPC confia em identidade auto-declarada pelo renderer</dd>
+<dt>Solução</dt><dd>Session store real no processo principal (seção 4.1)</dd>
+<dt>Usuário</dt><dd>Todos — é infraestrutura, não feature visível</dd>
+<dt>Valor</dt><dd>Elimina o maior risco de segurança encontrado na auditoria</dd>
+<dt>Diferenciação</dt><dd>Baixa — é higiene, não vantagem comercial direta</dd>
+<dt>Complexidade</dt><dd>Média — toca muitos arquivos, mas é refactor disciplinado</dd>
+<dt>Dependências</dt><dd>Nenhuma — é o ponto de partida de tudo</dd>
+<dt>Risco</dt><dd>Regressão em fluxo de troca rápida de usuário se mal mapeado</dd>
+<dt>Impacto</dt><dd>Crítico</dd>
+<dt>Monetização</dt><dd>Indireta — protege a receita já existente</dd>
+<dt>Critério de sucesso</dt><dd>Zero canais IPC aceitando ação sem sessão validada</dd>
+<dt>Precisa existir antes</dt><dd>Nada</dd>
+</dl></div>
+
+<div class="init-card"><h4>2. Trust Layer &amp; Reconciliação de Estoque</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Sincronização de estoque sobrescreve decremento de outras lojas</dd>
+<dt>Solução</dt><dd>Event-based + ledger distribuído (seção 4.2) + Trust Layer (seção 5)</dd>
+<dt>Usuário</dt><dd>Franqueado, Gerente, Estoquista</dd>
+<dt>Valor</dt><dd>Fim do overselling silencioso; base honesta para toda Intelligence</dd>
+<dt>Diferenciação</dt><dd>Média — poucos concorrentes do porte resolvem isso corretamente</dd>
+<dt>Complexidade</dt><dd>Média-alta</dd>
+<dt>Dependências</dt><dd>Iniciativa 1 (sessão real, para autorizar corretamente quem publica evento)</dd>
+<dt>Risco</dt><dd>Migração precisa tratar divergência já acumulada em instalações existentes</dd>
+<dt>Impacto</dt><dd>Crítico</dd>
+<dt>Monetização</dt><dd>Desbloqueia toda a camada Rede/Franquia</dd>
+<dt>Critério de sucesso</dt><dd>Zero divergência entre soma de eventos e estoque físico em auditoria periódica</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativa 1</dd>
+</dl></div>
+
+<div class="init-card"><h4>3. Correção e Governança Fiscal</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Cálculo de ICMS/PIS/COFINS zerado fora do Simples Nacional</dd>
+<dt>Solução</dt><dd>Serviço de cálculo isolado + tabela de alíquota configurável (seção 4.3)</dd>
+<dt>Usuário</dt><dd>Dono fora do Simples, Contador</dd>
+<dt>Valor</dt><dd>Elimina passivo fiscal real</dd>
+<dt>Diferenciação</dt><dd>Média — reposiciona o pipeline fiscal já avançado como argumento de venda honesto</dd>
+<dt>Complexidade</dt><dd>Média — mas <em>necessita validação fiscal/documental</em> antes de codificar</dd>
+<dt>Dependências</dt><dd>Nenhuma técnica; depende de validação jurídico-contábil externa</dd>
+<dt>Risco</dt><dd>Alto se implementado sem validação de especialista tributário</dd>
+<dt>Impacto</dt><dd>Crítico para o subconjunto de clientes fora do Simples</dd>
+<dt>Monetização</dt><dd>Preserva confiança na camada Profissional inteira</dd>
+<dt>Critério de sucesso</dt><dd>Nenhuma nota emitida com imposto devido declarado como zero</dd>
+<dt>Precisa existir antes</dt><dd>Validação fiscal/documental externa</dd>
+</dl></div>
+
+<div class="init-card"><h4>4. Padrão Global de Feedback (Ação→Resultado Real)</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>~12 telas mostram sucesso mesmo quando a gravação falha</dd>
+<dt>Solução</dt><dd>Hook reutilizável <code>useSavedAction()</code> (seção 4.4)</dd>
+<dt>Usuário</dt><dd>Gerente, Admin — quem configura o sistema</dd>
+<dt>Valor</dt><dd>Confiança de que "salvo" significa salvo</dd>
+<dt>Diferenciação</dt><dd>Baixa — é higiene</dd>
+<dt>Complexidade</dt><dd>Baixa</dd>
+<dt>Dependências</dt><dd>Nenhuma</dd>
+<dt>Risco</dt><dd>Baixo</dd>
+<dt>Impacto</dt><dd>Alto — barato de corrigir, caro de deixar como está</dd>
+<dt>Monetização</dt><dd>Nenhuma direta</dd>
+<dt>Critério de sucesso</dt><dd>Zero telas de configuração sem checagem de <code>result.ok</code></dd>
+<dt>Precisa existir antes</dt><dd>Nada</dd>
+</dl></div>
+
+<div class="init-card"><h4>5. GerenciaAI Intelligence Foundation</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Dado rico, zero interpretação; toda consulta é ad-hoc</dd>
+<dt>Solução</dt><dd>Data/Metrics Layer (seção 7) + Rules/Analytics Engine (seção 8)</dd>
+<dt>Usuário</dt><dd>Dono, Gerente</dd>
+<dt>Valor</dt><dd>Base para todo o resto da camada de inteligência</dd>
+<dt>Diferenciação</dt><dd>Alta</dd>
+<dt>Complexidade</dt><dd>Alta</dd>
+<dt>Dependências</dt><dd>Iniciativas 1 e 2 (sessão + Trust Layer)</dd>
+<dt>Risco</dt><dd>Escopo pode inflar — exige disciplina de MVP (seção 24)</dd>
+<dt>Impacto</dt><dd>Muito alto</dd>
+<dt>Monetização</dt><dd>Habilita a camada Negócio+</dd>
+<dt>Critério de sucesso</dt><dd>Agregação diária rodando sem erro em produção por 30 dias consecutivos</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativas 1, 2</dd>
+</dl></div>
+
+<div class="init-card"><h4>6. Motor de Insights com Confiança</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Nenhum insight hoje explica sua própria origem/confiança</dd>
+<dt>Solução</dt><dd>Insight Engine com metadado obrigatório (seção 9) + <code>insight_log</code></dd>
+<dt>Usuário</dt><dd>Dono, Gerente</dd>
+<dt>Valor</dt><dd>Insight auditável, nunca "oráculo"</dd>
+<dt>Diferenciação</dt><dd>Alta</dd>
+<dt>Complexidade</dt><dd>Média-alta</dd>
+<dt>Dependências</dt><dd>Iniciativa 5</dd>
+<dt>Risco</dt><dd>Insight de baixa qualidade nas primeiras semanas pode gerar desconfiança — mitigar com rollout gradual e nível de confiança visível</dd>
+<dt>Impacto</dt><dd>Muito alto</dd>
+<dt>Monetização</dt><dd>Núcleo da camada Negócio+</dd>
+<dt>Critério de sucesso</dt><dd>Taxa de utilidade percebida (insight agido/confirmado vs. ignorado) acima de um piso definido antes do lançamento público</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativa 5</dd>
+</dl></div>
+
+<div class="init-card"><h4>7. Gerente Digital</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Interpretar relatório exige tempo que o dono não tem</dd>
+<dt>Solução</dt><dd>Extensão do <code>askTutor</code> com contexto de negócio estruturado (seção 11)</dd>
+<dt>Usuário</dt><dd>Dono</dd>
+<dt>Valor</dt><dd>Resposta direta a pergunta de negócio real, em segundos</dd>
+<dt>Diferenciação</dt><dd>Muito alta</dd>
+<dt>Complexidade</dt><dd>Alta (qualidade de prompt/resposta, não infraestrutura nova)</dd>
+<dt>Dependências</dt><dd>Iniciativas 5, 6</dd>
+<dt>Risco</dt><dd>Resposta convincente porém errada é pior que "não sei" — exige limites claros de recusa</dd>
+<dt>Impacto</dt><dd>Muito alto</dd>
+<dt>Monetização</dt><dd>Âncora comercial da camada Negócio+; possível produto avulso (seção 16 da auditoria)</dd>
+<dt>Critério de sucesso</dt><dd>Responde corretamente às 2 perguntas do MVP (seção 24) sem inventar número em teste cego</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativas 5, 6</dd>
+</dl></div>
+
+<div class="init-card"><h4>8. "Bom dia" + Notificação Não-Intrusiva</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Dono só descobre problema abrindo 4 telas; alerta em excesso gera fadiga</dd>
+<dt>Solução</dt><dd>Resumo priorizado diário (seção 11.1) + sistema de cooldown/dedup/aprendizagem (seção 11.2)</dd>
+<dt>Usuário</dt><dd>Dono, Gerente</dd>
+<dt>Valor</dt><dd>O primeiro contato do dia já entrega valor sem esforço</dd>
+<dt>Diferenciação</dt><dd>Alta</dd>
+<dt>Complexidade</dt><dd>Média</dd>
+<dt>Dependências</dt><dd>Iniciativas 5, 6</dd>
+<dt>Risco</dt><dd>Virar spam se a priorização for mal calibrada — mitigar com cooldown desde o dia 1, não como correção posterior</dd>
+<dt>Impacto</dt><dd>Alto</dd>
+<dt>Monetização</dt><dd>Parte da camada Negócio+</dd>
+<dt>Critério de sucesso</dt><dd>Taxa de silenciamento de categoria de alerta abaixo de um piso — sinal de que a priorização está calibrada</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativas 5, 6</dd>
+</dl></div>
+
+<div class="init-card"><h4>9. Multiloja Intelligence &amp; Painel de Franqueador</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Redes pequenas comparam lojas na planilha; sync hoje não é confiável para isso</dd>
+<dt>Solução</dt><dd>Ranking com causa, redistribuição sugerida, metas por loja (seção 13)</dd>
+<dt>Usuário</dt><dd>Franqueado</dd>
+<dt>Valor</dt><dd>Abre segmento de rede, hoje inacessível com credibilidade</dd>
+<dt>Diferenciação</dt><dd>Muito alta</dd>
+<dt>Complexidade</dt><dd>Alta</dd>
+<dt>Dependências</dt><dd>Iniciativas 2, 5, 6</dd>
+<dt>Risco</dt><dd>Lançar cedo demais (antes da iniciativa 2 estar comprovadamente estável) destrói confiança do cliente mais valioso na primeira divergência</dd>
+<dt>Impacto</dt><dd>Alto, base de clientes menor</dd>
+<dt>Monetização</dt><dd>Camada Rede/Franquia — ticket mais alto do documento</dd>
+<dt>Critério de sucesso</dt><dd>Zero divergência de estoque reportada por cliente de rede por 60 dias antes do lançamento comercial da camada</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativas 2, 5, 6</dd>
+</dl></div>
+
+<div class="init-card"><h4>10. GerenciaAI Diagnostics</h4>
+<dl class="init-grid">
+<dt>Problema</dt><dd>Suporte (hoje, um só desenvolvedor) investiga cada problema do zero</dd>
+<dt>Solução</dt><dd>Diagnóstico automático por área (seção 14), pacote pronto para suporte</dd>
+<dt>Usuário</dt><dd>Admin, e indiretamente o próprio Arthur como suporte</dd>
+<dt>Valor</dt><dd>Reduz tempo de resolução de incidente</dd>
+<dt>Diferenciação</dt><dd>Média — mais eficiência interna que vantagem visível ao cliente</dd>
+<dt>Complexidade</dt><dd>Média</dd>
+<dt>Dependências</dt><dd>Iniciativas 1, 2 (para ter o que diagnosticar de verdade)</dd>
+<dt>Risco</dt><dd>Baixo</dd>
+<dt>Impacto</dt><dd>Alto para sustentabilidade operacional do produto, não para percepção do lojista</dd>
+<dt>Monetização</dt><dd>Indireta — reduz custo de suporte por cliente</dd>
+<dt>Critério de sucesso</dt><dd>Redução mensurável do tempo médio de diagnóstico de incidente reportado</dd>
+<dt>Precisa existir antes</dt><dd>Iniciativas 1, 2</dd>
+</dl></div>
+</section>
+
+<section id="s23">
+<h2><span class="num">23</span> Top 5 grandes apostas</h2>
+<p class="lede">Das dez, cinco representam a transformação de verdade — não porque as outras cinco sejam dispensáveis (elas são pré-requisito inegociável, seção 4), mas porque são higiene, não visão. Se só cinco coisas pudessem definir o GerenciaAI 2.0 aos olhos do mercado nos próximos 12 meses, seriam estas:</p>
+<div class="init-card bet"><h4>Aposta 1 — Trust Layer &amp; Reconciliação de Estoque (iniciativa 2)</h4><p>Sem isso, nenhuma das outras quatro é honesta. É a aposta menos "visível" ao lojista e a mais decisiva tecnicamente.</p></div>
+<div class="init-card bet"><h4>Aposta 2 — GerenciaAI Intelligence Foundation (iniciativa 5)</h4><p>A peça que transforma GerenciaAI de "sistema de PDV com relatório" em "sistema que interpreta". Tudo o resto de Intelligence depende dela.</p></div>
+<div class="init-card bet"><h4>Aposta 3 — Gerente Digital (iniciativa 7)</h4><p>A experiência que o dono vai contar para outro dono de negócio — "esse sistema entende minha loja" é uma frase de boca a boca que nenhuma tela de PDV gera sozinha.</p></div>
+<div class="init-card bet"><h4>Aposta 4 — "Bom dia" + notificação inteligente (iniciativa 8)</h4><p>O ponto de contato diário que constrói o hábito — sem um motivo para abrir o app todo dia, a Intelligence fica invisível por trás de uma tela que ninguém abre.</p></div>
+<div class="init-card bet"><h4>Aposta 5 — Multiloja Intelligence (iniciativa 9)</h4><p>A aposta de maior ticket e maior efeito de rede (seção 20) — abre um segmento de mercado inteiro, mas é também a mais arriscada de calendário (depende inteiramente da aposta 1 estar madura).</p></div>
+<p class="footnote">As iniciativas 1, 3, 4 e 10 continuam sendo trabalho obrigatório da Fase 1-2 do roadmap (seção 25) — só não entram na lista de "apostas" porque higiene e correção não são, por definição, uma aposta: são o preço de entrada para apostar em qualquer coisa.</p>
+</section>
+
+<section id="s24">
+<h2><span class="num">24</span> MVP da Intelligence</h2>
+<p class="lede">Deliberadamente pequeno — o objetivo é provar a tese com o menor escopo possível, não construir a versão completa de uma vez.</p>
+<div class="twrap"><table>
+<tr><th>Componente</th><th>Escopo do MVP</th><th>Fora do MVP (fica para depois)</th></tr>
+<tr><td>Resumo diário</td><td>3 itens fixos: faturamento vs. média, estoque crítico, diferença de caixa</td><td>Personalização por perfil, oportunidades, priorização dinâmica de 5 itens</td></tr>
+<tr><td>Tipos de insight</td><td>3: queda de faturamento explicada, ruptura iminente, produto de alta margem em alta</td><td>Os demais tipos catalogados na auditoria original (seção 9 daquele documento)</td></tr>
+<tr><td>Anomalia</td><td>1 tipo: desvio de cancelamento/desconto por operador vs. próprio histórico</td><td>Anomalia de caixa, de margem, de padrão entre lojas</td></tr>
+<tr><td>Recomendação</td><td>1 tipo: priorização de compra por ruptura prevista</td><td>Recomendação de preço, promoção, redistribuição</td></tr>
+<tr><td>Gerente Digital</td><td>2 perguntas: "Como foi minha loja hoje?" e "O que preciso comprar?"</td><td>As outras 7 perguntas do catálogo (seção 11)</td></tr>
+</table></div>
+<p>Critério de saída do MVP para a próxima fase: 30 dias de uso real em pelo menos uma instalação piloto, com taxa de insight considerado útil (agido ou confirmado, não ignorado) acima do piso definido antes do lançamento — só então o escopo expande para o restante do catálogo.</p>
+</section>
+
+<section id="s25">
+<h2><span class="num">25</span> Roadmap de 12 meses</h2>
+<p class="lede">A divisão sugerida (blindagem → confiabilidade → UX → Intelligence Foundation → Gerente Digital → Intelligence avançada) foi validada com um ajuste: Diagnostics entra mais cedo, junto da confiabilidade, porque é o que torna a correção de sincronização (iniciativa 2) observável em produção — sem ele, não dá para confirmar que a correção realmente funcionou fora do laboratório.</p>
+<div class="twrap"><table>
+<tr><th>Período</th><th>Foco</th><th>Entregas</th></tr>
+<tr><td><strong>Mês 1-2</strong></td><td>Blindagem</td><td>Sessão real (init. 1) · DevTools bloqueado · <code>requireRole</code> nos canais desprotegidos · padrão de feedback (init. 4) · escopo de correção fiscal validado (init. 3, aguardando validação externa) · rollback de orçamento→venda corrigido</td></tr>
+<tr><td><strong>Mês 3-4</strong></td><td>Confiabilidade + Diagnostics</td><td>Trust Layer + reconciliação de estoque (init. 2) · GerenciaAI Diagnostics básico (init. 10) · mitigação de risco do WhatsApp (throttle, fallback de canal)</td></tr>
+<tr><td><strong>Mês 5-6</strong></td><td>UX e produtividade</td><td>Ação-antes-da-informação nas telas de maior uso · sangria de caixa · vínculo produto-fornecedor · correções de UX da auditoria original (seção 4) · correção fiscal implementada (se validação externa concluída)</td></tr>
+<tr><td><strong>Mês 7-8</strong></td><td>Intelligence Foundation</td><td>Data/Metrics Layer (init. 5) · Rules/Analytics Engine · MVP de insights (seção 24) rodando em piloto</td></tr>
+<tr><td><strong>Mês 9-10</strong></td><td>Gerente Digital + Bom dia</td><td>Motor de insights com confiança (init. 6) · Gerente Digital MVP de 2 perguntas (init. 7) · resumo diário (init. 8)</td></tr>
+<tr><td><strong>Mês 11-12</strong></td><td>Intelligence avançada + Multiloja</td><td>Expansão do catálogo de insight/recomendação além do MVP · Multiloja Intelligence (init. 9), condicionada à estabilidade comprovada da iniciativa 2</td></tr>
+</table></div>
+</section>
+
+<section id="s26">
+<h2><span class="num">26</span> Roadmap por dependências</h2>
+<p class="lede">O grafo real de pré-requisitos — a ordem do calendário (seção 25) segue esta lógica, não o contrário.</p>
+<div class="grid2">
+<div class="card"><h4>Cadeia de confiança</h4>
+<div class="flow">
+<div class="step">Sessão real (init. 1)</div><div class="arrow">↓</div>
+<div class="step">Autorização confiável em todo IPC</div><div class="arrow">↓</div>
+<div class="step">Trust Layer + reconciliação de estoque (init. 2)</div><div class="arrow">↓</div>
+<div class="step">Diagnostics (init. 10)</div><div class="arrow">↓</div>
+<div class="step">Multiloja Intelligence (init. 9)</div>
+</div></div>
+<div class="card"><h4>Cadeia de inteligência</h4>
+<div class="flow">
+<div class="step">Trust Layer (init. 2)</div><div class="arrow">↓</div>
+<div class="step">Data/Metrics Layer (init. 5)</div><div class="arrow">↓</div>
+<div class="step">Rules/Analytics Engine (init. 5)</div><div class="arrow">↓</div>
+<div class="step">Insight Engine com confiança (init. 6)</div><div class="arrow">↓</div>
+<div class="step">Gerente Digital seguro (init. 7)</div><div class="arrow">↓</div>
+<div class="step">"Bom dia" + notificação (init. 8)</div>
+</div></div>
+</div>
+<div class="card"><h4>Cadeia de UX</h4>
+<div class="flow">
+<div class="step">Padrão de feedback (init. 4)</div><div class="arrow">↓</div>
+<div class="step">Ação-antes-da-informação (seção 16)</div><div class="arrow">↓</div>
+<div class="step">Dashboard adaptativo (seção 16)</div>
+</div></div>
+</section>
+
+<section id="s27">
+<h2><span class="num">27</span> Estratégia de testes</h2>
+<p class="lede">Ordem de prioridade de regressão, seguindo exatamente a hierarquia de risco deste plano — segurança e integridade de dado antes de qualquer coisa que o usuário vê.</p>
+<ol>
+<li><strong>Segurança</strong> — nenhum canal IPC aceita ação sem sessão válida; troca de usuário invalida sessão anterior; DevTools bloqueado em build de produção.</li>
+<li><strong>Estoque</strong> — reconciliação de grupo nunca diverge da soma de eventos; operação offline não perde nem duplica movimento ao reconectar.</li>
+<li><strong>Fiscal</strong> — emissão bloqueada (não silenciosa) quando alíquota não configurada; XML gerado bate com o esperado por regime/CSOSN em bateria de casos de teste.</li>
+<li><strong>Financeiro</strong> — nenhuma tela financeira aceita gravação sem checagem de papel; teto de valor respeitado em todo método de pagamento.</li>
+<li><strong>Sincronização</strong> — idempotência de evento sob reenvio; divergência sempre sinalizada, nunca corrigida silenciosamente.</li>
+<li><strong>IPC</strong> — cada um dos ~15 canais hoje desprotegidos, testado individualmente contra chamada sem sessão/papel adequado.</li>
+<li><strong>IA</strong> — nenhum insight publicado sem metadado de origem/confiança; Gerente Digital nunca inventa número em teste cego contra caso conhecido.</li>
+<li><strong>UX</strong> — nenhuma tela de configuração mostra sucesso sem <code>result.ok</code> verdadeiro (teste automatizado varrendo todos os handlers de salvamento).</li>
+</ol>
+</section>
+
+<section id="s28">
+<h2><span class="num">28</span> Feature flags &amp; estratégia de release</h2>
+<p class="lede">Nenhuma atualização grande — releases pequenos, testáveis, reversíveis. O padrão já existe parcialmente em <code>modulosPagosService.js</code> (flag remota por módulo); a proposta é generalizar esse padrão já comprovado, não inventar um novo.</p>
+<ul>
+<li><strong>Escopo limitado por release</strong> — cada iniciativa da seção 22 é dividida em releases menores que o próprio bloco (ex.: iniciativa 2 libera primeiro o event log, depois a reconciliação, depois desliga o <code>setDoc</code> antigo).</li>
+<li><strong>Feature flag remota</strong> para toda funcionalidade de Intelligence — permite ativar em piloto antes de liberar geral, e desligar instantaneamente se um insight se mostrar de baixa qualidade em produção.</li>
+<li><strong>Rollback sempre possível</strong> — nenhuma migração de dado é de mão única sem plano de reversão documentado, especialmente na correção de sincronização de estoque (dado histórico divergente precisa de estratégia de reconciliação, não só o mecanismo novo ligado).</li>
+<li><strong>Critério de aceitação por release</strong> — definido antes de começar a construir, não depois (ligado aos critérios de sucesso da seção 30).</li>
+</ul>
+</section>
+
+<section id="s29">
+<h2><span class="num">29</span> O que NÃO fazer agora</h2>
+<p class="lede">Lista deliberada de ideias boas — algumas já catalogadas na auditoria original — que este plano adia conscientemente. Adiar não é rejeitar; é proteger o foco dos próximos 12 meses.</p>
+<div class="twrap"><table>
+<tr><th>Ideia adiada</th><th>Por que não agora</th></tr>
+<tr><td>Mapa visual (arrasta-solta) do salão de mesas</td><td>WOW simples e real, mas puramente cosmético frente ao que a Intelligence entrega — não compete por recurso de engenharia com as apostas da seção 23</td></tr>
+<tr><td>Gamificação de equipe</td><td>Depende do motor de anomalia/desempenho já estar maduro e calibrado — lançar gamificação sobre métrica ainda instável gera ranking injusto e desconfiança</td></tr>
+<tr><td>Aprofundamento do bot de WhatsApp (áudio, novos fluxos)</td><td>O bot roda sobre Baileys, risco de banimento documentado — a decisão certa é mitigar e manter, nunca aprofundar investimento numa base de risco não resolvido (ver autocrítica, seção 33)</td></tr>
+<tr><td>NFS-e para perfis de serviço</td><td>Abre mercado novo, mas exige o mesmo rigor de validação fiscal/documental da iniciativa 3 — sequenciar depois da correção fiscal do NFC-e estar comprovadamente estável</td></tr>
+<tr><td>Marketplace de fornecedores / módulo de crédito-fintech</td><td>Produtos derivados genuinamente novos (seção 16 da auditoria) — não fazem sentido antes do core de Intelligence provar a tese</td></tr>
+<tr><td>Machine learning preditivo (além de estatística determinística)</td><td>Todo o catálogo de previsão deste plano é resolvido com média móvel e regra determinística — ML teria custo de manutenção maior que o ganho de precisão nesta fase (ver princípio 3 do DNA)</td></tr>
+<tr><td>Self-healing além da lista conservadora da seção 15</td><td>Correção automática mascarando sintoma é dívida técnica silenciosa para um time pequeno — expandir só depois do Diagnostics estar maduro</td></tr>
+<tr><td>Segundo provedor de IA (fallback a Gemini)</td><td>Real risco de dependência única, mas resolver agora distrai do que importa mais — revisitar se a Gemini se tornar instável ou cara na prática</td></tr>
+<tr><td>Chatbot de resposta livre no bot de WhatsApp sem base estruturada</td><td>Contradiz diretamente o princípio "Intelligence não é chatbot" (seção 9) — qualquer resposta livre do bot precisa continuar limitada ao catálogo/fluxo estruturado</td></tr>
+<tr><td>Reescrever a base de dados (SQLite → outro banco)</td><td>Ver seção 31 — não há evidência de que o problema seja a tecnologia de base</td></tr>
+</table></div>
+</section>
+
+<section id="s30">
+<h2><span class="num">30</span> Critérios de sucesso</h2>
+<div class="twrap"><table>
+<tr><th>Área</th><th>Critério</th></tr>
+<tr><td>Segurança</td><td>Zero canais IPC aceitando ação sem sessão validada; zero incidente de escalonamento de privilégio em auditoria periódica</td></tr>
+<tr><td>Estoque</td><td>Zero sobrescrita silenciosa; toda divergência detectada e reconciliada, nunca corrigida sem registro</td></tr>
+<tr><td>Fiscal</td><td>Zero nota emitida com imposto devido declarado como zero, para regime fora do Simples</td></tr>
+<tr><td>Intelligence</td><td>Insight sempre baseado em dado passado pela Trust Layer; zero métrica inventada pela camada de linguagem; taxa de utilidade (agido/confirmado vs. ignorado) acima do piso definido no MVP</td></tr>
+<tr><td>Gerente Digital</td><td>Zero número inventado em teste cego contra caso conhecido; recusa explícita quando não há dado confiável, em vez de resposta genérica</td></tr>
+<tr><td>UX</td><td>Menos cliques para completar a ação mais comum de cada perfil; menor tempo de operação no PDV; menos erro de digitação/duplo clique nos fluxos já identificados na auditoria</td></tr>
+<tr><td>Notificação</td><td>Taxa de silenciamento de categoria abaixo de um piso — sinal de que a priorização não virou spam</td></tr>
+<tr><td>Multiloja</td><td>Zero divergência de estoque reportada por cliente de rede antes da abertura comercial da camada</td></tr>
+<tr><td>Mobile</td><td>Cada uma das cinco experiências de perfil usada ativamente, não só instalada</td></tr>
+</table></div>
+</section>
+
+<section id="s31">
+<h2><span class="num">31</span> Arquitetura final</h2>
+<p class="lede">Resposta direta à pergunta que o item 25 do briefing coloca: SQLite local + sincronização/cloud continua sendo a melhor arquitetura para o produto. Não há evidência, em toda a auditoria original ou neste plano, de que o gargalo seja a tecnologia de banco — o gargalo é a ausência de camadas de confiança, agregação e interpretação sobre uma base que já funciona bem para o perfil de cliente do GerenciaAI (pequeno negócio, internet instável, custo de infraestrutura zero por padrão).</p>
+<p>Trocar para Postgres/cloud-first resolveria um problema que o produto não tem (escala de escrita concorrente maciça) e criaria um problema real que ele não tem hoje (dependência de conectividade permanente, custo de infraestrutura recorrente repassado ao lojista). A arquitetura final proposta é uma composição de camadas sobre a base atual, não uma substituição:</p>
+<div class="flow" style="max-width:100%">
+<div class="step">SQLite local (ledger transacional, inalterado na essência)</div>
+<div class="arrow">↓</div>
+<div class="step">Session Layer (seção 4.1) — nova</div>
+<div class="arrow">↓</div>
+<div class="step">Trust Layer (seção 5) — nova</div>
+<div class="arrow">↓</div>
+<div class="step">Data/Metrics Layer local (seção 7) — nova</div>
+<div class="arrow">↓</div>
+<div class="step">Firestore como ledger distribuído de eventos (seção 4.2) — evolução do uso já existente, não uma tecnologia nova</div>
+<div class="arrow">↓</div>
+<div class="step">Rules/Analytics/Insight/Recommendation Engines (seções 8-10) — novos, rodando localmente</div>
+<div class="arrow">↓</div>
+<div class="step">Superfícies: Dashboard, Mobile, WhatsApp, Gerente Digital</div>
+</div>
+</section>
+
+<section id="s32">
+<h2><span class="num">32</span> Ordem exata de execução</h2>
+<p class="lede">Checklist consolidado — a sequência literal em que o trabalho deveria começar, combinando roadmap (seção 25) e dependências (seção 26).</p>
+<ol>
+<li>Sessão real no processo principal (init. 1)</li>
+<li>Bloqueio de DevTools em produção</li>
+<li><code>requireRole</code> aplicado contra sessão real nos ~15 canais hoje desprotegidos</li>
+<li>Padrão global de feedback (init. 4), aplicado primeiro nas telas de maior risco (Fiscal, Segurança, IA)</li>
+<li>Rollback completo de orçamento→venda corrigido</li>
+<li>Escopo da correção fiscal enviado para validação externa (init. 3) — em paralelo, não bloqueia os itens seguintes</li>
+<li>Event log de estoque + reconciliação transacional (init. 2)</li>
+<li>GerenciaAI Diagnostics básico (init. 10), focado em confirmar a saúde da correção do item 7</li>
+<li>Mitigação de risco do WhatsApp (throttle, fallback de canal, contador de volume)</li>
+<li>Correções de UX de alto impacto/baixo esforço da auditoria original (sangria, vínculo fornecedor, busca com corte silenciero)</li>
+<li>Implementação da correção fiscal, assim que a validação externa (item 6) concluir</li>
+<li>Data/Metrics Layer (init. 5)</li>
+<li>Rules/Analytics Engine (init. 5)</li>
+<li>MVP de insights (seção 24) em piloto controlado</li>
+<li>Insight Engine com metadado de confiança (init. 6), a partir do aprendizado do piloto</li>
+<li>Gerente Digital MVP — 2 perguntas (init. 7)</li>
+<li>"Bom dia" + sistema de notificação não-intrusiva (init. 8)</li>
+<li>Expansão do catálogo de insight/recomendação além do MVP</li>
+<li>Multiloja Intelligence (init. 9), condicionada a 60 dias de estabilidade comprovada do item 7</li>
+<li>Reavaliação do roadmap seguinte com base no que o piloto e os primeiros clientes de Negócio+/Rede ensinaram — este plano cobre 12 meses, não além</li>
+</ol>
+</section>
+
+<section id="s33">
+<h2><span class="num">33</span> Autocrítica do CTO</h2>
+<p class="lede">Se eu estivesse investindo meu próprio dinheiro e reputação neste produto: cinco decisões deste plano eu manteria sem hesitar, cinco eu mudaria. Nenhuma proteção à auditoria anterior ou ao briefing recebido — o teste é só um, "isso é tecnicamente e comercialmente sólido ou só soa bem no papel?".</p>
+
+<h3>Manteria</h3>
+<div class="twrap"><table>
+<tr><th>Decisão</th><th>Por quê</th></tr>
+<tr><td><span class="badge b-manter">Manter</span> Trust Layer antes de qualquer Intelligence</td><td>Não é conservadorismo — é a diferença entre vender confiança e vender risco disfarçado de inovação. Nenhum atalho aqui se paga.</td></tr>
+<tr><td><span class="badge b-manter">Manter</span> "Menos telas, mais inteligência" como framing central</td><td>Para o segmento de pequeno negócio, cada tela nova é atrito real, não demonstração de poder de fogo. É a decisão de produto mais defensável de todo o plano.</td></tr>
+<tr><td><span class="badge b-manter">Manter</span> "AI Never Accuses"</td><td>Protege adoção (ninguém quer um sistema que soa como vigilância) e protege juridicamente o produto de virar instrumento de decisão trabalhista automatizada.</td></tr>
+<tr><td><span class="badge b-manter">Manter</span> Determinístico primeiro, LLM só para narrar</td><td>É o que evita o erro mais comum e mais caro de produtos de "IA de negócio": um LLM inventando um número que parece autoritativo e está errado.</td></tr>
+<tr><td><span class="badge b-manter">Manter</span> SQLite + Firebase como base, sem reescrita</td><td>Trocar de banco agora seria meses de trabalho resolvendo um problema que a auditoria nunca identificou como real.</td></tr>
+</table></div>
+
+<h3>Mudaria</h3>
+<div class="twrap"><table>
+<tr><th>Decisão</th><th>Por quê eu pressionaria diferente</th></tr>
+<tr><td><span class="badge b-mudar">Mudar</span> Escopo do Gerente Digital no ano 1</td><td>O briefing original imagina nove perguntas respondidas. Eu cortaria ainda mais fundo do que este plano já corta (2 perguntas no MVP): eu lançaria com <strong>uma</strong> pergunta ("como foi minha loja hoje") funcionando de forma impecável antes de adicionar a segunda — é mais fácil expandir escopo depois de provar qualidade do que recuperar confiança depois de uma resposta errada cedo demais.</td></tr>
+<tr><td><span class="badge b-mudar">Mudar</span> Peso de Multiloja Intelligence entre as 5 grandes apostas</td><td>Eu a tiraria do Top 5 e a substituiria por consolidar ainda mais a experiência de loja única. Multiloja serve um segmento cuja demanda real (quantos clientes atuais têm mais de uma loja?) não foi validada nesta auditoria — apostar um quinto do orçamento estratégico de 12 meses nisso é uma aposta de mercado, não só de engenharia, e eu pediria validação de demanda antes de comprometer o calendário.</td></tr>
+<tr><td><span class="badge b-mudar">Mudar</span> Amplitude do Recommendation Engine no ano 1</td><td>Cinco áreas (estoque, vendas, financeiro, operação, clientes) de uma vez é ambicioso demais para o primeiro ano. Eu cortaria para duas — estoque e financeiro — onde o dado é mais limpo e o retorno mais fácil de provar, adiando vendas/operação/clientes para o ano 2.</td></tr>
+<tr><td><span class="badge b-mudar">Mudar</span> Postura em relação ao bot de WhatsApp/Baileys</td><td>Este plano recomenda "mitigar e manter". Eu seria mais desconfortável publicamente com isso: eu não colocaria o bot de WhatsApp como diferencial competitivo em nenhum material comercial (seção 14 da auditoria original o lista como diferencial) enquanto ele depender de uma biblioteca que viola os termos de serviço da plataforma — é o tipo de risco que não aparece em métrica de engenharia até o dia em que aparece como incidente de negócio.</td></tr>
+<tr><td><span class="badge b-mudar">Mudar</span> Self-healing como iniciativa nomeada no roadmap</td><td>Mesmo com o limite conservador da seção 15, eu adiaria self-healing inteiramente para depois do ano 1. Para um produto mantido essencialmente por uma pessoa, correção automática que funciona 95% das vezes e falha silenciosamente nos outros 5% é uma categoria de bug muito mais difícil de depurar do que um erro que simplesmente aparece. Eu substituiria por Diagnostics puro (visibilidade, zero ação automática) até o produto ter uma equipe de suporte maior que uma pessoa.</td></tr>
+</table></div>
+
+<p>Nenhuma dessas cinco mudanças invalida o plano — todas são sobre <em>quanto</em> apostar e <em>quando</em>, não sobre a direção. A direção — sessão real primeiro, estoque confiável segundo, interpretação de dado como o verdadeiro produto — está certa. O risco real deste documento nunca foi a estratégia; é a tentação de fazer tudo ao mesmo tempo porque tudo parece razoável isoladamente. Seletividade brutal, mais do que qualquer arquitetura descrita acima, é a decisão que realmente separa o GerenciaAI 2.0 de uma lista de boas ideias.</p>
+</section>
+
+</main>
+</div>

@@ -81,6 +81,29 @@ test('upsert recusa código de barras que já pertence a outro produto ativo, co
   assert.match(resultado.error, /Produto A/);
 });
 
+/**
+ * upsert nunca gravava fornecedor_id -- "Lista de compra sugerida"
+ * (supplierService.suggestPurchases) ficava sempre vazia pra qualquer
+ * produto cadastrado/editado manualmente, já que essa função filtra por
+ * p.fornecedor_id (auditoria, seção 3).
+ */
+test('upsert grava fornecedorId, e uma edição posterior sem o campo não apaga o vínculo por acidente', () => {
+  const { db } = freshTestDb();
+  const fornecedorId = randomUUID();
+  db.prepare(`INSERT INTO suppliers (id, nome) VALUES (?, 'Fornecedor Teste')`).run(fornecedorId);
+
+  const criado = productService.upsert({ nome: 'Produto com fornecedor', preco: 10, fornecedorId });
+  assert.equal(criado.ok, true);
+  assert.equal(db.prepare('SELECT fornecedor_id FROM products WHERE id = ?').get(criado.id).fornecedor_id, fornecedorId);
+
+  // Reenviar o mesmo produto SEM fornecedorId (ex: tela que não manda o
+  // campo de volta) deve limpar o vínculo -- upsert é sempre "o estado
+  // completo do produto", igual todo outro campo aqui, não um patch
+  // parcial.
+  productService.upsert({ id: criado.id, nome: 'Produto com fornecedor', preco: 10 });
+  assert.equal(db.prepare('SELECT fornecedor_id FROM products WHERE id = ?').get(criado.id).fornecedor_id, null);
+});
+
 test('deactivate libera o código de barras na hora, pra outro produto poder usar', () => {
   const { db } = freshTestDb();
   const idAntigo = inserirProduto(db, 'Produto Antigo', { codigoBarras: '7891234567890' });
@@ -184,5 +207,81 @@ test('count respeita o filtro de tipo', () => {
 
   assert.equal(productService.count({ tipo: 'servico' }), 2);
   assert.equal(productService.count({ tipo: 'produto' }), 1);
+  assert.equal(productService.count({}), 3);
+});
+
+// ---------------------------------------------------------------------
+// findDuplicateProducts comparava o nome só em maiúscula/minúscula --
+// "Café" e "Cafe" (erro de digitação comum, ou produto reimportado sem
+// acentuação) não batiam como duplicado nenhum, mesmo sendo claramente
+// o mesmo produto cadastrado duas vezes (auditoria, seção 3).
+// ---------------------------------------------------------------------
+
+test('findDuplicateProducts detecta nomes iguais mesmo com acentuação diferente', () => {
+  const { db } = freshTestDb();
+  inserirProduto(db, 'Café');
+  inserirProduto(db, 'Cafe');
+  inserirProduto(db, 'Água Mineral');
+  inserirProduto(db, 'Agua Mineral');
+  inserirProduto(db, 'Produto Único'); // sem duplicata, não deveria aparecer
+
+  const duplicados = productService.findDuplicateProducts();
+  assert.equal(duplicados.length, 2, 'café/cafe e água/agua deveriam formar dois grupos de duplicados');
+  const tamanhos = duplicados.map((g) => g.length).sort();
+  assert.deepEqual(tamanhos, [2, 2]);
+});
+
+test('findDuplicateProducts continua detectando duplicata exata (mesmo sem diferença de acento)', () => {
+  const { db } = freshTestDb();
+  inserirProduto(db, 'Arroz 5kg');
+  inserirProduto(db, 'arroz 5kg');
+
+  const duplicados = productService.findDuplicateProducts();
+  assert.equal(duplicados.length, 1);
+  assert.equal(duplicados[0].length, 2);
+});
+
+// ---------------------------------------------------------------------
+// A tela de Produtos filtrava "só com conflito de código de barras"
+// DEPOIS de já ter carregado uma página inteira pela rolagem infinita
+// -- então list()/count() precisam aceitar o filtro de verdade (em
+// SQL), senão a tela não tem como pedir só os produtos com conflito
+// (auditoria, seção 5 / ProductList.jsx).
+// ---------------------------------------------------------------------
+
+test('list com comConflito devolve só produtos com conflito de código de barras pendente', () => {
+  const { db } = freshTestDb();
+  const semConflito = inserirProduto(db, 'Produto Normal');
+  const comConflitoId = inserirProduto(db, 'Produto Conflitante');
+  db.prepare('UPDATE products SET conflito_codigo_barras_pendente = ? WHERE id = ?').run('7891234567890', comConflitoId);
+
+  const todos = productService.list({});
+  assert.equal(todos.length, 2);
+
+  const soConflito = productService.list({ comConflito: true });
+  assert.equal(soConflito.length, 1);
+  assert.equal(soConflito[0].id, comConflitoId);
+  assert.notEqual(soConflito[0].id, semConflito);
+});
+
+test('list com comConflito também funciona junto de uma busca por nome', () => {
+  const { db } = freshTestDb();
+  const comConflitoId = inserirProduto(db, 'Dipirona Conflitante');
+  inserirProduto(db, 'Dipirona Normal');
+  db.prepare('UPDATE products SET conflito_codigo_barras_pendente = ? WHERE id = ?').run('123', comConflitoId);
+
+  const resultado = productService.list({ query: 'dipirona', comConflito: true });
+  assert.equal(resultado.length, 1);
+  assert.equal(resultado[0].id, comConflitoId);
+});
+
+test('count com comConflito bate com o tamanho de list com o mesmo filtro', () => {
+  const { db } = freshTestDb();
+  const comConflitoId = inserirProduto(db, 'Produto A');
+  inserirProduto(db, 'Produto B');
+  inserirProduto(db, 'Produto C');
+  db.prepare('UPDATE products SET conflito_codigo_barras_pendente = ? WHERE id = ?').run('999', comConflitoId);
+
+  assert.equal(productService.count({ comConflito: true }), 1);
   assert.equal(productService.count({}), 3);
 });

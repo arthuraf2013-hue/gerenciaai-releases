@@ -173,6 +173,26 @@ CREATE TABLE IF NOT EXISTS ingredients (
   criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 
+-- Histórico de ajuste manual de estoque de insumo (entrada de
+-- mercadoria, perda, correção de inventário) — ingredientService.upsert
+-- editava nome/custo/unidade E sobrescrevia estoque_atual junto, tudo
+-- pelo mesmo formulário, sem deixar rastro de quem mudou o estoque nem
+-- por quê (auditoria, seção 4). Espelha o padrão de stock_movements
+-- pros PRODUTOS, mas sem location_id: insumo é um estoque só, não por
+-- local (diferente de products).
+CREATE TABLE IF NOT EXISTS ingredient_stock_movements (
+  id             TEXT PRIMARY KEY,
+  ingredient_id  TEXT NOT NULL REFERENCES ingredients(id),
+  tipo           TEXT NOT NULL CHECK (tipo IN ('entrada','ajuste','perda')),
+  quantidade     REAL NOT NULL, -- negativo em perda/ajuste pra baixo, positivo em entrada/ajuste pra cima
+  estoque_antes  REAL NOT NULL,
+  estoque_depois REAL NOT NULL,
+  motivo         TEXT,
+  operador_id    TEXT REFERENCES users(id),
+  criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_ingredient_stock_mov_ingredient ON ingredient_stock_movements(ingredient_id);
+
 -- Ficha técnica — quais insumos (e quanto de cada) entram num prato.
 -- Um prato é um `product` normal; isso só documenta a composição dele
 -- pra poder calcular o custo automaticamente.

@@ -3,6 +3,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { getDb } = require('./db/database');
 const { registerIpcHandlers } = require('./ipc/handlers');
+const sessionService = require('./services/sessionService');
 const timeService = require('./services/timeService');
 const backupService = require('./services/backupService');
 const updateService = require('./services/updateService');
@@ -77,6 +78,15 @@ function createWindow() {
 
   win.once('ready-to-show', () => win.show());
 
+  // A sessão real desta janela (ver sessionService.js) vive só enquanto a
+  // janela existe -- sem isso, um webContents.id reciclado pelo Chromium
+  // depois que a janela fecha podia, em teoria, herdar a sessão de quem
+  // usou aquele id antes. O id é capturado aqui (não dentro do listener
+  // 'closed') porque win.webContents já pode estar destruído quando
+  // 'closed' dispara.
+  const webContentsId = win.webContents.id;
+  win.on('closed', () => sessionService.encerrarSessao(webContentsId));
+
   if (isDev) {
     win.loadURL('http://localhost:5173');
     win.webContents.openDevTools();
@@ -89,6 +99,22 @@ function createWindow() {
     // carregado depois vira "app://index.html/assets/...", uma pasta que
     // não existe. Essa era a causa da tela branca no build empacotado.)
     win.loadURL('app://app/index.html');
+
+    // Bloqueia o DevTools fora de desenvolvimento -- o app roda com PINs,
+    // dados de cliente e (antes desta mesma leva de mudanças) confiava em
+    // campos que o próprio renderer mandava; deixar o DevTools acessível
+    // numa build de produção facilita demais inspecionar/chamar canais
+    // IPC na mão. Duas camadas: intercepta o atalho de teclado ANTES dele
+    // abrir o DevTools, e fecha de novo se abrir por outro caminho (menu
+    // do Chromium, extensão, etc).
+    win.webContents.on('before-input-event', (event, input) => {
+      const tecla = (input.key || '').toLowerCase();
+      const combinacaoDevTools =
+        tecla === 'f12' ||
+        (input.control && input.shift && ['i', 'j', 'c'].includes(tecla));
+      if (combinacaoDevTools) event.preventDefault();
+    });
+    win.webContents.on('devtools-opened', () => win.webContents.closeDevTools());
   }
 
   win.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {

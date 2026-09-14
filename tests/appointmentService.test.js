@@ -18,6 +18,50 @@ test('agenda um horário livre com sucesso', () => {
   assert.equal(r.ok, true);
 });
 
+// ---------------------------------------------------------------------
+// duracaoMinutos || 60 só protege contra falsy -- um valor NEGATIVO é
+// truthy em JS e passava direto, quebrando a checagem de conflito
+// (datetime com duração negativa calcula um "fim" antes do início) e
+// deixando o profissional ficar com dois agendamentos sobrepostos de
+// verdade (auditoria, seção 4).
+// ---------------------------------------------------------------------
+
+test('createAppointment recusa duração negativa', () => {
+  const { locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+  const r = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Cliente A',
+    servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', duracaoMinutos: -30, operadorId: adminId,
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /duração/i);
+});
+
+test('createAppointment com duração negativa não escapa da checagem de conflito nem fica marcado', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+  appointmentService.createAppointment({ locationId, professionalId: profId, clienteNomeAvulso: 'A', servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', duracaoMinutos: 60, operadorId: adminId });
+
+  const r = appointmentService.createAppointment({ locationId, professionalId: profId, clienteNomeAvulso: 'B', servico: 'Escova', dataHoraInicio: '2026-08-15 10:30:00', duracaoMinutos: -15, operadorId: adminId });
+  assert.equal(r.ok, false);
+
+  const total = db.prepare('SELECT COUNT(*) as c FROM appointments').get().c;
+  assert.equal(total, 1, 'não deveria ter gravado o segundo agendamento com duração inválida');
+});
+
+test('rescheduleAppointment recusa duração negativa', () => {
+  const { locationId, adminId } = freshTestDb();
+  const profId = criarProfissional();
+  const { id } = appointmentService.createAppointment({
+    locationId, professionalId: profId, clienteNomeAvulso: 'Cliente A',
+    servico: 'Corte', dataHoraInicio: '2026-08-15 10:00:00', duracaoMinutos: 60, operadorId: adminId,
+  });
+
+  const r = appointmentService.rescheduleAppointment({ appointmentId: id, dataHoraInicio: '2026-08-16 10:00:00', duracaoMinutos: -60 });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /duração/i);
+});
+
 test('recusa agendar em cima de um horário já ocupado (sobreposição parcial)', () => {
   const { db, locationId, adminId } = freshTestDb();
   const profId = criarProfissional();

@@ -63,4 +63,17 @@ function suggestPurchases({ locationId }) {
   }).sort((a, b) => b.quantidadeSugerida - a.quantidadeSugerida);
 }
 
-module.exports = { list, upsert, suggestPurchases };
+/** A coluna 'ativo' sempre existiu no schema, mas nada em supplierService
+ * a desligava -- um fornecedor descontinuado ficava pra sempre na lista
+ * de cadastro, sem forma de sair de lá (auditoria, seção 3). Mesmo
+ * padrão de "desativar" usado no resto do app (ex: productService,
+ * ingredientService): nunca apaga a linha, só some da lista ativa --
+ * produtos que já referenciam esse fornecedor continuam funcionando.
+ */
+function deactivate(id) {
+  const db = getDb();
+  db.prepare('UPDATE suppliers SET ativo = 0 WHERE id = ?').run(id);
+  return { ok: true };
+}
+
+module.exports = { list, upsert, deactivate, suggestPurchases };

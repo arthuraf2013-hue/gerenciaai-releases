@@ -118,6 +118,23 @@ async function importFromFile(filePath, { locationId, operadorId, deviceId }) {
         report.erros.push({ linha, erro: 'Campo "preco_venda" é obrigatório e deve ser numérico.' });
         return;
       }
+      // O cadastro manual de produto (productService.upsert) sempre
+      // recusou preço/custo/estoque mínimo negativo -- a importação por
+      // planilha não tinha a mesma checagem, então uma célula com "-10"
+      // por engano de digitação entrava direto, sem aviso (auditoria,
+      // seção 3).
+      if (Number(row.preco_venda) < 0) {
+        report.erros.push({ linha, erro: 'Campo "preco_venda" não pode ser negativo.' });
+        return;
+      }
+      if (row.custo !== undefined && row.custo !== '' && Number(row.custo) < 0) {
+        report.erros.push({ linha, erro: 'Campo "custo" não pode ser negativo.' });
+        return;
+      }
+      if (row.estoque_minimo !== undefined && row.estoque_minimo !== '' && Number(row.estoque_minimo) < 0) {
+        report.erros.push({ linha, erro: 'Campo "estoque_minimo" não pode ser negativo.' });
+        return;
+      }
 
       const sku = String(row.sku || '').trim() || null;
       const codigoBarras = String(row.codigo_barras || '').trim() || null;
@@ -144,6 +161,24 @@ async function importFromFile(filePath, { locationId, operadorId, deviceId }) {
       const fornecedorId = row.fornecedor ? findOrCreateSupplier(db, row.fornecedor) : null;
 
       const productId = existing ? existing.id : randomUUID();
+
+      // Confere ANTES de tentar inserir se o código de barras já pertence
+      // a OUTRO produto -- mesmo padrão de productService.upsert. Sem
+      // isso, o erro cru do SQLite ("UNIQUE constraint failed") vazava
+      // direto pro relatório de importação (ex: duas linhas da mesma
+      // planilha com códigos de barras repetidos, ou um código que já
+      // pertence a um produto cadastrado antes por fora da importação) --
+      // auditoria, seção 3.
+      if (codigoBarras) {
+        const outroComEsseCodigo = db.prepare(
+          'SELECT nome FROM products WHERE codigo_barras = ? AND id != ? AND ativo = 1'
+        ).get(codigoBarras, productId);
+        if (outroComEsseCodigo) {
+          report.erros.push({ linha, erro: `Código de barras "${codigoBarras}" já está cadastrado em outro produto: "${outroComEsseCodigo.nome}".` });
+          return;
+        }
+      }
+
       db.prepare(
         `INSERT INTO products (id, sku, codigo_barras, nome, categoria, preco, custo, unidade, estoque_minimo, custom_fields, fornecedor_id, ncm, cfop, cst_csosn, origem_mercadoria)
          VALUES (@id, @sku, @codigoBarras, @nome, @categoria, @preco, @custo, @unidade, @estoqueMinimo, @customFields, @fornecedorId, @ncm, @cfop, @cstCsosn, @origemMercadoria)

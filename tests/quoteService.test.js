@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
 const { freshTestDb, createProduct, addStock } = require('./helpers/testDb');
 const quoteService = require('../electron/services/quoteService');
+const ingredientService = require('../electron/services/ingredientService');
 
 test('cria orçamento e adiciona item, sem mexer em estoque', () => {
   const { db, locationId, adminId } = freshTestDb();
@@ -80,6 +81,44 @@ test('conversão com estoque insuficiente falha sem deixar rastro órfão, orça
 
   const quoteDepois = quoteService.getQuote(quote.id);
   assert.equal(quoteDepois.status, 'aberto', 'deveria continuar aberto pra tentar de novo');
+});
+
+/**
+ * O rollback de convertToSale só desfazia stock_movements/sale_items/
+ * sales -- não devolvia o insumo de ficha técnica que addItem já tinha
+ * descontado dos itens adicionados ANTES do item que falhou. Estoque de
+ * insumo vazava (ficava sutilmente a menos do que devia) toda vez que
+ * uma conversão falhava no meio do caminho (auditoria, seção 3).
+ */
+test('conversão que falha no meio reverte o insumo de ficha técnica já descontado, não deixa vazar estoque', () => {
+  const { db, locationId, adminId } = freshTestDb();
+
+  const pratoId = createProduct(db, { nome: 'Prato com Ficha', preco: 20 });
+  addStock(db, { productId: pratoId, locationId, quantidade: 10, operadorId: adminId });
+  const arroz = ingredientService.upsert({ nome: 'Arroz', custoUnitario: 1, estoqueAtual: 100 });
+  ingredientService.setRecipe(pratoId, [{ ingredientId: arroz.id, quantidade: 2 }]); // 2kg de arroz por porção
+
+  // Segundo item da lista, sem estoque suficiente -- é o que derruba a
+  // conversão no meio, DEPOIS do prato já ter sido adicionado e já ter
+  // descontado o arroz.
+  const semEstoqueId = createProduct(db, { nome: 'Sem Estoque Suficiente', preco: 5 });
+  addStock(db, { productId: semEstoqueId, locationId, quantidade: 1, operadorId: adminId });
+
+  const quote = quoteService.createQuote({ locationId, operadorId: adminId });
+  quoteService.addQuoteItem({ quoteId: quote.id, productId: pratoId, quantidade: 3 }); // descontaria 6kg de arroz
+  quoteService.addQuoteItem({ quoteId: quote.id, productId: semEstoqueId, quantidade: 5 }); // só tem 1 -- vai falhar
+
+  const resultado = quoteService.convertToSale({ quoteId: quote.id, operadorId: adminId, deviceId: 'device-teste' });
+  assert.equal(resultado.ok, false);
+
+  const arrozDepois = db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(arroz.id).estoque_atual;
+  assert.equal(arrozDepois, 100, 'insumo do item que chegou a ser adicionado deveria voltar ao normal depois do rollback');
+
+  const totalVendas = db.prepare('SELECT COUNT(*) as c FROM sales').get().c;
+  assert.equal(totalVendas, 0, 'não deveria sobrar venda órfã');
+
+  const quoteDepois = quoteService.getQuote(quote.id);
+  assert.equal(quoteDepois.status, 'aberto');
 });
 
 test('recusa converter orçamento vazio', () => {

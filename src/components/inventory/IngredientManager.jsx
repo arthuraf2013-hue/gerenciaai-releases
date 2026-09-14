@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
+import { IngredientStockAdjustModal } from './IngredientStockAdjustModal';
 import Icon from '../common/Icon';
 
 const UNIDADES = ['kg', 'g', 'l', 'ml', 'un'];
@@ -16,6 +17,7 @@ export function IngredientManager() {
   const [form, setForm] = useState(emptyForm);
   const [saveError, setSaveError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [adjusting, setAdjusting] = useState(null); // insumo sendo ajustado, ou null
 
   useEffect(() => {
     let ignore = false;
@@ -99,6 +101,7 @@ export function IngredientManager() {
               <td>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <button className="btn-link" onClick={() => startEdit(ing)}><Icon name="edit" size={14} /> Editar</button>
+                  <button className="btn-link" onClick={() => setAdjusting(ing)}><Icon name="box" size={14} /> Ajustar estoque</button>
                   <button className="btn-link-danger" onClick={() => handleDeactivate(ing)}><Icon name="trash" size={14} /> Remover</button>
                 </div>
               </td>
@@ -123,9 +126,19 @@ export function IngredientManager() {
             <label>Custo por unidade (R$)
               <input type="number" step="0.01" min="0" value={form.custoUnitario} onChange={(e) => setField('custoUnitario', e.target.value)} required />
             </label>
-            <label>Estoque atual (opcional)
-              <input type="number" step="0.01" min="0" value={form.estoqueAtual} onChange={(e) => setField('estoqueAtual', e.target.value)} />
-            </label>
+            {form.id ? (
+              // Editar não mexe em estoque_atual (backend ignora esse campo
+              // num UPDATE agora) -- estoque só muda por um ajuste explícito
+              // e auditado (botão "Ajustar estoque" na lista), pra nunca mais
+              // sumir/mudar sem querer só por corrigir nome/custo aqui.
+              <p className="screen-hint" style={{ margin: 0 }}>
+                Estoque atual: {form.estoqueAtual} {form.unidade} — use "Ajustar estoque" na lista pra mudar.
+              </p>
+            ) : (
+              <label>Estoque inicial (opcional)
+                <input type="number" step="0.01" min="0" value={form.estoqueAtual} onChange={(e) => setField('estoqueAtual', e.target.value)} />
+              </label>
+            )}
             <label>Estoque mínimo (opcional)
               <input type="number" step="0.01" min="0" value={form.estoqueMinimo} onChange={(e) => setField('estoqueMinimo', e.target.value)} />
             </label>
@@ -136,6 +149,14 @@ export function IngredientManager() {
             </div>
           </form>
         </div>
+      )}
+
+      {adjusting && (
+        <IngredientStockAdjustModal
+          ingredient={adjusting}
+          onClose={() => setAdjusting(null)}
+          onAdjusted={() => { setAdjusting(null); reload(); }}
+        />
       )}
     </div>
   );

@@ -350,3 +350,103 @@ test('fim a fim: importar Modelo + Insumos + Ficha Tecnica e vender o prato desc
 
   fs.unlinkSync(caminho);
 });
+
+// ---------------------------------------------------------------------
+// O cadastro manual de produto sempre recusou preço/custo/estoque mínimo
+// negativo (productService.upsert) -- a importação por planilha não
+// tinha a mesma checagem: uma célula com "-10" por erro de digitação
+// entrava direto, sem aviso (auditoria, seção 3).
+// ---------------------------------------------------------------------
+
+test('importFromFile recusa preco_venda negativo, sem travar as outras linhas da planilha', async () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const caminho = caminhoTemp();
+  await writeRowsAsSheet(
+    caminho,
+    [
+      { sku: 'SKU-NEG-1', nome: 'Preço Negativo', preco_venda: -10 },
+      { sku: 'SKU-OK-1', nome: 'Produto Válido', preco_venda: 10 },
+    ],
+    importExportService.COLUMNS,
+    'Modelo'
+  );
+
+  const resultado = await importExportService.importFromFile(caminho, { locationId, operadorId: adminId, deviceId: 'dev-teste' });
+  assert.equal(resultado.report.importados, 1, 'só a linha válida deveria ter entrado');
+  assert.equal(resultado.report.erros.length, 1);
+  assert.match(resultado.report.erros[0].erro, /não pode ser negativo/);
+  assert.equal(db.prepare('SELECT * FROM products WHERE sku = ?').get('SKU-NEG-1'), undefined);
+
+  fs.unlinkSync(caminho);
+});
+
+test('importFromFile recusa custo e estoque_minimo negativos', async () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const caminho = caminhoTemp();
+  await writeRowsAsSheet(
+    caminho,
+    [
+      { sku: 'SKU-NEG-CUSTO', nome: 'Custo Negativo', preco_venda: 10, custo: -1 },
+      { sku: 'SKU-NEG-MIN', nome: 'Mínimo Negativo', preco_venda: 10, estoque_minimo: -5 },
+    ],
+    importExportService.COLUMNS,
+    'Modelo'
+  );
+
+  const resultado = await importExportService.importFromFile(caminho, { locationId, operadorId: adminId, deviceId: 'dev-teste' });
+  assert.equal(resultado.report.importados, 0);
+  assert.equal(resultado.report.erros.length, 2);
+  assert.equal(db.prepare('SELECT * FROM products WHERE sku = ?').get('SKU-NEG-CUSTO'), undefined);
+  assert.equal(db.prepare('SELECT * FROM products WHERE sku = ?').get('SKU-NEG-MIN'), undefined);
+
+  fs.unlinkSync(caminho);
+});
+
+/**
+ * Antes, um código de barras repetido entre duas linhas da MESMA
+ * planilha (ou já usado por um produto cadastrado por fora da
+ * importação) deixava vazar o erro cru do SQLite ("UNIQUE constraint
+ * failed") direto pro relatório -- ilegível pra quem está importando
+ * (auditoria, seção 3).
+ */
+test('importFromFile recusa código de barras que já pertence a OUTRO produto (sku diferente), com mensagem clara e sem erro cru do SQLite', async () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const caminho = caminhoTemp();
+
+  // Duas linhas com sku diferente e código de barras diferente entram
+  // normalmente primeiro -- produto A fica com o código 7891111111111.
+  await writeRowsAsSheet(
+    caminho,
+    [
+      { sku: 'SKU-A', nome: 'Produto A', preco_venda: 10, codigo_barras: '7891111111111' },
+      { sku: 'SKU-B', nome: 'Produto B', preco_venda: 10, codigo_barras: '7892222222222' },
+    ],
+    importExportService.COLUMNS,
+    'Modelo'
+  );
+  const primeira = await importExportService.importFromFile(caminho, { locationId, operadorId: adminId, deviceId: 'dev-teste' });
+  assert.equal(primeira.report.importados, 2);
+  fs.unlinkSync(caminho);
+
+  // Reimportar SKU-B (produto já existe, casa pelo sku) tentando trocar o
+  // código de barras dele pro mesmo que o SKU-A já usa -- é aqui que o
+  // UPDATE batia de frente com o UNIQUE constraint antes desta correção.
+  const caminho2 = caminhoTemp();
+  await writeRowsAsSheet(
+    caminho2,
+    [{ sku: 'SKU-B', nome: 'Produto B', preco_venda: 10, codigo_barras: '7891111111111' }],
+    importExportService.COLUMNS,
+    'Modelo'
+  );
+  const resultado = await importExportService.importFromFile(caminho2, { locationId, operadorId: adminId, deviceId: 'dev-teste' });
+  assert.equal(resultado.report.importados, 0);
+  assert.equal(resultado.report.atualizados, 0);
+  assert.equal(resultado.report.erros.length, 1);
+  assert.match(resultado.report.erros[0].erro, /já está cadastrado em outro produto: "Produto A"/);
+  assert.doesNotMatch(resultado.report.erros[0].erro, /UNIQUE constraint/);
+
+  // Produto B continua com o código de barras original, intocado.
+  assert.equal(db.prepare('SELECT codigo_barras FROM products WHERE sku = ?').get('SKU-B').codigo_barras, '7892222222222');
+
+  fs.unlinkSync(caminho2);
+});

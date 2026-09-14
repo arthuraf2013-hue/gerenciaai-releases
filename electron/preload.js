@@ -5,6 +5,7 @@ const invoke = (channel) => (payload) => ipcRenderer.invoke(channel, payload);
 contextBridge.exposeInMainWorld('pdv', {
   auth: {
     login: invoke('auth:login'),
+    logout: invoke('auth:logout'),
     listActiveUsers: invoke('auth:listActiveUsers'),
     listAuditLog: invoke('auth:listAuditLog'),
     getSecurityConfig: invoke('auth:getSecurityConfig'),
@@ -116,6 +117,8 @@ contextBridge.exposeInMainWorld('pdv', {
     list: invoke('ingredient:list'),
     upsert: invoke('ingredient:upsert'),
     deactivate: invoke('ingredient:deactivate'),
+    adjustStock: invoke('ingredient:adjustStock'),
+    listStockMovements: invoke('ingredient:listStockMovements'),
     getRecipe: invoke('ingredient:getRecipe'),
     setRecipe: invoke('ingredient:setRecipe'),
     computeDishCost: invoke('ingredient:computeDishCost'),
@@ -349,6 +352,7 @@ contextBridge.exposeInMainWorld('pdv', {
   suppliers: {
     list: invoke('supplier:list'),
     upsert: invoke('supplier:upsert'),
+    deactivate: invoke('supplier:deactivate'),
     suggestPurchases: invoke('supplier:suggestPurchases'),
   },
   expenses: {

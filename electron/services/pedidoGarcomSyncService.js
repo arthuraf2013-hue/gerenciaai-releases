@@ -114,6 +114,18 @@ async function processarPedidoRecebido(docSnap, { firestore, installId }) {
       // pedido continua em bot_orders como 'novo' pra alguém resolver
       // manualmente pela tela de Separação -- não é tratado como falha
       // fatal do recebimento em si.
+
+      // Esse fluxo roda sozinho, sem ninguém olhando uma tela pra ler
+      // um aviso na hora (diferente do botão "Lançar na mesa" na tela
+      // de Separação) -- então um item que não entrou na comanda (ex:
+      // sem estoque) fica só em observações do pedido, pra quem abrir
+      // ele depois ver o que faltou (auditoria, seção 4).
+      if (resultado.ok && resultado.itensNaoLancados?.length > 0) {
+        const nota = `Não entraram na comanda: ${resultado.itensNaoLancados.map((i) => `${i.nome} (${i.motivo})`).join('; ')}`;
+        db.prepare(
+          `UPDATE bot_orders SET observacoes = TRIM(COALESCE(observacoes, '') || ' ' || ?) WHERE id = ?`
+        ).run(nota, orderId);
+      }
     }
 
     await updateDoc(ref, {

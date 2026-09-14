@@ -74,3 +74,73 @@ test('descontarPorVenda e reverterPorVenda são simétricas', () => {
   ingredientService.reverterPorVenda(productId, 3);
   assert.equal(ctx.db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(farinha).estoque_atual, 10);
 });
+
+// ---------------------------------------------------------------------
+// upsert() editava nome/unidade/custo E sobrescrevia estoque_atual pelo
+// MESMO formulário, sem log nenhum -- corrigir só o custo de um insumo
+// zerava (ou trocava) o estoque de verdade por acidente. Agora upsert
+// nunca mexe em estoque_atual numa edição; ajuste de estoque só
+// acontece por adjustStock, que registra em ingredient_stock_movements
+// (auditoria, seção 4).
+// ---------------------------------------------------------------------
+
+test('upsert em insumo NOVO grava o estoque inicial informado', () => {
+  const { db } = freshTestDb();
+  const r = ingredientService.upsert({ nome: 'Farinha', custoUnitario: 2, estoqueAtual: 50 });
+  assert.equal(r.ok, true);
+  assert.equal(db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(r.id).estoque_atual, 50);
+});
+
+test('upsert em insumo EXISTENTE não mexe no estoque, mesmo se o formulário mandar outro valor', () => {
+  const { db } = freshTestDb();
+  const farinha = criarInsumo(db, { estoqueAtual: 30 });
+
+  const r = ingredientService.upsert({ id: farinha, nome: 'Farinha de Trigo', custoUnitario: 3.5, estoqueAtual: 0 });
+  assert.equal(r.ok, true);
+
+  const depois = db.prepare('SELECT nome, custo_unitario, estoque_atual FROM ingredients WHERE id = ?').get(farinha);
+  assert.equal(depois.nome, 'Farinha de Trigo', 'nome deveria ter mudado');
+  assert.equal(depois.custo_unitario, 3.5, 'custo deveria ter mudado');
+  assert.equal(depois.estoque_atual, 30, 'estoque NÃO deveria ter mudado só por editar nome/custo');
+});
+
+test('adjustStock aplica o delta, registra o movimento e devolve o estoque atualizado', () => {
+  const { db } = freshTestDb();
+  const farinha = criarInsumo(db, { estoqueAtual: 20 });
+
+  const entrada = ingredientService.adjustStock({ ingredientId: farinha, quantidade: 10, tipo: 'entrada', motivo: 'nota 123', operadorId: null });
+  assert.equal(entrada.ok, true);
+  assert.equal(entrada.estoqueAtual, 30);
+  assert.equal(db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(farinha).estoque_atual, 30);
+
+  const perda = ingredientService.adjustStock({ ingredientId: farinha, quantidade: -5, tipo: 'perda', motivo: 'vencido' });
+  assert.equal(perda.ok, true);
+  assert.equal(perda.estoqueAtual, 25);
+
+  const movimentos = ingredientService.listStockMovements(farinha);
+  assert.equal(movimentos.length, 2);
+  assert.equal(movimentos[0].tipo, 'perda', 'mais recente primeiro');
+  assert.equal(movimentos[0].estoque_antes, 30);
+  assert.equal(movimentos[0].estoque_depois, 25);
+  assert.equal(movimentos[1].tipo, 'entrada');
+  assert.equal(movimentos[1].motivo, 'nota 123');
+});
+
+test('adjustStock recusa quantidade zero e tipo inválido', () => {
+  const { db } = freshTestDb();
+  const farinha = criarInsumo(db, { estoqueAtual: 20 });
+
+  const zero = ingredientService.adjustStock({ ingredientId: farinha, quantidade: 0, tipo: 'entrada' });
+  assert.equal(zero.ok, false);
+
+  const tipoInvalido = ingredientService.adjustStock({ ingredientId: farinha, quantidade: 5, tipo: 'venda' });
+  assert.equal(tipoInvalido.ok, false);
+
+  assert.equal(db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(farinha).estoque_atual, 20, 'estoque não deveria ter mudado');
+});
+
+test('adjustStock recusa insumo inexistente', () => {
+  freshTestDb();
+  const r = ingredientService.adjustStock({ ingredientId: 'nao-existe', quantidade: 5, tipo: 'entrada' });
+  assert.equal(r.ok, false);
+});

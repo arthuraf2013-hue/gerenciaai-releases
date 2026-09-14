@@ -61,6 +61,13 @@ function createAppointment({ locationId, professionalId, customerId, clienteNome
   if (!customerId && !clienteNomeAvulso?.trim()) return { ok: false, error: 'Informe o cliente (cadastrado ou nome avulso).' };
 
   const duracao = duracaoMinutos || 60;
+  // duracaoMinutos || 60 só pega falsy (0/null/undefined/NaN) -- um
+  // valor NEGATIVO passava direto (JS trata -30 como truthy), e
+  // quebrava a checagem de conflito: datetime(..., '+' || duracao ||
+  // ' minutes') com duração negativa calcula um "fim" ANTES do
+  // início, invertendo o intervalo e deixando passar agendamento
+  // sobreposto de verdade pro mesmo profissional (auditoria, seção 4).
+  if (!(duracao > 0)) return { ok: false, error: 'Duração precisa ser maior que zero.' };
   const conflitos = checkConflito({ professionalId, dataHoraInicio, duracaoMinutos: duracao });
   if (conflitos.length > 0) {
     return { ok: false, error: 'Esse profissional já tem um horário marcado nesse intervalo.', conflitos };
@@ -92,6 +99,7 @@ function rescheduleAppointment({ appointmentId, dataHoraInicio, duracaoMinutos }
   if (!atual) return { ok: false, error: 'Agendamento não encontrado.' };
 
   const novaDuracao = duracaoMinutos || atual.duracao_minutos;
+  if (!(novaDuracao > 0)) return { ok: false, error: 'Duração precisa ser maior que zero.' };
   const conflitos = checkConflito({
     professionalId: atual.professional_id, dataHoraInicio, duracaoMinutos: novaDuracao, excluirAppointmentId: appointmentId,
   });

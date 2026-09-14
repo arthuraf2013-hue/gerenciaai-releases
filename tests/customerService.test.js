@@ -45,6 +45,48 @@ test('ignora cliente com só 1 compra — sem ritmo pra comparar', () => {
   assert.equal(sumidos.length, 0);
 });
 
+// ---------------------------------------------------------------------
+// registrarPagamento não tinha teto contra o saldo devedor -- um valor
+// digitado errado (ou mandado direto por um canal IPC) virava saldo
+// NEGATIVO, um estado que a tela de fiado não trata (auditoria, seção 3).
+// ---------------------------------------------------------------------
+
+function criarClienteComDivida(db, { valor = 100 } = {}) {
+  const clienteId = randomUUID();
+  db.prepare('INSERT INTO customers (id, nome, telefone) VALUES (?, ?, ?)').run(clienteId, 'Cliente Fiado', '81999995555');
+  db.prepare(`INSERT INTO customer_credit_movements (id, customer_id, tipo, valor) VALUES (?, ?, 'divida', ?)`)
+    .run(randomUUID(), clienteId, valor);
+  return clienteId;
+}
+
+test('registrarPagamento recusa valor maior que o saldo devedor atual', () => {
+  const { db } = freshTestDb();
+  const clienteId = criarClienteComDivida(db, { valor: 100 });
+
+  const resultado = customerService.registrarPagamento({ customerId: clienteId, valor: 150 });
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.error, /saldo devedor/);
+  assert.equal(customerService.getSaldoFiado(clienteId), 100, 'saldo não deveria ter mudado');
+});
+
+test('registrarPagamento recusa quando o cliente não tem saldo devedor nenhum', () => {
+  const { db } = freshTestDb();
+  const clienteId = randomUUID();
+  db.prepare('INSERT INTO customers (id, nome, telefone) VALUES (?, ?, ?)').run(clienteId, 'Sem Dívida', '81999994444');
+
+  const resultado = customerService.registrarPagamento({ customerId: clienteId, valor: 10 });
+  assert.equal(resultado.ok, false);
+});
+
+test('registrarPagamento aceita valor até exatamente o saldo devedor, zerando a dívida', () => {
+  const { db } = freshTestDb();
+  const clienteId = criarClienteComDivida(db, { valor: 100 });
+
+  const resultado = customerService.registrarPagamento({ customerId: clienteId, valor: 100 });
+  assert.equal(resultado.ok, true);
+  assert.equal(resultado.saldoAtual, 0);
+});
+
 test('montarLinkReconquista monta o link certo, com DDI e mensagem personalizada com o primeiro nome', () => {
   const { db } = freshTestDb();
   const clienteId = randomUUID();

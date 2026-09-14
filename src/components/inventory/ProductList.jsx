@@ -77,7 +77,10 @@ export function ProductList() {
       // os primeiros produtos apareciam duplicados na tela.
       carregandoMais = true;
       setHasMore(true);
-      const list = await window.pdv.products.list({ query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined, limit: PAGE_SIZE, offset: 0 });
+      const list = await window.pdv.products.list({
+        query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined,
+        comConflito: soConflitos || undefined, limit: PAGE_SIZE, offset: 0,
+      });
       carregandoMais = false;
       if (ignore) return; // uma busca mais nova já começou — descarta esta resposta atrasada
 
@@ -94,7 +97,10 @@ export function ProductList() {
       temMais = list.length === PAGE_SIZE;
       setHasMore(temMais);
 
-      const total = await window.pdv.products.count({ query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined });
+      const total = await window.pdv.products.count({
+        query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined,
+        comConflito: soConflitos || undefined,
+      });
       if (!ignore) setTotalProdutos(total);
 
       const estoque = await window.pdv.stock.getForLocation({ locationId: window.APP_LOCATION_ID });
@@ -115,7 +121,8 @@ export function ProductList() {
       // (ver o comentário de ORDER BY no backend pra mais detalhes).
       const ultimoCarregado = produtosCarregados[produtosCarregados.length - 1];
       const list = await window.pdv.products.list({
-        query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined, limit: PAGE_SIZE,
+        query: debouncedQuery || undefined, tipo: tipoFiltro !== 'todos' ? tipoFiltro : undefined,
+        comConflito: soConflitos || undefined, limit: PAGE_SIZE,
         cursorNome: ultimoCarregado?.nome, cursorId: ultimoCarregado?.id,
       });
       carregandoMais = false;
@@ -133,7 +140,7 @@ export function ProductList() {
     carregarPrimeiroLote();
 
     return () => { ignore = true; };
-  }, [debouncedQuery, tipoFiltro]);
+  }, [debouncedQuery, tipoFiltro, soConflitos]);
 
   // Observa um marcador invisível logo depois da tabela — quando ele
   // entra na área visível da rolagem, carrega o próximo lote sozinho.
@@ -286,13 +293,7 @@ export function ProductList() {
         Mostrar só produtos com conflito de código de barras pendente
       </label>
 
-      {(() => {
-        const produtosExibidos = soConflitos ? products.filter((p) => p.conflito_codigo_barras_pendente) : products;
-        if (produtosExibidos.length === 0) {
-          if (soConflitos && products.length > 0) return <p className="empty-state">Nenhum produto com conflito de código de barras pendente.</p>;
-          return null;
-        }
-        return (
+      {products.length > 0 && (
       <table className="data-table">
         <thead>
           <tr>
@@ -300,7 +301,7 @@ export function ProductList() {
           </tr>
         </thead>
         <tbody>
-          {produtosExibidos.map((p) => {
+          {products.map((p) => {
             const ehServico = p.tipo === 'servico';
             const estoqueAtual = ehServico ? '—' : (estoquePorProduto[p.id] ?? '—');
             const abaixoDoMinimo = !ehServico && typeof estoqueAtual === 'number' && estoqueAtual <= p.estoque_minimo;
@@ -344,13 +345,16 @@ export function ProductList() {
           })}
         </tbody>
       </table>
-        );
-      })()}
+      )}
 
       <div ref={sentinelRef} style={{ height: 1 }} />
       {loadingMore && <p className="empty-state">Carregando mais produtos...</p>}
       {!hasMore && products.length > 0 && <p className="empty-state">Fim da lista — {products.length} produto(s).</p>}
-      {!loadError && products.length === 0 && <p className="empty-state">Nenhum produto encontrado.</p>}
+      {!loadError && !loadingMore && products.length === 0 && (
+        <p className="empty-state">
+          {soConflitos ? 'Nenhum produto com conflito de código de barras pendente.' : 'Nenhum produto encontrado.'}
+        </p>
+      )}
 
       {editing !== null && (
         <div className="modal-overlay">

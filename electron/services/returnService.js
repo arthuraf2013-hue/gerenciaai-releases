@@ -6,13 +6,24 @@ const timeService = require('./timeService');
 /** Vendas finalizadas recentes (últimos 60 dias) — para localizar a venda a devolver. */
 function findFinalizedSales({ locationId, query }) {
   const db = getDb();
-  const sales = db.prepare(
-    `SELECT s.*, u.nome as operador_nome FROM sales s JOIN users u ON u.id = s.operador_id
-     WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= datetime(NOW_SYNCED(), '-60 days')
-     ORDER BY s.finalizada_em DESC LIMIT 50`
-  ).all(locationId);
-  if (!query) return sales;
-  return sales.filter((s) => s.id.includes(query) || s.operador_nome.toLowerCase().includes(query.toLowerCase()));
+  const base = `SELECT s.*, u.nome as operador_nome FROM sales s JOIN users u ON u.id = s.operador_id
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= datetime(NOW_SYNCED(), '-60 days')`;
+
+  if (!query) {
+    return db.prepare(`${base} ORDER BY s.finalizada_em DESC LIMIT 50`).all(locationId);
+  }
+
+  // O filtro de busca precisa entrar ANTES do LIMIT 50, não depois --
+  // antes disso, a busca só considerava as 50 vendas mais recentes já
+  // cortadas pelo banco, então uma venda existente porém fora dessa
+  // janela simplesmente "sumia" da busca (indistinguível de "não
+  // existe" pra quem está tentando devolver). LIKE aqui é
+  // case-insensitive só em ASCII, mesma limitação que o
+  // .toLowerCase() em JS que isso substitui já tinha.
+  const termo = `%${query}%`;
+  return db.prepare(
+    `${base} AND (s.id LIKE ? OR u.nome LIKE ?) ORDER BY s.finalizada_em DESC LIMIT 50`
+  ).all(locationId, termo, termo);
 }
 
 function getSaleItemsForReturn(saleId) {

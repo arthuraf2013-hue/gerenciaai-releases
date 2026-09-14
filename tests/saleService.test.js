@@ -175,6 +175,71 @@ test('finalizeSale aceita quando o pagamento cobre exatamente o total', () => {
   assert.equal(result.ok, true);
 });
 
+// ---------------------------------------------------------------------
+// Taxa de serviço de mesa (setServiceCharge) era só um percentual
+// decorativo -- nunca entrava no total oficial da venda (sales.total),
+// então: 1) um pagamento em cartão/pix que cobrisse exatamente o que a
+// tela mostrou pro cliente (subtotal + taxa) era rejeitado pelo teto de
+// addPayment; 2) finalizeSale deixava fechar a venda sem cobrir a taxa;
+// 3) todo relatório que soma `total - desconto - desconto_gerente`
+// (dashboard, etc.) subcontava o faturamento real (auditoria, seção 2).
+// ---------------------------------------------------------------------
+
+test('addPayment em cartão aceita cobrir subtotal + taxa de serviço (antes era rejeitado)', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 100, quantidadeVenda: 1 }); // total = 100
+  saleService.setServiceCharge(ctx.saleId, 10); // 10% => deve poder cobrar até 110
+
+  const exato = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 110, detalhes: {} });
+  assert.equal(exato.ok, true, 'pagamento de R$110 (100 + 10% de taxa) precisa ser aceito');
+});
+
+test('addPayment em cartão ainda rejeita valor acima de subtotal + taxa de serviço', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 100, quantidadeVenda: 1 }); // total = 100
+  saleService.setServiceCharge(ctx.saleId, 10); // teto = 110
+
+  const acima = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 110.5, detalhes: {} });
+  assert.equal(acima.ok, false);
+});
+
+test('finalizeSale exige que o pagamento cubra a taxa de serviço, não só o subtotal', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 100, quantidadeVenda: 1 }); // total = 100
+  saleService.setServiceCharge(ctx.saleId, 10); // precisa de 110
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 100, detalhes: {} }); // só cobre o subtotal
+
+  const result = saleService.finalizeSale(ctx.saleId);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /incompleto/i);
+});
+
+test('finalizeSale soma a taxa de serviço em sales.total -- passa a valer pro recibo e pros relatórios', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 100, quantidadeVenda: 1 }); // total = 100
+  saleService.setServiceCharge(ctx.saleId, 10);
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 110, detalhes: {} });
+
+  const result = saleService.finalizeSale(ctx.saleId);
+  assert.equal(result.ok, true);
+
+  const saleFinal = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(saleFinal.total, 110, 'sales.total precisa já incluir a taxa de serviço depois de finalizada');
+});
+
+test('finalizeSale calcula a taxa de serviço sobre o subtotal DEPOIS do desconto, não sobre o valor bruto', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 100, quantidadeVenda: 1 }); // total = 100
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Teste' });
+  ctx.db.prepare('UPDATE customers SET pontos = 200 WHERE id = ?').run(customerId);
+  saleService.setCustomer(ctx.saleId, customerId);
+  saleService.redeemLoyaltyPoints({ saleId: ctx.saleId, pontos: 200 }); // 200 * 0.05 = R$10 de desconto -> subtotal 90
+  saleService.setServiceCharge(ctx.saleId, 10); // 10% de 90 = 9 -> deve cobrar 99
+
+  const pagamento = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 99, detalhes: {} });
+  assert.equal(pagamento.ok, true);
+  const result = saleService.finalizeSale(ctx.saleId);
+  assert.equal(result.ok, true);
+
+  const saleFinal = ctx.db.prepare('SELECT total, desconto FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(saleFinal.total - saleFinal.desconto, 99);
+});
+
 test('finalizeSale recusa uma segunda chamada pra mesma venda (não duplica fiado nem pontos)', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 }); // total = 20
   const { id: customerId } = customerService.upsert({ nome: 'Cliente Fiado' });
@@ -263,6 +328,107 @@ test('addPayment recusa valor zero ou negativo', () => {
   const negativo = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: -5, detalhes: {} });
   assert.equal(zero.ok, false);
   assert.equal(negativo.ok, false);
+});
+
+// ---------------------------------------------------------------------
+// addPayment não tinha teto nenhum contra o que falta da venda -- pra
+// métodos sem troco (fiado, cartão, pix, outro) dava pra registrar um
+// valor maior que o total, e no caso de fiado isso virava dívida de
+// verdade em cima do cliente, maior que a própria venda (auditoria,
+// seção 3). Dinheiro continua liberado pra passar (troco de verdade).
+// ---------------------------------------------------------------------
+
+test('addPayment recusa fiado maior que o total da venda — não pode inflar a dívida', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 }); // total = 10
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Fiado' });
+  saleService.setCustomer(ctx.saleId, customerId);
+
+  const resultado = saleService.addPayment({ saleId: ctx.saleId, metodo: 'fiado', valor: 50, detalhes: {} });
+  assert.equal(resultado.ok, false);
+  assert.match(resultado.error, /passa do que falta/i);
+});
+
+test('addPayment recusa cartão/pix/outro maior que o que falta, mesmo em split', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 }); // total = 20
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 5, detalhes: {} }); // falta 15
+
+  const cartao = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 15.01, detalhes: {} });
+  assert.equal(cartao.ok, false);
+
+  const exato = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 15, detalhes: {} });
+  assert.equal(exato.ok, true, 'valor exatamente igual ao que falta continua permitido');
+});
+
+test('addPayment em dinheiro pode passar do total — troco de verdade, não é bug', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 }); // total = 10
+  const resultado = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 50, detalhes: {} });
+  assert.equal(resultado.ok, true, 'dinheiro pode ser maior que o total — o troco é calculado em cima disso');
+});
+
+// ---------------------------------------------------------------------
+// removePayment era a única operação sensível do domínio sem
+// autorização de gerente nem trilha de auditoria — apagava dinheiro já
+// lançado sem deixar rastro nenhum (auditoria, seção 3). Agora segue o
+// mesmo padrão de cancelSaleItem/cancelSale/applyManagerDiscount.
+// ---------------------------------------------------------------------
+
+test('removePayment exige autorização de gerente quando a config está ligada (padrão)', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 });
+  const pagamento = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 10, detalhes: {} });
+
+  const semAuth = saleService.removePayment({ paymentId: pagamento.id, saleId: ctx.saleId, currentOperatorId: ctx.operadorId });
+  assert.equal(semAuth.ok, false);
+
+  const pagamentos = require('../electron/db/database').getDb()
+    .prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(ctx.saleId).c;
+  assert.equal(pagamentos, 1, 'pagamento não pode sumir sem autorização');
+});
+
+test('removePayment rejeita quando o autorizador é o próprio operador do caixa', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 });
+  const pagamento = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 10, detalhes: {} });
+
+  const result = saleService.removePayment({
+    paymentId: pagamento.id, saleId: ctx.saleId,
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.operadorId, pin: '5678',
+  });
+  assert.equal(result.ok, false);
+});
+
+test('removePayment autorizado por um gerente remove o pagamento e registra na auditoria', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 });
+  const pagamento = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 10, detalhes: {} });
+
+  const result = saleService.removePayment({
+    paymentId: pagamento.id, saleId: ctx.saleId,
+    currentOperatorId: ctx.operadorId, candidateManagerId: ctx.gerenteId, pin: '1234',
+  });
+  assert.equal(result.ok, true);
+
+  const db = require('../electron/db/database').getDb();
+  const pagamentos = db.prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(ctx.saleId).c;
+  assert.equal(pagamentos, 0);
+
+  const auditoria = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'remocao_pagamento' AND sale_id = ?`).get(ctx.saleId);
+  assert.ok(auditoria, 'precisa deixar rastro de auditoria');
+  assert.equal(auditoria.sucesso, 1);
+  assert.equal(auditoria.autorizado_por_id, ctx.gerenteId);
+});
+
+test('removePayment ainda registra na auditoria (sem exigir aprovação) quando a config está desligada', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 });
+  const db = require('../electron/db/database').getDb();
+  db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = 0').run();
+  const pagamento = saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 10, detalhes: {} });
+
+  const result = saleService.removePayment({ paymentId: pagamento.id, saleId: ctx.saleId, currentOperatorId: ctx.operadorId });
+  assert.equal(result.ok, true);
+
+  const pagamentos = db.prepare('SELECT COUNT(*) as c FROM payments WHERE sale_id = ?').get(ctx.saleId).c;
+  assert.equal(pagamentos, 0);
+
+  const auditoria = db.prepare(`SELECT * FROM audit_log WHERE tipo_evento = 'remocao_pagamento_sem_autorizacao_configurada' AND sale_id = ?`).get(ctx.saleId);
+  assert.ok(auditoria, 'mesmo sem exigir aprovação, precisa deixar rastro de quem removeu');
 });
 
 test('cancelSale recusa cancelar uma venda já finalizada (paga)', () => {

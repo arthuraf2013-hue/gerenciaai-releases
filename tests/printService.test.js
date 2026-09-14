@@ -75,3 +75,78 @@ test('buildReceiptWhatsappLink não menciona NFC-e quando ela está pendente/rej
   const result = printService.buildReceiptWhatsappLink(saleId);
   assert.doesNotMatch(decodeURIComponent(result.url), /NFC-e/);
 });
+
+// ---------------------------------------------------------------------
+// editarHistoricoVenda corrige sales.total sem recalcular sale_items/
+// payments (de propósito -- são registros do que de fato aconteceu).
+// Isso deixava o recibo reimpresso mostrar itens que não batem com o
+// "Total:", sem explicação nenhuma -- parecia bug de impressão, não um
+// ajuste deliberado (auditoria, seção 3).
+// ---------------------------------------------------------------------
+
+test('buildReceiptWhatsappLink avisa quando o total foi ajustado manualmente (não bate com a soma dos itens)', async () => {
+  const ctx = freshTestDb();
+  const saleId = venderEFinalizar(ctx); // venda de R$ 10 (1 item de R$ 10)
+  const edicao = await saleService.editarHistoricoVenda({ saleId, novoTotal: 25, currentOperatorId: ctx.adminId });
+  assert.equal(edicao.ok, true);
+
+  const result = printService.buildReceiptWhatsappLink(saleId);
+  const texto = decodeURIComponent(result.url);
+  assert.match(texto, /Total: R\$ 25\.00/);
+  assert.match(texto, /ajustado manualmente/);
+});
+
+test('buildReceiptWhatsappLink NÃO avisa quando o total nunca foi editado (soma dos itens bate certinho)', () => {
+  const ctx = freshTestDb();
+  const saleId = venderEFinalizar(ctx);
+  const result = printService.buildReceiptWhatsappLink(saleId);
+  const texto = decodeURIComponent(result.url);
+  assert.doesNotMatch(texto, /ajustado manualmente/);
+});
+
+// ---------------------------------------------------------------------
+// A taxa de serviço de mesa (setServiceCharge) é somada em sales.total
+// só na hora de finalizar (ver saleService.finalizeSale) -- o recibo
+// precisa mostrar ela separada (não só embutida no Total) e o aviso de
+// "ajustado manualmente" não pode disparar por causa dela nem por causa
+// de um desconto normal (nenhum dos dois passa por editarHistoricoVenda).
+// ---------------------------------------------------------------------
+
+test('buildReceiptWhatsappLink mostra a taxa de serviço separada e não avisa "ajustado manualmente" por causa dela', () => {
+  const ctx = freshTestDb();
+  const productId = createProduct(ctx.db, { preco: 100 });
+  addStock(ctx.db, { productId, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  saleService.addItem({ saleId, productId, locationId: ctx.locationId, quantidade: 1, operadorId: ctx.operadorId, deviceId: 'd' });
+  saleService.setServiceCharge(saleId, 10); // 10% de 100 = 10 -> total a pagar 110
+  saleService.addPayment({ saleId, metodo: 'dinheiro', valor: 110, detalhes: {} });
+  saleService.finalizeSale(saleId);
+
+  const result = printService.buildReceiptWhatsappLink(saleId);
+  const texto = decodeURIComponent(result.url);
+  assert.match(texto, /Taxa de serviço \(10%\): R\$ 10\.00/);
+  assert.match(texto, /Total: R\$ 110\.00/);
+  assert.doesNotMatch(texto, /ajustado manualmente/);
+});
+
+test('buildReceiptWhatsappLink NÃO avisa "ajustado manualmente" numa venda com desconto de fidelidade normal', () => {
+  const customerService = require('../electron/services/customerService');
+  const ctx = freshTestDb();
+  const productId = createProduct(ctx.db, { preco: 100 });
+  addStock(ctx.db, { productId, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+  const { id: customerId } = customerService.upsert({ nome: 'Cliente Fidelidade' });
+  ctx.db.prepare('UPDATE customers SET pontos = 100 WHERE id = ?').run(customerId);
+
+  const { id: saleId } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  saleService.addItem({ saleId, productId, locationId: ctx.locationId, quantidade: 1, operadorId: ctx.operadorId, deviceId: 'd' });
+  saleService.setCustomer(saleId, customerId);
+  saleService.redeemLoyaltyPoints({ saleId, pontos: 100 }); // R$5 de desconto -> total a pagar 95
+  saleService.addPayment({ saleId, metodo: 'dinheiro', valor: 95, detalhes: {} });
+  saleService.finalizeSale(saleId);
+
+  const result = printService.buildReceiptWhatsappLink(saleId);
+  const texto = decodeURIComponent(result.url);
+  assert.match(texto, /Desconto fidelidade: -R\$ 5\.00/);
+  assert.match(texto, /Total: R\$ 95\.00/);
+  assert.doesNotMatch(texto, /ajustado manualmente/, 'desconto normal não é edição manual do histórico -- não devia acusar nada');
+});

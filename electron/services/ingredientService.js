@@ -22,12 +22,20 @@ function upsert(ingredient) {
   const db = getDb();
   const id = ingredient.id || randomUUID();
 
+  // No UPDATE (editar um insumo já existente), estoque_atual NÃO entra
+  // no SET -- editar nome/unidade/custo usava o MESMO formulário que
+  // "estoque atual", e sobrescrevia o estoque de verdade (direto, sem
+  // log nenhum) toda vez que alguém só queria corrigir o custo, por
+  // exemplo. Ajuste de estoque de insumo agora só acontece por
+  // adjustStock, que fica registrado em ingredient_stock_movements
+  // (auditoria, seção 4). estoque_atual só é gravado aqui na CRIAÇÃO
+  // (INSERT) de um insumo novo, como estoque inicial.
   db.prepare(
     `INSERT INTO ingredients (id, nome, unidade, custo_unitario, estoque_atual, estoque_minimo)
      VALUES (@id, @nome, @unidade, @custoUnitario, @estoqueAtual, @estoqueMinimo)
      ON CONFLICT(id) DO UPDATE SET
        nome=excluded.nome, unidade=excluded.unidade, custo_unitario=excluded.custo_unitario,
-       estoque_atual=excluded.estoque_atual, estoque_minimo=excluded.estoque_minimo`
+       estoque_minimo=excluded.estoque_minimo`
   ).run({
     id,
     nome: ingredient.nome.trim(),
@@ -38,6 +46,59 @@ function upsert(ingredient) {
   });
 
   return { ok: true, id };
+}
+
+const TIPOS_AJUSTE_VALIDOS = ['entrada', 'ajuste', 'perda'];
+
+/**
+ * Ajuste manual de estoque de insumo (entrada de mercadoria, perda,
+ * correção de inventário) — separado de upsert (que só edita
+ * nome/unidade/custo/mínimo) pra sempre deixar rastro de quem mudou o
+ * estoque, quando, e por quê, igual ao que já existe pra estoque de
+ * PRODUTO (stockService.adjustStock). O sinal de `quantidade` vem de
+ * quem chama (positivo pra somar, negativo pra subtrair).
+ */
+function adjustStock({ ingredientId, quantidade, tipo, motivo, operadorId }) {
+  if (!TIPOS_AJUSTE_VALIDOS.includes(tipo)) {
+    return { ok: false, error: `Tipo de movimento inválido. Use: ${TIPOS_AJUSTE_VALIDOS.join(', ')}.` };
+  }
+  const qtd = Number(quantidade);
+  if (!qtd || Number.isNaN(qtd)) {
+    return { ok: false, error: 'Informe uma quantidade diferente de zero.' };
+  }
+
+  const db = getDb();
+  const ingrediente = db.prepare('SELECT * FROM ingredients WHERE id = ?').get(ingredientId);
+  if (!ingrediente) return { ok: false, error: 'Insumo não encontrado.' };
+
+  const estoqueDepois = ingrediente.estoque_atual + qtd;
+  const id = randomUUID();
+
+  const tx = db.transaction(() => {
+    db.prepare('UPDATE ingredients SET estoque_atual = ? WHERE id = ?').run(estoqueDepois, ingredientId);
+    db.prepare(
+      `INSERT INTO ingredient_stock_movements (id, ingredient_id, tipo, quantidade, estoque_antes, estoque_depois, motivo, operador_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, ingredientId, tipo, qtd, ingrediente.estoque_atual, estoqueDepois, motivo || null, operadorId || null);
+  });
+  tx();
+
+  return { ok: true, id, estoqueAtual: estoqueDepois };
+}
+
+/** Histórico de ajustes de um insumo — mais recente primeiro. */
+function listStockMovements(ingredientId) {
+  const db = getDb();
+  // criado_em só tem precisão de segundo (NOW_SYNCED) -- dois ajustes
+  // feitos em rápida sucessão (comum: entrada seguida de uma correção)
+  // empatam nesse campo, deixando a ordem entre eles arbitrária. rowid
+  // sempre cresce na ordem de inserção, então desempata certo sem
+  // precisar de uma coluna de sequência nova.
+  return db.prepare(
+    `SELECT m.*, u.nome as operador_nome FROM ingredient_stock_movements m
+     LEFT JOIN users u ON u.id = m.operador_id
+     WHERE m.ingredient_id = ? ORDER BY m.criado_em DESC, m.rowid DESC`
+  ).all(ingredientId);
 }
 
 function deactivate(id) {
@@ -160,6 +221,6 @@ function preverPorcoesPossiveisTodos() {
 }
 
 module.exports = {
-  list, upsert, deactivate, getRecipe, setRecipe, computeDishCost,
+  list, upsert, deactivate, adjustStock, listStockMovements, getRecipe, setRecipe, computeDishCost,
   descontarPorVenda, reverterPorVenda, preverPorcoesPossiveis, preverPorcoesPossiveisTodos,
 };

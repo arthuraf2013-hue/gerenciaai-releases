@@ -1,0 +1,1043 @@
+<title>GerenciaAI — Auditoria Estratégica</title>
+<style>
+:root{
+  --bg:#faf8f4; --surface:#ffffff; --surface-2:#f2efe8; --border:#e2ddd0;
+  --ink:#1c1a16; --ink-dim:#5a564c; --ink-faint:#8a8578;
+  --accent:#b4650a; --accent-ink:#ffffff; --teal:#0e7a72; --teal-bg:#e4f3f1;
+  --amber:#a5720a; --amber-bg:#faf0da; --red:#a3311f; --red-bg:#fbe9e5;
+  --green:#3f7d3a; --green-bg:#eaf3e6; --gray-bg:#eeece5;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --serif:'Fraunces',Georgia,serif; --sans:'Public Sans',system-ui,sans-serif;
+  --radius:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15130f; --surface:#1d1a15; --surface-2:#252019; --border:#3a3327;
+    --ink:#eee9df; --ink-dim:#b6ae9d; --ink-faint:#847c6c;
+    --accent:#e8a04a; --accent-ink:#1a1409; --teal:#5fc9bf; --teal-bg:#152825;
+    --amber:#e8c26a; --amber-bg:#2a2416; --red:#e08772; --red-bg:#2c1a15;
+    --green:#8fcf82; --green-bg:#182417; --gray-bg:#221f19;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15130f; --surface:#1d1a15; --surface-2:#252019; --border:#3a3327;
+  --ink:#eee9df; --ink-dim:#b6ae9d; --ink-faint:#847c6c;
+  --accent:#e8a04a; --accent-ink:#1a1409; --teal:#5fc9bf; --teal-bg:#152825;
+  --amber:#e8c26a; --amber-bg:#2a2416; --red:#e08772; --red-bg:#2c1a15;
+  --green:#8fcf82; --green-bg:#182417; --gray-bg:#221f19;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;margin:0;font-size:15.5px}
+h1,h2,h3,h4{font-family:var(--serif);font-weight:600;color:var(--ink);text-wrap:balance;letter-spacing:-0.01em}
+a{color:var(--accent)}
+.layout{display:flex;max-width:1500px;margin:0 auto}
+nav.toc{width:270px;flex:0 0 270px;position:sticky;top:0;align-self:flex-start;height:100vh;overflow-y:auto;padding:28px 18px 40px 24px;border-right:1px solid var(--border)}
+nav.toc .brand{font-family:var(--serif);font-size:1.05rem;font-weight:700;margin-bottom:2px}
+nav.toc .brand small{display:block;font-family:var(--sans);font-weight:400;color:var(--ink-faint);font-size:.72rem;margin-top:3px;letter-spacing:.04em;text-transform:uppercase}
+nav.toc ol{list-style:none;margin:20px 0 0;padding:0;counter-reset:sec}
+nav.toc li{counter-increment:sec;margin-bottom:1px}
+nav.toc a{display:block;color:var(--ink-dim);text-decoration:none;font-size:.83rem;padding:6px 8px;border-radius:7px}
+nav.toc a::before{content:counter(sec) ". ";color:var(--ink-faint);font-family:var(--mono);font-size:.75rem}
+nav.toc a:hover{background:var(--surface-2);color:var(--ink)}
+main{flex:1;min-width:0;padding:40px 56px 120px;max-width:1180px}
+header.cover{padding:20px 0 44px;border-bottom:1px solid var(--border);margin-bottom:44px}
+header.cover .eyebrow{font-family:var(--mono);text-transform:uppercase;letter-spacing:.12em;font-size:.72rem;color:var(--accent)}
+header.cover h1{font-size:2.6rem;margin:10px 0 8px;line-height:1.08}
+header.cover p.sub{font-size:1.08rem;color:var(--ink-dim);max-width:60ch;margin:0}
+section{margin-bottom:64px;scroll-margin-top:20px}
+section>h2{font-size:1.65rem;display:flex;align-items:baseline;gap:12px;margin-bottom:6px}
+section>h2 .num{font-family:var(--mono);color:var(--accent);font-size:1.1rem}
+section>p.lede{color:var(--ink-dim);max-width:76ch;margin-top:0}
+h3{font-size:1.2rem;margin-top:32px}
+h4{font-size:1rem;margin-top:22px;color:var(--ink)}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.86rem}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+th{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint);font-weight:500;border-bottom:2px solid var(--border)}
+tr:hover td{background:var(--surface-2)}
+.twrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface)}
+.twrap table{margin:0}
+.twrap th:first-child,.twrap td:first-child{padding-left:16px}
+.badge{display:inline-block;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.b-excelente{background:var(--green-bg);color:var(--green)}
+.b-bom{background:var(--teal-bg);color:var(--teal)}
+.b-adequado{background:var(--gray-bg);color:var(--ink-dim)}
+.b-melhorar{background:var(--amber-bg);color:var(--amber)}
+.b-critico{background:var(--red-bg);color:var(--red)}
+.b-ausente{background:var(--surface-2);color:var(--ink-faint);border:1px dashed var(--border)}
+.b-alta{background:var(--red-bg);color:var(--red)}
+.b-media{background:var(--amber-bg);color:var(--amber)}
+.b-baixa{background:var(--gray-bg);color:var(--ink-dim)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin:14px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:900px){.grid2,.grid3{grid-template-columns:1fr}}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px}
+.stat .n{font-family:var(--serif);font-size:1.9rem;color:var(--accent);display:block;line-height:1}
+.stat .l{font-size:.78rem;color:var(--ink-dim);margin-top:4px}
+details{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin:10px 0;overflow:hidden}
+details>summary{cursor:pointer;padding:14px 18px;font-family:var(--serif);font-size:1.05rem;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px}
+details>summary::-webkit-details-marker{display:none}
+details>summary::after{content:'+';font-family:var(--mono);color:var(--accent);font-size:1.2rem}
+details[open]>summary::after{content:'–'}
+details>summary:hover{background:var(--surface-2)}
+details .inner{padding:0 18px 18px}
+code,.mono{font-family:var(--mono);font-size:.85em;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+blockquote{border-left:3px solid var(--accent);margin:14px 0;padding:2px 0 2px 16px;color:var(--ink-dim);font-style:italic}
+.pill-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.pill{font-family:var(--mono);font-size:.7rem;padding:3px 9px;border-radius:99px;background:var(--surface-2);color:var(--ink-dim);border:1px solid var(--border)}
+.tag-existe{color:var(--green)} .tag-parcial{color:var(--amber)} .tag-ausente{color:var(--red)} .tag-recom{color:var(--teal)}
+hr.sep{border:none;border-top:1px solid var(--border);margin:36px 0}
+.priority-1{border-left:4px solid var(--red)} .priority-2{border-left:4px solid var(--amber)} .priority-3{border-left:4px solid var(--teal)}
+.score{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.footnote{font-size:.78rem;color:var(--ink-faint)}
+::selection{background:var(--accent);color:var(--accent-ink)}
+@media(max-width:1100px){nav.toc{display:none} main{padding:28px 20px 100px;max-width:100%}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<div class="layout">
+<nav class="toc">
+  <div class="brand">GerenciaAI<small>Auditoria &amp; Plano Estratégico</small></div>
+  <ol>
+    <li><a href="#s1">Resumo executivo</a></li>
+    <li><a href="#s2">Visão geral do produto</a></li>
+    <li><a href="#s3">Auditoria técnica</a></li>
+    <li><a href="#s4">Auditoria UX/UI</a></li>
+    <li><a href="#s5">Auditoria de segurança</a></li>
+    <li><a href="#s6">Auditoria de arquitetura</a></li>
+    <li><a href="#s7">Auditoria de performance</a></li>
+    <li><a href="#s8">Análise por perfil de usuário</a></li>
+    <li><a href="#s9">Automação</a></li>
+    <li><a href="#s10">Inteligência artificial</a></li>
+    <li><a href="#s11">GerenciaAI Intelligence</a></li>
+    <li><a href="#s12">Gerente Digital</a></li>
+    <li><a href="#s13">Funcionalidades WOW</a></li>
+    <li><a href="#s14">Diferenciais competitivos</a></li>
+    <li><a href="#s15">Monetização</a></li>
+    <li><a href="#s16">Novos produtos</a></li>
+    <li><a href="#s17">Top 20 ideias</a></li>
+    <li><a href="#s18">Top 5 estratégicas</a></li>
+    <li><a href="#s19">Roadmap</a></li>
+    <li><a href="#s20">Prioridades imediatas</a></li>
+    <li><a href="#s21">Conclusão estratégica</a></li>
+  </ol>
+</nav>
+<main>
+
+<header class="cover">
+  <div class="eyebrow">Auditoria completa · Otimização · Inovação</div>
+  <h1>GerenciaAI: da gestão de estoque ao sistema que entende o negócio</h1>
+  <p class="sub">Auditoria técnica, de segurança, UX e arquitetura do código real — cruzada com um plano estratégico de evolução em 21 frentes. Nenhuma linha de código foi alterada nesta etapa: este documento é só análise, oportunidades e roteiro.</p>
+</header>
+
+<section id="s1">
+<h2><span class="num">01</span> Resumo executivo</h2>
+<p class="lede">O GerenciaAI é um sistema muito mais maduro do que o próprio README sugere, e ao mesmo tempo carrega um punhado de falhas sérias o suficiente para custar dinheiro real ao lojista se não forem corrigidas antes de qualquer expansão. As duas coisas são verdadeiras ao mesmo tempo, e é assim que este relatório trata o produto: com o rigor de quem confiou apenas no código, nunca no changelog.</p>
+
+<div class="grid3">
+  <div class="stat"><span class="n">67</span><div class="l">tabelas no schema, 11 perfis de negócio, 5 papéis de usuário</div></div>
+  <div class="stat"><span class="n">~76</span><div class="l">serviços de backend + ~75 componentes React auditados linha a linha</div></div>
+  <div class="stat"><span class="n">6</span><div class="l">funções de IA já em produção — mais do que a própria UI revela ao lojista</div></div>
+</div>
+
+<h3>O que já está bom (e por que isso importa para o plano)</h3>
+<p>O núcleo do produto foi construído com disciplina incomum para um projeto solo: o ledger de estoque (<code>stock_movements</code>) é append-only e nunca editado; cancelamento e desconto de venda passam por <code>authorizeManagerOverride</code> com PIN real, bcrypt e bloqueio por tentativa; a trilha de auditoria (<code>audit_log</code>) cobre as ações certas; o licenciamento resiste a queda de internet com carência de dias; o módulo fiscal de NFC-e gera XML, assina e transmite via SOAP+mTLS de verdade, não é "fundação pronta" como o README describe — é quase completo. Isso muda o ponto de partida do roadmap: não é preciso reconstruir a base, é preciso <strong>fechar as brechas específicas</strong> que essa mesma auditoria encontrou e depois construir a camada de inteligência em cima de uma base que já é sólida.</p>
+
+<h3>O que é crítico e não pode esperar a "Fase 4 de IA"</h3>
+<div class="twrap"><table>
+<tr><th>Achado</th><th>Onde</th><th>Impacto de negócio</th></tr>
+<tr><td><strong>IPC sem sessão real</strong> — qualquer chamada confia num <code>requestingUserId</code> enviado pelo próprio renderer, nunca verificado contra quem de fato logou</td><td><code>electron/ipc/handlers.js</code> (<code>safeHandle</code>), replicado em ~15 serviços</td><td>Qualquer operador com DevTools aberto pode se passar por admin: resetar PIN, restaurar backup, desligar autorização de cancelamento, ver o livro de controlados</td></tr>
+<tr><td><strong>Sincronização de estoque multi-PDV sobrescreve outras máquinas</strong> — a máquina "servidor" republica o estoque a partir só do seu <code>SUM(stock_movements)</code> local, apagando decrementos feitos por outras lojas do grupo</td><td><code>stockSyncService.pushEstoqueProduto/pushEstoqueInicial</code></td><td>Overselling real em grupos multi-loja: o contador compartilhado "ressuscita" estoque que já foi vendido em outra unidade</td></tr>
+<tr><td><strong>Rollback de orçamento→venda vaza estoque de insumo</strong> — reverte o produto mas não os ingredientes/materiais já descontados</td><td><code>quoteService.convertToSale</code></td><td>Estoque de insumo dessincroniza silenciosamente em restaurante/salão/ótica sempre que uma conversão falha no meio</td></tr>
+<tr><td><strong>Pedidos do bot de WhatsApp não checam nem descontam estoque de ficha técnica</strong></td><td><code>botOrderService.converterEmVendaSeAplicavel</code></td><td>Estoque negativo silencioso; prato vendido por delivery não desconta o mesmo ingrediente que descontaria no balcão</td></tr>
+<tr><td><strong>Fidelidade nunca é creditada em vendas do WhatsApp/mesa</strong> — <code>customer_id</code> nunca é resolvido nesse canal</td><td><code>whatsappBotHandler.finalizarPedido</code>, <code>botOrderService</code></td><td>O canal mais promovido do app (bot) é exatamente o que não gera pontos — o dono nem sabe que está perdendo essa promessa</td></tr>
+<tr><td><strong>Cálculo de imposto zerado para regimes fora do Simples Nacional</strong></td><td><code>nfceXmlService.js</code> (<code>&lt;ICMSTot&gt;</code> hardcoded)</td><td>Passivo fiscal real para farmácia/autopeças no Lucro Presumido — nota autorizada com ICMS declarado como zero</td></tr>
+<tr><td><strong>Telas de Configurações mostram "salvo com sucesso" mesmo quando o backend rejeita</strong> (IA, fiscal, segurança, Pix, impressora — pelo menos 12 handlers)</td><td><code>SettingsScreen.jsx</code></td><td>Gerente configura algo crítico (ex.: exigência de autorização de cancelamento) e acredita que mudou, quando não mudou nada</td></tr>
+<tr><td><strong>Bot de WhatsApp roda sobre biblioteca não-oficial (Baileys)</strong>, com risco documentado de banimento do número, sem fallback</td><td><code>whatsappBotService.js</code></td><td>Se o número cair, o canal de pedidos para inteiro sem alarme — e o dono pode perder o WhatsApp pessoal se usar o número principal</td></tr>
+</table></div>
+
+<h3>A oportunidade real</h3>
+<p>O GerenciaAI já registra tudo que uma camada de inteligência precisaria: venda, estoque, caixa, cliente, funcionário, hora, produto — item a item, com timestamps corretos (uma vez corrigido o punhado de pontos que ainda usam relógio de máquina em vez do <code>timeService</code> sincronizado). O que falta não é captura de dado, é <strong>interpretação</strong>. As seções 11 e 12 descrevem como transformar esse ledger já existente em algo que hoje nenhum concorrente de pequeno porte oferece: uma inteligência central que explica os números em vez de só mostrá-los, e um "Gerente Digital" que responde perguntas de negócio de verdade. Esse é o eixo em torno do qual o resto do documento — automação, IA, diferenciais, monetização, roadmap — está organizado.</p>
+
+<h3>Como ler este documento</h3>
+<p>Cada afirmação sobre o estado atual do código vem de leitura direta do arquivo-fonte, não do README (que está desatualizado em vários pontos, ora subestimando o que já existe — como o módulo fiscal —, ora prometendo o que ainda não existe). Toda sugestão nova é marcada como <span class="tag-recom">RECOMENDADO</span> quando depende de infraestrutura que ainda não existe, para nunca confundir "já dá pra fazer" com "precisaria construir antes".</p>
+</section>
+
+<section id="s2">
+<h2><span class="num">02</span> Visão geral do produto</h2>
+<p class="lede">GerenciaAI é um sistema desktop (Electron + Vite + React + SQLite via better-sqlite3, sem servidor) de PDV e gestão para pequenos negócios brasileiros, construído solo por Arthur sob a marca Vetta Sistemas. A arquitetura é local-first por padrão e ganha nuvem (Firebase) só onde faz sentido: sincronização entre PDVs de um mesmo grupo, licenciamento, backup remoto e o app móvel de pareamento.</p>
+
+<h3>O que o produto cobre hoje</h3>
+<div class="pill-row">
+<span class="pill">PDV / Caixa</span><span class="pill">Estoque / Produtos</span><span class="pill">Fornecedores / Compras</span>
+<span class="pill">Financeiro</span><span class="pill">NFC-e (fiscal)</span><span class="pill">Clientes / Fiado</span>
+<span class="pill">WhatsApp (bot + automação)</span><span class="pill">Fidelidade</span><span class="pill">Mesas / Comandas</span>
+<span class="pill">Cozinha (KDS)</span><span class="pill">Delivery</span><span class="pill">Agendamento</span>
+<span class="pill">Orçamentos</span><span class="pill">Pet</span><span class="pill">Receita óptica</span>
+<span class="pill">Cardápio digital</span><span class="pill">Multi-PDV / sync</span><span class="pill">Backup</span>
+<span class="pill">Licenciamento</span><span class="pill">6 funções de IA (Gemini)</span><span class="pill">App móvel pareado</span>
+</div>
+
+<h3>11 perfis de negócio, 1 base de código</h3>
+<p>Farmácia, petshop, armazém, salão de beleza, padaria, papelaria, vestuário, ótica, material de construção, restaurante e genérico compartilham o mesmo schema, com campos extras por perfil (<code>custom_profiles.campos_extras_json</code>) e telas que aparecem/somem conforme o perfil ativo. Essa decisão arquitetural é o maior ativo estratégico do produto — é o que torna GerenciaAI uma plataforma horizontal em vez de um sistema de nicho — mas hoje está incompleta em pelo menos um ponto verificado: o perfil Ótica tem toda a infraestrutura de agendamento disponível (<code>appointmentService.js</code> é 100% agnóstico de perfil) mas não tem a aba "Agenda" no menu, porque o item de navegação está hardcoded para <code>salao_beleza</code>.</p>
+
+<h3>Onde a inteligência já mora, mesmo sem ser chamada assim</h3>
+<p>Seis funções de IA via Gemini já rodam em produção: extração de dados de anexo de venda, resumo de vendas em linguagem natural, tutor flutuante, leitura de nota de compra, identificação de produto por foto e sugestão de categoria. Todas atrás de um único toggle rotulado apenas como "extração por IA nos anexos de venda" — o próprio produto já entrega mais inteligência do que comunica ter. Isso é tratado a fundo nas seções 10 a 12.</p>
+
+<h3>Classificação de maturidade por área (visão de topo)</h3>
+<div class="twrap"><table>
+<tr><th>Área</th><th>Maturidade</th><th>Nota</th></tr>
+<tr><td>PDV / Vendas / Caixa</td><td><span class="badge b-bom">Bom</span></td><td>Núcleo sólido; falta sangria, display de cliente e integração de maquininha</td></tr>
+<tr><td>Estoque / Produtos</td><td><span class="badge b-bom">Bom</span></td><td>Ledger exemplar; falta contagem de inventário em lote e transferência entre lojas</td></tr>
+<tr><td>Compras / Fornecedores</td><td><span class="badge b-melhorar">Precisa melhorar</span></td><td>Vínculo produto↔fornecedor não existe na tela, só via importação</td></tr>
+<tr><td>Restaurante / Mesas / Cozinha</td><td><span class="badge b-bom">Bom</span></td><td>Fluxo completo; sem mapa visual de salão nem priorização de cozinha</td></tr>
+<tr><td>Delivery</td><td><span class="badge b-melhorar">Precisa melhorar</span></td><td>Sem geolocalização real — rota é rótulo textual</td></tr>
+<tr><td>Agendamento</td><td><span class="badge b-melhorar">Precisa melhorar</span></td><td>Backend excelente, exposto só a 1 de 2 perfis que deveriam usá-lo</td></tr>
+<tr><td>Clientes / Fiado</td><td><span class="badge b-bom">Bom</span></td><td>Sólido; sem paginação para bases grandes</td></tr>
+<tr><td>WhatsApp / Bot</td><td><span class="badge b-melhorar">Precisa melhorar</span></td><td>Profundo funcionalmente, arriscado estrategicamente (Baileys) e desconectado da fidelidade</td></tr>
+<tr><td>Financeiro</td><td><span class="badge b-adequado">Adequado</span></td><td>Honesto sobre não ser DRE; falta conciliação bancária</td></tr>
+<tr><td>Fiscal (NFC-e)</td><td><span class="badge b-bom">Bom</span></td><td>Pipeline real e avançado; gap crítico de cálculo de imposto fora do Simples</td></tr>
+<tr><td>Relatórios / Dashboard</td><td><span class="badge b-bom">Bom</span></td><td>Bem cobertos; margem histórica é estimada, não factual</td></tr>
+<tr><td>Usuários / Permissões</td><td><span class="badge b-critico">Crítico</span></td><td>Modelo de papéis bem desenhado, mas autorização IPC não verifica sessão real</td></tr>
+<tr><td>Sincronização multi-PDV</td><td><span class="badge b-critico">Crítico</span></td><td>Excelente para catálogo/vendas; crítico para estoque compartilhado</td></tr>
+<tr><td>Backup</td><td><span class="badge b-bom">Bom</span></td><td>Resiliente; sem criptografia própria do arquivo completo</td></tr>
+<tr><td>Licenciamento</td><td><span class="badge b-excelente">Excelente</span></td><td>Resiliência de rede e concorrência tratadas com cuidado raro</td></tr>
+<tr><td>Inteligência artificial</td><td><span class="badge b-melhorar">Precisa melhorar</span></td><td>Funcional e correto tecnicamente; governança/transparência ao usuário é o gap</td></tr>
+<tr><td>Multi-loja (visão executiva)</td><td><span class="badge b-ausente">Ausente</span></td><td>Sync existe; comparação/ranking/consolidação entre lojas não</td></tr>
+<tr><td>App móvel (pareado)</td><td><span class="badge b-bom">Bom</span></td><td>Pareamento bem desenhado; ecossistema mobile por perfil ainda embrionário</td></tr>
+</table></div>
+</section>
+
+<section id="s3">
+<h2><span class="num">03</span> Auditoria técnica</h2>
+<p class="lede">Bugs e inconsistências reais, encontrados lendo o código-fonte — não hipóteses. Agrupados por domínio, do mais para o menos severo dentro de cada grupo. Cada um foi verificado no arquivo citado.</p>
+
+<details open><summary>Vendas / PDV / Caixa <span class="badge b-alta">2 críticos · 6 outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Crítico</span></td><td><code>returnService.findFinalizedSales</code></td><td><code>LIMIT 50</code> é aplicado antes do filtro de busca — devolução de venda fora das 50 mais recentes some da busca mesmo existindo</td></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>saleService.removePayment</code></td><td>Remove pagamento sem autorização nem trilha de auditoria — única exceção ao padrão rígido do resto do domínio</td></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>saleService.finalizeSale</code> / <code>printService</code></td><td>Taxa de serviço de mesa nunca entra no total oficial da venda nem no recibo — subconta faturamento em todo relatório</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>saleService.editarHistoricoVenda</code></td><td>Edita total sem recalcular itens/pagamentos — recibo reimpresso fica inconsistente</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>POSScreen.jsx</code></td><td>Scanner de código de barras continua ativo durante a pesagem manual (falta <code>!pesandoProduto</code> na condição)</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>ProductSearchBox.jsx</code> / <code>useBarcodeScanner.js</code></td><td>Enter de busca manual e listener global do scanner podem disparar juntos — mesmo produto adicionado 2x</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>PaymentPanel.jsx</code></td><td>Botão "Adicionar pagamento" sem <code>disabled</code> durante o <code>await</code> — duplo clique gera pagamento duplicado</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>saleService.addPayment</code></td><td>Sem teto de valor para métodos não-dinheiro — pagamento "fiado" pode inflar a dívida do cliente acima do total da venda</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>Estoque / Produtos / Compras <span class="badge b-alta">2 altos · 4 outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>importExportService.js</code></td><td>Importação de planilha não valida preço/custo negativo, ao contrário do cadastro manual</td></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>productService.upsert</code></td><td>Formulário de produto não grava <code>fornecedor_id</code> — "Lista de compra sugerida" fica inoperante fora da importação</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>productService.findDuplicateProducts</code></td><td>Não normaliza acentos como o resto do arquivo — "Café"/"Cafe" não são detectados como duplicados</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>ingredientService.upsert</code></td><td>Estoque de insumo é sobrescrito por <code>UPDATE</code> direto, sem ledger nem auditoria — quebra o padrão do resto do sistema</td></tr>
+<tr><td><span class="badge b-baixa">Baixo</span></td><td><code>importExportService.js</code></td><td>Colisão de código de barras na importação expõe erro cru do SQLite ao usuário</td></tr>
+<tr><td><span class="badge b-baixa">Baixo</span></td><td><code>supplierService.js</code></td><td>Sem função de desativar fornecedor apesar da coluna <code>ativo</code> existir</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>Restaurante / Delivery / Agenda <span class="badge b-alta">1 crítico · 4 outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Crítico</span></td><td><code>quoteService.convertToSale</code></td><td>Rollback manual (<code>DELETE</code> bruto) não reverte insumo/material já descontado por <code>ingredientService</code>/<code>customItemService</code> — estoque de insumo vaza silenciosamente quando a conversão falha no meio</td></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>botOrderService.converterEmVendaSeAplicavel</code></td><td>Não verifica estoque nem desconta ficha técnica — gera estoque negativo e inconsistência entre canais de venda do mesmo prato</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>botOrderService.lancarPedidoNaMesa</code></td><td>Item sem estoque some silenciosamente da comanda, sem avisar o cliente nem o garçom</td></tr>
+<tr><td><span class="badge b-baixa">Baixo</span></td><td><code>appointmentService.js</code></td><td>Duração de agendamento aceita valor negativo, quebrando a checagem de conflito</td></tr>
+<tr><td><span class="badge b-baixa">Baixo</span></td><td><code>tableService</code> / <code>reservationService</code></td><td>Duas fontes de "reserva" de mesa que não se checam mutuamente — podem conflitar sem aviso</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>Clientes / WhatsApp / Fidelidade <span class="badge b-alta">1 alto de negócio · 5 outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>whatsappBotHandler.finalizarPedido</code> / <code>botOrderService</code></td><td>Nunca resolve <code>customer_id</code> pelo telefone — nenhuma venda do WhatsApp acumula pontos de fidelidade nem entra em "clientes que sumiram"</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>whatsappBotHandler.js</code></td><td>Usa <code>getLocationIdPadrao()</code> sem <code>ORDER BY</code> — em negócio com múltiplas filiais, o bot pode enxergar a loja errada de forma não-determinística</td></tr>
+<tr><td><span class="badge b-baixa">Baixo</span></td><td><code>SettingsScreen.jsx</code></td><td>Data de "Pareado em" exibida com -3h de erro (mesma classe de bug de fuso já corrigida em outros pontos do mesmo arquivo)</td></tr>
+<tr><td><span class="badge b-baixa">Baixo</span></td><td><code>customerService.registrarPagamento</code></td><td>Sem teto contra o saldo devedor — pode gerar saldo negativo não tratado na UI</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>Financeiro / Fiscal / Relatórios <span class="badge b-alta">1 crítico · 4 outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Crítico</span></td><td><code>nfceXmlService.js</code></td><td><code>&lt;ICMSTot&gt;</code> hardcoded em zero, independente do CSOSN/CST do item — nota fiscal declara zero de imposto mesmo quando é devido</td></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>SettingsScreen.jsx</code></td><td>Texto da tela afirma que cancelamento/inutilização/contingência de NFC-e "ainda não estão implementados" — falso, os três já funcionam</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>fiscalService.js</code></td><td>Janela de cancelamento de 24h contada a partir de <code>criado_em</code>, não da autorização real — pode negar um cancelamento ainda legal</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>expenseService.js</code></td><td>Só <code>remove</code> tem checagem de papel; <code>create/list/markAsPaid</code> não</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>Segurança / Usuários / Sync / Backup <span class="badge b-alta">1 crítico central · outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Crítico</span></td><td><code>stockSyncService.pushEstoqueProduto/pushEstoqueInicial</code></td><td><code>setDoc</code> sobrescreve o estoque compartilhado a partir só do ledger local — decrementos de outras máquinas do grupo são apagados (detalhado na seção 5)</td></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td>Toda a superfície IPC</td><td>Ver seção 5.1 — gap de autorização estrutural, não pontual</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>Plataforma / Configurações / IA <span class="badge b-alta">1 alto sistêmico · outros</span></summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Severidade</th><th>Onde</th><th>Bug</th></tr>
+<tr><td><span class="badge b-alta">Alto</span></td><td><code>SettingsScreen.jsx</code></td><td>Pelo menos 12 handlers de salvamento (IA, fiscal, Pix, fidelidade, impressora, segurança, WhatsApp) ignoram <code>result.ok</code> e sempre mostram sucesso</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>ProfileManager.jsx</code></td><td>Chave de campo extra gerada por slug do rótulo pode colidir entre dois campos diferentes do mesmo perfil, fazendo um sobrescrever o valor do outro</td></tr>
+<tr><td><span class="badge b-media">Médio</span></td><td><code>CashReport.jsx</code>, <code>FinanceiroScreen.jsx</code>, <code>WasteLog.jsx</code>, <code>POSScreen.jsx</code>, <code>AgendaScreen.jsx</code></td><td>Usam <code>new Date()</code> puro em vez do relógio sincronizado do <code>timeService</code> — filtro de "hoje" pode divergir se o relógio da máquina estiver errado</td></tr>
+</table></div>
+</div></details>
+
+<p class="footnote">Achados completos de cada domínio (incluindo os itens de baixa severidade omitidos aqui por espaço) estão disponíveis nos relatórios de auditoria originais que fundamentam este documento.</p>
+</section>
+
+<section id="s4">
+<h2><span class="num">04</span> Auditoria UX/UI</h2>
+<p class="lede">Achados concretos por tela, não "melhorar a UX" genérico. Organizados por padrão de problema, porque o mesmo tipo de falha se repete em domínios diferentes — o que é, em si, um achado de processo.</p>
+
+<h3>Padrão 1 — Sucesso mostrado mesmo quando a operação falhou</h3>
+<p>Este é o problema de UX mais espalhado do produto. Em <code>SettingsScreen.jsx</code>, pelo menos 12 handlers (IA, localização, fiscal, Pix, fidelidade, automação de WhatsApp, taxa de entrega, recibo, impressora, autorização de cancelamento/desconto, display do PDV, balança) chamam o IPC correspondente e mostram "salvo com sucesso" sem checar <code>result.ok</code>. O mesmo arquivo tem exemplos corretos ao lado (<code>handleInutilizar</code>, <code>handleTestarImpressao</code>, <code>handleRestore</code>) — o padrão certo existe, só não foi aplicado de forma uniforme. Na tela de vendas, <code>PaymentPanel.jsx</code> marca a venda como concluída antes de confirmar que a impressão automática funcionou.</p>
+
+<h3>Padrão 2 — Autorização escondida só no menu, nunca explicada na tela</h3>
+<p>Vários fluxos restringem uma aba a <code>admin</code>/<code>suporte</code> apenas no backend, mas a tela de <code>gerente</code> mostra o formulário inteiro habilitado (ex.: aba de IA em Configurações). O gerente preenche, salva, recebe confirmação de sucesso (Padrão 1) e nunca sabe que a ação foi silenciosamente rejeitada.</p>
+
+<h3>Padrão 3 — Busca com corte silencioso</h3>
+<p><code>returnService.findFinalizedSales</code> corta em 50 registros antes de filtrar; <code>ProductList.jsx</code> aplica o filtro "só conflitos" sobre a página já carregada, não sobre o total. Em ambos os casos a mensagem para o usuário é indistinguível de "não existe" — ele não tem como saber que precisa buscar de outro jeito.</p>
+
+<h3>Achados por tela</h3>
+<div class="twrap"><table>
+<tr><th>Tela</th><th>Problema</th></tr>
+<tr><td><code>ReturnFlow.jsx</code></td><td>"Nenhuma venda encontrada" não distingue "não existe" de "existe fora da janela de busca"</td></tr>
+<tr><td><code>StockAdjustModal.jsx</code></td><td>Não mostra o estoque atual antes de pedir a quantidade do ajuste — aumenta erro humano na operação mais sensível do domínio</td></tr>
+<tr><td><code>SupplyScreen.jsx</code> (casamento de produto)</td><td>Resultado de busca não mostra preço/estoque — fácil casar com o produto errado entre nomes parecidos</td></tr>
+<tr><td><code>CategoryManager.jsx</code></td><td>Exclusão de categoria sem confirmação — um clique duplo já remove e realoca produtos</td></tr>
+<tr><td><code>AgendaScreen.jsx</code></td><td>Perfil Ótica não vê a aba — a lacuna é invisível ao usuário, que não sabe que a função existiria</td></tr>
+<tr><td><code>BotOrdersScreen.jsx</code> (separação de pedido)</td><td>Aviso de "estoque insuficiente" é só informativo, não bloqueia — segue até "concluído" com estoque negativo</td></tr>
+<tr><td><code>QuotesScreen.jsx</code></td><td>Orçamento é criado no banco ao primeiro item, mas "Fechar" não oferece descartar — fica órfão na lista</td></tr>
+<tr><td><code>KitchenDisplayScreen.jsx</code></td><td>Sem escalonamento visual de urgência — 16min e 40min de atraso têm o mesmo destaque</td></tr>
+<tr><td>Configurações → WhatsApp</td><td>Aviso de risco do Baileys aparece uma vez, sem segunda confirmação explícita antes de conectar</td></tr>
+<tr><td><code>FloatingTutor.jsx</code></td><td>Ícone do tutor sempre visível mesmo com IA desligada — usuário só descobre ao tentar conversar</td></tr>
+<tr><td><code>Dashboard.jsx</code> / relatórios</td><td>Margem exibida usa custo atual, não o custo no momento da venda — rotulada como "estimada", mas fácil de ler como exata</td></tr>
+<tr><td><code>FinanceiroScreen.jsx</code></td><td>Exclusão de despesa usa <code>confirm()</code> nativo do browser, destoando dos modais próprios usados no resto do app</td></tr>
+</table></div>
+</section>
+
+<section id="s5">
+<h2><span class="num">05</span> Auditoria de segurança</h2>
+<p class="lede">Esta é a seção mais importante do documento. O modelo de dados e as regras de negócio são bem desenhados; a camada de autorização que deveria protegê-los, não.</p>
+
+<h3>5.1 — Falha estrutural: autorização IPC sem sessão real</h3>
+<p><code>safeHandle</code> (<code>electron/ipc/handlers.js</code>) é apenas um wrapper de try/catch. Não existe, em lugar nenhum do processo principal, uma sessão vinculada a <code>event.sender</code>/<code>webContents</code> que registre quem de fato fez login. Cada função de serviço recebe um <code>requestingUserId</code> — um dado, não uma prova — enviado pelo próprio processo de renderização, e <code>requireRole(requestingUserId, papéis)</code> só verifica a que papel <em>aquele ID informado</em> pertence, nunca se quem está chamando é realmente essa pessoa.</p>
+<blockquote>Cadeia de exploração real, sem senha nenhuma: <code>auth:listActiveUsers</code> não tem guard de papel — qualquer operador vê o ID de todos os admins. Com esse ID em mãos, o mesmo operador chama <code>users.resetPin</code>, <code>auth.updateSecurityConfig</code> (desligando a exigência de autorização de cancelamento) ou <code>backup.restore</code> informando o ID do admin como <code>requestingUserId</code> — todas passam. Pior: a auditoria dessas ações grava <code>solicitante_id</code> com o ID do admin real, incriminando-o por algo que não fez.</blockquote>
+<p>O contraste prova que a equipe sabe fazer certo: <code>authorizeManagerOverride</code> (usado em cancelamento, desconto e devolução) exige PIN real, bcrypt, e nunca aceita o próprio operador como autorizador. Esse padrão simplesmente não foi replicado para gestão de usuários, configuração de segurança, backup, IA, fiscal e WhatsApp — canais que hoje aceitam qualquer <code>requestingUserId</code> plausível.</p>
+<p><strong>Canais confirmados sem checagem de papel no backend</strong> (defendidos só por esconder o botão na UI, que não impede uma chamada direta via DevTools — não bloqueado em produção): <code>stock:adjust</code>, <code>product:upsert</code>, <code>category:*</code>, <code>supplier:upsert</code>, <code>ingredient:*</code>, <code>waste:register</code>, <code>quoteService.convertToSale/cancelQuote</code>, <code>delivery:*</code>, <code>appointment:upsertProfessional</code>, <code>botOrder:updateConfig</code>, <code>table:create/delete</code>, <code>customer:registrarPagamento</code>, <code>fiscal:livroDeControlados</code> (nome + CPF + medicamento controlado — dado de saúde identificável), <code>expense:create/list/markAsPaid</code>, <code>attachment:remove</code>.</p>
+
+<h3>5.2 — Sincronização de estoque: sobrescrita destrutiva entre PDVs</h3>
+<p><code>stockSyncService.pushEstoqueProduto</code> recalcula <code>SUM(stock_movements)</code> só da base local e faz <code>setDoc</code> — substituição total, não incremento — no Firestore compartilhado. Cenário verificado passo a passo: PDV A (servidor) publica 100 unidades; PDV B (cliente do grupo) vende 10, decrementando o Firestore para 90 via transação; minutos depois A vende 1 unidade localmente, o que dispara novo <code>pushEstoqueProduto</code> recalculando 99 a partir só do ledger de A e sobrescrevendo o 90 de B. O grupo agora acredita ter 10 unidades a mais do que existe fisicamente — overselling silencioso, sem erro, sem log, autoalimentado.</p>
+
+<h3>5.3 — Armazenamento e exposição de segredos</h3>
+<table><tr><td style="width:30%"><strong>PINs de usuário</strong></td><td>bcrypt custo 10, corretos, nunca em texto puro.</td></tr>
+<tr><td><strong>Certificado A1 / CSC / chave de IA</strong></td><td>Cifrados via <code>safeStorage</code> do SO — correto —, mas com fallback documentado para texto puro quando o SO não tem keyring disponível (comum em Linux), sem aviso ativo ao usuário nesse momento.</td></tr>
+<tr><td><strong>Backup completo</strong></td><td>Cópia binária do <code>.sqlite3</code> (clientes, vendas, auditoria, hashes de PIN) sobe ao Firebase Storage sem criptografia própria da aplicação — depende inteiramente das regras de acesso do bucket, não auditáveis a partir do código disponibilizado.</td></tr>
+<tr><td><strong>Fluxo de senha de conta Google</strong> (backup pessoal)</td><td>Desenho correto "zero-knowledge": senha cifrada em memória com chave pública RSA-OAEP antes de qualquer persistência; o próprio app nunca consegue decifrar o que protegeu.</td></tr>
+<tr><td><strong>Pareamento de dispositivo móvel</strong></td><td>Código de 6 dígitos, expira em 10min — mas a busca é por <code>collectionGroup</code> global ao projeto Firebase inteiro (compartilhado entre todos os clientes), o que é, em tese, uma superfície de força bruta entre lojistas diferentes, não só dentro da mesma loja.</td></tr>
+</table>
+
+<h3>5.4 — Riscos específicos de domínio</h3>
+<ul style="padding-left:0;list-style:none">
+<li class="card"><strong>Bot de WhatsApp sobre Baileys.</strong> Biblioteca não-oficial, uso documentado no próprio código como violação dos Termos de Serviço do WhatsApp, com risco real de banimento. Sem fallback de canal quando desconecta, sem throttle de envio nas automações proativas (aniversário/reconquista disparadas em loop síncrono) — exatamente o padrão de volume que aumenta risco de banimento.</li>
+<li class="card"><strong>DevTools não bloqueado em produção.</strong> Nenhum handler intercepta <code>before-input-event</code> para desabilitar F12/Ctrl+Shift+I fora de desenvolvimento — é o vetor prático que transforma o gap de autorização IPC de teórico em explorável por qualquer operador com acesso físico ao terminal.</li>
+<li class="card"><strong>Dados de saúde sem controle de acesso equivalente à sensibilidade.</strong> Receita óptica, prontuário de pet e livro de controlados (nome+CPF+medicamento) são legíveis por qualquer operador, sem papel elevado exigido nem log de leitura.</li>
+<li class="card"><strong>Integridade da auditoria.</strong> Nenhum endpoint apaga <code>audit_log</code>, mas ela vive só no SQLite local, sem hash-chain nem espelho externo — e pode ser silenciada de uma vez por uma restauração de backup antigo.</li>
+</ul>
+
+<h3>5.5 — Recomendações priorizadas</h3>
+<ol>
+<li><strong>Sessão real no processo principal</strong>, ligada a <code>webContents.id</code>, populada em <code>auth:login</code> e usada como única fonte de verdade — substitui todo uso de <code>requestingUserId</code> vindo do payload. É a correção de maior impacto de todo o documento.</li>
+<li><strong>Corrigir a reconciliação de estoque de grupo</strong> para incremento transacional (<code>runTransaction</code> lendo o valor atual antes de aplicar delta) em vez de <code>setDoc</code> cego.</li>
+<li><strong>Bloquear DevTools em produção</strong> e aplicar <code>requireRole</code> nos ~15 canais hoje desprotegidos, priorizando <code>fiscal:livroDeControlados</code>, <code>backup:restore</code> e <code>expense:*</code>.</li>
+<li><strong>Criptografar o arquivo de backup completo</strong> antes do upload, não só os campos individuais.</li>
+</ol>
+</section>
+
+<section id="s6">
+<h2><span class="num">06</span> Auditoria de arquitetura</h2>
+<p class="lede">A arquitetura local-first (Electron + SQLite, nuvem só onde precisa) é a escolha certa para o público-alvo — pequeno negócio, internet instável, custo de infraestrutura zero por padrão. A avaliação abaixo é sobre até onde essa escolha aguenta crescer sem precisar ser refeita.</p>
+<div class="grid2">
+<div class="card"><h4>Pronto para crescer</h4><ul>
+<li>Modelo de dados por <code>location_id</code> já existe em quase toda tabela — a base para multi-loja está lá.</li>
+<li>Ledger append-only de estoque é a decisão certa para auditabilidade e para uma futura reconstrução de estado em qualquer ponto no tempo.</li>
+<li>Migração aditiva de coluna (<code>adicionarColunaSeFaltando</code>) permite evoluir o schema sem quebrar instalações existentes — importante para um produto sem servidor central que force upgrade.</li>
+<li>Separação clara serviço↔IPC↔UI facilita auditar e substituir uma camada de cada vez (como esta auditoria evidencia).</li>
+</ul></div>
+<div class="card"><h4>Não aguenta o próximo salto sem trabalho</h4><ul>
+<li><strong>Sincronização multi-PDV é aditiva/idempotente para vendas e catálogo, mas destrutiva para estoque</strong> (seção 5.2) — o padrão certo (delta transacional) precisa ser generalizado antes de vender "multi-loja" como funcionalidade madura.</li>
+<li><strong>Nenhuma camada de agregação/data warehouse local</strong> — toda consulta de dashboard/relatório é ad-hoc contra o banco transacional. Qualquer ambição de IA analítica pesada (seção 11) precisa de tabelas de agregação diária pré-computadas antes de escalar.</li>
+<li><strong>Sem pipeline de embeddings/busca vetorial</strong> — funcionalidades futuras de busca semântica (produtos parecidos, matching fuzzy de pedido por texto livre) exigiriam essa infraestrutura do zero.</li>
+<li><strong>Sessão de usuário como estado React puro</strong>, sem conceito de sessão no processo principal — é ao mesmo tempo o maior risco de segurança (seção 5.1) e o maior obstáculo arquitetural para qualquer recurso multi-terminal mais sofisticado (ex.: forçar logout remoto).</li>
+</ul></div>
+</div>
+
+<h3>Recuperação de falha e operação offline</h3>
+<p>O produto já leva isso a sério onde importa mais: NFC-e entra em contingência automaticamente e reenvia sozinho; o licenciamento tem carência de dias sem internet; o backup roda local antes de tentar nuvem. O ponto fraco é a <strong>ausência de detecção de divergência</strong> — nada compara o estado local com o remoto depois de uma falha de rede prolongada (é exatamente essa lacuna que deixa o bug de sincronização de estoque invisível até um cliente reclamar de estoque errado).</p>
+
+<h3>O que a infraestrutura atual não suporta ainda (e é preciso admitir isso antes de prometer)</h3>
+<p>Todo o roadmap de "GerenciaAI Intelligence" (seção 11) e "Gerente Digital" (seção 12) descrito neste documento assume que essas lacunas serão fechadas primeiro: camada de agregação, sessão real de usuário, e reconciliação correta de estado distribuído. Prometer inteligência de negócio em cima de dados que podem estar sutilmente errados (por causa do bug de sync) seria pior do que não ter a funcionalidade — geraria recomendações erradas com aparência de autoridade.</p>
+</section>
+
+<section id="s7">
+<h2><span class="num">07</span> Auditoria de performance</h2>
+<p class="lede">Formato Problema → Causa → Impacto → Solução → Prioridade, para os pontos concretos identificados durante a leitura do código.</p>
+<div class="twrap"><table>
+<tr><th>Problema</th><th>Causa</th><th>Impacto</th><th>Solução</th><th>Prioridade</th></tr>
+<tr><td>Listas sem paginação real</td><td><code>customerService.list</code>, <code>expenseService.list</code>, dropdown de produtos em <code>WasteLog.jsx</code> (limit 300 sem busca) carregam tudo de uma vez</td><td>Degrada perceptivelmente em base de clientes/produtos grande — aceitável hoje, não em 2-3 anos de uso</td><td>Paginação por cursor (já existe o padrão em <code>ProductList.jsx</code>) generalizada para os demais serviços</td><td class="score">Média</td></tr>
+<tr><td>Filtro aplicado pós-paginação</td><td><code>ProductList.jsx</code> filtra "só conflitos" sobre a página já carregada</td><td>Resultado incompleto silencioso, não só performance</td><td>Mover filtro para a query SQL</td><td class="score">Alta</td></tr>
+<tr><td>Histórico de conversa reenviado inteiro a cada pergunta</td><td><code>FloatingTutor.jsx</code> manda o array <code>messages</code> completo em toda chamada a <code>askTutor</code></td><td>Custo de token cresce superlinear por sessão de tutor, sem aviso ao usuário</td><td>Truncar/resumir histórico após N turnos; cache de contexto</td><td class="score">Média</td></tr>
+<tr><td>Reextração de IA sem cache</td><td><code>SaleAttachmentsPanel.jsx</code> permite reprocessar um anexo já <code>concluido</code></td><td>Chamada paga repetida ao Gemini sem necessidade</td><td>Desabilitar botão quando <code>extracao_status==='concluida'</code>, oferecer "reprocessar" explícito separado</td><td class="score">Baixa</td></tr>
+<tr><td>Consultas de dashboard/relatório ad-hoc</td><td>Nenhuma tabela de agregação pré-computada (seção 6)</td><td>Tende a piorar com o crescimento do histórico de vendas; hoje mitigado por <code>timeService.localDateRangeToUtcBounds</code> ser sargable</td><td>Introduzir agregação diária incremental (ex.: job noturno) antes que o volume justifique</td><td class="score">Baixa (hoje) / Alta (pós-escala)</td></tr>
+<tr><td>Recalculo completo de estoque a cada push de sincronização</td><td><code>pushEstoqueInicial</code> recalcula e resobrescreve todos os produtos de uma vez</td><td>Tanto performance quanto correção (seção 5.2) — cada republicação é uma janela de sobrescrita</td><td>Delta incremental por produto alterado, não broadcast total</td><td class="score">Alta</td></tr>
+<tr><td>Envio de mensagens automáticas em loop síncrono</td><td><code>whatsappAutomationService.executarCupomAniversario</code> processa a lista inteira num <code>for</code> sem espaçamento</td><td>Padrão de tráfego "não-humano" — soma-se ao risco de banimento do Baileys (seção 5.4)</td><td>Espaçar envios, impor teto diário configurável</td><td class="score">Média</td></tr>
+</table></div>
+<p class="footnote">Não foram encontrados problemas de performance de renderização React graves nos componentes lidos (uso razoável de memoização onde aparece, sem sinais de re-render em cascata); o gargalo real do produto hoje é de <em>correção de dado sob concorrência</em> (sync), não de velocidade de tela.</p>
+</section>
+
+<section id="s8">
+<h2><span class="num">08</span> Análise por perfil de usuário</h2>
+<p class="lede">Dez perfis, seis categorias por perfil (Melhoria, Automação, IA, Diferenciação, UX, Inteligência de negócio), três ideias concretas por categoria — 180 ideias no total. <span class="tag-recom">RECOMENDADO</span> marca o que depende de infraestrutura ainda inexistente.</p>
+
+<details open><summary>1. Dono / Proprietário</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Resumo do dia sem abrir 4 telas</strong></td><td>Unificar faturamento, diferença de caixa, NFC-e pendentes e estoque crítico (hoje espalhados em Dashboard/Financeiro/Fiscal/Estoque) numa única visão de abertura — ver seção 12</td></tr>
+<tr><td>Melhoria</td><td><strong>Aviso ativo de configuração crítica quebrada</strong></td><td>Corrigir o padrão de "sucesso falso" (seção 3/4) é pré-requisito para o dono confiar no que configura</td></tr>
+<tr><td>Melhoria</td><td><strong>Visão de risco fiscal por regime</strong></td><td>Alertar no cadastro de produto quando o regime tributário exige alíquota que o app hoje zera (fecha o gap da seção 3)</td></tr>
+<tr><td>Automação</td><td><strong>Envio automático da lista de compra ao fornecedor</strong></td><td>Quando <code>suggestPurchases</code> cruza o limiar, montar e mandar a lista agrupada por fornecedor via WhatsApp automaticamente</td></tr>
+<tr><td>Automação</td><td><strong>Fechamento de mês sem clique</strong></td><td>Job agendado que gera e guarda o "resultado simples" do mês fechado, com comparação ao anterior, pronto para consulta <span class="tag-recom">RECOMENDADO</span> (precisa de agregação — seção 6)</td></tr>
+<tr><td>Automação</td><td><strong>Alerta de certificado A1 vencendo</strong></td><td>Job em background checando validade, não só bloqueio reativo na hora de emitir</td></tr>
+<tr><td>IA</td><td><strong>"Por que caiu?" em linguagem natural</strong></td><td>Ver Gerente Digital (seção 12) — cruza queda de faturamento com produto sem estoque/operador ausente/dia da semana atípico</td></tr>
+<tr><td>IA</td><td><strong>Detecção de outlier de cancelamento/desconto por operador</strong></td><td><code>audit_log</code> cruzado por <code>solicitante_id</code> e turno, alertando quando um operador destoa 3x da média do time</td></tr>
+<tr><td>IA</td><td><strong>Explicação de rejeição de NFC-e traduzida</strong></td><td>Dicionário de <code>cStat</code>/<code>xMotivo</code> → causa provável + ação em português simples, sem depender de chamada de IA</td></tr>
+<tr><td>Diferenciação</td><td><strong>"GerenciaAI Intelligence" como manchete de venda</strong></td><td>Nenhum concorrente de pequeno porte oferece narrativa de negócio, só números — ver seção 11</td></tr>
+<tr><td>Diferenciação</td><td><strong>Transparência total de IA</strong></td><td>Painel único mostrando exatamente quais das 6 funções estão ativas e o que cada uma faz — resolve o gap de confiança da seção 10</td></tr>
+<tr><td>Diferenciação</td><td><strong>Benchmark interno anônimo</strong></td><td>Comparar o próprio desempenho contra a média de lojas do mesmo perfil de negócio (opt-in, agregado, nunca identificável) <span class="tag-recom">RECOMENDADO</span></td></tr>
+<tr><td>UX</td><td><strong>Onboarding de perfil assistido por IA</strong></td><td>Perguntar em linguagem natural o que o negócio vende e propor perfil/campos extras em vez de formulário em branco</td></tr>
+<tr><td>UX</td><td><strong>Indicação visual de restrição por papel nas Configurações</strong></td><td>Resolve o Padrão 2 da seção 4 — gerente vê o que pode e não pode salvar antes de tentar</td></tr>
+<tr><td>UX</td><td><strong>Contador de mensagens de WhatsApp enviadas</strong></td><td>Hoje o dono não tem visibilidade de volume — métrica mais importante dado o risco de banimento (seção 5.4)</td></tr>
+<tr><td>BI</td><td><strong>Classificação ABC automática de produtos</strong></td><td>Faturamento+margem dos últimos 90 dias por produto, badge visual, ajusta rigor de <code>alertasDeMargem</code> por classe</td></tr>
+<tr><td>BI</td><td><strong>Capital parado (dead stock)</strong></td><td>Inverso de <code>previsaoDeRuptura</code>: produtos com estoque sem saída há 60+ dias, ranqueados por valor parado</td></tr>
+<tr><td>BI</td><td><strong>Previsão de fluxo de caixa 30 dias</strong></td><td>Contas a pagar (<code>expenseService.listPending</code>) + projeção de receita por média móvel, sinalizando datas de caixa negativo</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>2. Gerente</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Teto de alçada de desconto por papel</strong></td><td>Hoje qualquer gerente autoriza até 100%; configurar limite (ex.: 15%) diferenciado de admin</td></tr>
+<tr><td>Melhoria</td><td><strong>Autorização de gerente para ajuste/perda de estoque</strong></td><td>Reaproveitar <code>authorizeManagerOverride</code> (já existe para venda) em <code>stockService.adjustStock</code>, hoje sem checagem nenhuma</td></tr>
+<tr><td>Melhoria</td><td><strong>Sangria/suprimento de caixa</strong></td><td>Hoje ausente — ver seção 3; é a lacuna operacional mais sentida por um gerente de turno</td></tr>
+<tr><td>Automação</td><td><strong>Liberação automática de carrinhos abandonados</strong></td><td>Job identifica vendas "abertas" antigas sem pagamento e propõe cancelamento em lote com devolução de estoque</td></tr>
+<tr><td>Automação</td><td><strong>Alerta de mesa parada</strong></td><td><code>RestaurantTables</code> já calcula tempo ocupado; notificar quando passa de N minutos sem novo item lançado</td></tr>
+<tr><td>Automação</td><td><strong>Conciliação semi-automática de Pix via extrato importado</strong></td><td>Casa <code>payments.metodo='pix'</code> com CSV/PDF do banco por valor+janela, sinalizando confirmações sem lastro</td></tr>
+<tr><td>IA</td><td><strong>Anomalia de fechamento de caixa</strong></td><td>Compara cada sessão contra média/desvio-padrão do mesmo operador e dia da semana, narra o desvio</td></tr>
+<tr><td>IA</td><td><strong>Auditoria narrada semanal</strong></td><td>IA sobre <code>audit_log</code> resumindo padrões incomuns de autorização em linguagem simples</td></tr>
+<tr><td>IA</td><td><strong>Sugestão de horário de agendamento</strong></td><td>Reaproveita <code>checkConflito</code> para propor os 3 próximos horários livres em vez de tentativa-e-erro</td></tr>
+<tr><td>Diferenciação</td><td><strong>Gamificação profissional de equipe</strong></td><td>Ver seção 13/WOW — ranking de produtividade sem tom infantilizado</td></tr>
+<tr><td>Diferenciação</td><td><strong>Detecção de anomalia sem acusar</strong></td><td>Framing de "revisar junto", nunca "flagrar" — crítico para adoção sem gerar clima de vigilância (ver seção 9)</td></tr>
+<tr><td>Diferenciação</td><td><strong>Segunda tela para o cliente (display)</strong></td><td>Hoje ausente; percepção de modernidade imediata no balcão</td></tr>
+<tr><td>UX</td><td><strong>Confirmação de mesa reservada antes de abrir</strong></td><td><code>tableService.openTable</code> hoje permite abrir mesa reservada sem alerta</td></tr>
+<tr><td>UX</td><td><strong>Painel único de "o que precisa da minha aprovação agora"</strong></td><td>Unifica solicitação de alteração de pedido, orçamento novo, agendamento novo — hoje cada um é uma notificação isolada</td></tr>
+<tr><td>UX</td><td><strong>Contagem de inventário guiada</strong></td><td>Tela dedicada por categoria/local com saldo do sistema ao lado do campo de contagem, gerando ajuste em lote com motivo único</td></tr>
+<tr><td>BI</td><td><strong>Taxa de cancelamento/desconto por operador vs. média do time</strong></td><td>Já citada na seção IA do Dono, aqui como painel operacional do dia a dia, não só alerta</td></tr>
+<tr><td>BI</td><td><strong>Tempo médio de preparo por prato vs. cronômetro real no KDS</strong></td><td>Histórico de <code>criado_em</code>→pronto por prato, exibido junto ao cronômetro</td></tr>
+<tr><td>BI</td><td><strong>Taxa de devolução por produto</strong></td><td>Cruza <code>stock_movements</code> tipo venda com <code>return_items.motivo</code>, reaproveitando o popover de alerta já existente no carrinho</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>3. Supervisor / Admin</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Sessão real de usuário</strong></td><td>Pré-requisito de segurança (seção 5.1) antes de qualquer expansão de permissões finas</td></tr>
+<tr><td>Melhoria</td><td><strong>Papel "auditor" somente-leitura</strong></td><td>Hoje quem vê auditoria precisa ser admin/suporte, que também podem alterar tudo — falta um papel intermediário <span class="tag-recom">RECOMENDADO</span></td></tr>
+<tr><td>Melhoria</td><td><strong>Log de tentativas de login</strong></td><td>Hoje só existe contador de bloqueio; falta histórico consultável de quem tentou logar e quando</td></tr>
+<tr><td>Automação</td><td><strong>Rotação/expiração de PIN sugerida</strong></td><td>Lembrete não-obrigatório após N dias ou tentativas falhas incomuns recentes</td></tr>
+<tr><td>Automação</td><td><strong>Backup relâmpago pós-evento crítico</strong></td><td>Disparo imediato de backup após alteração de config de segurança ou restauração — não esperar o ciclo diário</td></tr>
+<tr><td>Automação</td><td><strong>Reconciliação automática de estoque de grupo</strong></td><td>Substitui o <code>setDoc</code> destrutivo por delta transacional com cursor de última publicação — fecha o bug crítico da seção 5.2</td></tr>
+<tr><td>IA</td><td><strong>Detecção de padrão de login anômalo</strong></td><td>Login fora do horário de expediente do estabelecimento, ou mesmo aprovador em excesso de ações num curto intervalo</td></tr>
+<tr><td>IA</td><td><strong>Classificador de erro para a Central</strong></td><td>Agrupar erros semelhantes entre instalações e sugerir causa raiz, evoluindo o relato cru hoje enviado por <code>errorReportService</code></td></tr>
+<tr><td>IA</td><td><strong>Verificação de integridade de chave pública remota</strong></td><td>Pin de certificado do documento público usado no fluxo de conta Google — detecta troca não anunciada</td></tr>
+<tr><td>Diferenciação</td><td><strong>Hash-chain de auditoria</strong></td><td>Cada linha inclui hash da anterior — nenhum concorrente de pequeno porte oferece tamper-evidence nesse nível</td></tr>
+<tr><td>Diferenciação</td><td><strong>Espelhamento de audit_log no Firestore central</strong></td><td>Cópia fora do alcance de quem tem acesso físico à máquina — detecta divergência como evidência de adulteração</td></tr>
+<tr><td>Diferenciação</td><td><strong>2FA para ações destrutivas</strong></td><td>Confirmação por canal secundário (painel central) antes de restaurar backup ou trocar config de segurança</td></tr>
+<tr><td>UX</td><td><strong>Confirmação/backup automático pré-restauração</strong></td><td>Hoje restaurar é irreversível sem rede de segurança automática</td></tr>
+<tr><td>UX</td><td><strong>Watchdog de chamada IPC travada</strong></td><td>Timeout visível em vez de spinner infinito quando uma chamada não responde</td></tr>
+<tr><td>UX</td><td><strong>Alerta de divergência de estoque de grupo</strong></td><td>Compara valor local vs. remoto antes/depois de cada push, avisando sobrescrita suspeita</td></tr>
+<tr><td>BI</td><td><strong>Painel de saúde de sincronização</strong></td><td>Última publicação bem-sucedida por PDV do grupo, divergências detectadas, latência</td></tr>
+<tr><td>BI</td><td><strong>Mapa de risco de segurança por instalação</strong></td><td>Quantos canais desprotegidos foram de fato exercidos (via auditoria) — prioriza correção por uso real, não só severidade teórica</td></tr>
+<tr><td>BI</td><td><strong>Volume de uso de IA por função e custo estimado</strong></td><td>Hoje inexistente (seção 10) — essencial para um admin decidir orçamento de IA</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>4. Caixa / Operador de PDV</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Corrigir colisão scanner × campo de busca</strong></td><td>Bug concreto da seção 3 — mesmo produto pode entrar 2x no carrinho por um único Enter</td></tr>
+<tr><td>Melhoria</td><td><strong>Preenchimento automático de peso da balança</strong></td><td>Hoje exige clique extra mesmo com leitura estável — reduz atrito em fluxo de alta repetição</td></tr>
+<tr><td>Melhoria</td><td><strong>Cap de valor em pagamento fiado</strong></td><td>Impede digitar valor maior que o total da venda por erro de digitação</td></tr>
+<tr><td>Automação</td><td><strong>Alerta preditivo de troco insuficiente</strong></td><td>Estima dinheiro pequeno disponível no turno a partir de <code>payments</code> já existente, avisa antes do próximo cliente com nota grande</td></tr>
+<tr><td>Automação</td><td><strong>Detecção de bipagem duplicada por rajada de tempo</strong></td><td>Dois bipes do mesmo produto em menos de 400ms disparam confirmação em vez de somar direto</td></tr>
+<tr><td>Automação</td><td><strong>Sugestão de combo por horário/turno</strong></td><td>Estende <code>listRecentlySold</code> com correlação temporal, não só cesta genérica</td></tr>
+<tr><td>IA</td><td><strong>Leitura de peso por foto (fallback sem balança serial)</strong></td><td>Reaproveita a mesma infraestrutura de IA já usada em anexos para ler visor analógico</td></tr>
+<tr><td>IA</td><td><strong>Alerta de produto com taxa de devolução anômala no carrinho</strong></td><td>Reaproveita o popover de alerta já existente (validade/estoque baixo) para esse novo sinal</td></tr>
+<tr><td>IA</td><td><strong>Sugestão de preço para item personalizado por margem-alvo</strong></td><td>Hoje sugere só custo puro; calcular margem média do catálogo do perfil e sugerir <code>custo × (1+margem)</code></td></tr>
+<tr><td>Diferenciação</td><td><strong>PDV que confirma peso sem clique extra</strong></td><td>Detalhe de fricção que concorrente de nicho raramente resolve</td></tr>
+<tr><td>Diferenciação</td><td><strong>Recibo por WhatsApp sem custo de API paga</strong></td><td>Já existe (<code>wa.me</code>) — vale destacar como diferencial comercial, não só funcionalidade</td></tr>
+<tr><td>Diferenciação</td><td><strong>Item personalizado com composição real rastreada</strong></td><td><code>customItemService</code> já é sofisticado — poucos sistemas do porte rastreiam insumo de item ad-hoc com essa fidelidade</td></tr>
+<tr><td>UX</td><td><strong>Distinguir "não existe" de "corte de busca" na devolução</strong></td><td>Corrige a mensagem ambígua do Padrão 3 (seção 4)</td></tr>
+<tr><td>UX</td><td><strong>Indicador de saldo em dinheiro durante o turno</strong></td><td>Hoje só é visível no fechamento — depende de sangria/suprimento existir primeiro</td></tr>
+<tr><td>UX</td><td><strong>Feedback de impressão diferenciado de feedback de venda</strong></td><td>Venda concluída não deveria dar a impressão de que o cupom saiu se a impressora falhou</td></tr>
+<tr><td>BI</td><td><strong>Painel pessoal de desempenho do turno</strong></td><td>Vendas, ticket médio, tempo médio de atendimento do próprio operador — sem comparação punitiva, só autoconhecimento</td></tr>
+<tr><td>BI</td><td><strong>Histórico de itens mais cancelados por mim</strong></td><td>Ajuda o próprio operador a identificar erro recorrente de digitação/bipagem antes que vire um padrão notado por outros</td></tr>
+<tr><td>BI</td><td><strong>Tempo médio de checkout</strong></td><td>Do primeiro item ao pagamento finalizado, comparado à média da loja (sem nome do operador exposto a terceiros)</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>5. Garçom</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Tela dedicada de "meus itens prontos"</strong></td><td>Hoje depende de vigiar o KDS fisicamente; falta notificação direta ao garçom responsável pela mesa</td></tr>
+<tr><td>Melhoria</td><td><strong>Explicar divisão por pessoa ao reduzir contagem de mesa</strong></td><td>Hoje "Pessoa 3" some sem explicação quando a mesa é reduzida de 3 para 2 (bug de UX confirmado)</td></tr>
+<tr><td>Melhoria</td><td><strong>App PWA do garçom com pedido direto na mesa</strong></td><td>Infraestrutura de <code>pedidoGarcomSyncService</code> já existe — falta expandir a superfície de uso mobile</td></tr>
+<tr><td>Automação</td><td><strong>Notificação push quando item fica pronto</strong></td><td>Reaproveita <code>notificationService</code>/Firestore já usado para status ao vivo entre PDVs</td></tr>
+<tr><td>Automação</td><td><strong>Sugestão de "juntar mesas" para grupo grande</strong></td><td><span class="tag-recom">RECOMENDADO</span> — hoje não existe conceito de mesa composta, precisaria de nova relação no schema</td></tr>
+<tr><td>Automação</td><td><strong>Alerta de comanda parada</strong></td><td>Mesmo mecanismo do Gerente (mesa sem novo item há N minutos), mas endereçado ao garçom responsável, não só ao gerente</td></tr>
+<tr><td>IA</td><td><strong>Sugestão de venda adicional por perfil da mesa</strong></td><td>Cruza itens já pedidos com combos historicamente populares para aquele horário/dia</td></tr>
+<tr><td>IA</td><td><strong>Priorização de fila de cozinha por comanda, não por chegada</strong></td><td>Agrupa itens da mesma mesa com tempos de cocção diferentes para chegarem juntos</td></tr>
+<tr><td>IA</td><td><strong>Resposta a pergunta de cliente sobre prato via foto do cardápio</strong></td><td>Reaproveita <code>identificarProdutoPorFoto</code> adaptado para ingrediente/alergia declarada</td></tr>
+<tr><td>Diferenciação</td><td><strong>QR code de pedido por mesa via WhatsApp sem app dedicado</strong></td><td>Já existe — vale como diferencial de baixo custo frente a concorrentes que exigem app próprio do cliente</td></tr>
+<tr><td>Diferenciação</td><td><strong>Mapa visual do salão</strong></td><td>Hoje é grid textual; editor de posição de mesa (x/y) é upgrade de percepção imediata <span class="tag-recom">RECOMENDADO</span></td></tr>
+<tr><td>Diferenciação</td><td><strong>Reconhecimento de bom desempenho sem ranking punitivo</strong></td><td>Ver seção 9 (gamificação profissional)</td></tr>
+<tr><td>UX</td><td><strong>Impedir "roubo" de mesa reservada sem aviso</strong></td><td>Corrige bug confirmado em <code>tableService.openTable</code></td></tr>
+<tr><td>UX</td><td><strong>Aviso quando item cai da comanda por falta de estoque</strong></td><td>Hoje some silenciosamente (bug confirmado em <code>lancarPedidoNaMesa</code>)</td></tr>
+<tr><td>UX</td><td><strong>Vínculo entre pedido por QR code e transferência de mesa</strong></td><td>Hoje perde rastreabilidade se a comanda for transferida logo após o pedido via QR</td></tr>
+<tr><td>BI</td><td><strong>Ticket médio por garçom/turno</strong></td><td>Já calculável a partir de <code>sales</code>+<code>criado_por</code>, falta exposição na tela certa</td></tr>
+<tr><td>BI</td><td><strong>Taxa de "solicitação de alteração" por item</strong></td><td>Aponta pratos com descrição de cardápio confusa (gera retrabalho de comunicação)</td></tr>
+<tr><td>BI</td><td><strong>Tempo médio de giro de mesa por garçom</strong></td><td>Da abertura ao pagamento — ajuda escalonamento em dia de pico</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>6. Estoquista</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Contagem de inventário em lote</strong></td><td>Hoje só existe ajuste unidade-a-unidade; falta sessão de contagem por categoria/local com saldo do sistema visível</td></tr>
+<tr><td>Melhoria</td><td><strong>Transferência de estoque entre lojas</strong></td><td>Hoje ausente — <code>stock_movements</code> já tem <code>location_id</code>, falta o par atômico saída/entrada</td></tr>
+<tr><td>Melhoria</td><td><strong>Ledger de movimentação de insumo</strong></td><td>Hoje <code>ingredients.estoque_atual</code> é sobrescrito direto, sem histórico — alinhar ao padrão do resto do sistema</td></tr>
+<tr><td>Automação</td><td><strong>Lead time de fornecedor aprendido pelo histórico</strong></td><td>Intervalo médio entre rascunho de nota e confirmação de entrada, usado para antecipar ponto de reposição</td></tr>
+<tr><td>Automação</td><td><strong>Anomalia de custo na entrada de nota</strong></td><td>Compara preço da linha com a média dos últimos custos daquele produto antes de confirmar, sinaliza desvio >40%</td></tr>
+<tr><td>Automação</td><td><strong>Desconto de validade calibrado por velocidade de venda</strong></td><td>Hoje percentual fixo de 30%; produto que vende rápido recebe desconto menor, parado recebe mais</td></tr>
+<tr><td>IA</td><td><strong>Contagem de inventário por foto</strong></td><td>Reaproveita infraestrutura de IA já usada para identificar produto, apontada para foto de prateleira, gerando rascunho de contagem</td></tr>
+<tr><td>IA</td><td><strong>Detecção de "quase duplicado" por similaridade fonética</strong></td><td>Vai além da normalização de acento atual — pega erro de digitação entre máquinas sincronizadas</td></tr>
+<tr><td>IA</td><td><strong>Sugestão de NCM junto com identificação por foto</strong></td><td>Estende o prompt já usado para também sugerir o NCM mais provável, reduzindo trabalho fiscal manual</td></tr>
+<tr><td>Diferenciação</td><td><strong>Sincronização de catálogo que nunca aplica automaticamente sem revisão</strong></td><td>Decisão arquitetural já correta (<code>productSyncService</code>) — vale como argumento de venda de confiabilidade, não só engenharia</td></tr>
+<tr><td>Diferenciação</td><td><strong>Ficha técnica com reversão simétrica em cancelamento</strong></td><td>Poucos sistemas do porte rastreiam consumo de insumo com esse rigor</td></tr>
+<tr><td>Diferenciação</td><td><strong>Detecção de duplicata entre PDVs sincronizados</strong></td><td>Combinada com a ideia de similaridade fonética, resolve um problema real de negócio multi-loja que concorrentes ignoram</td></tr>
+<tr><td>UX</td><td><strong>Mostrar estoque atual antes de pedir quantidade de ajuste</strong></td><td>Corrige lacuna confirmada em <code>StockAdjustModal.jsx</code></td></tr>
+<tr><td>UX</td><td><strong>Mostrar preço/estoque no casamento de produto da nota</strong></td><td>Reduz risco de casar com produto errado entre nomes parecidos</td></tr>
+<tr><td>UX</td><td><strong>Relatório de erros de importação completo, não só o primeiro</strong></td><td>Hoje a tela mostra um erro por vez, forçando reimportações repetidas</td></tr>
+<tr><td>BI</td><td><strong>Capital parado por categoria</strong></td><td>Complementa a visão do Dono com granularidade operacional (o que priorizar contar/liquidar primeiro)</td></tr>
+<tr><td>BI</td><td><strong>Divergência de contagem por local/categoria ao longo do tempo</strong></td><td>Histórico de ajustes tipo "perda"/"ajuste" agrupado — hoje inexistente fora do domínio restaurante (<code>waste_log</code>)</td></tr>
+<tr><td>BI</td><td><strong>Fornecedor com maior variação de preço</strong></td><td>Ajuda a negociar ou trocar fornecedor com dado, não impressão</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>7. Financeiro / Administrativo</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Checagem de papel em todos os endpoints de despesa</strong></td><td>Hoje só <code>remove</code> tem — <code>create/list/markAsPaid</code> não (bug confirmado)</td></tr>
+<tr><td>Melhoria</td><td><strong>Edição de despesa já lançada</strong></td><td>Hoje só existe excluir e recriar</td></tr>
+<tr><td>Melhoria</td><td><strong>Parcelamento/recorrência de despesa</strong></td><td>Hoje cada ocorrência é lançada manualmente</td></tr>
+<tr><td>Automação</td><td><strong>Detecção de despesa fora do padrão</strong></td><td>Média móvel por categoria+fornecedor; aviso não-bloqueante se o novo valor desviar >30-40%</td></tr>
+<tr><td>Automação</td><td><strong>Detecção de despesa duplicada</strong></td><td>Compara descrição+valor+fornecedor numa janela curta antes de gravar</td></tr>
+<tr><td>Automação</td><td><strong>Resumo de fechamento do dia por WhatsApp</strong></td><td>Unifica faturamento, despesas, NFC-e pendente e diferença de caixa — hoje espalhado em 4 telas</td></tr>
+<tr><td>IA</td><td><strong>Categorização automática de despesa por descrição</strong></td><td>Mesmo padrão já usado para sugestão de categoria de produto, aplicado a despesas</td></tr>
+<tr><td>IA</td><td><strong>Leitura de conta/boleto por foto</strong></td><td>Estende <code>extractPurchaseInvoice</code> para pré-preencher o formulário de despesa a partir de imagem/PDF</td></tr>
+<tr><td>IA</td><td><strong>Previsão de fluxo de caixa</strong></td><td>Já citada na visão do Dono — aqui como ferramenta de trabalho diário, não resumo executivo</td></tr>
+<tr><td>Diferenciação</td><td><strong>Honestidade sobre não ser DRE contábil</strong></td><td>O texto atual já assume isso — vale manter como princípio de produto ao evoluir, não inflar a percepção</td></tr>
+<tr><td>Diferenciação</td><td><strong>Conciliação de caixa por método de pagamento</strong></td><td>Hoje só dinheiro é conferido; cobrir cartão/Pix é diferencial real frente a concorrentes que também só conferem dinheiro</td></tr>
+<tr><td>Diferenciação</td><td><strong>Explicação automática de variação de faturamento</strong></td><td>Já existe o botão de resumo por IA; aprofundar com comparação de período automática</td></tr>
+<tr><td>UX</td><td><strong>Substituir <code>confirm()</code> nativo por modal próprio na exclusão de despesa</strong></td><td>Consistência com o resto do app</td></tr>
+<tr><td>UX</td><td><strong>Paginação em Financeiro</strong></td><td>Hoje carrega tudo do período de uma vez</td></tr>
+<tr><td>UX</td><td><strong>Indicador persistente de NFC-e em contingência aguardando confirmação</strong></td><td>Hoje só aparece uma vez no momento da venda</td></tr>
+<tr><td>BI</td><td><strong>Projeção de saldo dos próximos 30 dias</strong></td><td>Contas a pagar conhecidas + receita projetada por média móvel</td></tr>
+<tr><td>BI</td><td><strong>Sessões de caixa com diferença recorrente por operador</strong></td><td>Já calculável de <code>cash_sessions</code>; falta exposição agregada por operador ao longo do tempo</td></tr>
+<tr><td>BI</td><td><strong>Alerta de NFC-e presa por tempo excessivo</strong></td><td>Hoje só reenvia; falta notificação proativa quando passa de um limiar (ex.: 2h)</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>8. Cliente Final</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Corrigir fidelidade não creditada em pedidos do WhatsApp</strong></td><td>Bug de negócio mais direto ao cliente identificado nesta auditoria (seção 3)</td></tr>
+<tr><td>Melhoria</td><td><strong>Comando de "voltar" no bot</strong></td><td>Hoje só existe "cancelar" (reinicia tudo) — perde carrinho por engano de categoria</td></tr>
+<tr><td>Melhoria</td><td><strong>Escalonamento para atendimento humano no bot</strong></td><td>Hoje repete "Não entendi" indefinidamente sem oferecer alternativa</td></tr>
+<tr><td>Automação</td><td><strong>Recuperação de carrinho abandonado no WhatsApp</strong></td><td>Persistir o carrinho (hoje só em memória) e reengajar após N minutos sem resposta</td></tr>
+<tr><td>Automação</td><td><strong>Confirmação de chegada para retirada</strong></td><td>Cliente responde "cheguei" a uma notificação de "pronto" e o balcão é avisado automaticamente</td></tr>
+<tr><td>Automação</td><td><strong>Cupom de primeira compra</strong></td><td>Mesmo padrão do cupom de aniversário, aplicado à primeira compra detectada</td></tr>
+<tr><td>IA</td><td><strong>Resposta mais inteligente que regex no bot</strong></td><td>Reformular a pergunta livre do cliente antes de cair na busca textual simples atual</td></tr>
+<tr><td>IA</td><td><strong>Pedido por nota de voz</strong></td><td>Baileys já entrega áudio; hoje é ignorado silenciosamente — transcrição destravaria um canal comum de uso</td></tr>
+<tr><td>IA</td><td><strong>Reativação com oferta específica ao histórico do cliente</strong></td><td>Mensagem de reconquista hoje é genérica; usar o produto mais comprado historicamente</td></tr>
+<tr><td>Diferenciação</td><td><strong>Recibo detalhado por WhatsApp sem custo de API paga</strong></td><td>Já existe — diferencial real frente a concorrentes que exigem gateway pago</td></tr>
+<tr><td>Diferenciação</td><td><strong>Cardápio digital sempre atualizado com o catálogo real</strong></td><td>Hoje é gerado sob demanda; atualização automática seria diferencial em tablet fixo de mesa</td></tr>
+<tr><td>Diferenciação</td><td><strong>Tabela de preço de serviço pública e sempre correta</strong></td><td>Já existe — vale como argumento comercial de transparência</td></tr>
+<tr><td>UX</td><td><strong>Aceitar formatos comuns de horário no bot</strong></td><td>Hoje só aceita <code>HHhMM</code>/<code>HH:MM</code> — "8 da noite" falha repetidamente</td></tr>
+<tr><td>UX</td><td><strong>Paginação de menu de produto no WhatsApp</strong></td><td>Categoria com muitos itens gera mensagem gigante e difícil de navegar no celular</td></tr>
+<tr><td>UX</td><td><strong>Confirmação antes de interromper fluxo em andamento</strong></td><td>Hoje "mesa 5" digitado por engano no meio de um pedido de retirada apaga o carrinho sem aviso</td></tr>
+<tr><td>BI</td><td><strong>Opt-out granular de marketing por cliente</strong></td><td>Hoje é tudo-ou-nada por configuração global — relevante para conformidade LGPD <span class="tag-recom">RECOMENDADO</span></td></tr>
+<tr><td>BI</td><td><strong>Segmentação RFM exposta ao dono, não só internamente</strong></td><td>Recência/Frequência/Valor por cliente, reaproveitando query já parecida com "clientes que sumiram"</td></tr>
+<tr><td>BI</td><td><strong>Painel de funil do bot</strong></td><td>Quantos abrem conversa vs. finalizam pedido — hoje inexistente <span class="tag-recom">RECOMENDADO</span> (precisa de log de eventos do bot)</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>9. Franqueado / Dono de rede multi-loja</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Corrigir sobrescrita destrutiva de estoque compartilhado</strong></td><td>Pré-requisito absoluto antes de vender "multi-loja" como funcionalidade madura (seção 5.2)</td></tr>
+<tr><td>Melhoria</td><td><strong>Suporte a múltiplos números de WhatsApp por loja</strong></td><td>Hoje uma única sessão Baileys global ignora <code>location_id</code></td></tr>
+<tr><td>Melhoria</td><td><strong>Transferência de estoque entre lojas do grupo</strong></td><td>Hoje ausente mesmo com <code>location_id</code> presente em todo o schema</td></tr>
+<tr><td>Automação</td><td><strong>Redistribuição sugerida de estoque parado entre lojas</strong></td><td>Cruza "capital parado" de uma loja com ruptura prevista em outra do mesmo grupo <span class="tag-recom">RECOMENDADO</span></td></tr>
+<tr><td>Automação</td><td><strong>Metas por loja com alerta automático de desvio</strong></td><td><span class="tag-recom">RECOMENDADO</span> — hoje não existe conceito de meta no schema</td></tr>
+<tr><td>Automação</td><td><strong>Consolidação automática de fechamento de caixa entre lojas</strong></td><td>Hoje cada <code>cash_sessions</code> é isolada por loja, sem visão agregada</td></tr>
+<tr><td>IA</td><td><strong>Ranking de lojas com explicação da causa</strong></td><td>Não só "loja X vendeu mais", mas "puxado por Y" — mesma abordagem narrativa da seção 11 aplicada a comparação entre unidades</td></tr>
+<tr><td>IA</td><td><strong>Benchmarking interno entre lojas do mesmo perfil</strong></td><td>Detecta a loja com margem/ticket médio destoante e aponta hipótese (mix de produto, operador, horário)</td></tr>
+<tr><td>IA</td><td><strong>Detecção de padrão de fraude comparando lojas</strong></td><td>Taxa de cancelamento/desconto atipicamente diferente entre unidades do mesmo grupo, não só dentro de uma loja</td></tr>
+<tr><td>Diferenciação</td><td><strong>Multi-loja de verdade, não apenas "várias instalações"</strong></td><td>Hoje o sync existe para catálogo/venda mas falta a camada executiva de comparação — ver seção 6</td></tr>
+<tr><td>Diferenciação</td><td><strong>Centralização de permissões e catálogo com resolução manual de conflito</strong></td><td>Já existe (<code>conflito_codigo_barras_pendente</code>) — vale destacar como decisão de confiabilidade, não só engenharia</td></tr>
+<tr><td>Diferenciação</td><td><strong>Painel único do franqueador sobre todas as unidades</strong></td><td><span class="tag-recom">RECOMENDADO</span> — hoje inexistente, é a peça que faltaria para vender o produto para redes, não só lojas isoladas</td></tr>
+<tr><td>UX</td><td><strong>Indicação clara de qual PDV é "servidor" do grupo</strong></td><td>Hoje é um detalhe técnico invisível que determina qual base "vence" na sincronização</td></tr>
+<tr><td>UX</td><td><strong>Alerta de conflito de estoque antes que vire prejuízo</strong></td><td>Complementa a correção técnica com visibilidade operacional</td></tr>
+<tr><td>UX</td><td><strong>Configuração de grupo de sincronização assistida</strong></td><td>Hoje é 100% manual pelo próprio Arthur — não escala para o produto crescer sem ele</td></tr>
+<tr><td>BI</td><td><strong>Comparação de faturamento/ticket médio entre lojas</strong></td><td>Base para toda a seção "multi-loja" do documento (seção 8 do prompt original)</td></tr>
+<tr><td>BI</td><td><strong>Relatório consolidado de estoque do grupo</strong></td><td>Só é confiável depois de corrigido o bug de sincronização</td></tr>
+<tr><td>BI</td><td><strong>Ranking de produtividade por loja e por operador entre lojas</strong></td><td>Extensão natural do painel de desempenho individual (perfil Caixa) para a escala de rede</td></tr>
+</table></div>
+</div></details>
+
+<details><summary>10. Contador / Escritório contábil</summary><div class="inner">
+<div class="twrap"><table>
+<tr><th>Cat.</th><th>Ideia</th><th>Mecanismo</th></tr>
+<tr><td>Melhoria</td><td><strong>Corrigir cálculo de ICMS/PIS/COFINS fora do Simples</strong></td><td>Gap crítico da seção 3 — hoje gera passivo fiscal real, não é só "faltando funcionalidade"</td></tr>
+<tr><td>Melhoria</td><td><strong>Gestão de alíquota por produto/NCM</strong></td><td>Hoje só existe <code>cst_csosn</code>; falta tabela de alíquotas por NCM/UF <span class="tag-recom">RECOMENDADO</span></td></tr>
+<tr><td>Melhoria</td><td><strong>Exportação em lote de XML de NFC-e</strong></td><td>Hoje cada XML é salvo individualmente em disco, sem exportação agregada para o escritório</td></tr>
+<tr><td>Automação</td><td><strong>Geração automática de SPED Fiscal/Contribuições</strong></td><td><span class="tag-recom">RECOMENDADO</span> — infraestrutura nova, mas de altíssimo valor percebido pelo contador</td></tr>
+<tr><td>Automação</td><td><strong>Pacote mensal automático para o contador</strong></td><td>Job que junta XMLs, relatório de vendas e despesas do mês e disponibiliza para download/envio</td></tr>
+<tr><td>Automação</td><td><strong>Alerta de certificado A1 vencendo</strong></td><td>Mesma ideia do perfil Dono, mas endereçada também ao contador que gerencia o certificado</td></tr>
+<tr><td>IA</td><td><strong>Sugestão automática de CST/CSOSN por produto e regime</strong></td><td>Ataca a causa raiz do gap fiscal, forçando preenchimento de alíquota antes de permitir emissão</td></tr>
+<tr><td>IA</td><td><strong>Auditoria assistida do livro de controlados</strong></td><td>Cruza com limite de venda por CPF/período configurável, hoje um trabalho manual mesmo com o relatório pronto</td></tr>
+<tr><td>IA</td><td><strong>Detecção de inconsistência entre venda e nota emitida</strong></td><td>Verificação automática de que <code>sale.total</code> bate com o XML transmitido, pega a classe de bug já encontrada em edição de histórico</td></tr>
+<tr><td>Diferenciação</td><td><strong>Pipeline fiscal tecnicamente avançado como argumento de venda</strong></td><td>Assinatura real, mTLS, contingência automática — mais completo do que o README comunica; vale reposicionar comercialmente uma vez corrigido o gap de imposto</td></tr>
+<tr><td>Diferenciação</td><td><strong>Integração direta com sistema contábil via API</strong></td><td><span class="tag-recom">RECOMENDADO</span> — reduz retrabalho manual do escritório, forte argumento de retenção</td></tr>
+<tr><td>Diferenciação</td><td><strong>Emissão de NFS-e para perfis de serviço</strong></td><td><span class="tag-recom">RECOMENDADO</span> — hoje só existe NFC-e (mercadoria); salão/ótica/oficina não têm caminho fiscal de serviço</td></tr>
+<tr><td>UX</td><td><strong>Corrigir texto que afirma cancelamento/contingência "não implementados"</strong></td><td>Hoje desinforma ativamente tanto o lojista quanto quem orienta ele (bug de conteúdo confirmado)</td></tr>
+<tr><td>UX</td><td><strong>Contar janela de cancelamento a partir da autorização real, não da tentativa</strong></td><td>Hoje pode negar indevidamente um cancelamento ainda legal após contingência prolongada</td></tr>
+<tr><td>UX</td><td><strong>Explicação de rejeição de NFC-e traduzida para o contador também</strong></td><td>Mesma ideia da seção do Dono, com vocabulário voltado a quem resolve o problema tecnicamente</td></tr>
+<tr><td>BI</td><td><strong>Painel de conformidade fiscal por loja</strong></td><td>Quantas notas rejeitadas, em contingência, ou com gap de imposto conhecido — visão que hoje não existe em lugar nenhum</td></tr>
+<tr><td>BI</td><td><strong>Resultado simples consolidado por período fiscal</strong></td><td>Ponto de partida realista para uma futura DRE completa, sem prometer o que ainda não existe</td></tr>
+<tr><td>BI</td><td><strong>Histórico de alíquota aplicada por produto ao longo do tempo</strong></td><td>Rastreabilidade para defesa em eventual fiscalização</td></tr>
+</table></div>
+</div></details>
+</section>
+
+<section id="s9">
+<h2><span class="num">09</span> Automação</h2>
+<p class="lede">Catálogo por camada de complexidade — da automação que se implementa em uma tarde à que exige um motor de IA rodando em produção. Problema resolvido, benefício, complexidade e impacto para cada uma; a maioria reaproveita dado ou infraestrutura que já existe hoje.</p>
+
+<h3>Camada 1 — Simples (regra fixa, dado já existe)</h3>
+<div class="twrap"><table>
+<tr><th>Automação</th><th>Problema resolvido</th><th>Benefício</th><th>Complexidade</th><th>Impacto</th></tr>
+<tr><td>Liberação de carrinho abandonado</td><td>Estoque preso indefinidamente em vendas "abertas" esquecidas</td><td>Estoque sempre reflete a realidade</td><td class="score">Baixa</td><td class="score">Médio</td></tr>
+<tr><td>Alerta de mesa/comanda parada</td><td>Cliente esquecido, giro de mesa lento</td><td>Mais giro por turno</td><td class="score">Baixa</td><td class="score">Médio</td></tr>
+<tr><td>Cap de valor em pagamento fiado/desconto</td><td>Erro de digitação vira dívida ou desconto inflado</td><td>Menos prejuízo por erro humano</td><td class="score">Baixa</td><td class="score">Médio</td></tr>
+<tr><td>Confirmação de chegada por WhatsApp (retirada)</td><td>Balcão não sabe quando o cliente chegou</td><td>Atendimento mais rápido, menos fila</td><td class="score">Baixa</td><td class="score">Médio</td></tr>
+<tr><td>Alerta de certificado A1 vencendo</td><td>Bloqueio inesperado de emissão fiscal na hora da venda</td><td>Zero surpresa fiscal</td><td class="score">Baixa</td><td class="score">Alto</td></tr>
+<tr><td>Cupom automático de primeira compra/aniversário</td><td>Reengajamento manual esquecido</td><td>Recorrência de cliente sem esforço do lojista</td><td class="score">Baixa</td><td class="score">Médio</td></tr>
+</table></div>
+
+<h3>Camada 2 — Intermediária (cruza duas ou mais fontes de dado já existentes)</h3>
+<div class="twrap"><table>
+<tr><th>Automação</th><th>Problema resolvido</th><th>Benefício</th><th>Complexidade</th><th>Impacto</th></tr>
+<tr><td>Lead time de fornecedor aprendido pelo histórico</td><td>Reposição sempre assume entrega instantânea</td><td>Menos ruptura por atraso de fornecedor</td><td class="score">Média</td><td class="score">Alto</td></tr>
+<tr><td>Anomalia de custo na entrada de nota</td><td>Erro de digitação/parsing de preço passa despercebido</td><td>Margem protegida no momento da compra, não depois</td><td class="score">Média</td><td class="score">Alto</td></tr>
+<tr><td>Reconciliação semi-automática de Pix</td><td>Confirmação de Pix é 100% honor-system hoje</td><td>Fecha o maior ponto cego de fraude do caixa</td><td class="score">Média</td><td class="score">Alto</td></tr>
+<tr><td>Conciliação de caixa por método (não só dinheiro)</td><td>Cartão/Pix nunca são conferidos contra nada</td><td>Fechamento de caixa confiável de verdade</td><td class="score">Média</td><td class="score">Alto</td></tr>
+<tr><td>Desconto de validade calibrado por velocidade de venda</td><td>Percentual fixo de 30% independe de quão rápido o produto gira</td><td>Recupera mais valor antes da perda total</td><td class="score">Média</td><td class="score">Médio</td></tr>
+<tr><td>Envio automático da lista de compra ao fornecedor</td><td>Sugestão calculada nunca vira pedido de fato sem esforço manual</td><td>Fecha o ciclo sugestão → compra real</td><td class="score">Média</td><td class="score">Alto</td></tr>
+<tr><td>Reconciliação automática de estoque de grupo (delta, não overwrite)</td><td>Bug crítico de sincronização (seção 5.2)</td><td>Multi-loja deixa de ter overselling silencioso</td><td class="score">Média</td><td class="score">Crítico</td></tr>
+</table></div>
+
+<h3>Camada 3 — Avançada (requer histórico agregado, modelo estatístico simples)</h3>
+<div class="twrap"><table>
+<tr><th>Automação</th><th>Problema resolvido</th><th>Benefício</th><th>Complexidade</th><th>Impacto</th></tr>
+<tr><td>Classificação ABC automática de produtos</td><td>Todo produto é tratado com o mesmo rigor de alerta de margem</td><td>Atenção do lojista vai para onde o dinheiro está</td><td class="score">Média-Alta</td><td class="score">Alto</td></tr>
+<tr><td>Detecção de outlier de cancelamento/desconto por operador</td><td>Padrão de fraude leve passa despercebido em meio ao volume normal</td><td>Prevenção sem acusação direta (seção 11.3)</td><td class="score">Média-Alta</td><td class="score">Alto</td></tr>
+<tr><td>Previsão de ruptura em dias (não binário)</td><td>Alerta de "abaixo do mínimo" não diz urgência real</td><td>Priorização de compra por urgência real</td><td class="score">Média-Alta</td><td class="score">Alto</td></tr>
+<tr><td>Segmentação RFM de clientes</td><td>Reconquista e fidelidade tratam todo cliente igual</td><td>Campanha certa para o cliente certo</td><td class="score">Média-Alta</td><td class="score">Médio</td></tr>
+<tr><td>Previsão de fluxo de caixa 30 dias</td><td>Caixa negativo futuro só é descoberto quando já chegou</td><td>Decisão financeira com antecedência real</td><td class="score">Alta</td><td class="score">Alto</td></tr>
+<tr><td>Benchmarking interno entre lojas do grupo</td><td>Sem sync corrigido, comparação entre lojas é só instinto do franqueador</td><td>Decisão de rede baseada em dado, não anedota</td><td class="score">Alta</td><td class="score">Alto</td></tr>
+</table></div>
+
+<h3>Camada 4 — Baseada em IA generativa (interpretação, não só cálculo)</h3>
+<div class="twrap"><table>
+<tr><th>Automação</th><th>Problema resolvido</th><th>Benefício</th><th>Complexidade</th><th>Impacto</th></tr>
+<tr><td>Explicação narrativa de variação de faturamento</td><td>Dashboard mostra número, não motivo</td><td>Dono entende o "porquê" sem analisar planilha</td><td class="score">Média (já há base em <code>summarizeSales</code>)</td><td class="score">Alto</td></tr>
+<tr><td>Gerente Digital conversacional (seção 12)</td><td>Perguntas de negócio exigem abrir 4 telas e interpretar sozinho</td><td>Resposta direta, contextualizada, em segundos</td><td class="score">Alta</td><td class="score">Muito alto</td></tr>
+<tr><td>Contagem de inventário por foto</td><td>Contagem física manual é lenta e sujeita a erro de digitação</td><td>Inventário em fração do tempo</td><td class="score">Média (reaproveita infra de IA existente)</td><td class="score">Alto</td></tr>
+<tr><td>Sugestão automática de CST/CSOSN por regime</td><td>Gap fiscal crítico da seção 3 fica invisível até uma fiscalização</td><td>Reduz risco fiscal real, não só formulário mais rápido</td><td class="score">Média-Alta</td><td class="score">Crítico</td></tr>
+<tr><td>Auditoria narrada em linguagem simples</td><td><code>audit_log</code> é rico em dado, pobre em leitura</td><td>Admin entende padrão de risco sem vasculhar linha a linha</td><td class="score">Média</td><td class="score">Alto</td></tr>
+</table></div>
+</section>
+
+<section id="s10">
+<h2><span class="num">10</span> Inteligência artificial</h2>
+<p class="lede">O GerenciaAI já não é um sistema "sem IA esperando a fase de inovação" — é um sistema com IA real em produção, mal comunicada. Esta seção separa o que <span class="tag-existe">EXISTE</span>, o que está <span class="tag-parcial">PARCIALMENTE</span> pronto e o que é <span class="tag-recom">RECOMENDADO</span> construir, evitando exatamente o erro que este documento foi instruído a nunca cometer: prometer IA que soa bem mas não existe.</p>
+
+<h3>10.1 — O que já existe (Gemini Developer API, chave protegida via <code>safeStorage</code>)</h3>
+<div class="twrap"><table>
+<tr><th>Função</th><th>Onde é usada</th><th>Status</th></tr>
+<tr><td><code>extractAttachment</code></td><td>Extração de receita/nota anexada a uma venda</td><td><span class="tag-existe">EXISTE</span></td></tr>
+<tr><td><code>summarizeSales</code></td><td>Resumo de vendas em linguagem natural no Dashboard</td><td><span class="tag-existe">EXISTE</span></td></tr>
+<tr><td><code>askTutor</code></td><td>Tutor flutuante de dúvidas sobre o próprio sistema</td><td><span class="tag-existe">EXISTE</span>, mas reenvia histórico inteiro a cada pergunta (seção 7)</td></tr>
+<tr><td><code>extractPurchaseInvoice</code></td><td>Leitura de nota de compra no Abastecimento</td><td><span class="tag-existe">EXISTE</span></td></tr>
+<tr><td><code>identificarProdutoPorFoto</code></td><td>Identificação de produto por foto no cadastro</td><td><span class="tag-existe">EXISTE</span></td></tr>
+<tr><td><code>sugerirCategorias</code></td><td>Sugestão de categoria em lote, sempre com revisão humana antes de aplicar</td><td><span class="tag-existe">EXISTE</span> — bom padrão de design (sugestão + revisão, nunca automático)</td></tr>
+</table></div>
+<p>O problema não é técnico, é de <strong>governança e transparência</strong>: um único campo <code>ai_settings.ativado</code> liga as seis de uma vez, rotulado na UI como se fosse só sobre anexos de venda. Um dono de papelaria que nunca usa anexo pode nunca ativar — e perde, sem saber, acesso ao tutor, ao resumo do Painel e à sugestão de categoria. Um dono que ativa só para o tutor está, sem ter sido avisado, também mandando fotos de produto e notas de compra para um serviço externo.</p>
+
+<h3>10.2 — O que é parcial</h3>
+<ul>
+<li><strong>Segurança da chave</strong> <span class="tag-parcial">PARCIAL</span> — protegida via <code>safeStorage</code> do SO, mas cai para texto puro silenciosamente quando o SO não tem keyring (comum em Linux), sem aviso ativo.</li>
+<li><strong>Controle de custo</strong> <span class="tag-parcial">PARCIAL</span> — nenhuma das seis funções tem limite de chamadas ou teto de gasto; o único freio é o erro 429 do próprio provedor.</li>
+</ul>
+
+<h3>10.3 — O que é recomendado (não existe, precisaria ser construído)</h3>
+<ul>
+<li><span class="tag-recom">RECOMENDADO</span> Granularidade de toggle por função de IA (hoje é um único booleano no schema).</li>
+<li><span class="tag-recom">RECOMENDADO</span> Log de auditoria de uso de IA (quem, quando, quanto) — hoje não existe registro nenhum.</li>
+<li><span class="tag-recom">RECOMENDADO</span> Camada de agregação/data warehouse local — pré-requisito para qualquer IA analítica pesada (seção 6), incluindo a "GerenciaAI Intelligence" da próxima seção.</li>
+<li><span class="tag-recom">RECOMENDADO</span> Pipeline de embeddings/busca vetorial — para busca semântica de produto e matching fuzzy de pedido em texto livre.</li>
+<li><span class="tag-recom">RECOMENDADO</span> Fallback de segundo provedor de IA — hoje 100% dependente da Gemini; uma mudança de política do Google derruba as seis funções de uma vez.</li>
+<li><span class="tag-recom">RECOMENDADO</span> Mecanismo de consentimento explícito antes de enviar dado de saúde (receita/anexo) a um provedor externo — relevante para LGPD num sistema usado por farmácias.</li>
+</ul>
+</section>
+
+<section id="s11">
+<h2><span class="num">11</span> GerenciaAI Intelligence</h2>
+<p class="lede">O conceito central deste documento: uma camada que observa Vendas + Estoque + Financeiro + Caixa + Funcionários + Clientes + Produtos + Horário + Lojas ao mesmo tempo, e converte isso em informação acionável — não em mais um gráfico. É a diferença entre um sistema que <em>registra</em> o negócio e um que <em>entende</em> o negócio.</p>
+
+<h3>11.1 — Como isso é diferente de "mais um dashboard"</h3>
+<p>Um dashboard mostra "faturamento: R$1.240, -8% vs. ontem". A GerenciaAI Intelligence cruza essa mesma queda com o que já está no banco — sem pedir nenhum dado novo ao lojista — e entrega:</p>
+<blockquote>"Faturamento caiu 8% ontem (R$1.240 vs. média de R$1.350 nas últimas 4 terças-feiras). A queda se concentra no período da tarde (14h-18h) e no produto Refrigerante Cola 2L, que ficou sem estoque às 15h12 — <code>stock_movements</code> mostra a última entrada há 9 dias. Nas últimas 3 vezes que esse produto ficou em falta, a queda de faturamento da tarde foi entre 6% e 11%. Recomendação: repor este produto tem prioridade sobre os outros 4 itens da sua lista de compra sugerida esta semana."</blockquote>
+<p>Cada peça dessa frase já existe como dado no schema atual (<code>sales</code>, <code>stock_movements</code>, <code>previsaoDeRuptura</code>) — o que falta é a camada que junta as peças e escreve a frase. Essa é a tese central: GerenciaAI não precisa de mais captura de dado, precisa de interpretação.</p>
+
+<h3>11.2 — Arquitetura conceitual (alto nível)</h3>
+<div class="grid2">
+<div class="card"><h4>Hoje</h4><p>Consultas SQL ad-hoc disparadas sob demanda quando o usuário abre uma tela → número cru na UI → (opcionalmente) botão "Resumir com IA" que manda esse número para o Gemini.</p></div>
+<div class="card"><h4>Proposto <span class="tag-recom">RECOMENDADO</span></h4><p>Job diário de agregação (a peça de infraestrutura que falta, seção 6) computa métricas por loja/produto/operador/hora → um motor de regras + IA generativa detecta desvios e cruza causas prováveis → gera "insights" persistidos (não recalculados a cada clique) → superfície múltipla: Painel, notificação, resumo de WhatsApp, Gerente Digital (seção 12).</p></div>
+</div>
+
+<h3>11.3 — Detecção de anomalia sem acusar ninguém</h3>
+<p>O maior risco de qualquer sistema de detecção de padrão anômalo num negócio pequeno é o clima que ele cria: se a primeira vez que o operador ouve falar do recurso é sendo confrontado por um número, a reação é defensiva, não colaborativa. Princípios de design para evitar isso:</p>
+<ul>
+<li><strong>Sempre "revisar junto", nunca "flagrar".</strong> A UI nunca diz "operador suspeito" — diz "essa semana teve mais cancelamento que o normal, vale dar uma olhada". A decisão de investigar é sempre do gerente, o sistema só aponta onde olhar.</li>
+<li><strong>Transparência do próprio critério.</strong> O operador sabe (documentado, não escondido) que padrões de cancelamento/desconto/perda são observados — o objetivo declarado é proteger a operação, incluindo o próprio operador de acusação injusta por coincidência.</li>
+<li><strong>Comparação com o próprio histórico antes de comparar com o time.</strong> "Você cancelou mais que o seu normal" é menos ameaçador e mais preciso do que "você cancelou mais que a média do time" — controla por diferença legítima de função/turno.</li>
+<li><strong>Nunca ação automática sobre pessoa.</strong> O sistema nunca bloqueia, adverte ou reduz permissão sozinho — só sinaliza para decisão humana. Consistente com o padrão já usado em <code>sugerirCategoriasComIA</code> (sugestão, nunca aplicação automática).</li>
+</ul>
+<p>Sinais concretos que já são calculáveis com o dado existente: cancelamento/desconto fora do padrão do próprio operador (<code>audit_log</code>), divergência de estoque acima do normal (<code>stock_movements</code> tipo perda/ajuste), queda de margem por produto (já existe <code>alertasDeMargem</code>, falta a camada temporal), retirada de caixa fora de padrão (depende de sangria existir — seção 3), produto sumindo do catálogo sem explicação de venda correspondente, taxa de devolução anômala por produto/operador.</p>
+
+<h3>11.4 — Gamificação profissional (não infantilizada)</h3>
+<p>O mesmo ledger de dados que alimenta a detecção de anomalia alimenta reconhecimento positivo — é a mesma infraestrutura, aplicada ao extremo oposto do espectro. Diferencial de tom: metas e reconhecimento sobre trabalho de verdade (ticket médio, tempo de atendimento, zero divergência de caixa em N fechamentos seguidos), nunca troféu decorativo ou linguagem de jogo casual. Ideias concretas: painel pessoal de evolução (perfil Caixa, seção 8) sem ranking público punitivo por padrão; reconhecimento de "zero diferença de caixa" como badge discreto no perfil do funcionário; meta de time (não individual, para não incentivar competição interna tóxica) de redução de cancelamento evitável, com o próprio time decidindo a recompensa junto ao gerente.</p>
+
+<h3>11.5 — Inteligência de rede: o multi-loja que falta</h3>
+<p>Uma vez corrigido o bug de sincronização de estoque (seção 5.2), a mesma camada de inteligência se estende naturalmente ao franqueado (perfil 9, seção 8): ranking de lojas com causa explicada (não só número), detecção de divergência de comportamento entre unidades do mesmo grupo (sinal de fraude ou de treinamento desigual), sugestão de redistribuição de estoque parado entre lojas do grupo, e — o mais estratégico — um "Firestore" que já existe para catálogo e vendas virando também a espinha dorsal dessa inteligência consolidada, sem exigir nova infraestrutura de rede, só nova camada de leitura sobre o que já sincroniza.</p>
+</section>
+
+<section id="s12">
+<h2><span class="num">12</span> Gerente Digital</h2>
+<p class="lede">A interface conversacional que transforma a GerenciaAI Intelligence em algo que o dono realmente usa todo dia — não um chatbot decorativo amarrado ao banco, um assistente com contexto real de negócio.</p>
+
+<h3>12.1 — O que ele responde (e com que dado real, hoje)</h3>
+<div class="twrap"><table>
+<tr><th>Pergunta</th><th>Dado que já existe para responder</th></tr>
+<tr><td>"Como foi minha loja hoje?"</td><td><code>dashboardService.getSummary</code> + diferença de caixa + NFC-e pendentes — hoje espalhados em 4 telas, aqui unificados numa frase</td></tr>
+<tr><td>"Por que vendi menos ontem?"</td><td>Cruzamento de <code>sales</code> por hora com <code>stock_movements</code> (ruptura) e <code>cash_sessions</code> (operador do turno) — ver exemplo narrativo da seção 11.1</td></tr>
+<tr><td>"O que eu deveria comprar amanhã?"</td><td><code>suggestPurchases</code> + <code>previsaoDeRuptura</code> já calculam isso; falta só a superfície conversacional</td></tr>
+<tr><td>"Qual produto me dá mais lucro?"</td><td><code>alertasDeMargem</code> + histórico de venda — hoje é preciso abrir relatório e interpretar sozinho</td></tr>
+<tr><td>"Tem algo estranho acontecendo?"</td><td>Camada de anomalia da seção 11.3, superficializada aqui em linguagem natural em vez de painel separado</td></tr>
+</table></div>
+<p>Nenhuma dessas respostas exige dado novo — todas dependem só de <code>askTutor</code> (já existe) evoluir de "responder pergunta sobre como usar o sistema" para "responder pergunta sobre o estado do negócio", injetando um resumo estruturado do período relevante no prompt antes da pergunta do usuário. É uma extensão da função já existente, não uma reconstrução.</p>
+
+<h3>12.2 — A experiência "Bom dia, aqui está o que você precisa saber"</h3>
+<p>Proposta central: às 8h (configurável), antes de o dono abrir qualquer tela, o Gerente Digital já preparou um resumo — via notificação nativa do app e, opcionalmente, WhatsApp (reaproveitando <code>whatsappAutomationService</code>, já usado para o resumo diário de estoque). Conteúdo: faturamento de ontem vs. média do dia da semana; diferença de caixa se houve; estoque crítico (já calculado por <code>previsaoDeRuptura</code>); contas a vencer hoje (<code>expenseService.listPending</code>); NFC-e pendente ou rejeitada; uma oportunidade (produto com margem acima do normal vendendo bem, ou cliente de alto valor sumido há N dias); e, quando aplicável, um alerta de anomalia (seção 11.3), sempre em tom de "vale olhar", nunca alarmista.</p>
+<p>Tecnicamente isso não exige um motor novo — é a mesma infraestrutura de job agendado que já dispara reconquista de cliente e resumo de estoque, só que compondo mais fontes e passando por uma etapa de geração de texto ao invés de template fixo.</p>
+
+<h3>12.3 — Ecossistema mobile por perfil</h3>
+<p>O app PWA pareado já existe e já se comunica via Firebase sem tocar SQLite diretamente — a infraestrutura de transporte está pronta. O que falta é desenhar a superfície certa por perfil:</p>
+<div class="twrap"><table>
+<tr><th>Perfil</th><th>O que o mobile deveria priorizar</th></tr>
+<tr><td>Dono</td><td>O resumo de 8h da seção 12.2 + Gerente Digital conversacional + aprovação remota de solicitações (desconto, alteração de pedido)</td></tr>
+<tr><td>Gerente</td><td>Painel de "o que precisa da minha aprovação agora" (já citado na seção 8) + alerta de anomalia em tempo real</td></tr>
+<tr><td>Garçom</td><td>Pedido direto na mesa + notificação de item pronto (seção 8, perfil 5) — já tem base em <code>pedidoGarcomSyncService</code></td></tr>
+<tr><td>Estoquista</td><td>Contagem de inventário por foto (seção 8, perfil 6) rodando direto no celular, sem precisar do terminal fixo</td></tr>
+<tr><td>Financeiro</td><td>Aprovação de despesa e visão de fluxo de caixa projetado, para quem não fica o dia inteiro no computador da loja</td></tr>
+</table></div>
+</section>
+
+<section id="s13">
+<h2><span class="num">13</span> Funcionalidades WOW</h2>
+<p class="lede">Vinte ideias com potencial de "isso eu nunca vi num sistema desse porte", classificadas por natureza — do ajuste de fricção que já impressiona ao recurso estratégico que muda a categoria do produto.</p>
+
+<h3>WOW simples (baixo esforço, efeito imediato de percepção)</h3>
+<div class="twrap"><table>
+<tr><th>#</th><th>Ideia</th><th>Por que impressiona</th></tr>
+<tr><td>1</td><td>Preenchimento automático de peso da balança sem clique extra</td><td>Elimina a fricção mais repetida do dia em quem vende por peso</td></tr>
+<tr><td>2</td><td>Recibo detalhado por WhatsApp sem gateway pago</td><td>Cliente recebe algo que parece "de sistema grande" sem custo de API</td></tr>
+<tr><td>3</td><td>Confirmação de chegada por WhatsApp antes de tirar o pedido do forno</td><td>Sincronização de preparo e retirada sem hardware novo</td></tr>
+<tr><td>4</td><td>Badge de "zero diferença de caixa" no perfil do operador</td><td>Reconhecimento imediato, sem custo de implementação</td></tr>
+<tr><td>5</td><td>Mapa visual (arrasta-solta) do salão de mesas</td><td>Sensação de sistema profissional de restaurante grande</td></tr>
+</table></div>
+
+<h3>WOW avançado (cruza dados existentes de forma inédita para o porte)</h3>
+<div class="twrap"><table>
+<tr><th>#</th><th>Ideia</th><th>Por que impressiona</th></tr>
+<tr><td>6</td><td>Alerta preditivo de troco insuficiente antes de faltar</td><td>Antecipa um problema que hoje só é percebido quando já aconteceu</td></tr>
+<tr><td>7</td><td>Classificação ABC automática com badge visual no catálogo</td><td>Ferramenta de gestão de portfólio que normalmente exige consultoria</td></tr>
+<tr><td>8</td><td>Reconciliação de Pix por extrato importado</td><td>Fecha um ponto cego de fraude que nenhum concorrente do porte resolve</td></tr>
+<tr><td>9</td><td>Detecção de "quase duplicado" por similaridade fonética entre PDVs sincronizados</td><td>Resolve um problema real de rede que normalmente exige curadoria manual</td></tr>
+<tr><td>10</td><td>Lead time de fornecedor aprendido, não configurado manualmente</td><td>Sistema "aprende" o negócio em vez de exigir parametrização</td></tr>
+</table></div>
+
+<h3>WOW com IA (a interpretação é o produto)</h3>
+<div class="twrap"><table>
+<tr><th>#</th><th>Ideia</th><th>Por que impressiona</th></tr>
+<tr><td>11</td><td>Explicação narrativa de queda de faturamento (seção 11.1)</td><td>Ninguém no segmento oferece "o porquê", só "o quanto"</td></tr>
+<tr><td>12</td><td>Gerente Digital respondendo "como foi minha loja hoje" (seção 12)</td><td>Assistente de negócio real, não chatbot de FAQ</td></tr>
+<tr><td>13</td><td>Contagem de inventário por foto</td><td>Reduz um trabalho manual clássico a minutos</td></tr>
+<tr><td>14</td><td>Auditoria narrada em linguagem simples para o admin</td><td>Transforma log técnico em decisão acionável sem esforço de leitura</td></tr>
+<tr><td>15</td><td>Sugestão automática de CST/CSOSN por regime tributário</td><td>Resolve o gap fiscal crítico do produto com a mesma tecnologia que já existe</td></tr>
+</table></div>
+
+<h3>WOW estratégico (muda a categoria do produto, não só a tela)</h3>
+<div class="twrap"><table>
+<tr><th>#</th><th>Ideia</th><th>Por que impressiona</th></tr>
+<tr><td>16</td><td>GerenciaAI Intelligence como camada central (seção 11)</td><td>Reposiciona o produto de "sistema de PDV" para "sistema que entende o negócio"</td></tr>
+<tr><td>17</td><td>Painel único do franqueador sobre todas as unidades</td><td>Abre o produto para o segmento de redes, hoje inacessível pela falta dessa camada</td></tr>
+<tr><td>18</td><td>Benchmark interno anônimo entre lojas do mesmo perfil de negócio</td><td>Dado que hoje só existe em consultoria de setor, oferecido nativamente</td></tr>
+<tr><td>19</td><td>Emissão de NFS-e para perfis de serviço (salão, ótica, oficina)</td><td>Abre mercado hoje inteiramente fora do alcance do produto</td></tr>
+<tr><td>20</td><td>Integração direta com sistema contábil (exportação estruturada, não XML solto)</td><td>Transforma o contador de usuário incomodado em usuário fidelizado</td></tr>
+</table></div>
+</section>
+
+<section id="s14">
+<h2><span class="num">14</span> Diferenciais competitivos</h2>
+<p class="lede">Dez diferenciais reais — já existentes ou a poucos passos de existir — organizados pelo quão difícil seriam de copiar por um concorrente de pequeno porte, que é a métrica que realmente importa numa categoria com dezenas de sistemas de PDV genéricos.</p>
+<div class="twrap"><table>
+<tr><th>Diferencial</th><th>Problema que resolve</th><th>Dificuldade de copiar</th><th>Potencial comercial</th><th>Prioridade</th></tr>
+<tr><td><strong>Perfil de negócio nativo (11 perfis, 1 base de código)</strong></td><td>Sistema genérico obriga o lojista a adaptar o vocabulário do sistema ao seu negócio</td><td class="score">Alta — exige reescrever a arquitetura de campos extras do zero</td><td class="score">Alto</td><td class="score">Já existe — só falta completar a cobertura (ex.: Agenda para Ótica)</td></tr>
+<tr><td><strong>GerenciaAI Intelligence (seção 11)</strong></td><td>Dashboards mostram número, não motivo</td><td class="score">Alta — exige acumular dado histórico real, não só construir a tela</td><td class="score">Muito alto</td><td class="score">Estratégica</td></tr>
+<tr><td><strong>Gerente Digital conversacional (seção 12)</strong></td><td>Interpretar relatório exige tempo que o dono de pequeno negócio não tem</td><td class="score">Média-Alta</td><td class="score">Muito alto</td><td class="score">Estratégica</td></tr>
+<tr><td><strong>Pipeline fiscal NFC-e avançado</strong> (assinatura real, mTLS, contingência automática)</td><td>Concorrente de baixo custo frequentemente terceiriza ou simplifica o fiscal</td><td class="score">Alta — exige conhecimento regulatório profundo</td><td class="score">Alto</td><td class="score">Corrigir gap de imposto primeiro (seção 3)</td></tr>
+<tr><td><strong>Ledger de estoque append-only auditável</strong></td><td>Sistemas concorrentes frequentemente permitem editar estoque direto, perdendo rastreabilidade</td><td class="score">Média</td><td class="score">Médio (mais técnico que comercial, mas sustenta os demais)</td><td class="score">Já existe</td></tr>
+<tr><td><strong>Bot de pedido via WhatsApp sem custo de API paga</strong></td><td>Concorrentes com WhatsApp oficial cobram por mensagem/sessão</td><td class="score">Média — replicável, mas com o mesmo risco de banimento</td><td class="score">Alto, condicionado a mitigar o risco (seção 5.4)</td><td class="score">Média — precisa de fallback antes de vender como pilar</td></tr>
+<tr><td><strong>Autorização de gerente com PIN real e trilha de auditoria</strong></td><td>Sistemas de baixo custo frequentemente não têm segunda camada de aprovação</td><td class="score">Média</td><td class="score">Médio</td><td class="score">Já existe</td></tr>
+<tr><td><strong>Licenciamento resiliente a queda de internet</strong></td><td>Sistema trava a operação do lojista por falha de rede não relacionada ao negócio</td><td class="score">Média</td><td class="score">Médio</td><td class="score">Já existe</td></tr>
+<tr><td><strong>Painel de franqueador multi-loja com inteligência de rede</strong></td><td>Redes pequenas hoje usam planilha para comparar unidades</td><td class="score">Alta</td><td class="score">Muito alto</td><td class="score">Depende de corrigir sync primeiro</td></tr>
+<tr><td><strong>Item personalizado com composição real rastreada</strong></td><td>Vendas ad-hoc (ex.: pizza meio-a-meio) normalmente não descontam insumo corretamente em sistemas concorrentes</td><td class="score">Média-Alta</td><td class="score">Médio</td><td class="score">Já existe</td></tr>
+</table></div>
+</section>
+
+<section id="s15">
+<h2><span class="num">15</span> Oportunidades de monetização</h2>
+<p class="lede">Estrutura de camadas pensada para o perfil real do cliente (pequeno negócio sensível a preço, mas disposto a pagar por algo que resolve um problema caro). O núcleo do PDV nunca deveria ficar atrás de paywall — é a porta de entrada de confiança; a inteligência é o que justifica upgrade.</p>
+<div class="twrap"><table>
+<tr><th>Camada</th><th>O que inclui</th><th>Público</th><th>Diferenciador</th><th>Potencial de receita</th></tr>
+<tr><td><strong>Essencial</strong></td><td>PDV, estoque, caixa, clientes/fiado, 1 usuário admin + operadores, backup local</td><td>Negócio individual começando a formalizar controle</td><td>Substitui caderno/planilha com confiabilidade real</td><td class="score">Baixo ticket, alto volume — porta de entrada</td></tr>
+<tr><td><strong>Profissional</strong></td><td>+ NFC-e, WhatsApp (bot + automação), fidelidade, multi-usuário com papéis completos, relatórios</td><td>Negócio já formalizado, emitindo nota, com equipe</td><td>Primeiro nível onde a "inteligência" aparece: resumo de IA, alertas preditivos</td><td class="score">Ticket médio — o grosso da base paga</td></tr>
+<tr><td><strong>Negócio+ (Intelligence)</strong></td><td>+ GerenciaAI Intelligence completa, Gerente Digital, detecção de anomalia, gamificação de equipe</td><td>Dono que já delega operação e precisa de visão executiva sem estar presente o dia todo</td><td>O produto que "se paga sozinho" mostrando onde o dinheiro está vazando</td><td class="score">Ticket alto — margem principal</td></tr>
+<tr><td><strong>Rede / Franquia</strong></td><td>+ painel de franqueador, benchmarking entre lojas, transferência de estoque, sync corrigido em escala, permissões centralizadas</td><td>2+ unidades sob a mesma gestão</td><td>Único concorrente do porte com essa camada pronta</td><td class="score">Ticket muito alto, base menor — receita por unidade multiplicada</td></tr>
+<tr><td><strong>Módulos avulsos</strong> (add-on em qualquer camada)</td><td>NFS-e para serviço, integração contábil direta, SMS como fallback do WhatsApp, backup criptografado premium</td><td>Necessidade específica de segmento</td><td>Monetiza o que não faz sentido para todos os perfis de negócio</td><td class="score">Receita incremental por perfil</td></tr>
+</table></div>
+<p class="footnote">Este documento não fixa valores em R$ — isso depende de pesquisa de mercado e de posicionamento que estão fora do escopo desta auditoria técnica. A estrutura de camadas acima é o que a arquitetura atual já suporta sem reescrita: <code>modulosPagosService.js</code> já implementa exatamente esse padrão de flag remota por módulo.</p>
+</section>
+
+<section id="s16">
+<h2><span class="num">16</span> Oportunidades de novos produtos</h2>
+<p class="lede">Dez ideias que poderiam existir fora do core do GerenciaAI — como módulo pago, app separado, API ou serviço — aproveitando ativos que o produto já construiu.</p>
+<div class="twrap"><table>
+<tr><th>Produto</th><th>Ativo que reaproveita</th><th>Formato</th></tr>
+<tr><td><strong>App de pedido do cliente final</strong> (além do cardápio digital estático)</td><td><code>digitalMenuService</code>, catálogo já sincronizado</td><td>PWA própria, sem depender do WhatsApp</td></tr>
+<tr><td><strong>Serviço de conciliação fiscal para contadores</strong></td><td>Pipeline NFC-e + exportação em lote (seção 14)</td><td>SaaS separado vendido ao escritório contábil, não ao lojista</td></tr>
+<tr><td><strong>API de inteligência de estoque</strong> (previsão de ruptura, sugestão de compra)</td><td><code>previsaoDeRuptura</code>, <code>suggestPurchases</code> já existentes</td><td>API paga para outros sistemas de PDV integrarem</td></tr>
+<tr><td><strong>Módulo de crédito/antecipação para o lojista</strong> baseado em histórico de faturamento real</td><td>Dado de faturamento diário já auditável e confiável (ledger)</td><td>Parceria com fintech — GerenciaAI só fornece o dado com consentimento</td></tr>
+<tr><td><strong>Serviço de roteirização de entrega como produto avulso</strong></td><td>Base de <code>deliveryService</code>, extensível a qualquer sistema de delivery pequeno</td><td>Módulo pago ou API própria</td></tr>
+<tr><td><strong>Benchmark de mercado por perfil de negócio</strong> (agregado, anônimo)</td><td>Base de instalações já usando os 11 perfis</td><td>Relatório setorial vendido a fornecedores/distribuidoras que atendem esses perfis</td></tr>
+<tr><td><strong>Marketplace de fornecedores integrado</strong></td><td><code>supplierService</code>, lista de compra sugerida</td><td>Comissão sobre pedido fechado via integração direta com o fornecedor</td></tr>
+<tr><td><strong>App white-label do "Gerente Digital"</strong> para quem só quer o assistente, sem trocar de PDV</td><td>Camada de IA da seção 12, desacoplada do core</td><td>Produto de entrada mais barato, funil para o PDV completo</td></tr>
+<tr><td><strong>Selo/certificação de conformidade fiscal</strong> para pequenos negócios (usando o painel de conformidade da seção 8)</td><td>Painel de conformidade fiscal por loja (ideia já listada no perfil Contador)</td><td>Selo comercial que o lojista exibe, gerando confiança para o cliente final</td></tr>
+<tr><td><strong>Central de suporte remoto assistida por IA</strong> (usando <code>errorReportService</code> agregado entre instalações)</td><td>Classificador de erro já proposto na seção 8 (perfil Admin)</td><td>Serviço de suporte técnico premium para redes maiores</td></tr>
+</table></div>
+</section>
+
+<section id="s17">
+<h2><span class="num">17</span> Top 20 ideias</h2>
+<p class="lede">Consolidação de tudo que veio antes num único ranking, misturando correções críticas com oportunidades novas — porque, na prática, é assim que Arthur vai precisar priorizar seu tempo: não existe uma fila separada de "bugs" e outra de "inovação".</p>
+
+<h3>Matriz de prioridade (10 principais, escala 1-10)</h3>
+<div class="twrap"><table>
+<tr><th>Ideia</th><th>Impacto</th><th>Financeiro</th><th>Diferenciação</th><th>Facilidade</th><th>Retenção</th><th>Monetização</th><th>Complexidade téc.</th><th>Score geral</th></tr>
+<tr><td>Sessão real de usuário (fecha gap de autorização IPC)</td><td class="score">10</td><td class="score">8</td><td class="score">3</td><td class="score">5</td><td class="score">9</td><td class="score">2</td><td class="score">6</td><td class="score"><strong>8.1</strong></td></tr>
+<tr><td>Corrigir sincronização destrutiva de estoque multi-PDV</td><td class="score">10</td><td class="score">9</td><td class="score">6</td><td class="score">6</td><td class="score">9</td><td class="score">7</td><td class="score">6</td><td class="score"><strong>8.6</strong></td></tr>
+<tr><td>Corrigir cálculo de imposto fora do Simples</td><td class="score">9</td><td class="score">9</td><td class="score">4</td><td class="score">6</td><td class="score">8</td><td class="score">3</td><td class="score">6</td><td class="score"><strong>7.6</strong></td></tr>
+<tr><td>GerenciaAI Intelligence (camada central)</td><td class="score">9</td><td class="score">8</td><td class="score">10</td><td class="score">3</td><td class="score">10</td><td class="score">9</td><td class="score">3</td><td class="score"><strong>8.5</strong></td></tr>
+<tr><td>Gerente Digital conversacional</td><td class="score">8</td><td class="score">7</td><td class="score">10</td><td class="score">4</td><td class="score">9</td><td class="score">9</td><td class="score">4</td><td class="score"><strong>8.0</strong></td></tr>
+<tr><td>Corrigir "sucesso falso" em Configurações</td><td class="score">7</td><td class="score">4</td><td class="score">2</td><td class="score">8</td><td class="score">7</td><td class="score">1</td><td class="score">8</td><td class="score"><strong>6.1</strong></td></tr>
+<tr><td>Painel de franqueador multi-loja</td><td class="score">7</td><td class="score">8</td><td class="score">9</td><td class="score">3</td><td class="score">8</td><td class="score">9</td><td class="score">3</td><td class="score"><strong>7.6</strong></td></tr>
+<tr><td>Corrigir fidelidade não creditada (WhatsApp/mesa)</td><td class="score">7</td><td class="score">6</td><td class="score">3</td><td class="score">7</td><td class="score">7</td><td class="score">2</td><td class="score">7</td><td class="score"><strong>6.0</strong></td></tr>
+<tr><td>Sangria/suprimento de caixa</td><td class="score">6</td><td class="score">4</td><td class="score">2</td><td class="score">7</td><td class="score">6</td><td class="score">1</td><td class="score">7</td><td class="score"><strong>5.2</strong></td></tr>
+<tr><td>NFS-e para perfis de serviço</td><td class="score">6</td><td class="score">7</td><td class="score">8</td><td class="score">2</td><td class="score">6</td><td class="score">8</td><td class="score">2</td><td class="score"><strong>6.1</strong></td></tr>
+</table></div>
+
+<h3>Tabela completa — Top 20</h3>
+<div class="twrap"><table>
+<tr><th>#</th><th>Ideia</th><th>Perfil / Área</th><th>Impacto</th><th>Diferenciação</th><th>Complexidade</th><th>Prioridade</th></tr>
+<tr><td>1</td><td>Sessão real de usuário no processo principal</td><td>Segurança (todos os perfis)</td><td class="score">10</td><td class="score">3</td><td class="score">Média</td><td><span class="badge b-alta">Crítica</span></td></tr>
+<tr><td>2</td><td>Reconciliação transacional de estoque multi-PDV</td><td>Franqueado</td><td class="score">10</td><td class="score">6</td><td class="score">Média</td><td><span class="badge b-alta">Crítica</span></td></tr>
+<tr><td>3</td><td>Correção de cálculo fiscal fora do Simples</td><td>Contador / Dono</td><td class="score">9</td><td class="score">4</td><td class="score">Média</td><td><span class="badge b-alta">Crítica</span></td></tr>
+<tr><td>4</td><td>GerenciaAI Intelligence</td><td>Dono / Gerente</td><td class="score">9</td><td class="score">10</td><td class="score">Alta</td><td><span class="badge b-alta">Alta</span></td></tr>
+<tr><td>5</td><td>Gerente Digital conversacional</td><td>Dono</td><td class="score">8</td><td class="score">10</td><td class="score">Alta</td><td><span class="badge b-alta">Alta</span></td></tr>
+<tr><td>6</td><td>Rollback completo em orçamento→venda</td><td>Restaurante/Salão/Ótica</td><td class="score">7</td><td class="score">2</td><td class="score">Baixa</td><td><span class="badge b-alta">Alta</span></td></tr>
+<tr><td>7</td><td>Correção de "sucesso falso" em Configurações</td><td>Gerente / Admin</td><td class="score">7</td><td class="score">2</td><td class="score">Baixa</td><td><span class="badge b-alta">Alta</span></td></tr>
+<tr><td>8</td><td>Painel de franqueador multi-loja</td><td>Franqueado</td><td class="score">7</td><td class="score">9</td><td class="score">Alta</td><td><span class="badge b-media">Média-Alta</span></td></tr>
+<tr><td>9</td><td>Correção de fidelidade no WhatsApp/mesa</td><td>Cliente Final</td><td class="score">7</td><td class="score">3</td><td class="score">Baixa</td><td><span class="badge b-alta">Alta</span></td></tr>
+<tr><td>10</td><td>Sangria/suprimento de caixa</td><td>Caixa / Gerente</td><td class="score">6</td><td class="score">2</td><td class="score">Baixa</td><td><span class="badge b-media">Média</span></td></tr>
+<tr><td>11</td><td>Reconciliação semi-automática de Pix</td><td>Gerente / Financeiro</td><td class="score">7</td><td class="score">6</td><td class="score">Média</td><td><span class="badge b-media">Média-Alta</span></td></tr>
+<tr><td>12</td><td>Contagem de inventário por foto (IA)</td><td>Estoquista</td><td class="score">6</td><td class="score">7</td><td class="score">Média</td><td><span class="badge b-media">Média</span></td></tr>
+<tr><td>13</td><td>Classificação ABC automática</td><td>Dono</td><td class="score">6</td><td class="score">5</td><td class="score">Média</td><td><span class="badge b-media">Média</span></td></tr>
+<tr><td>14</td><td>Vínculo produto-fornecedor na tela de cadastro</td><td>Estoquista</td><td class="score">6</td><td class="score">2</td><td class="score">Baixa</td><td><span class="badge b-media">Média</span></td></tr>
+<tr><td>15</td><td>Bloqueio de DevTools + <code>requireRole</code> nos ~15 canais desprotegidos</td><td>Segurança</td><td class="score">8</td><td class="score">2</td><td class="score">Baixa-Média</td><td><span class="badge b-alta">Alta</span></td></tr>
+<tr><td>16</td><td>Mitigação de risco do bot WhatsApp (throttle + fallback de canal)</td><td>Dono / Cliente Final</td><td class="score">6</td><td class="score">4</td><td class="score">Baixa</td><td><span class="badge b-media">Média</span></td></tr>
+<tr><td>17</td><td>NFS-e para perfis de serviço</td><td>Salão / Ótica / Contador</td><td class="score">6</td><td class="score">8</td><td class="score">Alta</td><td><span class="badge b-baixa">Baixa-Média</span></td></tr>
+<tr><td>18</td><td>Transferência de estoque entre lojas</td><td>Estoquista / Franqueado</td><td class="score">5</td><td class="score">5</td><td class="score">Média</td><td><span class="badge b-baixa">Média</span></td></tr>
+<tr><td>19</td><td>Integração contábil direta / exportação em lote</td><td>Contador</td><td class="score">5</td><td class="score">7</td><td class="score">Alta</td><td><span class="badge b-baixa">Baixa-Média</span></td></tr>
+<tr><td>20</td><td>Contagem de inventário em lote (cycle count)</td><td>Estoquista</td><td class="score">5</td><td class="score">3</td><td class="score">Média</td><td><span class="badge b-baixa">Média</span></td></tr>
+</table></div>
+</section>
+
+<section id="s18">
+<h2><span class="num">18</span> Top 5 ideias estratégicas — aprofundamento</h2>
+
+<div class="card priority-1"><h3>1. GerenciaAI Intelligence</h3>
+<p><strong>Conceito:</strong> camada de interpretação sobre os dados que o sistema já coleta — transforma número em narrativa e narrativa em recomendação.</p>
+<p><strong>Como funciona:</strong> job diário agrega vendas/estoque/caixa/margem por loja-produto-operador-hora; um motor de regras identifica desvios relevantes (queda, ruptura, anomalia); um passo de geração de linguagem (Gemini, já integrado) transforma o desvio detectado em frase acionável, cruzando causa provável.</p>
+<p><strong>UX:</strong> os insights aparecem onde o dono já olha — Painel, notificação nativa, resumo de WhatsApp — nunca uma tela nova isolada que ele precisa lembrar de abrir.</p>
+<p><strong>Dado necessário:</strong> já existe quase todo — falta a camada de agregação diária (seção 6), o maior item de infraestrutura pendente do documento inteiro.</p>
+<p><strong>Arquitetura:</strong> job local (Node, roda no processo principal do Electron mesmo, sem servidor novo) + tabela de agregação SQLite + chamada à Gemini já usada por <code>aiService.js</code>.</p>
+<p><strong>IA envolvida:</strong> geração de linguagem natural sobre dado estruturado (não é um modelo preditivo novo — é o motor de regras que faz a detecção, a IA só narra).</p>
+<p><strong>Dificuldade:</strong> média-alta — mais dado histórico acumulado do que engenharia complexa.</p>
+<p><strong>Risco:</strong> insight errado por dado sujo (ex.: enquanto o bug de sync de estoque não for corrigido, uma "queda de faturamento por ruptura" pode estar diagnosticando um problema que não existe de verdade).</p>
+<p><strong>Diferencial competitivo:</strong> nenhum concorrente de pequeno porte identificado nesta análise oferece interpretação narrativa — todos mostram número.</p>
+<p><strong>Monetização:</strong> âncora da camada "Negócio+" (seção 15).</p>
+<p><strong>Por que é difícil de copiar:</strong> exige tanto o dado histórico acumulado (vantagem de quem já tem base instalada) quanto a disciplina de design de nunca escorregar para número cru de novo — fácil de anunciar, difícil de manter honesto e útil ao longo do tempo.</p>
+</div>
+
+<div class="card priority-1"><h3>2. Gerente Digital</h3>
+<p><strong>Conceito:</strong> extensão do tutor de IA já existente (<code>askTutor</code>) de "responde dúvida sobre o sistema" para "responde pergunta sobre o negócio".</p>
+<p><strong>Como funciona:</strong> ao receber a pergunta, monta um resumo estruturado (JSON) do período relevante a partir das mesmas agregações da GerenciaAI Intelligence, injeta no prompt antes da pergunta livre do usuário.</p>
+<p><strong>UX:</strong> mesmo ícone flutuante que já existe — a diferença é o que ele sabe responder, não uma nova interface.</p>
+<p><strong>Dado necessário:</strong> depende da mesma camada de agregação da ideia #1 — as duas devem ser construídas juntas.</p>
+<p><strong>Arquitetura:</strong> extensão de <code>aiService.askTutor</code>, sem nova infraestrutura de transporte.</p>
+<p><strong>IA envolvida:</strong> Gemini com contexto de negócio injetado — mesmo provedor já em uso.</p>
+<p><strong>Dificuldade:</strong> média-alta, principalmente por desenho de prompt/qualidade de resposta, não por infraestrutura nova.</p>
+<p><strong>Risco:</strong> resposta convincente porém errada é pior do que "não sei" — precisa de limites claros sobre quando recusar responder por falta de dado confiável.</p>
+<p><strong>Diferencial competitivo:</strong> transforma um recurso hoje subutilizado (o tutor, cujo ícone aparece mesmo com IA desligada) no carro-chefe de percepção de inteligência do produto.</p>
+<p><strong>Monetização:</strong> parte da camada "Negócio+"; possível produto avulso white-label (seção 16).</p>
+<p><strong>Por que é difícil de copiar:</strong> exige tanto a integração de IA quanto o acesso privilegiado e correto ao dado estruturado do próprio sistema — replicável só por quem já tem o PDV, não por um chatbot genérico plugado por fora.</p>
+</div>
+
+<div class="card priority-2"><h3>3. Sessão real de usuário (correção de segurança fundacional)</h3>
+<p><strong>Conceito:</strong> substituir o padrão de <code>requestingUserId</code> enviado pelo renderer por uma sessão de verdade, mantida no processo principal a partir de <code>event.sender</code>/<code>webContents.id</code>.</p>
+<p><strong>Como funciona:</strong> <code>auth:login</code> passa a registrar, num mapa em memória do processo principal, qual usuário está associado a qual <code>webContents</code>; toda função de serviço passa a resolver a identidade a partir desse mapa, nunca do payload.</p>
+<p><strong>UX:</strong> invisível ao usuário final — é puramente uma correção de confiabilidade.</p>
+<p><strong>Dado necessário:</strong> nenhum dado novo, só mudança de onde a verdade é lida.</p>
+<p><strong>Arquitetura:</strong> mudança concentrada em <code>authService.js</code> e <code>handlers.js</code>, propagada a ~15 serviços que hoje confiam no payload.</p>
+<p><strong>IA envolvida:</strong> nenhuma.</p>
+<p><strong>Dificuldade:</strong> média — é um refactor disciplinado, não uma reescrita, mas toca muitos arquivos.</p>
+<p><strong>Risco:</strong> regressão se algum fluxo legítimo depender do padrão antigo (ex.: troca rápida de usuário no mesmo terminal) — exige mapear cada caso de uso antes de migrar.</p>
+<p><strong>Diferencial competitivo:</strong> nenhum, é higiene — mas é pré-requisito de confiança para vender qualquer coisa acima da camada Essencial, especialmente Rede/Franquia.</p>
+<p><strong>Monetização:</strong> indireta — protege a receita já existente ao evitar um incidente de segurança que destruiria a confiança na marca.</p>
+<p><strong>Por que priorizar apesar da baixa "diferenciação":</strong> é o item de maior score de impacto de todo o documento (seção 17) — sem ele, toda a inteligência construída em cima roda sobre uma base de identidade que pode ser falsificada por qualquer operador com DevTools.</p>
+</div>
+
+<div class="card priority-2"><h3>4. Correção da sincronização de estoque multi-PDV</h3>
+<p><strong>Conceito:</strong> substituir o <code>setDoc</code> destrutivo por incremento transacional, fechando o bug mais caro identificado nesta auditoria em termos de risco de overselling real.</p>
+<p><strong>Como funciona:</strong> em vez de recalcular e sobrescrever o total a partir só do ledger local, cada evento de estoque publica um <em>delta</em> assinado, aplicado via <code>runTransaction</code> do Firestore sobre o valor atual remoto — igual ao padrão já usado (corretamente) em <code>verificarEDebitarEstoqueRemoto</code> para venda.</p>
+<p><strong>UX:</strong> invisível ao usuário — correção de correção de dado, não de tela.</p>
+<p><strong>Dado necessário:</strong> nenhum dado novo — é mudança de como o dado existente é publicado.</p>
+<p><strong>Arquitetura:</strong> concentrada em <code>stockSyncService.js</code>; precisa de um cursor de "última publicação" por produto para calcular o delta correto.</p>
+<p><strong>IA envolvida:</strong> nenhuma na correção; a detecção de divergência residual (seção 8, perfil Admin) pode usar um modelo simples de anomalia depois.</p>
+<p><strong>Dificuldade:</strong> média — o padrão correto já existe no mesmo arquivo, é generalizar, não inventar.</p>
+<p><strong>Risco:</strong> migração precisa lidar com o histórico de divergência já acumulado em instalações existentes antes de ativar o novo mecanismo.</p>
+<p><strong>Diferencial competitivo:</strong> pré-requisito absoluto para vender "multi-loja" com credibilidade — sem ele, o Painel de Franqueador (ideia estratégica #5 e WOW #17) seria construído sobre dado que mente.</p>
+<p><strong>Monetização:</strong> desbloqueia toda a camada Rede/Franquia (seção 15).</p>
+<p><strong>Por que é difícil de copiar:</strong> não é — é dívida técnica que precisa ser paga antes de qualquer diferencial de rede virar realidade vendável.</p>
+</div>
+
+<div class="card priority-3"><h3>5. Painel de franqueador multi-loja</h3>
+<p><strong>Conceito:</strong> camada executiva sobre o sync que já existe — comparação, ranking e inteligência de rede entre unidades do mesmo grupo.</p>
+<p><strong>Como funciona:</strong> reaproveita o Firestore já usado para catálogo/venda como fonte de leitura agregada; aplica a mesma lógica narrativa da GerenciaAI Intelligence (ideia #1) na dimensão "entre lojas" em vez de "dentro de uma loja".</p>
+<p><strong>UX:</strong> tela nova, dedicada ao papel de franqueador/dono de rede — não faz sentido misturar com o Painel de uma loja individual.</p>
+<p><strong>Dado necessário:</strong> depende da correção do item #4 para ser confiável.</p>
+<p><strong>Arquitetura:</strong> nova camada de leitura sobre Firestore existente + as mesmas agregações da ideia #1, particionadas por loja.</p>
+<p><strong>IA envolvida:</strong> mesma abordagem narrativa da GerenciaAI Intelligence, aplicada a comparação entre unidades.</p>
+<p><strong>Dificuldade:</strong> alta — é a combinação de duas peças (sync corrigido + camada de inteligência) que sozinhas já são grandes.</p>
+<p><strong>Risco:</strong> sem a correção do item #4, lançar isso cedo demais destrói a confiança do cliente mais valioso (quem tem mais de uma loja) na primeira divergência óbvia.</p>
+<p><strong>Diferencial competitivo:</strong> abre um segmento de mercado (redes pequenas) hoje mal atendido por sistemas de PDV de pequeno porte, que tipicamente não pensam em multi-loja como cidadão de primeira classe.</p>
+<p><strong>Monetização:</strong> camada Rede/Franquia — ticket mais alto do documento, base menor, mas de maior retenção (trocar de sistema com múltiplas lojas é muito mais custoso para o cliente).</p>
+<p><strong>Por que é difícil de copiar:</strong> exige ter primeiro resolvido a sincronização corretamente — um concorrente que tenta pular direto para "multi-loja" sem essa base sólida herda o mesmo tipo de bug que esta auditoria encontrou aqui.</p>
+</div>
+</section>
+
+<section id="s19">
+<h2><span class="num">19</span> Roadmap</h2>
+<p class="lede">Seis fases, cada uma assumindo que a anterior está concluída. As duas primeiras não são opcionais — são o que torna seguro construir tudo o que vem depois.</p>
+
+<div class="twrap"><table>
+<tr><th>Fase</th><th>Foco</th><th>Itens-chave</th></tr>
+<tr><td><strong>1 — Correções críticas</strong></td><td>Fechar o que pode custar dinheiro ou gerar passivo legal agora</td><td>Sessão real de usuário · reconciliação transacional de estoque multi-PDV · correção de cálculo fiscal fora do Simples · rollback completo em orçamento→venda · bloqueio de DevTools e <code>requireRole</code> nos canais desprotegidos</td></tr>
+<tr><td><strong>2 — UX e produtividade</strong></td><td>Eliminar fricção e desinformação do dia a dia</td><td>Corrigir "sucesso falso" em Configurações · sangria/suprimento de caixa · vínculo produto-fornecedor · correção de fidelidade no WhatsApp/mesa · texto correto sobre cancelamento/contingência fiscal · contagem de inventário em lote</td></tr>
+<tr><td><strong>3 — Diferenciação</strong></td><td>Recursos que já destacam o produto sem exigir motor de IA novo</td><td>Mapa visual do salão · reconciliação semi-automática de Pix · classificação ABC automática · Agenda liberada para Ótica · badge de desempenho de operador · mitigação de risco do bot (throttle + fallback)</td></tr>
+<tr><td><strong>4 — Inteligência artificial</strong></td><td>A camada que muda a categoria do produto</td><td>Camada de agregação diária (pré-requisito técnico) · GerenciaAI Intelligence · Gerente Digital · detecção de anomalia sem acusar · granularidade de toggle de IA · log de auditoria de uso de IA</td></tr>
+<tr><td><strong>5 — Escala</strong></td><td>Preparar para redes e volume maior</td><td>Painel de franqueador multi-loja · transferência de estoque entre lojas · metas por loja · benchmark interno entre lojas · paginação generalizada nas listas restantes</td></tr>
+<tr><td><strong>6 — Ecossistema</strong></td><td>Expandir além do core</td><td>NFS-e para perfis de serviço · integração contábil direta · app de pedido do cliente final · API de inteligência de estoque · módulos avulsos (seção 15/16)</td></tr>
+</table></div>
+</section>
+
+<section id="s20">
+<h2><span class="num">20</span> Prioridades imediatas</h2>
+<p class="lede">Se só cinco coisas puderem ser feitas nas próximas semanas, são estas — pela combinação de baixo esforço relativo e alto risco evitado.</p>
+<ol>
+<li><strong>Bloquear DevTools em produção</strong> — uma linha de configuração (<code>before-input-event</code>), fecha o vetor prático que transforma o gap de autorização IPC de teórico em explorável hoje mesmo.</li>
+<li><strong>Corrigir os handlers de "sucesso falso" em <code>SettingsScreen.jsx</code></strong> — checar <code>result.ok</code> nos ~12 pontos identificados; o padrão correto já existe no mesmo arquivo, é replicar.</li>
+<li><strong>Aplicar <code>requireRole</code> nos canais críticos desprotegidos</strong> — priorizando <code>fiscal:livroDeControlados</code> (dado de saúde identificável), <code>backup:restore</code> e <code>expense:*</code>.</li>
+<li><strong>Corrigir o rollback de <code>quoteService.convertToSale</code></strong> — reaproveitar <code>ingredientService.reverterPorVenda</code>/<code>customItemService.reverterLinhasDoItem</code> já existentes, em vez do <code>DELETE</code> bruto atual.</li>
+<li><strong>Vincular <code>customer_id</code> nos pedidos do bot de WhatsApp</strong> — resolve de uma vez o não-crédito de fidelidade e a ausência desses clientes em "clientes que sumiram", com uma mudança pequena e localizada.</li>
+</ol>
+<p>Todas as cinco são de complexidade baixa a média, não dependem de nenhuma infraestrutura nova, e cada uma fecha uma lacuna que hoje é invisível ao lojista até que já tenha custado dinheiro ou confiança.</p>
+</section>
+
+<section id="s21">
+<h2><span class="num">21</span> Conclusão estratégica</h2>
+<p class="lede">A pergunta que este documento tentou responder não foi "como deixar o GerenciaAI melhor" — foi "o que faria o dono de um pequeno negócio depender deste sistema para tomar decisão, não só para registrar venda".</p>
+<p>A resposta que emerge da auditoria é que o produto já tem os dois ingredientes mais difíceis de construir: uma base de dados disciplinada (ledger auditável, trilha de auditoria, arquitetura multi-perfil genuína) e uma integração de IA que já funciona tecnicamente. O que falta não é reconstrução, é <strong>fechamento e composição</strong>: fechar as brechas de autorização e sincronização que hoje colocam em risco a confiança que a base de dados merece, e compor as peças de IA já existentes numa camada de interpretação que hoje simplesmente não foi montada.</p>
+<p>Isso muda a natureza da recomendação central deste documento. Não é "adicionar um módulo de IA" — é reconhecer que o GerenciaAI já coleta, item a item, tudo que uma inteligência de negócio precisaria, e que o próximo salto de valor não está em pedir mais dado ao lojista, está em finalmente interpretar o que ele já forneceu sem saber que estava alimentando algo maior que um sistema de caixa.</p>
+<p>O caminho descrito nas seis fases do roadmap é deliberadamente sequencial: segurança e correção de dado antes de inteligência, porque uma recomendação de negócio construída sobre um estoque que pode estar sutilmente errado é pior do que nenhuma recomendação — soa autoritativa exatamente onde não deveria. Uma vez essa base corrigida, GerenciaAI Intelligence e o Gerente Digital não são apenas diferenciais de marketing: são a transformação de "mais um sistema de gestão" em algo que o dono liga de manhã não porque precisa lançar uma venda, mas porque quer saber o que aconteceu com o negócio dele enquanto ele não estava olhando.</p>
+</section>
+
+</main>
+</div>

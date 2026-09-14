@@ -30,6 +30,16 @@ export function SettingsScreen() {
   const [locationName, setLocationName] = useState('');
   const [saved, setSaved] = useState(false);
 
+  // Vários handlers de "Salvar" desta tela chamavam o backend e já
+  // mostravam a mensagem de sucesso sem checar `result.ok` -- se a
+  // gravação falhasse (ex: guardRole barrando um usuário sem permissão,
+  // ou uma validação como largura de recibo inválida), a tela mostrava
+  // "Salvo!" do mesmo jeito, escondendo o erro de quem estava mexendo
+  // (auditoria, seção 5). Um erro só embaixo do título, visível em
+  // qualquer aba, cobre todos esses handlers sem precisar de um estado
+  // (e um bloco de exibição) novo pra cada seção da tela.
+  const [erroConfiguracoes, setErroConfiguracoes] = useState('');
+
   const [aiSettings, setAiSettings] = useState(null);
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiModelo, setAiModelo] = useState('gemini-3.1-flash-lite');
@@ -279,24 +289,28 @@ export function SettingsScreen() {
 
   async function handleLocationSave(e) {
     e.preventDefault();
-    await window.pdv.settings.updateLocationName({ locationId, nome: locationName });
+    setErroConfiguracoes('');
+    const result = await window.pdv.settings.updateLocationName({ locationId, nome: locationName });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
 
   async function handleAiSave(e) {
     e.preventDefault();
+    setErroConfiguracoes('');
     setAiSaving(true);
-    await window.pdv.ai.updateSettings({
+    const result = await window.pdv.ai.updateSettings({
       requestingUserId: currentUser.id,
       apiKey: aiApiKey || undefined, // string vazia não sobrescreve a chave já salva
       modelo: aiModelo,
       ativado: aiAtivado,
     });
+    setAiSaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     const refreshed = await window.pdv.ai.getSettings();
     setAiSettings(refreshed);
     setAiApiKey('');
-    setAiSaving(false);
     setAiSaved(true);
     setTimeout(() => setAiSaved(false), 2000);
   }
@@ -310,18 +324,20 @@ export function SettingsScreen() {
 
   async function handleFiscalSave(e) {
     e.preventDefault();
+    setErroConfiguracoes('');
     setFiscalSaving(true);
-    await window.pdv.fiscal.updateConfig({
+    const result = await window.pdv.fiscal.updateConfig({
       requestingUserId: currentUser.id,
       ...fiscalForm,
       certificadoPath: fiscalForm.certificadoPath || undefined,
       certificadoSenha: fiscalForm.certificadoSenha || undefined,
       cscToken: fiscalForm.cscToken || undefined,
     });
+    setFiscalSaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     const refreshed = await window.pdv.fiscal.getConfig();
     setFiscal(refreshed);
     setFiscalForm((prev) => ({ ...prev, certificadoSenha: '', cscToken: '' }));
-    setFiscalSaving(false);
     setFiscalSaved(true);
     setTimeout(() => setFiscalSaved(false), 2000);
   }
@@ -355,43 +371,53 @@ export function SettingsScreen() {
 
   async function handlePixSave(e) {
     e.preventDefault();
+    setErroConfiguracoes('');
     setPixSaving(true);
-    await window.pdv.payment.updateConfig(pixForm);
+    const result = await window.pdv.payment.updateConfig(pixForm);
     setPixSaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setPixSaved(true);
     setTimeout(() => setPixSaved(false), 2000);
   }
 
   async function handleLoyaltySave(e) {
     e.preventDefault();
+    setErroConfiguracoes('');
     setLoyaltySaving(true);
-    await window.pdv.loyalty.updateConfig(loyaltyForm);
+    const result = await window.pdv.loyalty.updateConfig(loyaltyForm);
     setLoyaltySaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setLoyaltySaved(true);
     setTimeout(() => setLoyaltySaved(false), 2000);
   }
 
   async function handleWhatsappAutomationSave(e) {
     e.preventDefault();
+    setErroConfiguracoes('');
     setWhatsappAutomationSaving(true);
-    await window.pdv.whatsappAutomation.updateConfig(whatsappAutomationForm);
+    const result = await window.pdv.whatsappAutomation.updateConfig(whatsappAutomationForm);
     setWhatsappAutomationSaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setWhatsappAutomationSaved(true);
     setTimeout(() => setWhatsappAutomationSaved(false), 2000);
   }
 
   async function handleBotOrdersToggle(ativo) {
+    setErroConfiguracoes('');
     setBotOrdersSaving(true);
-    await window.pdv.botOrders.updateConfig({ ativo });
-    setBotOrdersAtivo(ativo);
+    const result = await window.pdv.botOrders.updateConfig({ ativo });
     setBotOrdersSaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
+    setBotOrdersAtivo(ativo);
   }
 
   async function handleTaxaEntregaSave(e) {
     e.preventDefault();
+    setErroConfiguracoes('');
     setTaxaEntregaSaving(true);
-    await window.pdv.botOrders.updateConfig({ taxaEntregaModo, taxaEntregaFixa: Number(String(taxaEntregaFixa).replace(',', '.')) || 0 });
+    const result = await window.pdv.botOrders.updateConfig({ taxaEntregaModo, taxaEntregaFixa: Number(String(taxaEntregaFixa).replace(',', '.')) || 0 });
     setTaxaEntregaSaving(false);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setTaxaEntregaSaved(true);
     setTimeout(() => setTaxaEntregaSaved(false), 2000);
   }
@@ -413,8 +439,12 @@ export function SettingsScreen() {
     );
     if (!confirmado) return;
     setWhatsappBusy(true);
-    await window.pdv.whatsapp.disconnect({ requestingUserId: currentUser.id });
+    const result = await window.pdv.whatsapp.disconnect({ requestingUserId: currentUser.id });
     setWhatsappBusy(false);
+    if (!result.ok) {
+      setWhatsappStatus((prev) => ({ ...prev, erro: result.error }));
+      return;
+    }
     window.pdv.whatsapp.getStatus().then(setWhatsappStatus);
   }
 
@@ -461,22 +491,28 @@ export function SettingsScreen() {
   }
 
   async function handleReceiptSave(larguraMm) {
+    setErroConfiguracoes('');
+    const result = await window.pdv.print.updateReceiptConfig({ larguraMm, rodapeTexto: receiptRodape, imprimirAutomatico: receiptAutoPrint });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setReceiptLargura(larguraMm);
-    await window.pdv.print.updateReceiptConfig({ larguraMm, rodapeTexto: receiptRodape, imprimirAutomatico: receiptAutoPrint });
     setReceiptSaved(true);
     setTimeout(() => setReceiptSaved(false), 2000);
   }
 
   async function handleReceiptRodapeSave(e) {
     e.preventDefault();
-    await window.pdv.print.updateReceiptConfig({ larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: receiptAutoPrint });
+    setErroConfiguracoes('');
+    const result = await window.pdv.print.updateReceiptConfig({ larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: receiptAutoPrint });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setReceiptSaved(true);
     setTimeout(() => setReceiptSaved(false), 2000);
   }
 
   async function handleAutoPrintToggle(checked) {
+    setErroConfiguracoes('');
+    const result = await window.pdv.print.updateReceiptConfig({ larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: checked });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setReceiptAutoPrint(checked);
-    await window.pdv.print.updateReceiptConfig({ larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: checked });
   }
 
   async function handleListarImpressoras() {
@@ -487,10 +523,12 @@ export function SettingsScreen() {
   }
 
   async function handleSalvarImpressora(nome) {
-    setImpressoraPadrao(nome);
-    await window.pdv.print.updateReceiptConfig({
+    setErroConfiguracoes('');
+    const result = await window.pdv.print.updateReceiptConfig({
       larguraMm: receiptLargura, rodapeTexto: receiptRodape, imprimirAutomatico: receiptAutoPrint, impressoraPadrao: nome,
     });
+    if (!result.ok) return setErroConfiguracoes(result.error);
+    setImpressoraPadrao(nome);
     setImpressoraSaved(true);
     setTimeout(() => setImpressoraSaved(false), 2000);
   }
@@ -504,15 +542,23 @@ export function SettingsScreen() {
   }
 
   async function handleToggleAutorizacaoCancelamento(checked) {
+    // Trava de segurança central do sistema (ver authService) -- se a
+    // gravação falhar (ex: usuário sem permissão chegando aqui por fora
+    // da UI normal), o toggle NÃO pode ficar marcado como se tivesse
+    // mudado quando na prática continua valendo o de antes.
+    setErroConfiguracoes('');
+    const result = await window.pdv.auth.updateSecurityConfig({ requestingUserId: currentUser.id, exigirAutorizacaoCancelamento: checked });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setExigirAutorizacaoCancelamento(checked);
-    await window.pdv.auth.updateSecurityConfig({ requestingUserId: currentUser.id, exigirAutorizacaoCancelamento: checked });
     setSegurancaSaved(true);
     setTimeout(() => setSegurancaSaved(false), 2000);
   }
 
   async function handleToggleAutorizacaoDesconto(checked) {
+    setErroConfiguracoes('');
+    const result = await window.pdv.auth.updateSecurityConfig({ requestingUserId: currentUser.id, exigirAutorizacaoDesconto: checked });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setExigirAutorizacaoDesconto(checked);
-    await window.pdv.auth.updateSecurityConfig({ requestingUserId: currentUser.id, exigirAutorizacaoDesconto: checked });
     setSegurancaSaved(true);
     setTimeout(() => setSegurancaSaved(false), 2000);
   }
@@ -528,13 +574,16 @@ export function SettingsScreen() {
       ...(mudanca.qtdVendidosRecentes !== undefined && { qtd_vendidos_recentes: mudanca.qtdVendidosRecentes }),
       ...(mudanca.tamanhoBlocos !== undefined && { tamanho_blocos: mudanca.tamanhoBlocos }),
     }));
-    await window.pdv.posDisplay.updateConfig(mudanca);
+    const result = await window.pdv.posDisplay.updateConfig(mudanca);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setPosDisplaySaved(true);
     setTimeout(() => setPosDisplaySaved(false), 2000);
   }
 
   async function handleSalvarBalancaFormato() {
-    await window.pdv.weightBarcode.updateConfig(balancaForm);
+    setErroConfiguracoes('');
+    const result = await window.pdv.weightBarcode.updateConfig(balancaForm);
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setBalancaFormatoSaved(true);
     setTimeout(() => setBalancaFormatoSaved(false), 2000);
   }
@@ -562,15 +611,19 @@ export function SettingsScreen() {
   }
 
   async function handleSalvarPortaBalanca(porta) {
+    setErroConfiguracoes('');
+    const result = await window.pdv.scaleHardware.updateConfig({ porta, baudRate: balancaHwForm.baudRate });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setBalancaHwForm((prev) => ({ ...prev, porta }));
-    await window.pdv.scaleHardware.updateConfig({ porta, baudRate: balancaHwForm.baudRate });
     setBalancaHwSaved(true);
     setTimeout(() => setBalancaHwSaved(false), 2000);
   }
 
   async function handleSalvarBaudRate(baudRate) {
+    setErroConfiguracoes('');
+    const result = await window.pdv.scaleHardware.updateConfig({ porta: balancaHwForm.porta, baudRate });
+    if (!result.ok) return setErroConfiguracoes(result.error);
     setBalancaHwForm((prev) => ({ ...prev, baudRate }));
-    await window.pdv.scaleHardware.updateConfig({ porta: balancaHwForm.porta, baudRate });
   }
 
   async function handleCheckUpdate() {
@@ -617,6 +670,7 @@ export function SettingsScreen() {
   return (
     <div className="screen">
       <h1>Configurações</h1>
+      {erroConfiguracoes && <p className="modal-error">{erroConfiguracoes}</p>}
 
       <div className="settings-tabs">
         <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}><Icon name="home" size={15} /> Geral</button>

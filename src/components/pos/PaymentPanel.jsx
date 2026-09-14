@@ -43,6 +43,11 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   const [descontoGerenteMotivo, setDescontoGerenteMotivo] = useState('');
   const [showDescontoAuth, setShowDescontoAuth] = useState(false);
 
+  // Remover pagamento passou a exigir autorização de gerente no backend
+  // (igual cancelar item/venda) -- antes apagava na hora, sem pedir nada.
+  const [showRemoverPagamentoAuth, setShowRemoverPagamentoAuth] = useState(false);
+  const [pagamentoParaRemover, setPagamentoParaRemover] = useState(null);
+
   // Estado específico do fluxo Pix: gera o QR, espera confirmação manual
   // do operador (não existe integração bancária automática).
   const [pix, setPix] = useState(null); // { valor, payload, qrDataUrl } | null
@@ -78,9 +83,30 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   }
 
   async function removerPagamento(pagamento) {
-    const result = await window.pdv.sale.removePayment({ paymentId: pagamento.id, saleId });
-    if (!result.ok) return setError(result.error);
-    setPagamentos((prev) => prev.filter((p) => p.id !== pagamento.id));
+    setError('');
+    const config = await window.pdv.auth.getSecurityConfig();
+    if (config.exigir_autorizacao_cancelamento !== 1) {
+      // Sem exigência configurada — remove direto, sem pedir senha
+      // (mesmo critério que cancelamento de item usa).
+      const result = await window.pdv.sale.removePayment({ paymentId: pagamento.id, saleId, currentOperatorId: currentUser.id });
+      if (!result.ok) return setError(result.error);
+      setPagamentos((prev) => prev.filter((p) => p.id !== pagamento.id));
+      return;
+    }
+    setPagamentoParaRemover(pagamento);
+    setShowRemoverPagamentoAuth(true);
+  }
+
+  async function confirmarRemocaoPagamento(candidateId, pin, motivo) {
+    const result = await window.pdv.sale.removePayment({
+      paymentId: pagamentoParaRemover.id, saleId,
+      currentOperatorId: currentUser.id, candidateManagerId: candidateId, pin, motivo,
+    });
+    if (result.ok) {
+      setPagamentos((prev) => prev.filter((p) => p.id !== pagamentoParaRemover.id));
+      setPagamentoParaRemover(null);
+    }
+    return result;
   }
 
   async function buscarClientes(q) {
@@ -551,6 +577,14 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
           title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="key" size={16} /> Autorizar desconto</span>}
           onConfirm={confirmarDescontoGerente}
           onClose={() => setShowDescontoAuth(false)}
+        />
+      )}
+
+      {showRemoverPagamentoAuth && (
+        <ManagerAuthModal
+          title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="key" size={16} /> Autorizar remoção de pagamento</span>}
+          onConfirm={confirmarRemocaoPagamento}
+          onClose={() => { setShowRemoverPagamentoAuth(false); setPagamentoParaRemover(null); }}
         />
       )}
     </div>

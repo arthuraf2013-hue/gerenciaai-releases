@@ -1,5 +1,6 @@
 const { ipcMain, dialog, BrowserWindow } = require('electron');
 const authService = require('../services/authService');
+const sessionService = require('../services/sessionService');
 const productService = require('../services/productService');
 const productSyncService = require('../services/productSyncService');
 const digitalMenuService = require('../services/digitalMenuService');
@@ -69,6 +70,50 @@ function safeHandle(channel, fn) {
   });
 }
 
+/**
+ * Id de quem está de fato logado NESTA janela, segundo a sessão real do
+ * processo principal (ver sessionService.js) — nunca o `requestingUserId`
+ * que o renderer mandava dentro do payload, que era só uma alegação de
+ * quem chama e podia ser adulterada por qualquer coisa capaz de invocar
+ * o canal IPC diretamente (fora da UI normal, ou pelo DevTools). Todo
+ * ponto abaixo que antes desestruturava `requestingUserId` do payload
+ * passou a usar isto no lugar.
+ */
+function usuarioLogado(event) {
+  return sessionService.resolverUsuarioLogado(event)?.id;
+}
+
+/**
+ * Atalho pra recusar um canal sensível se quem está de fato logado nesta
+ * janela não tiver um dos papéis permitidos — devolve o erro pronto pra
+ * retornar (`{ok:false,...}`), ou `null` se pode seguir. Criado pros
+ * ~15 canais que a auditoria encontrou sem NENHUMA checagem de permissão
+ * (nem sequer recebiam requestingUserId) -- ver comentário de cada um
+ * abaixo pro porquê do papel escolhido.
+ */
+function guardRole(event, roles) {
+  const guard = authService.requireRole(usuarioLogado(event), roles);
+  return guard.ok ? null : guard;
+}
+
+// Papéis que só gestão (não operação de balcão/caixa) deveria poder
+// fazer -- cadastro/config de catálogo, financeiro, e qualquer exclusão
+// que não devia ficar ao alcance de quem só bate venda no dia a dia.
+const PAPEIS_GESTAO = ['gerente', 'admin', 'suporte'];
+
+/**
+ * Pra canais operacionais do dia a dia (registrar quebra, mover uma
+ * entrega, converter orçamento em venda...) que qualquer papel logado
+ * pode fazer -- a exigência aqui não é UM papel específico, é só que
+ * exista mesmo uma sessão real por trás da chamada (ver
+ * sessionService.js), fechando a mesma brecha de "qualquer coisa capaz
+ * de chamar o canal direto, sem nunca ter feito login, era aceita".
+ */
+function guardLoggedIn(event) {
+  if (usuarioLogado(event)) return null;
+  return { ok: false, error: 'Você precisa estar logado para fazer isso.' };
+}
+
 // (O aviso automático de "pedido pronto" mora em
 // botOrderService.updateOrderStatus/notificarPedidoPronto, e o de
 // "saiu pra entrega"/"entregue" em
@@ -81,11 +126,27 @@ function safeHandle(channel, fn) {
 
 function registerIpcHandlers() {
   // --- Auth ---
-  safeHandle('auth:login', (_e, { userId, pin }) => authService.login(userId, pin));
+  safeHandle('auth:login', (event, { userId, pin }) => {
+    const result = authService.login(userId, pin);
+    // Só a partir daqui esta janela (webContents) passa a ter uma sessão
+    // real no processo principal -- ver sessionService.js. É a ÚNICA
+    // porta de entrada: nenhum outro canal cria ou troca sessão, porque
+    // authService.login já validou o PIN com bcrypt antes de chegar aqui.
+    if (result.ok) sessionService.iniciarSessao(event.sender.id, result.user);
+    return result;
+  });
+  // "Trocar de operador" na prática já acontece por um novo auth:login
+  // bem-sucedido (sobrescreve a sessão desta janela pra quem acabou de
+  // digitar o PIN certo) -- este canal existe pra UI poder encerrar a
+  // sessão explicitamente (ex: botão "sair") sem esperar a janela fechar.
+  safeHandle('auth:logout', (event) => {
+    sessionService.encerrarSessao(event.sender.id);
+    return { ok: true };
+  });
   safeHandle('auth:listActiveUsers', (_e, { excludeUserId } = {}) => authService.listActiveUsers({ excludeUserId }));
-  safeHandle('auth:listAuditLog', (_e, payload) => authService.listAuditLog(payload));
+  safeHandle('auth:listAuditLog', (event, payload) => authService.listAuditLog({ ...payload, requestingUserId: usuarioLogado(event) }));
   safeHandle('auth:getSecurityConfig', () => authService.getSecurityConfig());
-  safeHandle('auth:updateSecurityConfig', (_e, { requestingUserId, ...payload }) => authService.updateSecurityConfig(requestingUserId, payload));
+  safeHandle('auth:updateSecurityConfig', (event, { requestingUserId, ...payload }) => authService.updateSecurityConfig(usuarioLogado(event), payload));
   safeHandle('auth:changeOwnPin', (_e, { userId, pinAtual, novoPin }) => authService.changeOwnPin(userId, pinAtual, novoPin));
 
   // --- Produtos ---
@@ -107,9 +168,13 @@ function registerIpcHandlers() {
   });
   safeHandle('product:merge', (_e, payload) => productService.mergeProducts(payload));
   safeHandle('product:listCategories', () => productService.listCategories());
-  safeHandle('product:upsert', (_e, product) => productService.upsert(product));
+  // Sem isso, qualquer coisa capaz de chamar o canal direto (fora da UI
+  // normal) podia recadastrar preço/custo de produto sem ser gerente --
+  // preço e custo são exatamente o tipo de dado que a auditoria apontou
+  // como sensível o bastante pra exigir isso no backend, não só a tela.
+  safeHandle('product:upsert', (event, product) => guardRole(event, PAPEIS_GESTAO) || productService.upsert(product));
   safeHandle('product:deactivate', (_e, { productId }) => productService.deactivate(productId));
-  safeHandle('product:clearAll', (_e, { requestingUserId } = {}) => productService.clearAllProducts(requestingUserId));
+  safeHandle('product:clearAll', (event) => productService.clearAllProducts(usuarioLogado(event)));
   safeHandle('product:generateInternalBarcode', (_e, { productId }) => productService.generateInternalBarcode(productId));
   safeHandle('product:listPriceHistory', (_e, { productId }) => productService.listPriceHistory(productId));
   safeHandle('product:getFotoDataUrl', (_e, { productId }) => productService.getFotoDataUrl(productId));
@@ -132,7 +197,12 @@ function registerIpcHandlers() {
   safeHandle('stock:listAlerts', (_e, { locationId }) => stockService.listAlerts(locationId, profileService.getActiveProfile()));
   safeHandle('stock:previsaoDeRuptura', (_e, { locationId }) => stockService.previsaoDeRuptura(locationId));
   safeHandle('stock:sugestoesDescontoValidade', (_e, { locationId }) => stockService.sugestoesDescontoValidade({ locationId }));
-  safeHandle('stock:adjust', (_e, payload) => stockService.adjustStock(payload));
+  // Ajuste manual de estoque (fora do fluxo normal de venda/entrada) é
+  // exatamente o tipo de canal que podia mascarar sumiço/roubo se
+  // qualquer um pudesse chamar sem ser gerente -- ver waste:register mais
+  // abaixo pro fluxo normal de quebra/perda, que continua aberto a
+  // qualquer operador.
+  safeHandle('stock:adjust', (event, payload) => guardRole(event, PAPEIS_GESTAO) || stockService.adjustStock(payload));
 
   // --- PDV / Vendas ---
   safeHandle('sale:open', (_e, payload) => saleService.openSale(payload));
@@ -160,8 +230,10 @@ function registerIpcHandlers() {
 
   // --- Controle de mesas (restaurante) ---
   safeHandle('table:list', (_e, { locationId }) => tableService.listTables(locationId));
-  safeHandle('table:create', (_e, payload) => tableService.createTable(payload));
-  safeHandle('table:delete', (_e, { tableId }) => tableService.deleteTable(tableId));
+  // Criar/excluir mesa é configuração do salão, não operação de venda --
+  // mesmo padrão de category/supplier/ingredient abaixo.
+  safeHandle('table:create', (event, payload) => guardRole(event, PAPEIS_GESTAO) || tableService.createTable(payload));
+  safeHandle('table:delete', (event, { tableId }) => guardRole(event, PAPEIS_GESTAO) || tableService.deleteTable(tableId));
   safeHandle('table:open', (_e, payload) => tableService.openTable(payload));
   safeHandle('table:getCart', (_e, { saleId }) => tableService.getTableCart(saleId));
   safeHandle('table:release', (_e, { tableId }) => tableService.releaseTable(tableId));
@@ -181,8 +253,14 @@ function registerIpcHandlers() {
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));
-  safeHandle('ingredient:upsert', (_e, ingredient) => ingredientService.upsert(ingredient));
-  safeHandle('ingredient:deactivate', (_e, { id }) => ingredientService.deactivate(id));
+  // Ingrediente carrega custo de receita -- mesma sensibilidade de
+  // product:upsert acima.
+  safeHandle('ingredient:upsert', (event, ingredient) => guardRole(event, PAPEIS_GESTAO) || ingredientService.upsert(ingredient));
+  safeHandle('ingredient:deactivate', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || ingredientService.deactivate(id));
+  // Ajuste de estoque de insumo — mesma restrição de stock:adjust (estoque
+  // de produto), separado de ingredient:upsert (edição de nome/custo).
+  safeHandle('ingredient:adjustStock', (event, payload) => guardRole(event, PAPEIS_GESTAO) || ingredientService.adjustStock(payload));
+  safeHandle('ingredient:listStockMovements', (_e, { ingredientId }) => ingredientService.listStockMovements(ingredientId));
   safeHandle('ingredient:getRecipe', (_e, { productId }) => ingredientService.getRecipe(productId));
   safeHandle('ingredient:setRecipe', (_e, { productId, itens }) => ingredientService.setRecipe(productId, itens));
   safeHandle('ingredient:computeDishCost', (_e, { productId }) => ingredientService.computeDishCost(productId));
@@ -200,7 +278,11 @@ function registerIpcHandlers() {
 
   // --- Desperdício ---
   safeHandle('waste:suggestCost', (_e, payload) => wasteService.suggestCost(payload));
-  safeHandle('waste:register', (_e, payload) => wasteService.registerWaste(payload));
+  // Registro de quebra/perda é operação do dia a dia de qualquer papel no
+  // balcão -- só exige estar logado (ver guardLoggedIn), não um papel
+  // específico. Diferente de stock:adjust acima, que é o ajuste manual
+  // "cru" e fica restrito à gestão.
+  safeHandle('waste:register', (event, payload) => guardLoggedIn(event) || wasteService.registerWaste(payload));
   safeHandle('waste:list', (_e, payload) => wasteService.listWaste(payload));
   safeHandle('waste:getSummary', (_e, payload) => wasteService.getWasteSummary(payload));
   safeHandle('waste:getByDay', (_e, payload) => wasteService.getWasteByDay(payload));
@@ -218,10 +300,10 @@ function registerIpcHandlers() {
   safeHandle('settings:updateLocationName', (_e, { locationId, nome }) => profileService.updateLocationName(locationId, nome));
 
   // --- Gestão de usuários (somente admin) ---
-  safeHandle('user:listAll', (_e, { requestingUserId }) => userService.listAll(requestingUserId));
-  safeHandle('user:create', (_e, { requestingUserId, ...payload }) => userService.create(requestingUserId, payload));
-  safeHandle('user:setActive', (_e, { requestingUserId, ...payload }) => userService.setActive(requestingUserId, payload));
-  safeHandle('user:resetPin', (_e, { requestingUserId, ...payload }) => userService.resetPin(requestingUserId, payload));
+  safeHandle('user:listAll', (event) => userService.listAll(usuarioLogado(event)));
+  safeHandle('user:create', (event, { requestingUserId, ...payload }) => userService.create(usuarioLogado(event), payload));
+  safeHandle('user:setActive', (event, { requestingUserId, ...payload }) => userService.setActive(usuarioLogado(event), payload));
+  safeHandle('user:resetPin', (event, { requestingUserId, ...payload }) => userService.resetPin(usuarioLogado(event), payload));
 
   safeHandle('pairing:gerarCodigo', (_e, payload) => pairingService.gerarCodigo(payload));
   safeHandle('pairing:listarCodigosPendentes', () => pairingService.listarCodigosPendentes());
@@ -279,11 +361,13 @@ function registerIpcHandlers() {
     return attachmentService.addAttachment({ saleId, sourceFilePath: filePaths[0], operadorId });
   });
   safeHandle('attachment:list', (_e, { saleId }) => attachmentService.listAttachments(saleId));
-  safeHandle('attachment:remove', (_e, { id }) => attachmentService.removeAttachment(id));
+  // Excluir um anexo é irreversível -- restrito à gestão pelo mesmo
+  // motivo de qualquer outra exclusão nesta lista.
+  safeHandle('attachment:remove', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || attachmentService.removeAttachment(id));
 
   // --- IA (extração de dados de anexos, sob demanda, opcional) ---
   safeHandle('ai:getSettings', () => aiService.getAiSettingsPublic());
-  safeHandle('ai:updateSettings', (_e, { requestingUserId, ...payload }) => aiService.updateAiSettings(requestingUserId, payload));
+  safeHandle('ai:updateSettings', (event, { requestingUserId, ...payload }) => aiService.updateAiSettings(usuarioLogado(event), payload));
   safeHandle('ai:extractAttachment', (_e, { attachmentId }) => aiService.extractAttachment(attachmentId));
 
   // --- Abertura/fechamento de caixa ---
@@ -296,14 +380,23 @@ function registerIpcHandlers() {
 
   // --- Fiscal (configuração + ponto de emissão, ver fiscalService.js) ---
   safeHandle('fiscal:getConfig', () => fiscalService.getFiscalConfigPublic());
-  safeHandle('fiscal:updateConfig', (_e, { requestingUserId, ...payload }) => fiscalService.updateFiscalConfig(requestingUserId, payload));
+  safeHandle('fiscal:updateConfig', (event, { requestingUserId, ...payload }) => fiscalService.updateFiscalConfig(usuarioLogado(event), payload));
   safeHandle('fiscal:emitirNFCe', (_e, { saleId }) => fiscalService.emitirNFCe(saleId));
   safeHandle('fiscal:reenviarNFCe', (_e, { nfceId }) => fiscalService.reenviarNFCe(nfceId));
   safeHandle('fiscal:listNfceForSale', (_e, { saleId }) => fiscalService.listNfceForSale(saleId));
   safeHandle('fiscal:cancelarNFCe', (_e, { nfceId, ...payload }) => fiscalService.cancelarNFCe(nfceId, payload));
-  safeHandle('fiscal:inutilizarNumeracao', (_e, payload) => fiscalService.inutilizarNumeracao(payload));
+  // Esta chamada dependia de um requestingUserId que o handler nunca
+  // preenchia -- na prática só funcionava se o renderer mandasse esse
+  // campo por conta própria (o que também tornava a checagem em
+  // fiscalService.inutilizarNumeracao contornável, o mesmo problema do
+  // resto desta lista). Agora resolve pela sessão real, igual aos outros
+  // canais fiscais.
+  safeHandle('fiscal:inutilizarNumeracao', (event, payload) => fiscalService.inutilizarNumeracao({ ...payload, requestingUserId: usuarioLogado(event) }));
   safeHandle('fiscal:listInutilizacoes', () => fiscalService.listInutilizacoes());
-  safeHandle('fiscal:livroDeControlados', (_e, payload) => fiscalService.livroDeControlados(payload));
+  // Livro de controlados é documento regulatório (fiscalização sanitária)
+  // -- mesmo nível de acesso de fiscal:updateConfig/inutilizarNumeracao
+  // acima (só admin/suporte), não a gestão em geral.
+  safeHandle('fiscal:livroDeControlados', (event, payload) => guardRole(event, ['admin', 'suporte']) || fiscalService.livroDeControlados(payload));
   safeHandle('fiscal:selectCertificado', async () => {
     const win = BrowserWindow.getFocusedWindow();
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
@@ -337,7 +430,8 @@ function registerIpcHandlers() {
     return reportService.exportSalesReport(filePath, { locationId, dataInicio, dataFim });
   });
 
-  safeHandle('report:exportAudit', async (_e, { dataInicio, dataFim, requestingUserId }) => {
+  safeHandle('report:exportAudit', async (event, { dataInicio, dataFim }) => {
+    const requestingUserId = usuarioLogado(event);
     const guard = authService.requireRole(requestingUserId, ['admin', 'suporte']);
     if (!guard.ok) return guard;
 
@@ -396,7 +490,9 @@ function registerIpcHandlers() {
   safeHandle('customer:list', (_e, opts) => customerService.listWithSaldo(opts));
   safeHandle('customer:upsert', (_e, customer) => customerService.upsert(customer));
   safeHandle('customer:getCreditHistory', (_e, { customerId }) => customerService.getCreditHistory(customerId));
-  safeHandle('customer:registrarPagamento', (_e, payload) => customerService.registrarPagamento(payload));
+  // Baixa de pagamento de fiado é operação de balcão do dia a dia -- só
+  // exige login, não um papel específico.
+  safeHandle('customer:registrarPagamento', (event, payload) => guardLoggedIn(event) || customerService.registrarPagamento(payload));
   safeHandle('customer:listQueSumiram', () => customerService.listClientesQueSumiram());
   safeHandle('customer:montarLinkReconquista', (_e, { customerId }) => customerService.montarLinkReconquista(customerId));
   safeHandle('customer:buscarPorTelefone', (_e, { telefone }) => customerService.buscarPorTelefone(telefone));
@@ -407,23 +503,31 @@ function registerIpcHandlers() {
   safeHandle('pet:montarLinkLembrete', (_e, { petId }) => petService.montarLinkLembrete(petId));
 
   safeHandle('delivery:listRoutes', () => deliveryService.listRoutes());
-  safeHandle('delivery:upsertRoute', (_e, route) => deliveryService.upsertRoute(route));
-  safeHandle('delivery:deactivateRoute', (_e, { id }) => deliveryService.deactivateRoute(id));
+  // Rota/veículo/entregador cadastrado são configuração da operação de
+  // entrega, não o dia a dia de despachar uma entrega em si (ver
+  // delivery:create/assign/updateStatus mais abaixo, que continuam
+  // abertos a qualquer papel logado).
+  safeHandle('delivery:upsertRoute', (event, route) => guardRole(event, PAPEIS_GESTAO) || deliveryService.upsertRoute(route));
+  safeHandle('delivery:deactivateRoute', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || deliveryService.deactivateRoute(id));
   safeHandle('delivery:listVehicles', () => deliveryService.listVehicles());
-  safeHandle('delivery:upsertVehicle', (_e, vehicle) => deliveryService.upsertVehicle(vehicle));
-  safeHandle('delivery:deactivateVehicle', (_e, { id }) => deliveryService.deactivateVehicle(id));
+  safeHandle('delivery:upsertVehicle', (event, vehicle) => guardRole(event, PAPEIS_GESTAO) || deliveryService.upsertVehicle(vehicle));
+  safeHandle('delivery:deactivateVehicle', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || deliveryService.deactivateVehicle(id));
   safeHandle('delivery:listPersons', () => deliveryService.listPersons());
-  safeHandle('delivery:upsertPerson', (_e, person) => deliveryService.upsertPerson(person));
-  safeHandle('delivery:deactivatePerson', (_e, { id }) => deliveryService.deactivatePerson(id));
-  safeHandle('delivery:create', (_e, payload) => deliveryService.createDelivery(payload));
-  safeHandle('delivery:assign', (_e, payload) => deliveryService.assignDelivery(payload));
-  safeHandle('delivery:updateStatus', (_e, payload) => deliveryService.updateDeliveryStatus(payload));
+  safeHandle('delivery:upsertPerson', (event, person) => guardRole(event, PAPEIS_GESTAO) || deliveryService.upsertPerson(person));
+  safeHandle('delivery:deactivatePerson', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || deliveryService.deactivatePerson(id));
+  // Despachar/atualizar uma entrega já criada é o dia a dia de quem está
+  // no balcão -- só exige login, não um papel específico.
+  safeHandle('delivery:create', (event, payload) => guardLoggedIn(event) || deliveryService.createDelivery(payload));
+  safeHandle('delivery:assign', (event, payload) => guardLoggedIn(event) || deliveryService.assignDelivery(payload));
+  safeHandle('delivery:updateStatus', (event, payload) => guardLoggedIn(event) || deliveryService.updateDeliveryStatus(payload));
   safeHandle('delivery:list', (_e, payload) => deliveryService.listDeliveries(payload));
   safeHandle('delivery:montarLinkStatus', (_e, { deliveryId }) => deliveryService.montarLinkStatusEntrega(deliveryId));
 
   // --- Pedidos do bot de WhatsApp ("Separação") ---
   safeHandle('botOrders:getConfig', () => botOrderService.getConfig());
-  safeHandle('botOrders:updateConfig', (_e, payload) => botOrderService.updateConfig(payload));
+  // Configuração do canal de pedidos por bot é ajuste de operação, não
+  // uso do dia a dia -- mesmo padrão de config abaixo.
+  safeHandle('botOrders:updateConfig', (event, payload) => guardRole(event, PAPEIS_GESTAO) || botOrderService.updateConfig(payload));
   safeHandle('botOrders:create', (_e, payload) => botOrderService.createOrder(payload));
   safeHandle('botOrders:list', (_e, payload) => botOrderService.listOrders(payload));
   safeHandle('botOrders:listActive', (_e, payload) => botOrderService.listActiveOrders(payload));
@@ -439,24 +543,29 @@ function registerIpcHandlers() {
 
   // --- Canal de WhatsApp (conexão Baileys que alimenta o bot acima) ---
   safeHandle('whatsapp:getStatus', () => whatsappBotService.getStatus());
-  safeHandle('whatsapp:connect', (_e, { requestingUserId }) => whatsappBotService.conectar(requestingUserId));
-  safeHandle('whatsapp:disconnect', (_e, { requestingUserId }) => whatsappBotService.desconectar(requestingUserId));
+  safeHandle('whatsapp:connect', (event) => whatsappBotService.conectar(usuarioLogado(event)));
+  safeHandle('whatsapp:disconnect', (event) => whatsappBotService.desconectar(usuarioLogado(event)));
 
   safeHandle('quote:create', (_e, payload) => quoteService.createQuote(payload));
   safeHandle('quote:addItem', (_e, payload) => quoteService.addQuoteItem(payload));
   safeHandle('quote:removeItem', (_e, { itemId }) => quoteService.removeQuoteItem(itemId));
   safeHandle('quote:get', (_e, { quoteId }) => quoteService.getQuote(quoteId));
   safeHandle('quote:list', (_e, payload) => quoteService.listQuotes(payload));
-  safeHandle('quote:cancel', (_e, { quoteId }) => quoteService.cancelQuote(quoteId));
-  safeHandle('quote:convertToSale', (_e, payload) => quoteService.convertToSale(payload));
+  // Cancelar/converter orçamento é operação de vendas do dia a dia -- só
+  // exige login.
+  safeHandle('quote:cancel', (event, { quoteId }) => guardLoggedIn(event) || quoteService.cancelQuote(quoteId));
+  safeHandle('quote:convertToSale', (event, payload) => guardLoggedIn(event) || quoteService.convertToSale(payload));
 
   safeHandle('eyewear:listByCustomer', (_e, { customerId }) => eyewearService.listByCustomer(customerId));
   safeHandle('eyewear:upsert', (_e, receita) => eyewearService.upsert(receita));
   safeHandle('eyewear:deactivate', (_e, { id }) => eyewearService.deactivate(id));
 
   safeHandle('appointment:listProfessionals', () => appointmentService.listProfessionals());
-  safeHandle('appointment:upsertProfessional', (_e, prof) => appointmentService.upsertProfessional(prof));
-  safeHandle('appointment:deactivateProfessional', (_e, { id }) => appointmentService.deactivateProfessional(id));
+  // Cadastro de profissional é gestão de equipe, não agendamento em si
+  // (appointment:create/reschedule/updateStatus continuam abertos a
+  // qualquer papel logado, sem guarda adicional).
+  safeHandle('appointment:upsertProfessional', (event, prof) => guardRole(event, PAPEIS_GESTAO) || appointmentService.upsertProfessional(prof));
+  safeHandle('appointment:deactivateProfessional', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || appointmentService.deactivateProfessional(id));
   safeHandle('appointment:create', (_e, payload) => appointmentService.createAppointment(payload));
   safeHandle('appointment:reschedule', (_e, payload) => appointmentService.rescheduleAppointment(payload));
   safeHandle('appointment:updateStatus', (_e, payload) => appointmentService.updateAppointmentStatus(payload));
@@ -485,17 +594,20 @@ function registerIpcHandlers() {
 
   // --- Fornecedores e sugestão de compra ---
   safeHandle('supplier:list', (_e, opts) => supplierService.list(opts));
-  safeHandle('supplier:upsert', (_e, supplier) => supplierService.upsert(supplier));
+  safeHandle('supplier:upsert', (event, supplier) => guardRole(event, PAPEIS_GESTAO) || supplierService.upsert(supplier));
+  safeHandle('supplier:deactivate', (event, { id }) => guardRole(event, PAPEIS_GESTAO) || supplierService.deactivate(id));
   safeHandle('supplier:suggestPurchases', (_e, payload) => supplierService.suggestPurchases(payload));
-  safeHandle('expense:create', (_e, payload) => expenseService.create(payload));
-  safeHandle('expense:markAsPaid', (_e, payload) => expenseService.markAsPaid(payload));
-  safeHandle('expense:list', (_e, payload) => expenseService.list(payload));
-  safeHandle('expense:listPending', (_e, payload) => expenseService.listPending(payload));
-  safeHandle('expense:remove', (_e, payload) => expenseService.remove(payload));
+  // Contas a pagar são dado financeiro -- mesmo padrão de acesso restrito
+  // à gestão usado no resto do financeiro/fiscal.
+  safeHandle('expense:create', (event, payload) => guardRole(event, PAPEIS_GESTAO) || expenseService.create(payload));
+  safeHandle('expense:markAsPaid', (event, payload) => guardRole(event, PAPEIS_GESTAO) || expenseService.markAsPaid(payload));
+  safeHandle('expense:list', (event, payload) => guardRole(event, PAPEIS_GESTAO) || expenseService.list(payload));
+  safeHandle('expense:listPending', (event, payload) => guardRole(event, PAPEIS_GESTAO) || expenseService.listPending(payload));
+  safeHandle('expense:remove', (event, payload) => guardRole(event, PAPEIS_GESTAO) || expenseService.remove(payload));
   safeHandle('category:list', () => categoryService.list());
-  safeHandle('category:create', (_e, payload) => categoryService.create(payload));
-  safeHandle('category:rename', (_e, payload) => categoryService.rename(payload));
-  safeHandle('category:remove', (_e, payload) => categoryService.remove(payload));
+  safeHandle('category:create', (event, payload) => guardRole(event, PAPEIS_GESTAO) || categoryService.create(payload));
+  safeHandle('category:rename', (event, payload) => guardRole(event, PAPEIS_GESTAO) || categoryService.rename(payload));
+  safeHandle('category:remove', (event, payload) => guardRole(event, PAPEIS_GESTAO) || categoryService.remove(payload));
   safeHandle('category:sugerirComIA', (_e, payload) => categoryService.sugerirCategoriasComIA(payload));
   safeHandle('category:aplicarSugestoes', (_e, payload) => categoryService.aplicarSugestoes(payload));
 
@@ -626,8 +738,8 @@ function registerIpcHandlers() {
   safeHandle('backup:getStatus', () => backupService.getStatus());
   safeHandle('backup:runNow', () => backupService.runBackup());
   safeHandle('backup:list', () => backupService.listBackups());
-  safeHandle('backup:restore', async (_e, { requestingUserId, nomeArquivo }) => {
-    const result = await backupService.restoreBackup(requestingUserId, nomeArquivo);
+  safeHandle('backup:restore', async (event, { nomeArquivo }) => {
+    const result = await backupService.restoreBackup(usuarioLogado(event), nomeArquivo);
     if (result.ok) {
       // Reinicia o app pra reabrir o banco já restaurado — nunca reusa a
       // conexão antiga no mesmo processo depois de trocar o arquivo.

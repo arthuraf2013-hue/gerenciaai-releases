@@ -13,6 +13,45 @@ function getReceiptConfig() {
   return db.prepare('SELECT * FROM receipt_config WHERE id = ?').get('default');
 }
 
+/**
+ * saleService.editarHistoricoVenda deixa um admin corrigir o total de
+ * uma venda já finalizada (ex: erro de digitação) SEM recalcular
+ * sale_items/payments — de propósito, porque esses são registros do
+ * que de fato aconteceu (o que foi vendido, o que foi pago), não algo
+ * pra reescrever. Isso significa que o recibo reimpresso depois pode
+ * mostrar itens que somam um valor diferente do "Total:" — sem
+ * explicação, isso parece um bug de impressão, não um ajuste
+ * deliberado. Detecta a divergência aqui (não precisa de coluna nova:
+ * dá pra ver comparando a soma dos itens com o total gravado) pra
+ * avisar quem está lendo o recibo, em vez de deixar a inconsistência
+ * muda (auditoria, seção 3).
+ */
+/** Valor da taxa de serviço em R$ (não o percentual) -- calculada sobre
+ * o subtotal já COM os descontos aplicados, igual saleService.finalizeSale
+ * faz na hora de fechar a venda (pra bater com o que de fato foi somado
+ * em sales.total). `somaItens` é a soma recalculada a partir de
+ * sale_items, que representa o total bruto (sem desconto). */
+function calcularTaxaServico(sale, somaItens) {
+  if (!(sale.taxa_servico_percentual > 0)) return 0;
+  const subtotalComDesconto = somaItens - sale.desconto - sale.desconto_gerente;
+  return subtotalComDesconto * (sale.taxa_servico_percentual / 100);
+}
+
+function valorFoiAjustadoManualmente(sale, items) {
+  const somaItens = items.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0);
+  // Compara com sale.total BRUTO (sem subtrair desconto/desconto_gerente)
+  // -- descontos são ajustes legítimos que nunca mudam sales.total (só
+  // entram na conta na hora de cobrar/imprimir), então comparar contra
+  // `total - descontos` direto acusava "ajustado manualmente" em
+  // qualquer venda com desconto de fidelidade/gerente, mesmo sem
+  // editarHistoricoVenda ter tocado nela. A taxa de serviço, por outro
+  // lado, JÁ é somada em sales.total no momento de finalizar a venda
+  // (ver finalizeSale), então precisa entrar aqui também pra não acusar
+  // falso positivo numa mesa com taxa de serviço ativa.
+  const taxaServico = calcularTaxaServico(sale, somaItens);
+  return Math.abs((somaItens + taxaServico) - sale.total) > 0.01;
+}
+
 function updateReceiptConfig({ larguraMm, rodapeTexto, imprimirAutomatico, impressoraPadrao }) {
   const db = getDb();
   const current = getReceiptConfig();
@@ -148,7 +187,9 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     <hr>
     ${sale.desconto > 0 ? `<div>Desconto fidelidade: -R$ ${sale.desconto.toFixed(2)}</div>` : ''}
     ${sale.desconto_gerente > 0 ? `<div>Desconto autorizado: -R$ ${sale.desconto_gerente.toFixed(2)}</div>` : ''}
+    ${sale.taxa_servico_percentual > 0 ? `<div>Taxa de serviço (${sale.taxa_servico_percentual}%): R$ ${calcularTaxaServico(sale, items.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0)).toFixed(2)}</div>` : ''}
     <div class="total">Total: R$ ${(sale.total - sale.desconto - sale.desconto_gerente).toFixed(2)}</div>
+    ${valorFoiAjustadoManualmente(sale, items) ? '<div style="text-align:right;font-size:' + (fontSize - 2) + 'px">(valor ajustado manualmente após a venda)</div>' : ''}
     <hr>
     ${linhasPagamento}
     ${buildFiscalHtmlBlock(nfce, qrDataUrl)}
@@ -209,7 +250,11 @@ function buildReceiptWhatsappLink(saleId) {
     '',
     sale.desconto > 0 ? `Desconto fidelidade: -R$ ${sale.desconto.toFixed(2)}` : null,
     sale.desconto_gerente > 0 ? `Desconto autorizado: -R$ ${sale.desconto_gerente.toFixed(2)}` : null,
+    sale.taxa_servico_percentual > 0
+      ? `Taxa de serviço (${sale.taxa_servico_percentual}%): R$ ${calcularTaxaServico(sale, items.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0)).toFixed(2)}`
+      : null,
     `*Total: R$ ${totalFinal.toFixed(2)}*`,
+    valorFoiAjustadoManualmente(sale, items) ? '_(valor ajustado manualmente após a venda)_' : null,
     '',
     linhasPagamento,
     '',

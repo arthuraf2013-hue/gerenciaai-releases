@@ -77,6 +77,19 @@ function registrarDivida({ customerId, valor, saleId, operadorId }) {
 function registrarPagamento({ customerId, valor, motivo, operadorId }) {
   const db = getDb();
   if (valor <= 0) return { ok: false, error: 'Informe um valor de pagamento válido.' };
+
+  // Sem teto, um valor digitado errado (ou mandado direto por um canal
+  // IPC sem passar pela tela) virava saldo NEGATIVO -- o cliente passa a
+  // ser credor da loja, um estado que a tela de fiado não trata
+  // (auditoria, seção 3).
+  const saldoAtual = getSaldoFiado(customerId);
+  if (saldoAtual <= 0) {
+    return { ok: false, error: 'Este cliente não tem saldo devedor no momento.' };
+  }
+  if (valor > saldoAtual) {
+    return { ok: false, error: `O valor não pode ser maior que o saldo devedor atual (R$ ${saldoAtual.toFixed(2)}).` };
+  }
+
   db.prepare(
     `INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, motivo, operador_id) VALUES (?, ?, 'pagamento', ?, ?, ?)`
   ).run(randomUUID(), customerId, valor, motivo || null, operadorId);

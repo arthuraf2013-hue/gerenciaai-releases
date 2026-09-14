@@ -3,6 +3,8 @@ const { getDb } = require('../db/database');
 const saleService = require('./saleService');
 const { precoEfetivo } = require('./productService');
 const timeService = require('./timeService');
+const ingredientService = require('./ingredientService');
+const customItemService = require('./customItemService');
 
 /**
  * `clienteNomeAvulso`/`clienteTelefoneAvulso` cobrem o orçamento pedido
@@ -115,6 +117,12 @@ function convertToSale({ quoteId, operadorId, deviceId }) {
 
   const { id: saleId } = saleService.openSale({ locationId: quote.location_id, operadorId });
 
+  // Itens já adicionados a esta venda-relâmpago antes de um item no meio
+  // do caminho falhar por falta de estoque -- precisa saber quais pra
+  // poder reverter exatamente o que addItem descontou de cada um (ver
+  // rollback abaixo).
+  const itensAdicionados = [];
+
   for (const item of quote.items) {
     const resultado = saleService.addItem({
       saleId, productId: item.product_id, locationId: quote.location_id,
@@ -125,13 +133,40 @@ function convertToSale({ quoteId, operadorId, deviceId }) {
       // por alguém (não deve pedir autorização de gerente), é limpeza
       // de uma venda que só existiu por um instante dentro desta
       // função, porque um item no meio do caminho não tinha mais
-      // estoque suficiente. Remove tudo que já tinha sido criado pra
-      // essa venda specific, sem deixar rastro nem exigir aprovação.
+      // estoque suficiente.
+      //
+      // Reverter só stock_movements/sale_items/sales (como era antes)
+      // vazava estoque de insumo/material: addItem já tinha descontado
+      // ficha técnica (ingredientService.descontarPorVenda) e/ou
+      // material de serviço (customItemService.gravarEDescontarLinhas)
+      // de cada item JÁ adicionado antes do que falhou, e nada
+      // revertia isso — o estoque de insumo ficava sutilmente errado
+      // toda vez que uma conversão falhava no meio (auditoria, seção
+      // 3). Usa os mesmos primitivos que saleService.cancelSaleItem usa
+      // pra desfazer exatamente o que addItem fez, sem passar pelo
+      // fluxo de cancelamento (sem autorização, sem audit_log): essa
+      // venda nunca existiu de verdade pra ninguém, mesmo padrão de
+      // "sem deixar rastro" que já valia pro estoque do produto em si.
+      for (const jaAdicionado of itensAdicionados) {
+        if (!jaAdicionado.ehServico) {
+          ingredientService.reverterPorVenda(jaAdicionado.productId, jaAdicionado.quantidade);
+        }
+        customItemService.reverterLinhasDoItem(jaAdicionado.saleItemId, {
+          locationId: quote.location_id, saleId, saleItemId: jaAdicionado.saleItemId, operadorId, deviceId,
+        });
+      }
       db.prepare('DELETE FROM stock_movements WHERE sale_id = ?').run(saleId);
       db.prepare('DELETE FROM sale_items WHERE sale_id = ?').run(saleId);
       db.prepare('DELETE FROM sales WHERE id = ?').run(saleId);
       return { ok: false, error: `Não foi possível converter: ${item.nome} — ${resultado.error}` };
     }
+    const product = db.prepare('SELECT tipo FROM products WHERE id = ?').get(item.product_id);
+    itensAdicionados.push({
+      productId: item.product_id,
+      quantidade: item.quantidade,
+      saleItemId: resultado.itemId,
+      ehServico: product?.tipo === 'servico',
+    });
   }
 
   db.prepare(`UPDATE quotes SET status = 'convertido', sale_id = ?, convertido_em = NOW_SYNCED() WHERE id = ?`).run(saleId, quoteId);

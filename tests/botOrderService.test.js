@@ -2,6 +2,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { freshTestDb, createProduct, addStock } = require('./helpers/testDb');
 const botOrderService = require('../electron/services/botOrderService');
+const ingredientService = require('../electron/services/ingredientService');
+const tableService = require('../electron/services/tableService');
 
 test('getConfig começa desativado por padrão, e updateConfig liga/desliga', () => {
   freshTestDb();
@@ -432,4 +434,79 @@ test('updateOrderStatus concluído (retirada) tenta solicitar a pesquisa de sati
   assert.equal(r.ok, true);
   const pedido = botOrderService.getOrderWithItems(criado.id).pedido;
   assert.equal(pedido.status, 'concluido');
+});
+
+// ---------------------------------------------------------------------
+// converterEmVendaSeAplicavel monta a venda "na mão" (INSERT direto em
+// stock_movements, sem passar por saleService.addItem) -- descontava o
+// estoque do PRODUTO certinho, mas nunca descontava o estoque de
+// INSUMO (ficha técnica) do prato, deixando esse número parado pra
+// sempre em todo pedido de retirada/entrega vindo do bot (auditoria,
+// seção 4).
+// ---------------------------------------------------------------------
+
+test('concluir pedido de retirada/entrega desconta o insumo da ficha técnica do prato, não só o estoque do produto', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const prato = createProduct(db, { nome: 'Marmita' });
+  addStock(db, { productId: prato, locationId, quantidade: 20, operadorId: adminId });
+  const arroz = ingredientService.upsert({ nome: 'Arroz', custoUnitario: 1, estoqueAtual: 100 });
+  ingredientService.setRecipe(prato, [{ ingredientId: arroz.id, quantidade: 3 }]); // 3kg de arroz por marmita
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Marcos', clienteTelefone: '5511900001111',
+    itens: [{ productId: prato, quantidade: 2 }],
+  });
+  botOrderService.updateOrderStatus({ orderId: criado.id, status: 'em_separacao', operadorId: adminId });
+  const r = botOrderService.updateOrderStatus({ orderId: criado.id, status: 'concluido', operadorId: adminId });
+  assert.equal(r.ok, true);
+
+  const arrozDepois = db.prepare('SELECT estoque_atual FROM ingredients WHERE id = ?').get(arroz.id).estoque_atual;
+  assert.equal(arrozDepois, 94, '2 marmitas x 3kg = 6kg de arroz deveriam ter sido descontados (100 - 6)');
+});
+
+// ---------------------------------------------------------------------
+// lancarPedidoNaMesa só logava no console quando um item não entrava
+// na comanda (ex: sem estoque) -- ninguém no atendimento (nem o
+// cliente do WhatsApp) ficava sabendo que faltou algo. Agora volta em
+// itensNaoLancados pra quem chamou avisar (auditoria, seção 4).
+// ---------------------------------------------------------------------
+
+test('lancarPedidoNaMesa abre a comanda e devolve itensNaoLancados quando um item não tem estoque', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  tableService.createTable({ locationId, numero: '7', nome: 'Mesa 7' });
+  const comEstoque = createProduct(db, { nome: 'Refrigerante' });
+  addStock(db, { productId: comEstoque, locationId, quantidade: 10, operadorId: adminId });
+  const semEstoque = createProduct(db, { nome: 'Prato do dia (esgotado)' });
+  addStock(db, { productId: semEstoque, locationId, quantidade: 1, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Cliente Mesa', clienteTelefone: '5511900002222', mesaNumero: '7',
+    itens: [{ productId: comEstoque, quantidade: 1 }, { productId: semEstoque, quantidade: 5 }], // só tem 1, vai pedir 5
+  });
+  assert.equal(criado.ok, true);
+
+  const r = botOrderService.lancarPedidoNaMesa({ orderId: criado.id, operadorId: adminId, deviceId: 'device-teste' });
+  assert.equal(r.ok, true, 'a comanda deveria abrir mesmo com um item barrado');
+  assert.ok(r.saleId);
+  assert.equal(r.itensNaoLancados.length, 1);
+  assert.match(r.itensNaoLancados[0].nome, /Prato do dia/);
+
+  const itensNaComanda = db.prepare('SELECT COUNT(*) as c FROM sale_items WHERE sale_id = ?').get(r.saleId).c;
+  assert.equal(itensNaComanda, 1, 'só o item com estoque deveria ter entrado na comanda');
+});
+
+test('lancarPedidoNaMesa não devolve itensNaoLancados quando tudo entra normalmente', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  tableService.createTable({ locationId, numero: '3', nome: 'Mesa 3' });
+  const produto = createProduct(db, { nome: 'Suco' });
+  addStock(db, { productId: produto, locationId, quantidade: 10, operadorId: adminId });
+
+  const criado = botOrderService.createOrder({
+    locationId, clienteNome: 'Cliente Mesa', clienteTelefone: '5511900005555', mesaNumero: '3',
+    itens: [{ productId: produto, quantidade: 2 }],
+  });
+
+  const r = botOrderService.lancarPedidoNaMesa({ orderId: criado.id, operadorId: adminId, deviceId: 'device-teste' });
+  assert.equal(r.ok, true);
+  assert.equal(r.itensNaoLancados.length, 0);
 });
