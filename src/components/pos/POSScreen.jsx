@@ -144,7 +144,10 @@ export function POSScreen() {
       }];
     });
     playBeep();
-    setTotal((prev) => prev + result.precoUnitario * quantidade);
+    // Total vem direto do backend (recalculado do zero a partir das linhas
+    // ativas), não de um incremento local — assim a tela nunca diverge do
+    // valor real, mesmo se a linha mesclada já tinha preço editado.
+    setTotal(result.novoTotal);
     setPendingQty('1'); // a quantidade digitada vale só pro próximo item — volta a 1 sozinho
     setRecentRefreshKey((prev) => prev + 1);
 
@@ -218,7 +221,7 @@ export function POSScreen() {
         }];
       });
       playBeep();
-      setTotal((prev) => prev + result.precoUnitario);
+      setTotal(result.novoTotal); // recalculado no backend, não incremento local — ver addProductToCart
       adicionados.push(produto.nome);
     }
 
@@ -256,7 +259,7 @@ export function POSScreen() {
     setItems((prev) => [...prev, {
       id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
     }]);
-    setTotal((prev) => prev + result.precoUnitario);
+    setTotal(result.novoTotal); // recalculado no backend, não incremento local — ver addProductToCart
     setShowCustomItemBuilder(false);
     setFeedback({ message: `${result.nome} adicionado.`, type: 'success' });
     playBeep();
@@ -353,14 +356,13 @@ export function POSScreen() {
       // Venda ainda sem nenhum pagamento registrado — é só ajuste do
       // carrinho (cliente pediu mais, desistiu de algo), cancela direto
       // sem precisar de outra pessoa autorizar.
-      const item = items.find((i) => i.id === itemId);
       const result = await window.pdv.sale.cancelItem({
         saleId, saleItemId: itemId, locationId: LOCATION_ID,
         currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
       });
       if (result.ok) {
         setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cancelado: true } : i)));
-        setTotal((prev) => prev - item.precoUnitario * item.quantidade);
+        setTotal(result.novoTotal); // recalculado no backend — auto-corrige qualquer deriva anterior
         setSelectedItemId(null);
       } else {
         setFeedback({ message: result.error, type: 'error' });
@@ -388,13 +390,12 @@ export function POSScreen() {
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
 
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, precoUnitario: result.novoPreco } : i)));
-    setTotal((prev) => prev - item.precoUnitario * item.quantidade + result.novoPreco * item.quantidade);
+    setTotal(result.novoTotal); // recalculado no backend — ver addProductToCart
     setFeedback({ message: `Preço de "${item.nome}" atualizado.`, type: 'success' });
   }
 
   async function handleAuthConfirm(candidateId, pin, motivo) {
     if (authAction.type === 'item') {
-      const item = items.find((i) => i.id === authAction.itemId);
       const result = await window.pdv.sale.cancelItem({
         saleId,
         saleItemId: authAction.itemId,
@@ -407,7 +408,7 @@ export function POSScreen() {
       });
       if (result.ok) {
         setItems((prev) => prev.map((i) => (i.id === authAction.itemId ? { ...i, cancelado: true } : i)));
-        setTotal((prev) => prev - item.precoUnitario * item.quantidade);
+        setTotal(result.novoTotal); // recalculado no backend — auto-corrige qualquer deriva anterior
         setSelectedItemId(null);
       }
       return result;

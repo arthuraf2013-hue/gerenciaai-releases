@@ -601,6 +601,81 @@ test('setItemPrice funciona pra gerente e atualiza o total da venda', () => {
   assert.equal(sale.total, 16); // 2 * 8
 });
 
+// ---------------------------------------------------------------------
+// addItem, ao somar o MESMO produto que já está no carrinho (merge na
+// linha existente em vez de criar uma nova), somava em sales.total o
+// preço de CATÁLOGO recém-calculado -- não o preço que já estava na
+// linha, mesmo quando esse preço tinha sido editado na mão com
+// setItemPrice. Bipar de novo o mesmo produto depois de editar o preço
+// dele fazia sales.total divergir da soma real de sale_items, usando o
+// valor nativo em vez do editado (relatado pelo usuário: total exigido
+// pra finalizar não batia com os valores alterados).
+// ---------------------------------------------------------------------
+
+test('addItem soma o preço EDITADO da linha (não o preço de catálogo) ao repetir o mesmo produto depois de setItemPrice', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 }); // 1un a R$10 -> total = 10
+
+  const edicao = saleService.setItemPrice({
+    saleId: ctx.saleId, saleItemId: ctx.addResult.itemId, novoPreco: 16, currentOperatorId: ctx.gerenteId,
+  });
+  assert.equal(edicao.ok, true);
+  assert.equal(ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId).total, 16);
+
+  // Bipa o MESMO produto de novo -- antes do fix, isso somava R$10
+  // (preço de catálogo) em vez de R$16 (preço editado da linha).
+  const segundo = saleService.addItem({
+    saleId: ctx.saleId, productId: ctx.productId, locationId: ctx.locationId,
+    quantidade: 1, operadorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+  assert.equal(segundo.ok, true);
+  assert.equal(segundo.quantidadeTotal, 2, 'devia mesclar na linha existente, não criar uma segunda');
+  assert.equal(segundo.precoUnitario, 16, 'precoUnitario devolvido pra tela atualizar o total precisa ser o editado, não o de catálogo');
+
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 32, '2 unidades a R$16 (preço editado) = 32 -- não 26 (16 + 10 do preço nativo)');
+
+  const item = ctx.db.prepare('SELECT preco_unitario, quantidade FROM sale_items WHERE id = ?').get(ctx.addResult.itemId);
+  assert.equal(sale.total, item.preco_unitario * item.quantidade, 'sales.total precisa bater com a soma real da linha (preco_unitario × quantidade)');
+});
+
+test('cancelar o único item de uma venda zera sales.total mesmo que ele já estivesse com deriva acumulada', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 }); // total = 10
+
+  // Simula a deriva do bug antigo: sales.total fica acima do que a soma
+  // real das linhas diz (ex: resto de um addItem que somou preço errado
+  // antes do fix). cancelSaleItem precisa RECALCULAR do zero, não
+  // subtrair só o valor do item cancelado -- senão esse resto (aqui,
+  // R$1.98) sobrevive pra sempre no carrinho vazio, como aconteceu de
+  // verdade.
+  ctx.db.prepare('UPDATE sales SET total = total + 1.98 WHERE id = ?').run(ctx.saleId);
+  assert.equal(ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId).total, 11.98);
+
+  const result = saleService.cancelSaleItem({
+    saleId: ctx.saleId, saleItemId: ctx.addResult.itemId, locationId: ctx.locationId,
+    currentOperatorId: ctx.operadorId, deviceId: 'device-teste',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.novoTotal, 0, 'novoTotal devolvido pra tela precisa ser 0, não um resto de deriva antiga');
+
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 0, 'carrinho sem nenhum item ativo tem que ter total 0, mesmo que sales.total já tivesse deriva acumulada antes');
+});
+
+test('cancelSale (venda inteira) zera sales.total mesmo com deriva acumulada, e devolve novoTotal', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 1 });
+  ctx.db.prepare('UPDATE sales SET total = total + 1.98 WHERE id = ?').run(ctx.saleId);
+
+  const result = saleService.cancelSale({
+    saleId: ctx.saleId, locationId: ctx.locationId, currentOperatorId: ctx.operadorId,
+    candidateManagerId: ctx.gerenteId, pin: '1234', motivo: 'Teste', deviceId: 'device-teste',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.novoTotal, 0);
+
+  const sale = ctx.db.prepare('SELECT total FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.total, 0, 'cancelSale nunca tocava em sales.total antes -- agora tem que recalcular e zerar');
+});
+
 test('setItemPrice funciona pra suporte, igual gerente/admin', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 10, quantidadeVenda: 2 });
   const suporteId = createSuporteUser(ctx.db);

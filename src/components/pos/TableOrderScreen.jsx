@@ -99,7 +99,9 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       }];
     });
     playBeep();
-    setTotal((prev) => prev + result.precoUnitario * quantidade);
+    // Total vem direto do backend (recalculado do zero a partir das linhas
+    // ativas), não de um incremento local — ver saleService.recalcularTotal.
+    setTotal(result.novoTotal);
     setPendingQty('1');
     setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
   }
@@ -111,7 +113,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setItems((prev) => [...prev, {
       id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
     }]);
-    setTotal((prev) => prev + result.precoUnitario);
+    setTotal(result.novoTotal); // recalculado no backend — ver addProductToCart
     setShowCustomItemBuilder(false);
     setFeedback({ message: `${result.nome} adicionado.`, type: 'success' });
     playBeep();
@@ -145,14 +147,13 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
     if (!check.needsAuth) {
-      const item = items.find((i) => i.id === itemId);
       const result = await window.pdv.sale.cancelItem({
         saleId, saleItemId: itemId, locationId: LOCATION_ID,
         currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
       });
       if (result.ok) {
         setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, cancelado: true } : i)));
-        setTotal((prev) => prev - item.precoUnitario * item.quantidade);
+        setTotal(result.novoTotal); // recalculado no backend — auto-corrige qualquer deriva anterior
         setSelectedItemId(null);
       } else {
         setFeedback({ message: result.error, type: 'error' });
@@ -213,7 +214,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
 
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, precoUnitario: result.novoPreco } : i)));
-    setTotal((prev) => prev - item.precoUnitario * item.quantidade + result.novoPreco * item.quantidade);
+    setTotal(result.novoTotal); // recalculado no backend — ver addProductToCart
     setFeedback({ message: `Preço de "${item.nome}" atualizado.`, type: 'success' });
   }
 
@@ -272,14 +273,13 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       return result;
     }
 
-    const item = items.find((i) => i.id === authAction.itemId);
     const result = await window.pdv.sale.cancelItem({
       saleId, saleItemId: authAction.itemId, locationId: LOCATION_ID,
       currentOperatorId: currentUser.id, candidateManagerId: candidateId, pin, motivo, deviceId: DEVICE_ID,
     });
     if (result.ok) {
       setItems((prev) => prev.map((i) => (i.id === authAction.itemId ? { ...i, cancelado: true } : i)));
-      setTotal((prev) => prev - item.precoUnitario * item.quantidade);
+      setTotal(result.novoTotal); // recalculado no backend — auto-corrige qualquer deriva anterior
       setAuthAction(null);
       setSelectedItemId(null);
     }

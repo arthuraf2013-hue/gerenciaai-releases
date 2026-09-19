@@ -11,6 +11,31 @@ const ingredientService = require('./ingredientService');
 const customItemService = require('./customItemService');
 const serviceMaterialService = require('./serviceMaterialService');
 
+/**
+ * Único lugar que decide o valor de sales.total: sempre a SOMA REAL das
+ * linhas ativas (preco_unitario × quantidade), nunca um contador mantido
+ * por incrementos/decrementos espalhados em addItem/setItemPrice/
+ * cancelSaleItem/etc. Um total incremental dá pra divergir da soma real
+ * por um bug em qualquer um dos vários pontos que mexem nele (já
+ * aconteceu — addItem estava somando o preço de catálogo em vez do
+ * preço já vigente da linha ao mesclar o mesmo produto de novo no
+ * carrinho) e, uma vez que diverge, fica errado pra sempre — mesmo
+ * depois que os itens problemáticos saem do carrinho, porque cancelar
+ * um item só SUBTRAI o valor correto dele, sem corrigir a deriva que já
+ * estava acumulada ali (era exatamente o resto de R$ que sobrava com o
+ * carrinho zerado). Recalcular do zero a cada mudança é auto-corretivo:
+ * não tem como acumular deriva. NÃO inclui a taxa de serviço (ver
+ * finalizeSale) — essa só entra no fechamento, depois que a venda já
+ * não é mais editável, então não faz parte do total "de carrinho".
+ */
+function recalcularTotal(db, saleId) {
+  const { total } = db.prepare(
+    `SELECT COALESCE(SUM(preco_unitario * quantidade), 0) as total FROM sale_items WHERE sale_id = ? AND cancelado = 0`
+  ).get(saleId);
+  db.prepare('UPDATE sales SET total = ? WHERE id = ?').run(total, saleId);
+  return total;
+}
+
 function openSale({ locationId, operadorId }) {
   const db = getDb();
   const id = randomUUID();
@@ -338,9 +363,17 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
     `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0`
   ).get(saleId, productId);
 
+  // Preço a usar pra atualizar sales.total (e pro que a tela usa pra
+  // atualizar o total exibido): numa linha nova é o preço de venda
+  // recém-calculado; num merge com uma linha já existente, é o preço
+  // QUE JÁ ESTÁ NA LINHA (pode ter sido editado na mão), nunca o preço
+  // de catálogo recalculado -- ver comentário completo mais abaixo.
+  const precoParaTotal = itemExistente ? itemExistente.preco_unitario : precoDeVenda;
+
   const movId = randomUUID();
   let itemId;
   let quantidadeTotal;
+  let novoTotal;
 
   const tx = db.transaction(() => {
     if (itemExistente) {
@@ -386,9 +419,15 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       }
     }
 
-    db.prepare(
-      `UPDATE sales SET total = total + ? WHERE id = ?`
-    ).run(precoDeVenda * quantidade, saleId);
+    // Recalcula sales.total do zero a partir da soma real das linhas
+    // ativas (ver recalcularTotal) em vez de incrementar por um valor
+    // calculado aqui -- incrementar por precoDeVenda (preço de
+    // CATÁLOGO) mesmo num merge com uma linha já editada na mão (ver
+    // setItemPrice) foi exatamente o bug que fazia sales.total divergir
+    // da soma real, usando o valor nativo em vez do valor que o
+    // operador alterou -- e, por ser incremental, essa deriva nunca se
+    // corrigia sozinha, nem depois dos itens saírem do carrinho.
+    novoTotal = recalcularTotal(db, saleId);
   });
   tx();
 
@@ -403,7 +442,13 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
 
   // avisoReceita é só um sinalizador para a UI sugerir anexar a receita —
   // nunca impede a venda, já que o estoque pode ter itens não farmacêuticos.
-  return { ok: true, itemId, precoUnitario: precoDeVenda, avisoReceita, alerta, quantidadeTotal };
+  // novoTotal é o total oficial recém-recalculado -- a tela deve SETAR o
+  // total exibido com ele (não incrementar por conta própria), pra nunca
+  // divergir do que o backend realmente gravou (ver POSScreen/
+  // TableOrderScreen). precoUnitario continua sendo o preço já vigente
+  // da linha (novo ou existente), usado só pra exibir/registrar o preço
+  // do item em si, não pra fazer conta de total no front.
+  return { ok: true, itemId, precoUnitario: precoParaTotal, novoTotal, avisoReceita, alerta, quantidadeTotal };
 }
 
 /**
@@ -441,6 +486,7 @@ function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, de
   const anchorId = customItemService.garantirProdutoPersonalizado();
   const itemId = randomUUID();
   const movId = randomUUID();
+  let novoTotal;
 
   const tx = db.transaction(() => {
     db.prepare(
@@ -455,11 +501,11 @@ function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, de
 
     customItemService.gravarEDescontarLinhas(itemId, linhasValidas, { locationId, saleId, saleItemId: itemId, operadorId, deviceId });
 
-    db.prepare(`UPDATE sales SET total = total + ? WHERE id = ?`).run(precoNumerico, saleId);
+    novoTotal = recalcularTotal(db, saleId);
   });
   tx();
 
-  return { ok: true, itemId, precoUnitario: precoNumerico };
+  return { ok: true, itemId, precoUnitario: precoNumerico, novoTotal };
 }
 
 /**
@@ -550,13 +596,13 @@ function setItemPrice({ saleId, saleItemId, novoPreco, motivo, currentOperatorId
   if (!(preco >= 0)) return { ok: false, error: 'Informe um preço válido (maior ou igual a zero).' };
 
   const precoAntigo = item.preco_unitario;
-  const diferenca = (preco - precoAntigo) * item.quantidade;
+  let novoTotal;
 
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE sale_items SET preco_unitario = ?, preco_original = COALESCE(preco_original, ?), preco_alterado_por_id = ?, preco_alterado_motivo = ? WHERE id = ?`
     ).run(preco, precoAntigo, currentOperatorId, motivo || null, saleItemId);
-    db.prepare('UPDATE sales SET total = total + ? WHERE id = ?').run(diferenca, saleId);
+    novoTotal = recalcularTotal(db, saleId);
   });
   tx();
 
@@ -565,7 +611,7 @@ function setItemPrice({ saleId, saleItemId, novoPreco, motivo, currentOperatorId
      VALUES (?, 'preco_item_alterado', ?, ?, ?, ?, 1)`
   ).run(randomUUID(), saleId, saleItemId, currentOperatorId, `De R$ ${precoAntigo.toFixed(2)} para R$ ${preco.toFixed(2)}${motivo ? ' — ' + motivo : ''}`);
 
-  return { ok: true, novoPreco: preco };
+  return { ok: true, novoPreco: preco, novoTotal };
 }
 
 // Remover um pagamento já lançado é, na prática, tão sensível quanto
@@ -746,6 +792,7 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   // cancelar não pode estornar um estoque que nunca existiu, ou o
   // produto-serviço fica com saldo fantasma na tabela de movimentos.
   const ehServico = product?.tipo === 'servico';
+  let novoTotal;
 
   const tx = db.transaction(() => {
     db.prepare(
@@ -776,7 +823,13 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
     // real de chamar à toa.
     customItemService.reverterLinhasDoItem(saleItemId, { locationId, saleId, saleItemId, operadorId: currentOperatorId, deviceId });
 
-    db.prepare(`UPDATE sales SET total = total - ? WHERE id = ?`).run(item.preco_unitario * item.quantidade, saleId);
+    // Recalcula do zero (ver recalcularTotal) em vez de subtrair — se
+    // sales.total já tivesse acumulado alguma deriva antes disso (ex:
+    // do bug antigo do addItem), subtrair só o valor deste item nunca
+    // corrigia essa deriva; ela ficava pra sempre como um resto no
+    // carrinho, mesmo depois de cancelar todos os itens. Recalcular
+    // aqui já auto-corrige qualquer deriva anterior nessa venda.
+    novoTotal = recalcularTotal(db, saleId);
   });
   tx();
 
@@ -784,7 +837,7 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
     require('./stockSyncService').pushEstoqueProduto(item.product_id).catch(() => {});
   }
 
-  return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: exigeAutorizacao };
+  return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: exigeAutorizacao, novoTotal };
 }
 
 function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId, pin, motivo, deviceId }) {
@@ -824,6 +877,7 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
 
   const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ? AND cancelado = 0').all(saleId);
 
+  let novoTotal;
   const tx = db.transaction(() => {
     for (const item of items) {
       // Mesmo raciocínio de cancelSaleItem: serviço nunca gerou
@@ -851,6 +905,14 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
     db.prepare(
       `UPDATE sales SET status = 'cancelada', cancelada_em = NOW_SYNCED(), cancelada_por_id = ?, motivo_cancelamento = ? WHERE id = ?`
     ).run(autorizadoPor?.id || currentOperatorId, motivo || null, saleId);
+
+    // Cancelar a venda inteira marca todo item ativo como cancelado, então
+    // o total real (ver recalcularTotal) sempre vira 0 — mas essa função
+    // nunca tocava em sales.total antes, deixando o valor antigo gravado
+    // ali (era exatamente esse tipo de resto que sobrevivia numa venda já
+    // "cancelada" ou reaberta). Recalcular aqui garante que sales.total
+    // nunca fica dessincronizado do estado real dos itens.
+    novoTotal = recalcularTotal(db, saleId);
   });
   tx();
 
@@ -860,7 +922,7 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
     stockSyncService.pushEstoqueProduto(productId).catch(() => {});
   }
 
-  return { ok: true, autorizadoPor };
+  return { ok: true, autorizadoPor, novoTotal };
 }
 
 /** Checagem leve, sem efeito colateral — só pra decidir se a tela deve

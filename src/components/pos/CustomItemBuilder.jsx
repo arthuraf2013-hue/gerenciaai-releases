@@ -194,7 +194,7 @@ export function CustomItemBuilder({ saleId, locationId, operadorId, deviceId, on
     setSalvando(false);
 
     if (!result.ok) { setErro(result.error); return; }
-    onAdded({ itemId: result.itemId, precoUnitario: result.precoUnitario, nome: nomeLimpo });
+    onAdded({ itemId: result.itemId, precoUnitario: result.precoUnitario, novoTotal: result.novoTotal, nome: nomeLimpo });
   }
 
   return (
