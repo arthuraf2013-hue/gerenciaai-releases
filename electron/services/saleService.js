@@ -515,15 +515,19 @@ function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, de
  * de verdade (o PaymentPanel já limita os outros no campo, mas isso é
  * só front: um valor mandado direto por IPC, ou um clique que escapou
  * da validação da tela, não tinha NENHUM teto aqui no backend). Exceção:
- * 'pix' NÃO é rejeitado — o sistema não consulta o banco, então o
- * lojista só confirma que caiu; se o valor do QR ficou maior que o que
- * falta (ex: desconto aplicado depois de gerar o QR), o pagamento é
- * limitado ao que falta e o valor real recebido vai em detalhes. Pra
+ * métodos cobrados FORA do sistema (pix, cartão de débito/crédito e
+ * 'outro') NÃO são rejeitados — o sistema não consulta banco nem
+ * maquininha, então o lojista só confirma que passou; se o valor
+ * informado ficou maior que o que falta, o pagamento é limitado ao que
+ * falta e o valor informado vai em detalhes.valorRecebido. Só 'fiado'
+ * continua recusando, porque vira dívida de verdade no cliente. Pra
  * 'fiado' isso não é só um valor "errado" que sobra — era dívida de
  * verdade registrada em cima do cliente (customerService.registrarDivida
  * usa esse valor direto), inflando o saldo devedor acima do total real
  * da venda, sem chance de estorno automático (auditoria, seção 3).
  */
+const METODOS_COBRADOS_FORA = ['pix', 'cartao_debito', 'cartao_credito', 'outro'];
+
 function addPayment({ saleId, metodo, valor, detalhes }) {
   const db = getDb();
 
@@ -544,10 +548,11 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
     const totalAPagar = subtotalComDesconto + valorTaxaServico;
     const restante = totalAPagar - jaPago;
     if (valor > restante + 0.005) {
-      if (metodo === 'pix') {
-        // Pix é transferência direta pra conta do lojista e o sistema não
-        // tem como consultar o banco: apenas computa e deixa finalizar,
-        // sem bloquear. Se a venda já está quitada, não há o que lançar.
+      if (METODOS_COBRADOS_FORA.includes(metodo)) {
+        // Pix / cartão / outro são cobrados fora do sistema, que não tem
+        // como consultar banco nem maquininha: apenas computa e deixa
+        // finalizar, sem bloquear. Se a venda já está quitada, não há o
+        // que lançar.
         if (restante <= 0.005) return { ok: true, id: null, valor: 0, semLancamento: true };
         detalhes = { ...(detalhes || {}), valorRecebido: valor };
         valor = Number(restante.toFixed(2));
@@ -562,6 +567,37 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
     `INSERT INTO payments (id, sale_id, metodo, valor, detalhes) VALUES (?, ?, ?, ?, ?)`
   ).run(id, saleId, metodo, valor, JSON.stringify(detalhes || {}));
   return { ok: true, id, valor };
+}
+
+/**
+ * Estado de pagamento da venda, lido do banco — fonte da verdade pro
+ * PaymentPanel. O painel é um modal: fechar ("Voltar ao carrinho", Esc)
+ * ou reabrir depois de reiniciar o app zerava o estado local dele
+ * (pagamentos, descontos, taxa de serviço) mesmo com tudo isso já
+ * gravado aqui — a tela achava que faltava o total cheio enquanto o
+ * backend já tinha pagamento/desconto lançado, e qualquer método não-
+ * dinheiro batia no erro de "passa do que falta".
+ */
+function getPaymentState(saleId) {
+  const db = getDb();
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+
+  const pagamentos = db.prepare('SELECT id, metodo, valor FROM payments WHERE sale_id = ? ORDER BY rowid').all(saleId);
+  const customer = sale.customer_id
+    ? db.prepare('SELECT id, nome, pontos FROM customers WHERE id = ?').get(sale.customer_id) || null
+    : null;
+
+  return {
+    ok: true,
+    total: sale.total,
+    desconto: sale.desconto || 0,
+    descontoGerente: sale.desconto_gerente || 0,
+    descontoGerenteMotivo: sale.desconto_gerente_motivo || '',
+    taxaServicoPercentual: sale.taxa_servico_percentual || 0,
+    pagamentos,
+    customer,
+  };
 }
 
 /** Observação livre de um item (ex: "sem cebola") — some junto na
@@ -1099,6 +1135,6 @@ async function editarHistoricoVenda({ saleId, novaDataHora, novoTotal, motivo, c
 module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
-  addItem, addCustomItem, addPayment, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
+  addItem, addCustomItem, addPayment, getPaymentState, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
   getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
 };

@@ -85,6 +85,7 @@ contextBridge.exposeInMainWorld('pdv', {
     addItem: invoke('sale:addItem'),
     addCustomItem: invoke('sale:addCustomItem'),
     addPayment: invoke('sale:addPayment'),
+    getPaymentState: invoke('sale:getPaymentState'),
     removePayment: invoke('sale:removePayment'),
     setItemNote: invoke('sale:setItemNote'),
     setItemPerson: invoke('sale:setItemPerson'),

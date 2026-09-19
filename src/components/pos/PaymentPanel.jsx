@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import Icon from '../common/Icon';
@@ -15,7 +15,7 @@ const METODOS = [
 /**
  * @param {{ saleId: string, total: number, onFinalized: () => void }} props
  */
-export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0 }) {
+export function PaymentPanel({ saleId, total: totalProp, onFinalized, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0 }) {
   const { currentUser } = useSession();
   const [metodo, setMetodo] = useState('dinheiro');
   const [valor, setValor] = useState('');
@@ -52,6 +52,35 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   // do operador (não existe integração bancária automática).
   const [pix, setPix] = useState(null); // { valor, payload, qrDataUrl } | null
   const [pixGerando, setPixGerando] = useState(false);
+
+  // Fonte da verdade é o banco: este painel é um modal e desmonta ao
+  // fechar/voltar ao carrinho, então o estado local começa zerado mesmo
+  // quando a venda já tem pagamento/desconto/taxa gravados. Sem reidratar,
+  // "Falta" mostrava o total cheio e qualquer pagamento não-dinheiro
+  // batia no erro "passa do que falta" do backend.
+  const [estadoCarregado, setEstadoCarregado] = useState(false);
+  const [totalDb, setTotalDb] = useState(null);
+  const total = totalDb ?? totalProp;
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      let r = null;
+      try { r = await window.pdv.sale.getPaymentState({ saleId }); } catch { r = null; }
+      if (!ativo) return;
+      if (r?.ok) {
+        setTotalDb(r.total);
+        setDesconto(r.desconto);
+        setDescontoGerente(r.descontoGerente);
+        setDescontoGerenteMotivo(r.descontoGerenteMotivo);
+        setTaxaServico(r.taxaServicoPercentual);
+        setPagamentos(r.pagamentos);
+        if (r.customer) setCustomer(r.customer);
+      }
+      setEstadoCarregado(true);
+    })();
+    return () => { ativo = false; };
+  }, [saleId]);
 
   const subtotalComDesconto = total - desconto - descontoGerente;
   const valorTaxaServico = taxaServico > 0 ? subtotalComDesconto * (taxaServico / 100) : 0;
@@ -186,16 +215,26 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   }
 
   async function addPayment() {
+    if (!estadoCarregado) return;
     const numeric = Number(valor);
     if (!numeric || numeric <= 0) return setError('Informe um valor válido.');
     if (metodo === 'fiado' && !customer) return setError('Vincule um cliente antes de usar fiado.');
     setError('');
 
+    // Pix, cartão e 'outro' são cobrados fora do sistema (sem consulta a
+    // banco/maquininha): só computa o que falta, sem bloquear com erro.
+    // Fiado segue estrito (vira dívida real), então mantém a validação.
+    const cobradoFora = metodo !== 'dinheiro' && metodo !== 'fiado';
+    if (cobradoFora && restante <= 0.005) {
+      setValor('');
+      return;
+    }
     const trocoDestePagamento = metodo === 'dinheiro' && numeric > restante ? numeric - restante : 0;
-    const valorAplicado = metodo === 'dinheiro' ? Math.min(numeric, restante) : numeric;
-    const result = await window.pdv.sale.addPayment({ saleId, metodo, valor: valorAplicado, detalhes: {} });
+    const valorAplicado = (metodo === 'dinheiro' || cobradoFora) ? Math.min(numeric, restante) : numeric;
+    const detalhes = cobradoFora && valorAplicado < numeric ? { valorRecebido: numeric } : {};
+    const result = await window.pdv.sale.addPayment({ saleId, metodo, valor: valorAplicado, detalhes });
     if (!result.ok) return setError(result.error);
-    registrarPagamentoLocal(result.id, metodo, valorAplicado);
+    if (!result.semLancamento) registrarPagamentoLocal(result.id, metodo, result.valor ?? valorAplicado);
     setTrocoConfirmado(trocoDestePagamento);
     setValor('');
   }
@@ -217,9 +256,12 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   }
 
   async function gerarQrPix() {
-    const numeric = Number(valor);
-    if (!numeric || numeric <= 0) return setError('Informe o valor a cobrar via Pix (pode ser parcial).');
-    if (numeric > restante) return setError(`O valor não pode passar de R$ ${restante.toFixed(2)} (falta da venda).`);
+    if (!estadoCarregado) return;
+    const digitado = Number(valor);
+    if (!digitado || digitado <= 0) return setError('Informe o valor a cobrar via Pix (pode ser parcial).');
+    if (restante <= 0.005) return setValor('');
+    // Nunca gera QR acima do que falta -- limita em vez de mostrar erro.
+    const numeric = Math.min(digitado, Number(restante.toFixed(2)));
     setError('');
     setPixGerando(true);
 

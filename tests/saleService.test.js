@@ -193,12 +193,13 @@ test('addPayment em cartão aceita cobrir subtotal + taxa de serviço (antes era
   assert.equal(exato.ok, true, 'pagamento de R$110 (100 + 10% de taxa) precisa ser aceito');
 });
 
-test('addPayment em cartão ainda rejeita valor acima de subtotal + taxa de serviço', () => {
+test('addPayment em cartão acima de subtotal + taxa de serviço é limitado ao teto, sem inflar o pago', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 100, quantidadeVenda: 1 }); // total = 100
   saleService.setServiceCharge(ctx.saleId, 10); // teto = 110
 
   const acima = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 110.5, detalhes: {} });
-  assert.equal(acima.ok, false);
+  assert.equal(acima.ok, true);
+  assert.equal(acima.valor, 110, 'registra só o teto (subtotal + taxa), nunca acima');
 });
 
 test('finalizeSale exige que o pagamento cubra a taxa de serviço, não só o subtotal', () => {
@@ -369,15 +370,38 @@ test('addPayment com pix numa venda já quitada não erra nem lança nada', () =
   assert.equal(pix.semLancamento, true);
 });
 
-test('addPayment recusa cartão/pix/outro maior que o que falta, mesmo em split', () => {
+test('addPayment limita cartão/outro ao que falta, mesmo em split, sem recusar', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 }); // total = 20
   saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 5, detalhes: {} }); // falta 15
 
-  const cartao = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 15.01, detalhes: {} });
-  assert.equal(cartao.ok, false);
+  const debito = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_debito', valor: 15.01, detalhes: {} });
+  assert.equal(debito.ok, true, 'cartão é cobrado fora do sistema: não bloqueia');
+  assert.equal(debito.valor, 15);
 
-  const exato = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_credito', valor: 15, detalhes: {} });
-  assert.equal(exato.ok, true, 'valor exatamente igual ao que falta continua permitido');
+  assert.equal(saleService.finalizeSale(ctx.saleId).ok, true);
+});
+
+test('addPayment em cartão de débito com valor acima do saldo limita e finaliza', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 });
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 9, detalhes: {} }); // falta 11
+
+  const r = saleService.addPayment({ saleId: ctx.saleId, metodo: 'cartao_debito', valor: 15, detalhes: {} });
+  assert.equal(r.ok, true);
+  assert.equal(r.valor, 11);
+});
+
+test('getPaymentState devolve pagamentos, descontos e taxa gravados no banco', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 });
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 4, detalhes: {} });
+  saleService.setServiceCharge(ctx.saleId, 10);
+
+  const estado = saleService.getPaymentState(ctx.saleId);
+  assert.equal(estado.ok, true);
+  assert.equal(estado.total, 20);
+  assert.equal(estado.taxaServicoPercentual, 10);
+  assert.equal(estado.pagamentos.length, 1);
+  assert.equal(estado.pagamentos[0].metodo, 'dinheiro');
+  assert.equal(estado.pagamentos[0].valor, 4);
 });
 
 test('addPayment em dinheiro pode passar do total — troco de verdade, não é bug', () => {

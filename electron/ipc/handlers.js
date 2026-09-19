@@ -214,6 +214,7 @@ function registerIpcHandlers() {
   safeHandle('sale:addItem', (_e, payload) => saleService.addItem(payload));
   safeHandle('sale:addCustomItem', (_e, payload) => saleService.addCustomItem(payload));
   safeHandle('sale:addPayment', (_e, payload) => saleService.addPayment(payload));
+  safeHandle('sale:getPaymentState', (_e, { saleId }) => saleService.getPaymentState(saleId));
   safeHandle('sale:removePayment', (_e, payload) => saleService.removePayment(payload));
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
