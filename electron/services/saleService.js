@@ -514,7 +514,11 @@ function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, de
  * Só 'dinheiro' pode passar do que falta — é o único método com troco
  * de verdade (o PaymentPanel já limita os outros no campo, mas isso é
  * só front: um valor mandado direto por IPC, ou um clique que escapou
- * da validação da tela, não tinha NENHUM teto aqui no backend). Pra
+ * da validação da tela, não tinha NENHUM teto aqui no backend). Exceção:
+ * 'pix' NÃO é rejeitado — o sistema não consulta o banco, então o
+ * lojista só confirma que caiu; se o valor do QR ficou maior que o que
+ * falta (ex: desconto aplicado depois de gerar o QR), o pagamento é
+ * limitado ao que falta e o valor real recebido vai em detalhes. Pra
  * 'fiado' isso não é só um valor "errado" que sobra — era dívida de
  * verdade registrada em cima do cliente (customerService.registrarDivida
  * usa esse valor direto), inflando o saldo devedor acima do total real
@@ -540,7 +544,16 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
     const totalAPagar = subtotalComDesconto + valorTaxaServico;
     const restante = totalAPagar - jaPago;
     if (valor > restante + 0.005) {
-      return { ok: false, error: `Esse valor passa do que falta na venda (R$ ${Math.max(0, restante).toFixed(2)}). Só pagamento em dinheiro pode gerar troco.` };
+      if (metodo === 'pix') {
+        // Pix é transferência direta pra conta do lojista e o sistema não
+        // tem como consultar o banco: apenas computa e deixa finalizar,
+        // sem bloquear. Se a venda já está quitada, não há o que lançar.
+        if (restante <= 0.005) return { ok: true, id: null, valor: 0, semLancamento: true };
+        detalhes = { ...(detalhes || {}), valorRecebido: valor };
+        valor = Number(restante.toFixed(2));
+      } else {
+        return { ok: false, error: `Esse valor passa do que falta na venda (R$ ${Math.max(0, restante).toFixed(2)}). Só pagamento em dinheiro pode gerar troco.` };
+      }
     }
   }
 
@@ -548,7 +561,7 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
   db.prepare(
     `INSERT INTO payments (id, sale_id, metodo, valor, detalhes) VALUES (?, ?, ?, ?, ?)`
   ).run(id, saleId, metodo, valor, JSON.stringify(detalhes || {}));
-  return { ok: true, id };
+  return { ok: true, id, valor };
 }
 
 /** Observação livre de um item (ex: "sem cebola") — some junto na

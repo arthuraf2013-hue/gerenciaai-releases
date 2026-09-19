@@ -240,9 +240,22 @@ export function PaymentPanel({ saleId, total, onFinalized, mostrarTaxaServico = 
   }
 
   async function confirmarRecebimentoPix() {
-    const result = await window.pdv.sale.addPayment({ saleId, metodo: 'pix', valor: pix.valor, detalhes: {} });
+    // Pix é transferência direta pra conta do lojista -- o sistema não
+    // consulta o banco, só computa e deixa finalizar. Se o total mudou
+    // depois de gerar o QR (desconto, taxa de serviço, pontos), o valor
+    // do QR pode ficar acima do que falta: em vez de mostrar erro,
+    // lança só o que falta (ou nada, se já estiver quitada).
+    setError('');
+    if (restante <= 0.005) {
+      setPix(null);
+      setValor('');
+      return;
+    }
+    const valorAplicado = Math.min(pix.valor, restante);
+    const detalhes = valorAplicado < pix.valor ? { valorRecebido: pix.valor } : {};
+    const result = await window.pdv.sale.addPayment({ saleId, metodo: 'pix', valor: valorAplicado, detalhes });
     if (!result.ok) return setError(result.error);
-    registrarPagamentoLocal(result.id, 'pix', pix.valor);
+    if (!result.semLancamento) registrarPagamentoLocal(result.id, 'pix', result.valor ?? valorAplicado);
     setPix(null);
     setValor('');
   }

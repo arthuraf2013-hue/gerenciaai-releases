@@ -348,6 +348,27 @@ test('addPayment recusa fiado maior que o total da venda — não pode inflar a 
   assert.match(resultado.error, /passa do que falta/i);
 });
 
+test('addPayment aceita pix maior que o que falta: limita ao restante e guarda o valor recebido', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 }); // total = 20
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 9, detalhes: {} }); // falta 11
+
+  const pix = saleService.addPayment({ saleId: ctx.saleId, metodo: 'pix', valor: 15, detalhes: {} });
+  assert.equal(pix.ok, true);
+  assert.equal(pix.valor, 11);
+
+  const fim = saleService.finalizeSale(ctx.saleId);
+  assert.equal(fim.ok, true);
+});
+
+test('addPayment com pix numa venda já quitada não erra nem lança nada', () => {
+  const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 });
+  saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 20, detalhes: {} });
+
+  const pix = saleService.addPayment({ saleId: ctx.saleId, metodo: 'pix', valor: 5, detalhes: {} });
+  assert.equal(pix.ok, true);
+  assert.equal(pix.semLancamento, true);
+});
+
 test('addPayment recusa cartão/pix/outro maior que o que falta, mesmo em split', () => {
   const ctx = abrirVendaComItem(freshTestDb(), { preco: 20, quantidadeVenda: 1 }); // total = 20
   saleService.addPayment({ saleId: ctx.saleId, metodo: 'dinheiro', valor: 5, detalhes: {} }); // falta 15
