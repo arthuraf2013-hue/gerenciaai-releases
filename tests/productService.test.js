@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('crypto');
-const { freshTestDb, createSuporteUser } = require('./helpers/testDb');
+const { freshTestDb, createSuporteUser, createProduct, addStock } = require('./helpers/testDb');
 const productService = require('../electron/services/productService');
 
 function inserirProduto(db, nome, extras = {}) {
@@ -284,4 +284,56 @@ test('count com comConflito bate com o tamanho de list com o mesmo filtro', () =
 
   assert.equal(productService.count({ comConflito: true }), 1);
   assert.equal(productService.count({}), 3);
+});
+
+// ---------------------------------------------------------------------
+// list com locationId — anexa estoque_atual (usado pela busca do PDV,
+// que mostra a quantidade em estoque ao lado do resultado).
+// ---------------------------------------------------------------------
+
+test('list com locationId anexa estoque_atual a cada produto, numa consulta só', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Dipirona 500mg' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 12, operadorId: adminId });
+
+  const semLocationId = productService.list({ query: 'dipirona' });
+  assert.equal(semLocationId[0].estoque_atual, undefined, 'sem locationId, o campo nem deveria existir -- comportamento de antes, pros outros chamadores de list()');
+
+  const comLocationId = productService.list({ query: 'dipirona', locationId });
+  assert.equal(comLocationId[0].estoque_atual, 12);
+});
+
+test('list com locationId reflete estoque de outra máquina/local corretamente (cada local conta separado)', () => {
+  const { db, locationId: locationPrincipal, adminId } = freshTestDb();
+  const outroLocationId = randomUUID();
+  db.prepare(`INSERT INTO locations (id, nome) VALUES (?, 'Filial 2')`).run(outroLocationId);
+  const produtoId = createProduct(db, { nome: 'Produto Multi-Local' });
+  addStock(db, { productId: produtoId, locationId: outroLocationId, quantidade: 30, operadorId: adminId });
+
+  // Local principal nunca recebeu entrada -- estoque tem que ser 0 ali,
+  // não vazar o estoque da Filial 2.
+  const noPrincipal = productService.list({ query: 'multi-local', locationId: locationPrincipal });
+  assert.equal(noPrincipal[0].estoque_atual, 0);
+
+  const naFilial2 = productService.list({ query: 'multi-local', locationId: outroLocationId });
+  assert.equal(naFilial2[0].estoque_atual, 30);
+});
+
+test('list com locationId não anexa estoque a produto do tipo serviço (nunca tem stock_movements)', () => {
+  const { db, locationId } = freshTestDb();
+  createProduct(db, { nome: 'Corte de Cabelo', tipo: 'servico' });
+
+  const resultado = productService.list({ query: 'corte', locationId });
+  assert.equal(resultado.length, 1);
+  assert.equal(resultado[0].estoque_atual, undefined, 'serviço não tem estoque -- 0 seria enganoso, o campo fica de fora');
+});
+
+test('list com locationId também funciona na busca genérica (sem query, por categoria/paginada)', () => {
+  const { db, locationId, adminId } = freshTestDb();
+  const produtoId = createProduct(db, { nome: 'Produto Paginado', categoria: 'Bebidas' });
+  addStock(db, { productId: produtoId, locationId, quantidade: 7, operadorId: adminId });
+
+  const resultado = productService.list({ categoria: 'Bebidas', locationId });
+  assert.equal(resultado.length, 1);
+  assert.equal(resultado[0].estoque_atual, 7);
 });

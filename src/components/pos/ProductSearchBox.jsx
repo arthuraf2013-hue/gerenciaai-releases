@@ -28,7 +28,7 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
       setOpen(false);
       return;
     }
-    window.pdv.products.list({ query: debouncedQuery }).then((list) => {
+    window.pdv.products.list({ query: debouncedQuery, locationId: window.APP_LOCATION_ID }).then((list) => {
       if (ignore) return;
       const listaLocal = Array.isArray(list) ? list.slice(0, 8) : [];
       setResults(listaLocal);
@@ -69,6 +69,26 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
     setResultadosDoGrupo([]);
     setOpen(false);
     setIndiceSelecionado(-1);
+  }
+
+  /**
+   * 'zerado' (sem nenhuma unidade), 'baixo' (no ou abaixo do mínimo
+   * configurado) ou 'ok' -- decide a cor do texto de estoque no resultado.
+   * null pra serviço (não tem estoque) ou pra resultado do grupo (produto
+   * ainda não trazido pra base local, sem produtService.list.locationId
+   * calculado -- ver anexarEstoque em productService.js).
+   */
+  function calcularNivelEstoque(p) {
+    if (p.tipo === 'servico' || p.estoque_atual == null) return null;
+    if (p.estoque_atual <= 0) return 'zerado';
+    if (p.estoque_minimo > 0 && p.estoque_atual <= p.estoque_minimo) return 'baixo';
+    return 'ok';
+  }
+
+  function formatarEstoque(p) {
+    if (p.estoque_atual <= 0) return 'Sem estoque';
+    if (p.unidade === 'kg') return `Estoque: ${p.estoque_atual.toFixed(3)} kg`;
+    return `Estoque: ${Math.round(p.estoque_atual)} un`;
   }
 
   // Card de "produto personalizado" só aparece quando a busca é
@@ -119,7 +139,7 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
       // digitação humana). Busca na hora, sem esperar o debounce, e
       // adiciona direto — sem isso, o código ficava "esperando" no
       // campo até o dropdown aparecer sozinho, exigindo clicar depois.
-      const listaFresca = await window.pdv.products.list({ query: query.trim() });
+      const listaFresca = await window.pdv.products.list({ query: query.trim(), locationId: window.APP_LOCATION_ID });
       if (Array.isArray(listaFresca) && listaFresca.length > 0) {
         handleSelect(listaFresca[0]);
         return;
@@ -169,36 +189,54 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
       )}
       {open && results.length > 0 && modoBusca === 'blocos' && (
         <div className="product-search-results product-search-results-blocks">
-          {results.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`product-card ${i === indiceSelecionado ? 'product-search-result-active' : ''}`}
-              onClick={() => handleSelect(p)}
-              onMouseEnter={() => setIndiceSelecionado(i)}
-            >
-              <ProductThumbnail product={p} size={56} />
-              <span className="product-card-name">{p.nome}</span>
-              <span className="product-card-price">R$ {p.preco.toFixed(2)}</span>
-            </button>
-          ))}
+          {results.map((p, i) => {
+            const nivelEstoque = calcularNivelEstoque(p);
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={`product-card ${i === indiceSelecionado ? 'product-search-result-active' : ''}`}
+                onClick={() => handleSelect(p)}
+                onMouseEnter={() => setIndiceSelecionado(i)}
+              >
+                <ProductThumbnail product={p} size={56} />
+                <span className="product-card-name">{p.nome}</span>
+                {nivelEstoque && (
+                  <span className={`product-card-stock${nivelEstoque !== 'ok' ? ` product-card-stock-${nivelEstoque}` : ''}`}>
+                    {formatarEstoque(p)}
+                  </span>
+                )}
+                <span className="product-card-price">R$ {p.preco.toFixed(2)}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       {open && results.length > 0 && modoBusca !== 'blocos' && (
         <ul className="product-search-results">
-          {results.map((p, i) => (
-            <li key={p.id}>
-              <button
-                type="button"
-                className={i === indiceSelecionado ? 'product-search-result-active' : ''}
-                onClick={() => handleSelect(p)}
-                onMouseEnter={() => setIndiceSelecionado(i)}
-              >
-                <span>{p.nome}</span>
-                <span className="product-search-price">R$ {p.preco.toFixed(2)}</span>
-              </button>
-            </li>
-          ))}
+          {results.map((p, i) => {
+            const nivelEstoque = calcularNivelEstoque(p);
+            return (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className={i === indiceSelecionado ? 'product-search-result-active' : ''}
+                  onClick={() => handleSelect(p)}
+                  onMouseEnter={() => setIndiceSelecionado(i)}
+                >
+                  <span className="product-search-name-wrap">
+                    <span>{p.nome}</span>
+                    {nivelEstoque && (
+                      <span className={`product-search-stock${nivelEstoque !== 'ok' ? ` product-search-stock-${nivelEstoque}` : ''}`}>
+                        {formatarEstoque(p)}
+                      </span>
+                    )}
+                  </span>
+                  <span className="product-search-price">R$ {p.preco.toFixed(2)}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
       {open && results.length === 0 && resultadosDoGrupo.length > 0 && (

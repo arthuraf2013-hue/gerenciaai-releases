@@ -75,7 +75,34 @@ function normalizarTexto(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
-function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, cursorId } = {}) {
+/**
+ * Anexa o campo estoque_atual a cada produto da lista, numa única consulta
+ * agregada (nunca uma por produto -- N+1 numa lista de 8 resultados da
+ * busca do PDV não pesa muito sozinho, mas o padrão já usado no resto do
+ * arquivo pra isso é sempre uma consulta só, ver getStockForLocation em
+ * stockService.js). Serviço fica de fora de propósito -- nunca gera
+ * stock_movements (mesmo raciocínio de saleService/cancelSaleItem), então
+ * "0 em estoque" pra ele seria enganoso, não uma informação real.
+ */
+function anexarEstoque(db, produtos, locationId) {
+  const paraEstoque = produtos.filter((p) => p.tipo !== 'servico');
+  if (paraEstoque.length === 0) return produtos;
+
+  const ids = paraEstoque.map((p) => p.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const linhas = db.prepare(
+    `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements
+     WHERE location_id = ? AND product_id IN (${placeholders})
+     GROUP BY product_id`
+  ).all(locationId, ...ids);
+  const porProduto = new Map(linhas.map((l) => [l.product_id, l.total]));
+
+  return produtos.map((p) => (
+    p.tipo === 'servico' ? p : { ...p, estoque_atual: porProduto.get(p.id) || 0 }
+  ));
+}
+
+function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, cursorId, locationId } = {}) {
   const db = getDb();
 
   if (query && !categoria) {
@@ -151,7 +178,7 @@ function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, 
         resultado = resultado.slice(offset || 0, (offset || 0) + limit);
       }
     }
-    return resultado;
+    return locationId ? anexarEstoque(db, resultado, locationId) : resultado;
   }
 
   const params = [];
@@ -212,7 +239,8 @@ function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, 
     }
   }
 
-  return db.prepare(sql).all(...params);
+  const resultado = db.prepare(sql).all(...params);
+  return locationId ? anexarEstoque(db, resultado, locationId) : resultado;
 }
 
 /** Categorias distintas já cadastradas — a base dos botões no PDV. Novas

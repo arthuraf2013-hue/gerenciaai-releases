@@ -45,7 +45,12 @@
   #login-screen form { display: flex; flex-direction: column; gap: 10px; }
   #app-screen { display: none; }
   .toolbar { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
-  .toolbar input { flex: 1; }
+  .toolbar input[type="text"] { flex: 1; }
+  .toolbar-check {
+    display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted);
+    white-space: nowrap; cursor: pointer; user-select: none;
+  }
+  .toolbar-check input[type="checkbox"] { width: auto; cursor: pointer; }
   .setores-nav { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 6px; }
   .setor-link {
     display: inline-block; padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
@@ -59,6 +64,7 @@
   .status-inativa { background: rgba(224,112,93,0.2); color: var(--danger); }
   .status-bloqueio-imediato { background: rgba(201,66,44,0.3); color: #ff9c85; }
   .status-atraso { background: rgba(242,206,122,0.2); color: var(--warning); }
+  .status-offline-muted { background: rgba(174,194,186,0.15); color: var(--text-muted); }
   .error { color: var(--danger); font-size: 13px; }
   .empty { color: var(--text-muted); text-align: center; padding: 32px; }
   #sair-btn { float: right; }
@@ -78,7 +84,7 @@
     display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--surface2);
     border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap;
   }
-  .online-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .online-dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
   .online-dot-on { background: var(--primary); box-shadow: 0 0 0 rgba(55,171,153,0.5); animation: pulso-online 2s infinite; }
   .online-dot-off { background: var(--text-muted); opacity: 0.5; }
   @keyframes pulso-online {
@@ -86,6 +92,13 @@
     70% { box-shadow: 0 0 0 6px rgba(55,171,153,0); }
     100% { box-shadow: 0 0 0 0 rgba(55,171,153,0); }
   }
+  /* Antes o pontinho só tinha o title (tooltip) pra dizer online/offline —
+     dependia de passar o mouse em cima pra saber. Agora o texto fica visível
+     direto ao lado, sem precisar de hover. */
+  .maquina-online-status { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .maquina-online-texto { font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .maquina-online-texto-on { color: var(--primary); }
+  .maquina-online-texto-off { color: var(--text-muted); }
   .maquina-nome-input {
     background: transparent; border: none; color: var(--text); font-size: 13px; font-weight: 600;
     padding: 4px 6px; border-radius: 4px; width: 220px;
@@ -178,6 +191,10 @@
 
       <div class="toolbar">
         <input type="text" id="busca" placeholder="Buscar por cliente, negócio ou ID da máquina...">
+        <label class="toolbar-check">
+          <input type="checkbox" id="filtro-somente-online">
+          Só online
+        </label>
         <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
       </div>
 
@@ -544,6 +561,7 @@
   const listaClientes = document.getElementById('lista-clientes');
   const vazioDiv = document.getElementById('vazio');
   const buscaInput = document.getElementById('busca');
+  const filtroSomenteOnlineInput = document.getElementById('filtro-somente-online');
   const novoClienteModal = document.getElementById('novo-cliente-modal');
   const vincularModal = document.getElementById('vincular-modal');
   const erroGeralDiv = document.getElementById('erro-geral');
@@ -874,16 +892,38 @@
       const online = estaOnline(inst);
       dot.className = `online-dot ${online ? 'online-dot-on' : 'online-dot-off'}`;
       dot.title = online ? 'Online agora' : 'Offline';
+      const texto = listaClientes.querySelector(`[data-online-texto="${inst.id}"]`);
+      if (texto) {
+        texto.className = `maquina-online-texto ${online ? 'maquina-online-texto-on' : 'maquina-online-texto-off'}`;
+        texto.textContent = online ? 'Online' : 'Offline';
+      }
     }
+    // Chave 'sem-vinculo' junto no mesmo mapa pra reaproveitar o loop de
+    // baixo também no selo do bloco "Sem vínculo" (ele só tem o selo, não
+    // o resumo de texto — resumoEl abaixo simplesmente não encontra nada
+    // pra essa chave e pula, sem erro).
     const clientesComMaquinas = new Map();
     for (const inst of instalacoes) {
-      if (!inst.clienteId) continue;
-      if (!clientesComMaquinas.has(inst.clienteId)) clientesComMaquinas.set(inst.clienteId, []);
-      clientesComMaquinas.get(inst.clienteId).push(inst);
+      const chave = inst.clienteId || 'sem-vinculo';
+      if (!clientesComMaquinas.has(chave)) clientesComMaquinas.set(chave, []);
+      clientesComMaquinas.get(chave).push(inst);
     }
     for (const [clienteId, maquinas] of clientesComMaquinas) {
       const resumoEl = listaClientes.querySelector(`[data-resumo-cliente="${clienteId}"]`);
       if (resumoEl) resumoEl.textContent = calcularResumoStatus(maquinas);
+      // O selo do grupo só existe no DOM se o cliente já tinha alguma
+      // máquina no último render() completo (calcularBadgeOnline devolve
+      // null pra bloco sem nenhuma) — se um cliente ganhou a primeira
+      // máquina só agora, o selo aparece no próximo render completo, não
+      // aqui (esse loop só atualiza o que já existe, nunca cria elemento).
+      const badgeEl = listaClientes.querySelector(`[data-badge-online-cliente="${clienteId}"]`);
+      if (badgeEl) {
+        const badge = calcularBadgeOnline(maquinas);
+        if (badge) {
+          badgeEl.className = `status-pill ${badge.classe}`;
+          badgeEl.textContent = badge.texto;
+        }
+      }
     }
   }
 
@@ -2490,8 +2530,9 @@
       renderListaCofre();
     }
     const filtro = buscaInput.value.trim().toLowerCase();
+    const somenteOnline = filtroSomenteOnlineInput.checked;
 
-    const instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {
+    let instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {
       const cliente = clientes.find((c) => c.id === i.clienteId);
       return (
         (i.nomeNegocio || '').toLowerCase().includes(filtro) ||
@@ -2499,7 +2540,14 @@
         i.id.toLowerCase().includes(filtro)
       );
     });
+    // Igual ao filtro de busca por texto: só é reaplicado aqui, no render()
+    // completo. Uma máquina que estava online quando a lista foi montada e
+    // fica offline nos 30s seguintes só some daqui na próxima vez que algo
+    // disparar um render completo (não no tick leve de atualizarSinaisOnline,
+    // que de propósito não redesenha a lista — ver comentário lá).
+    if (somenteOnline) instalacoesFiltradas = instalacoesFiltradas.filter((i) => estaOnline(i));
 
+    vazioDiv.textContent = somenteOnline ? 'Nenhuma máquina online agora.' : 'Nenhuma instalação encontrada.';
     vazioDiv.style.display = instalacoesFiltradas.length === 0 ? 'block' : 'none';
 
     // Agrupa por cliente — máquinas sem clienteId (ou cujo cliente não existe mais) vão pro grupo "sem vínculo".
@@ -2521,10 +2569,15 @@
     // (acabou de ser criado) — sem isso, o cliente "some" da lista até
     // você vincular alguma máquina a ele, o que é confuso. Só entra se
     // não tiver busca ativa, ou se o nome dele bater com a busca.
-    for (const cliente of clientes) {
-      if (porCliente.has(cliente.id)) continue;
-      if (filtro && !cliente.nome.toLowerCase().includes(filtro)) continue;
-      porCliente.set(cliente.id, { cliente, maquinas: [] });
+    // Com "Só online" marcado, esse cliente sem nenhuma máquina tem, por
+    // definição, zero online — não faz sentido aparecer nessa visão, então
+    // pula esse preenchimento inteiro.
+    if (!somenteOnline) {
+      for (const cliente of clientes) {
+        if (porCliente.has(cliente.id)) continue;
+        if (filtro && !cliente.nome.toLowerCase().includes(filtro)) continue;
+        porCliente.set(cliente.id, { cliente, maquinas: [] });
+      }
     }
 
     for (const { cliente, maquinas } of porCliente.values()) {
@@ -2542,17 +2595,35 @@
     const algumaBloqueada = maquinas.some((m) => m.bloqueioImediato);
     const algumaCongelada = maquinas.some((m) => !m.ativo && !m.bloqueioImediato);
     const todasAtivas = maquinas.length > 0 && maquinas.every((m) => m.ativo && !m.bloqueioImediato);
-    const qtdOnline = maquinas.filter((m) => estaOnline(m)).length;
-    let resumoStatus = maquinas.length === 0 ? 'Nenhuma máquina vinculada ainda' : `${maquinas.length} máquina(s) — ${qtdOnline} online agora`;
+    // A contagem "X online agora" saiu daqui — agora é o selo colorido de
+    // calcularBadgeOnline, que bate o olho sem precisar ler o texto.
+    let resumoStatus = maquinas.length === 0 ? 'Nenhuma máquina vinculada ainda' : `${maquinas.length} máquina(s)`;
     if (algumaBloqueada) resumoStatus += ' — tem máquina bloqueada';
     else if (algumaCongelada) resumoStatus += ' — tem máquina congelada';
     else if (todasAtivas) resumoStatus += ' — todas ativas';
     return resumoStatus;
   }
 
+  /**
+   * Selo colorido do grupo (cabeçalho de cada cliente): verde = todas as
+   * máquinas vinculadas estão online agora, amarelo = só parte, cinza =
+   * nenhuma. Substitui o "X online agora" que antes ficava perdido no meio
+   * do texto do resumo — agora dá pra bater o olho na cor sem ler nada.
+   * null quando o cliente ainda não tem nenhuma máquina vinculada (nada
+   * relevante pra mostrar em cima do texto "Nenhuma máquina vinculada").
+   */
+  function calcularBadgeOnline(maquinas) {
+    if (maquinas.length === 0) return null;
+    const qtdOnline = maquinas.filter((m) => estaOnline(m)).length;
+    if (qtdOnline === 0) return { texto: 'Nenhum online', classe: 'status-offline-muted' };
+    if (qtdOnline === maquinas.length) return { texto: maquinas.length === 1 ? 'Online' : 'Todos online', classe: 'status-ativa' };
+    return { texto: `${qtdOnline} de ${maquinas.length} online`, classe: 'status-atraso' };
+  }
+
   function renderBlocoCliente(cliente, maquinas) {
     const aberto = blocosAbertos.has(cliente.id);
     const resumoStatus = calcularResumoStatus(maquinas);
+    const badgeOnline = calcularBadgeOnline(maquinas);
     const venc = statusVencimento(cliente);
     // Cliente antigo que ainda só tem a data única `vencimento` (campo
     // substituído por este recurso) e nunca definiu o dia recorrente
@@ -2569,6 +2640,7 @@
             <span class="cliente-nome">${escapeHtml(cliente.nome)}</span>
             ${cliente.documento ? `<span class="cliente-doc">${escapeHtml(cliente.documento)}</span>` : ''}
             ${venc ? `<span class="status-pill ${venc.classe}" style="margin-left:8px;">${venc.texto}</span>` : ''}
+            ${badgeOnline ? `<span class="status-pill ${badgeOnline.classe}" style="margin-left:8px;" data-badge-online-cliente="${cliente.id}">${badgeOnline.texto}</span>` : ''}
             <div class="cliente-resumo" data-resumo-cliente="${cliente.id}">${resumoStatus}</div>
           </div>
           <div class="cliente-acoes">
@@ -2626,12 +2698,14 @@
 
   function renderBlocoSemVinculo(maquinas) {
     const aberto = blocosAbertos.has('sem-vinculo');
+    const badgeOnline = calcularBadgeOnline(maquinas);
     return `
       <div class="card cliente-card nao-vinculados" data-cliente-card="sem-vinculo">
         <div class="cliente-header ${aberto ? 'aberto' : ''}" data-toggle-cliente="sem-vinculo">
           <span class="chevron">▶</span>
           <div class="cliente-info">
             <span class="cliente-nome">Sem vínculo</span>
+            ${badgeOnline ? `<span class="status-pill ${badgeOnline.classe}" style="margin-left:8px;" data-badge-online-cliente="sem-vinculo">${badgeOnline.texto}</span>` : ''}
             <div class="cliente-resumo">${maquinas.length} máquina(s) ainda não vinculada(s) a nenhum cliente</div>
           </div>
         </div>
@@ -2647,7 +2721,10 @@
     const online = estaOnline(inst);
     return `
       <div class="maquina-row">
-        <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}" data-online-dot="${inst.id}"></span>
+        <span class="maquina-online-status">
+          <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}" data-online-dot="${inst.id}"></span>
+          <span class="maquina-online-texto ${online ? 'maquina-online-texto-on' : 'maquina-online-texto-off'}" data-online-texto="${inst.id}">${online ? 'Online' : 'Offline'}</span>
+        </span>
         <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
           placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
         <span class="status-pill ${status.classe}">${status.texto}</span>
@@ -2797,6 +2874,7 @@
   }
 
   buscaInput.addEventListener('input', render);
+  filtroSomenteOnlineInput.addEventListener('change', render);
 </script>
 </body>
 </html>
