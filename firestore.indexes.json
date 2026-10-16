@@ -1,5 +1,22 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "pedidos_garcom",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "garcomUid", "order": "ASCENDING" },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "vendas_mobile",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dispositivoUid", "order": "ASCENDING" },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": [
     {
       "collectionGroup": "pareamentos",

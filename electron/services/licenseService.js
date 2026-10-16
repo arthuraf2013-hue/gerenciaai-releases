@@ -266,9 +266,15 @@ async function enviarPing() {
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const ref = doc(firestore, 'installations', installId);
     await setDoc(ref, { ultimoPing: serverTimestamp() }, { merge: true });
+    // Esse ping já é a chamada de rede mais frequente e mais leve que a
+    // instalação faz o tempo todo — aproveita pra alimentar o sinal
+    // genérico de "estamos online?" usado pelo indicador do PDV (ver
+    // connectivityService.js), em vez de criar outra checagem só pra isso.
+    require('./connectivityService').marcarOnline();
   } catch (err) {
     // Sem internet, ou o app acabou de abrir e ainda nem criou o
     // documento — não tem problema, o próximo ping tenta de novo.
+    require('./connectivityService').marcarOffline();
   }
 }
 

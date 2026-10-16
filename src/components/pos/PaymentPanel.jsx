@@ -15,7 +15,7 @@ const METODOS = [
 /**
  * @param {{ saleId: string, total: number, onFinalized: () => void }} props
  */
-export function PaymentPanel({ saleId, total: totalProp, onFinalized, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0 }) {
+export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPendente, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0 }) {
   const { currentUser } = useSession();
   const [metodo, setMetodo] = useState('dinheiro');
   const [valor, setValor] = useState('');
@@ -24,6 +24,15 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, mostrarTax
   const [error, setError] = useState('');
   const [finalizando, setFinalizando] = useState(false);
   const [finalizada, setFinalizada] = useState(false);
+
+  // Venda esperando confirmação de estoque do grupo (rede caiu bem no
+  // momento de finalizar -- ver finalizeSaleComVerificacaoDeGrupo no
+  // backend). Diferente de `error`: aqui a venda NÃO falhou de verdade,
+  // só está esperando a conexão voltar, e um ciclo automático em segundo
+  // plano (main.js) já está tentando de novo sozinho.
+  const [pendenteEstoqueGrupo, setPendenteEstoqueGrupo] = useState(false);
+  const [tentativasPendente, setTentativasPendente] = useState(0);
+  const [tentandoAgora, setTentandoAgora] = useState(false);
   const [nfceStatus, setNfceStatus] = useState(null);
   const [showCancelarNfceAuth, setShowCancelarNfceAuth] = useState(false);
   const [printMsg, setPrintMsg] = useState('');
@@ -81,6 +90,28 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, mostrarTax
     })();
     return () => { ativo = false; };
   }, [saleId]);
+
+  // Enquanto espera confirmação de estoque do grupo, confere periodicamente
+  // se o ciclo automático em segundo plano (main.js) já resolveu a venda
+  // sozinho -- sem isso, o operador ficaria preso na tela de "aguardando"
+  // mesmo depois da conexão já ter voltado e a venda já ter finalizado.
+  useEffect(() => {
+    if (!pendenteEstoqueGrupo) return;
+    let ativo = true;
+    const intervalo = setInterval(async () => {
+      let r = null;
+      try { r = await window.pdv.sale.statusPendenteEstoque({ saleId }); } catch { r = null; }
+      if (!ativo || !r?.ok) return;
+      if (r.status === 'finalizada') {
+        setPendenteEstoqueGrupo(false);
+        await concluirAposFinalizar();
+      } else {
+        setTentativasPendente(r.tentativas || 0);
+      }
+    }, 8000);
+    return () => { ativo = false; clearInterval(intervalo); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendenteEstoqueGrupo, saleId]);
 
   const subtotalComDesconto = total - desconto - descontoGerente;
   const valorTaxaServico = taxaServico > 0 ? subtotalComDesconto * (taxaServico / 100) : 0;
@@ -306,17 +337,67 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, mostrarTax
     navigator.clipboard?.writeText(pix.payload);
   }
 
-  async function finalizar() {
-    setFinalizando(true);
-    const result = await window.pdv.sale.finalize({ saleId });
-    setFinalizando(false);
-    if (!result.ok) return setError(result.error);
+  /** Mesmo passo final de sempre (marcar como finalizada + imprimir
+   * automático se configurado) -- compartilhado entre o clique normal em
+   * "Finalizar venda" e a detecção de que o ciclo automático em segundo
+   * plano já resolveu sozinho uma venda que estava aguardando estoque do
+   * grupo (ver o useEffect de polling acima e tentarAgora abaixo). */
+  async function concluirAposFinalizar() {
     setFinalizada(true);
-
     const receiptConfig = await window.pdv.print.getReceiptConfig();
     if (receiptConfig?.imprimir_automatico) {
       window.pdv.print.receipt({ saleId });
     }
+  }
+
+  async function finalizar() {
+    setError('');
+    setFinalizando(true);
+    const result = await window.pdv.sale.finalize({ saleId });
+    setFinalizando(false);
+    if (!result.ok) {
+      if (result.pendente) {
+        // Rede caiu na checagem de estoque do grupo -- não é um erro
+        // definitivo, a venda continua aberta e um ciclo automático em
+        // segundo plano já vai tentar de novo sozinho.
+        setPendenteEstoqueGrupo(true);
+        setTentativasPendente(result.tentativas || 1);
+        return;
+      }
+      setPendenteEstoqueGrupo(false);
+      return setError(result.error);
+    }
+    setPendenteEstoqueGrupo(false);
+    await concluirAposFinalizar();
+  }
+
+  /** Botão "Tentar agora" -- ignora o backoff automático e tenta na hora,
+   * a pedido do operador. Confere primeiro se o ciclo automático já
+   * resolveu a venda enquanto esperávamos, pra não arriscar chamar
+   * finalize() de novo sobre uma venda que já não está mais aberta. */
+  async function tentarAgora() {
+    setTentandoAgora(true);
+    let status = null;
+    try { status = await window.pdv.sale.statusPendenteEstoque({ saleId }); } catch { status = null; }
+    if (status?.ok && status.status === 'finalizada') {
+      setTentandoAgora(false);
+      setPendenteEstoqueGrupo(false);
+      await concluirAposFinalizar();
+      return;
+    }
+
+    const result = await window.pdv.sale.finalize({ saleId });
+    setTentandoAgora(false);
+    if (!result.ok) {
+      if (result.pendente) {
+        setTentativasPendente(result.tentativas || tentativasPendente + 1);
+        return;
+      }
+      setPendenteEstoqueGrupo(false);
+      return setError(result.error);
+    }
+    setPendenteEstoqueGrupo(false);
+    await concluirAposFinalizar();
   }
 
   function resumoNfce(result) {
@@ -619,13 +700,45 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, mostrarTax
         </ul>
       )}
 
-      {error && <p className="modal-error">{error}</p>}
+      {pendenteEstoqueGrupo ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p className="io-message-aviso">
+            <Icon name="plug" size={15} />
+            Aguardando confirmação do estoque do grupo — a conexão caiu no momento de
+            finalizar. A venda já está salva aqui mesmo e vamos tentar de novo sozinhos
+            {tentativasPendente > 0 ? ` (tentativa ${tentativasPendente})` : ''}.
+          </p>
+          <button className="btn-secondary" disabled={tentandoAgora} onClick={tentarAgora}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="refresh" size={15} /> {tentandoAgora ? 'Tentando...' : 'Tentar agora'}
+            </span>
+          </button>
+          {onAdiarPendente && (
+            // Libera o operador pra atender o próximo cliente em vez de
+            // ficar parado nessa tela esperando a conexão voltar -- a
+            // venda não se perde (continua salva e pendente, ver
+            // pendente_estoque_grupo no backend) e vai ser confirmada
+            // sozinha, uma a uma na ordem de chegada, assim que a
+            // sincronização conseguir falar com o servidor do grupo de
+            // novo. Ver indicador de "N venda(s) aguardando" no PDV.
+            <button className="btn-link" onClick={onAdiarPendente}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="add" size={14} /> Fazer outra venda enquanto espera
+              </span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          {error && <p className="modal-error">{error}</p>}
 
-      <button className="btn-primary" disabled={!pagamentoCompleto || finalizando} onClick={finalizar}>
-        {finalizando ? 'Finalizando...' : (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Finalizar venda</span>
-        )}
-      </button>
+          <button className="btn-primary" disabled={!pagamentoCompleto || finalizando} onClick={finalizar}>
+            {finalizando ? 'Finalizando...' : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Finalizar venda</span>
+            )}
+          </button>
+        </>
+      )}
 
       {showDescontoAuth && (
         <ManagerAuthModal

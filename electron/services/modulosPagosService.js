@@ -2,7 +2,7 @@ const { getDb } = require('../db/database');
 
 /**
  * Espelho local de quais módulos pagos (Consulta remota, App do
- * garçom) estão ativos pro cliente desta instalação -- ver PARTE 1.5
+ * garçom, PDV móvel) estão ativos pro cliente desta instalação -- ver PARTE 1.5
  * de firestore.rules, que é onde a checagem de verdade acontece
  * (Firestore rejeita a escrita mesmo que este espelho esteja
  * desatualizado ou nunca tenha sincronizado). O propósito deste
@@ -29,12 +29,12 @@ function getLocalState() {
   return row;
 }
 
-function salvarEstado({ clienteId, consultaRemota, appGarcom, jaSincronizado }) {
+function salvarEstado({ clienteId, consultaRemota, appGarcom, pdvMobile, jaSincronizado }) {
   const db = getDb();
   getLocalState(); // garante que a linha 'default' existe antes do UPDATE
   db.prepare(
-    `UPDATE modulos_pagos_state SET cliente_id = ?, consulta_remota = ?, app_garcom = ?, ja_sincronizado = ? WHERE id = ?`
-  ).run(clienteId, consultaRemota ? 1 : 0, appGarcom ? 1 : 0, jaSincronizado ? 1 : 0, 'default');
+    `UPDATE modulos_pagos_state SET cliente_id = ?, consulta_remota = ?, app_garcom = ?, pdv_mobile = ?, ja_sincronizado = ? WHERE id = ?`
+  ).run(clienteId, consultaRemota ? 1 : 0, appGarcom ? 1 : 0, pdvMobile ? 1 : 0, jaSincronizado ? 1 : 0, 'default');
 }
 
 let pararEscutaCliente = null;
@@ -58,7 +58,7 @@ function aplicarClienteIdDaInstalacao(dadosInstalacao) {
     // fica ativo (mesma conclusão a que a regra do Firestore chega).
     if (pararEscutaCliente) { pararEscutaCliente(); pararEscutaCliente = null; }
     clienteIdComEscutaAtiva = null;
-    salvarEstado({ clienteId: null, consultaRemota: false, appGarcom: false, jaSincronizado: true });
+    salvarEstado({ clienteId: null, consultaRemota: false, appGarcom: false, pdvMobile: false, jaSincronizado: true });
     return;
   }
 
@@ -81,6 +81,7 @@ function aplicarClienteIdDaInstalacao(dadosInstalacao) {
           clienteId: novoClienteId,
           consultaRemota: modulos.consultaRemota === true,
           appGarcom: modulos.appGarcom === true,
+          pdvMobile: modulos.pdvMobile === true,
           jaSincronizado: true,
         });
       },
@@ -110,7 +111,9 @@ function aplicarClienteIdDaInstalacao(dadosInstalacao) {
 function moduloAtivo(modulo) {
   const state = getLocalState();
   if (!state.ja_sincronizado) return true;
-  return modulo === 'appGarcom' ? state.app_garcom === 1 : state.consulta_remota === 1;
+  if (modulo === 'appGarcom') return state.app_garcom === 1;
+  if (modulo === 'pdvMobile') return state.pdv_mobile === 1;
+  return state.consulta_remota === 1;
 }
 
 module.exports = { aplicarClienteIdDaInstalacao, moduloAtivo };

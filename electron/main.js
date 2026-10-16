@@ -192,6 +192,11 @@ app.whenReady().then(() => {
   require('./services/pairingService').iniciarEscutaPareamentos();
   require('./services/liveStatusSyncService').iniciarPublicacaoContinua();
   require('./services/pedidoGarcomSyncService').iniciarEscutaPedidosGarcom();
+  // PDV móvel -- vendas feitas no celular (pareado com tipo 'pdv')
+  // viram venda de verdade aqui, consultas sob demanda (produto fora do
+  // catálogo publicado, cliente, Pix) e config/sinal de vida pro celular.
+  // Ver pdvMobileSyncService.js.
+  require('./services/pdvMobileSyncService').iniciarPdvMobile();
   // Lista de funcionários (nome/papel/status) pra quem parear como
   // "Consulta remota" -- ver userStatusSyncService.js e a seção
   // "Usuários" em pwa-mobile/consulta.js.
@@ -254,6 +259,22 @@ app.whenReady().then(() => {
   // o bastante pro caso comum (SEFAZ ainda fora do ar: só volta a
   // falhar e tenta de novo no próximo ciclo, sem duplicar nada).
   setInterval(() => executarSeNaoEstiverRodando('fiscalReenvio', reenviarPendentesEContingencia), 5 * 60 * 1000);
+
+  // Vendas que ficaram esperando confirmação de estoque do grupo (rede
+  // caiu bem no momento de finalizar — ver
+  // saleService.finalizeSaleComVerificacaoDeGrupo/stockSyncService).
+  // Intervalo bem mais curto que os outros jobs desta lista de propósito:
+  // o backoff de cada venda pendente começa em 10s (ver
+  // BACKOFF_ESTOQUE_GRUPO_MS em saleService.js) — um ciclo de 5 min como
+  // os outros faria o operador esperar minutos por uma queda de conexão
+  // que já tinha voltado há tempo. Quando não há nenhuma venda pendente
+  // (o caso comum, a imensa maioria das vezes), a função já filtra isso
+  // numa única consulta local antes de qualquer chamada de rede — rodar
+  // a cada 10s não pesa nada nesse caso.
+  setInterval(
+    () => executarSeNaoEstiverRodando('estoqueGrupoRetry', () => require('./services/saleService').tentarFinalizarVendasPendentesDeEstoque()),
+    10 * 1000
+  );
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

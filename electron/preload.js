@@ -92,6 +92,10 @@ contextBridge.exposeInMainWorld('pdv', {
     setItemPrice: invoke('sale:setItemPrice'),
     editarHistorico: invoke('sale:editarHistorico'),
     finalize: invoke('sale:finalize'),
+    statusPendenteEstoque: invoke('sale:statusPendenteEstoque'),
+    tentarPendentesEstoqueGrupo: invoke('sale:tentarPendentesEstoqueGrupo'),
+    contarPendentesEstoqueGrupo: invoke('sale:contarPendentesEstoqueGrupo'),
+    listarPendentesEstoqueGrupo: invoke('sale:listarPendentesEstoqueGrupo'),
     cancelItem: invoke('sale:cancelItem'),
     needsManagerAuthForCancel: invoke('sale:needsManagerAuthForCancel'),
     getItemsDetail: invoke('sale:getItemsDetail'),
@@ -179,6 +183,11 @@ contextBridge.exposeInMainWorld('pdv', {
     reativarDispositivo: invoke('pairing:reativarDispositivo'),
     excluirDispositivo: invoke('pairing:excluirDispositivo'),
   },
+  pdvMobile: {
+    getConfig: invoke('pdvMobile:getConfig'),
+    saveConfig: invoke('pdvMobile:saveConfig'),
+    listarVendasRecentes: invoke('pdvMobile:listarVendasRecentes'),
+  },
   io: {
     exportProducts: invoke('io:exportProducts'),
     importProducts: invoke('io:importProducts'),
@@ -238,6 +247,9 @@ contextBridge.exposeInMainWorld('pdv', {
   },
   pdvRegistry: {
     getStatus: invoke('pdvRegistry:getStatus'),
+  },
+  connectivity: {
+    getStatus: invoke('connectivity:getStatus'),
   },
   posDisplay: {
     getConfig: invoke('posDisplay:getConfig'),

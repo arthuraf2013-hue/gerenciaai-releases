@@ -36,21 +36,44 @@ function getResumoHoje(locationId) {
  * saleService/botOrderService usam pra vender) pra já mandar o preço
  * promocional vigente, se houver -- o garçom nunca deveria digitar um
  * preço diferente do que o caixa cobraria pelo mesmo item agora. */
-function getCatalogoProdutos() {
+function getCatalogoProdutos(locationId = null) {
   const db = getDb();
   const { precoEfetivo } = require('./productService');
+  const serviceMaterialService = require('./serviceMaterialService');
   // Sem COLLATE especial de propósito -- mesma convenção do resto do
   // app (ver productService.listDailyMenu/listFullMenu, customerService,
   // etc.): ordenação binária do SQLite, que já é a que o PDV usa em
   // toda tela de lista hoje.
   const produtos = db.prepare(
-    `SELECT id, nome, categoria, preco, preco_promocional, promocao_valida_ate FROM products
+    `SELECT id, nome, categoria, preco, preco_promocional, promocao_valida_ate, codigo_barras, unidade, tipo FROM products
      WHERE ativo = 1 ORDER BY nome LIMIT ?`
   ).all(LIMITE_CATALOGO_GARCOM);
 
-  return produtos.map((p) => ({
-    id: p.id, nome: p.nome, categoria: p.categoria || null, preco: precoEfetivo(p),
-  }));
+  // Estoque atual (só com locationId -- ver publicarStatusAoVivo) numa
+  // única consulta agregada, nunca uma por produto (mesmo padrão de
+  // productService.anexarEstoque). O PDV móvel usa isso só pra AVISAR
+  // ("3 em estoque") -- quem bloqueia venda sem estoque de verdade
+  // continua sendo saleService.addItem, no desktop, na hora de processar.
+  let estoquePorProduto = null;
+  if (locationId) {
+    estoquePorProduto = new Map(db.prepare(
+      `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements WHERE location_id = ? GROUP BY product_id`
+    ).all(locationId).map((l) => [l.product_id, l.total]));
+  }
+
+  return produtos.map((p) => {
+    const ehServico = p.tipo === 'servico';
+    // Serviço com material cobrado no preço (ver serviceMaterialService)
+    // sai do caixa por preço + custo do material -- mesma conta de
+    // saleService.addItem, pra o celular nunca mostrar um preço diferente
+    // do que a venda de verdade vai cobrar.
+    const preco = precoEfetivo(p) + (ehServico ? serviceMaterialService.custoMaterialPorUnidade(p.id) : 0);
+    return {
+      id: p.id, nome: p.nome, categoria: p.categoria || null, preco,
+      codigoBarras: p.codigo_barras || null, unidade: p.unidade || 'un', tipo: p.tipo || 'produto',
+      estoque: estoquePorProduto && !ehServico ? (estoquePorProduto.get(p.id) || 0) : null,
+    };
+  });
 }
 
 /**
@@ -101,7 +124,10 @@ async function publicarStatusAoVivo() {
       status: p.status, criadoEm: p.criado_em,
     }));
 
-    const catalogoProdutos = getCatalogoProdutos();
+    // Estoque no catálogo só interessa ao PDV móvel -- sem nenhum pareado
+    // e ativo, não paga a consulta agregada de estoque a cada publicação.
+    const temPdvMovelAtivo = !!db.prepare(`SELECT 1 FROM paired_devices WHERE tipo = 'pdv' AND ativo = 1 LIMIT 1`).get();
+    const catalogoProdutos = getCatalogoProdutos(temPdvMovelAtivo ? locationId : null);
 
     const licenseService = require('./licenseService');
     const pdvRegistryService = require('./pdvRegistryService');

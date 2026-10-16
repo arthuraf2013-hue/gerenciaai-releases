@@ -53,8 +53,27 @@ function openSale({ locationId, operadorId }) {
  */
 function getOrOpenCurrentSale({ locationId, operadorId }) {
   const db = getDb();
+  // pendente_estoque_grupo = 1 fica de fora de propósito: é uma venda
+  // "aberta" só porque ainda não conseguiu confirmar o estoque do grupo
+  // com o servidor (ver finalizeSaleComVerificacaoDeGrupo) -- ela já tem
+  // pagamento lançado e está esperando ser confirmada em segundo plano,
+  // não é o carrinho que o operador quer continuar editando. Sem esse
+  // filtro, voltar pro PDV (ou reabrir o app) depois de cair na tela de
+  // "aguardando estoque do grupo" prendia o operador de volta nessa
+  // mesma venda pendente em vez de liberar um carrinho novo -- exatamente
+  // o problema que isso resolve: permitir novas vendas enquanto uma
+  // anterior fica em pré-finalização esperando confirmação.
+  //
+  // Venda vinda do PDV móvel (mobile_sales) fica de fora pelo mesmo
+  // motivo: ela é montada inteira pelo pdvMobileSyncService no nome do
+  // operador vinculado ao celular e fica "aberta" só pelos instantes
+  // entre criar e finalizar (ou enquanto espera o estoque do grupo) --
+  // nunca é o carrinho de quem está no computador, mesmo que seja o
+  // mesmo usuário logado nos dois.
   const existing = db.prepare(
-    `SELECT * FROM sales WHERE location_id = ? AND operador_id = ? AND status = 'aberta' ORDER BY criado_em DESC LIMIT 1`
+    `SELECT * FROM sales WHERE location_id = ? AND operador_id = ? AND status = 'aberta' AND pendente_estoque_grupo = 0
+       AND NOT EXISTS (SELECT 1 FROM mobile_sales ms WHERE ms.sale_id = sales.id)
+     ORDER BY criado_em DESC LIMIT 1`
   ).get(locationId, operadorId);
 
   const sale = existing || (() => {
@@ -924,6 +943,24 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
     ).run(randomUUID(), saleId, currentOperatorId, motivo || null);
   }
 
+  const novoTotal = executarCancelamentoDaVenda({
+    saleId, locationId, currentOperatorId, autorizadoPorId: autorizadoPor?.id || null, motivo, deviceId,
+  });
+
+  return { ok: true, autorizadoPor, novoTotal };
+}
+
+/**
+ * Parte "mecânica" do cancelamento de uma venda ABERTA (estorno de
+ * estoque/insumos/componentes, itens e venda marcados como cancelados,
+ * total recalculado) -- extraída de cancelSale pra ser reaproveitada por
+ * cancelarVendaAbertaPeloSistema sem duplicar essa lógica. NÃO faz
+ * checagem de status nem de autorização: quem chama é responsável por
+ * isso (cancelSale exige gerente quando configurado; o sistema só desfaz
+ * venda que ele mesmo abriu e nunca chegou a finalizar).
+ */
+function executarCancelamentoDaVenda({ saleId, locationId, currentOperatorId, autorizadoPorId, motivo, deviceId }) {
+  const db = getDb();
   const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ? AND cancelado = 0').all(saleId);
 
   let novoTotal;
@@ -937,7 +974,7 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
         db.prepare(
           `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
            VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
-        ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPor?.id || null, deviceId);
+        ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPorId || null, deviceId);
 
         ingredientService.reverterPorVenda(item.product_id, item.quantidade);
       }
@@ -946,14 +983,14 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
       // personalizado OU serviço com material associado — ver
       // cancelSaleItem acima, mesmo raciocínio). Chamada incondicional,
       // sem custo real quando não há linha nenhuma.
-      customItemService.reverterLinhasDoItem(item.id, { locationId, saleId, saleItemId: item.id, operadorId: autorizadoPor?.id || currentOperatorId, deviceId });
+      customItemService.reverterLinhasDoItem(item.id, { locationId, saleId, saleItemId: item.id, operadorId: autorizadoPorId || currentOperatorId, deviceId });
 
       db.prepare(`UPDATE sale_items SET cancelado = 1, cancelado_por_id = ?, cancelado_em = NOW_SYNCED() WHERE id = ?`)
-        .run(autorizadoPor?.id || currentOperatorId, item.id);
+        .run(autorizadoPorId || currentOperatorId, item.id);
     }
     db.prepare(
       `UPDATE sales SET status = 'cancelada', cancelada_em = NOW_SYNCED(), cancelada_por_id = ?, motivo_cancelamento = ? WHERE id = ?`
-    ).run(autorizadoPor?.id || currentOperatorId, motivo || null, saleId);
+    ).run(autorizadoPorId || currentOperatorId, motivo || null, saleId);
 
     // Cancelar a venda inteira marca todo item ativo como cancelado, então
     // o total real (ver recalcularTotal) sempre vira 0 — mas essa função
@@ -971,7 +1008,37 @@ function cancelSale({ saleId, locationId, currentOperatorId, candidateManagerId,
     stockSyncService.pushEstoqueProduto(productId).catch(() => {});
   }
 
-  return { ok: true, autorizadoPor, novoTotal };
+  return novoTotal;
+}
+
+/**
+ * Desfaz uma venda que o PRÓPRIO SISTEMA abriu e não conseguiu finalizar
+ * -- hoje só usado pelo PDV móvel (ver pdvMobileSyncService.js): a venda
+ * do celular é montada inteira aqui (itens + pagamentos) e, se a
+ * confirmação de estoque do grupo de sincronização recusar
+ * (estoque_insuficiente de verdade em outra máquina), ninguém está na
+ * frente deste computador pra mexer no carrinho -- o celular recebe o
+ * erro e refaz a venda do lado dele. Sem pedir PIN de gerente de
+ * propósito: não é um cancelamento "humano" de venda (nada foi entregue
+ * nem cobrado de verdade pelo sistema), é o rollback de uma operação que
+ * não chegou a acontecer. Fica registrado em audit_log com tipo próprio
+ * pra nunca se confundir com cancelamento manual.
+ */
+function cancelarVendaAbertaPeloSistema({ saleId, locationId, operadorId, motivo, deviceId }) {
+  const db = getDb();
+  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
+
+  db.prepare(
+    `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, autorizado_por_id, motivo, sucesso)
+     VALUES (?, 'cancelamento_venda_automatico_sistema', ?, ?, NULL, ?, 1)`
+  ).run(randomUUID(), saleId, operadorId, motivo || null);
+
+  const novoTotal = executarCancelamentoDaVenda({
+    saleId, locationId, currentOperatorId: operadorId, autorizadoPorId: null, motivo, deviceId,
+  });
+  return { ok: true, novoTotal };
 }
 
 /** Checagem leve, sem efeito colateral — só pra decidir se a tela deve
@@ -1005,6 +1072,17 @@ function getSaleItemsDetail(saleId) {
  *
  * Sem grupo configurado, se comporta exatamente como antes — sem
  * nenhum atraso nem chamada de rede.
+ *
+ * Quando a checagem falha por REDE (Firestore inacessível — ver
+ * `motivo: 'rede'` em stockSyncService), a venda continua aberta e fica
+ * marcada como pendente (`sales.pendente_estoque_grupo`), pra
+ * `tentarFinalizarVendasPendentesDeEstoque` tentar de novo sozinha em
+ * segundo plano (chamada pelo ciclo automático em main.js, e também pelo
+ * botão "Tentar agora" da tela de pagamento). Quando falha por falta de
+ * estoque DE VERDADE (`motivo: 'estoque_insuficiente'`), não tem por que
+ * insistir sozinho — a venda não é marcada como pendente (e qualquer
+ * marca de pendência anterior é limpa), porque tentar de novo sem o
+ * operador mudar o carrinho só repetiria o mesmo erro pra sempre.
  */
 async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   const db = getDb();
@@ -1022,9 +1100,132 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
 
   const stockSyncService = require('./stockSyncService');
   const checagem = await stockSyncService.verificarEDebitarEstoqueRemoto(itens);
-  if (!checagem.ok) return checagem;
 
+  if (!checagem.ok) {
+    if (checagem.motivo === 'estoque_insuficiente') {
+      db.prepare(
+        `UPDATE sales SET pendente_estoque_grupo = 0, pendente_estoque_tentativas = 0, pendente_estoque_proxima_tentativa = NULL WHERE id = ?`
+      ).run(saleId);
+      return checagem;
+    }
+
+    // motivo 'rede' (ou ausente, por segurança -- trata qualquer coisa
+    // que não seja estoque insuficiente de verdade como "vale tentar de
+    // novo"): marca/atualiza a pendência com backoff crescente.
+    const atual = db.prepare('SELECT pendente_estoque_tentativas FROM sales WHERE id = ?').get(saleId);
+    const tentativas = (atual?.pendente_estoque_tentativas || 0) + 1;
+    const proximaTentativa = new Date(timeService.nowMs() + proximoBackoffMs(tentativas))
+      .toISOString().slice(0, 19).replace('T', ' ');
+    db.prepare(
+      `UPDATE sales SET pendente_estoque_grupo = 1, pendente_estoque_tentativas = ?, pendente_estoque_proxima_tentativa = ? WHERE id = ?`
+    ).run(tentativas, proximaTentativa, saleId);
+    return { ok: false, motivo: 'rede', pendente: true, tentativas, error: checagem.error };
+  }
+
+  db.prepare(
+    `UPDATE sales SET pendente_estoque_grupo = 0, pendente_estoque_tentativas = 0, pendente_estoque_proxima_tentativa = NULL WHERE id = ?`
+  ).run(saleId);
   return finalizeSale(saleId);
+}
+
+// 10s, 20s, 40s, 80s, depois sempre 2 min -- cresce rápido no começo (boa
+// chance de uma queda de wifi de poucos segundos já resolver sozinha sem
+// o operador perceber) e estabiliza num intervalo que não martela o
+// Firestore se a internet cair por mais tempo.
+const BACKOFF_ESTOQUE_GRUPO_MS = [10_000, 20_000, 40_000, 80_000, 120_000];
+function proximoBackoffMs(tentativas) {
+  return BACKOFF_ESTOQUE_GRUPO_MS[Math.min(tentativas - 1, BACKOFF_ESTOQUE_GRUPO_MS.length - 1)];
+}
+
+/**
+ * Tenta de novo, sozinha, toda venda aberta que ficou esperando
+ * confirmação de estoque do grupo por falha de rede (ver
+ * finalizeSaleComVerificacaoDeGrupo acima). Chamada pelo ciclo automático
+ * em main.js (respeitando o backoff de cada venda) e pelo botão "Tentar
+ * agora" da tela de pagamento (com `forcar: true`, ignorando o backoff —
+ * o operador pediu explicitamente, não faz sentido fazê-lo esperar o
+ * tempo calculado pra tentativa automática).
+ *
+ * De propósito, UMA POR VEZ, em sequência (`for` com `await` dentro —
+ * nunca Promise.all nem qualquer paralelismo): cada chamada a
+ * finalizeSaleComVerificacaoDeGrupo faz sua própria checagem em tempo
+ * real contra o estoque do grupo, e só a próxima venda da lista começa
+ * depois que essa checagem (sucesso, falta de estoque ou rede) já
+ * terminou e foi gravada. É exatamente essa serialização que garante que
+ * duas vendas pendentes do mesmo produto nunca confirmem ao mesmo tempo
+ * achando que a mesma última unidade ainda está livre — rodar em
+ * paralelo reabriria o risco de overselling que esse fluxo existe pra
+ * evitar. ORDER BY criado_em pra processar sempre a venda mais antiga
+ * primeiro (quem "chegou" antes é confirmado antes), em vez de depender
+ * da ordem física das linhas na tabela.
+ */
+async function tentarFinalizarVendasPendentesDeEstoque({ forcar = false } = {}) {
+  const db = getDb();
+  const agora = timeService.nowSyncedUTCString();
+  const pendentes = forcar
+    ? db.prepare(`SELECT id FROM sales WHERE status = 'aberta' AND pendente_estoque_grupo = 1 ORDER BY criado_em ASC`).all()
+    : db.prepare(
+        `SELECT id FROM sales WHERE status = 'aberta' AND pendente_estoque_grupo = 1
+         AND (pendente_estoque_proxima_tentativa IS NULL OR pendente_estoque_proxima_tentativa <= ?)
+         ORDER BY criado_em ASC`
+      ).all(agora);
+
+  const resultado = { tentadas: pendentes.length, finalizadas: [], aindaPendentes: [], comConflito: [] };
+  for (const { id } of pendentes) {
+    const r = await finalizeSaleComVerificacaoDeGrupo(id);
+    if (r.ok) resultado.finalizadas.push(id);
+    else if (r.motivo === 'estoque_insuficiente') resultado.comConflito.push({ id, error: r.error });
+    else resultado.aindaPendentes.push(id);
+  }
+  return resultado;
+}
+
+/** Quantas vendas aberta deste local estão esperando confirmação de
+ * estoque do grupo agora — alimenta o indicador na tela do PDV (ver
+ * POSScreen), que precisa existir desde que uma venda pendente deixou de
+ * travar o carrinho: sem esse contador o operador perderia de vista que
+ * ainda tem venda(s) aguardando confirmação em segundo plano. */
+function contarVendasPendentesDeEstoque(locationId) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT COUNT(*) as total FROM sales WHERE location_id = ? AND status = 'aberta' AND pendente_estoque_grupo = 1`
+  ).get(locationId).total;
+}
+
+/** Lista (não só conta) as vendas deste local em pré-finalização —
+ * aberta, com pagamento já lançado, esperando confirmação do estoque do
+ * grupo. Usada pra dar visibilidade de quais vendas estão nessa fila e
+ * em que ordem serão confirmadas (sempre a mais antiga primeiro — ver
+ * tentarFinalizarVendasPendentesDeEstoque), não só "quantas". */
+function listVendasPendentesDeEstoque(locationId) {
+  const db = getDb();
+  return db.prepare(
+    `SELECT s.id, s.total, s.criado_em, s.pendente_estoque_tentativas as tentativas,
+            s.pendente_estoque_proxima_tentativa as proximaTentativa, u.nome as operadorNome
+     FROM sales s JOIN users u ON u.id = s.operador_id
+     WHERE s.location_id = ? AND s.status = 'aberta' AND s.pendente_estoque_grupo = 1
+     ORDER BY s.criado_em ASC`
+  ).all(locationId);
+}
+
+/** Leitura simples (sem tentar nada, sem tocar rede) do status atual de
+ * UMA venda — usada pela tela de pagamento pra saber, enquanto espera,
+ * se o ciclo automático em segundo plano já resolveu a venda sozinho
+ * (nesse caso `status` vem `'finalizada'` e a tela já pode avançar pro
+ * sucesso, sem chamar finalizeSaleComVerificacaoDeGrupo de novo e cair
+ * no erro de "venda não está mais aberta"). */
+function getStatusPendenteEstoque(saleId) {
+  const db = getDb();
+  const sale = db.prepare(
+    `SELECT status, pendente_estoque_grupo, pendente_estoque_tentativas FROM sales WHERE id = ?`
+  ).get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  return {
+    ok: true,
+    status: sale.status,
+    pendente: sale.pendente_estoque_grupo === 1,
+    tentativas: sale.pendente_estoque_tentativas,
+  };
 }
 
 /**
@@ -1137,4 +1338,6 @@ module.exports = {
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
   addItem, addCustomItem, addPayment, getPaymentState, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
   getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
+  tentarFinalizarVendasPendentesDeEstoque, contarVendasPendentesDeEstoque, listVendasPendentesDeEstoque, getStatusPendenteEstoque,
+  cancelarVendaAbertaPeloSistema,
 };

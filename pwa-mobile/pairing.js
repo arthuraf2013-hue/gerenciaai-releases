@@ -111,7 +111,11 @@ function mount(root, { onPareado }) {
   });
 
   function renderConfirmacao(dados) {
-    const tipoLabel = dados.tipo === 'garcom' ? 'Garçom (lançar pedidos)' : 'Consulta remota (ver dados da loja)';
+    const tipoLabel = {
+      garcom: 'Garçom (lançar pedidos)',
+      pdv: 'PDV móvel (vender pelo celular)',
+      consulta: 'Consulta remota (ver dados da loja)',
+    }[dados.tipo] || dados.tipo;
     confirmacaoEl.hidden = false;
     confirmacaoEl.innerHTML = `
       <div class="card-confirmacao">

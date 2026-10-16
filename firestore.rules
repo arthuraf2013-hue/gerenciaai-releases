@@ -200,10 +200,22 @@ service cloud.firestore {
       return clienteId != null && moduloAtivoParaCliente(clienteId, modulo);
     }
 
-    // 'garcom' → módulo "App do garçom"; qualquer outro tipo (só existe
-    // 'consulta' hoje) → módulo "Consulta remota".
+    // 'garcom' → módulo "App do garçom"; 'pdv' → módulo "PDV móvel";
+    // qualquer outro tipo (só 'consulta') → módulo "Consulta remota".
     function moduloDoTipoDePareamento(tipo) {
-      return tipo == 'garcom' ? 'appGarcom' : 'consultaRemota';
+      return tipo == 'garcom' ? 'appGarcom' : (tipo == 'pdv' ? 'pdvMobile' : 'consultaRemota');
+    }
+
+    // Celular pareado como PDV MÓVEL (ver pdvMobileSyncService.js), ativo,
+    // com o módulo pago "PDV móvel" ainda ativo pro cliente -- usada por
+    // vendas_mobile, consultas_pdv e config_mobile (PARTE 2). Mesmo
+    // espírito de dispositivoConsultaAtiva logo abaixo.
+    function dispositivoPdvAtivo(installId) {
+      let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+      return exists(dRef)
+        && get(dRef).data.tipo == 'pdv'
+        && get(dRef).data.ativo == true
+        && moduloAtivo(installId, 'pdvMobile');
     }
 
     // Dispositivo pareado como "Consulta remota" (nunca "garçom"),
@@ -318,7 +330,7 @@ service cloud.firestore {
       }
 
       allow create: if request.auth != null && uid == request.auth.uid
-        && request.resource.data.tipo in ['garcom', 'consulta']
+        && request.resource.data.tipo in ['garcom', 'consulta', 'pdv']
         && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo);
 
       // Depois de pareado, o próprio celular só pode tocar no seu
@@ -331,7 +343,7 @@ service cloud.firestore {
       allow update: if
         (request.auth != null && uid == request.auth.uid && (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso', 'nomeDispositivo'])
-          || (request.resource.data.tipo in ['garcom', 'consulta']
+          || (request.resource.data.tipo in ['garcom', 'consulta', 'pdv']
               && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo))
         ))
         || (request.auth == null
@@ -349,20 +361,37 @@ service cloud.firestore {
 
     // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.
     match /installations/{installId}/pedidos_garcom/{pedidoId} {
-      // Só um dispositivo pareado como garçom, ATIVO, dessa loja
-      // específica, com o módulo "App do garçom" ainda pago (ver PARTE
-      // 1.5 -- corta o acesso na hora se o cliente parar de pagar, não
-      // só impede pareamento novo), pode criar pedido, e sempre como
-      // 'novo'.
+      // Garçom OU PDV móvel (que embute o mesmo fluxo de mesas), ATIVO,
+      // dessa loja específica, com o módulo pago do SEU tipo ainda ativo
+      // (appGarcom pro garçom, pdvMobile pro PDV móvel -- ver PARTE 1.5).
+      // Se o PDV móvel está com a função "Mesas" desligada é o DESKTOP
+      // que recusa (pedidoGarcomSyncService.buscarUsuarioLocalDoDispositivo)
+      // -- essa configuração mora no SQLite, não aqui.
+      function dispositivoPodeLancarPedido(installId) {
+        let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+        return exists(dRef)
+          && get(dRef).data.tipo in ['garcom', 'pdv']
+          && get(dRef).data.ativo == true
+          && moduloAtivo(installId, moduloDoTipoDePareamento(get(dRef).data.tipo));
+      }
+
       allow create: if request.auth != null
         && request.resource.data.garcomUid == request.auth.uid
-        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.tipo == 'garcom'
-        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true
-        && moduloAtivo(installId, 'appGarcom')
+        && dispositivoPodeLancarPedido(installId)
         && request.resource.data.status == 'novo';
 
-      // O garçom só vê os PRÓPRIOS pedidos (pra acompanhar status).
-      allow read: if request.auth != null && resource.data.garcomUid == request.auth.uid;
+      // O celular só vê os PRÓPRIOS pedidos (pra acompanhar status). O
+      // DESKTOP (sem autenticação) precisa ler também -- é ele quem
+      // escuta os pedidos 'novo' pra processar. Antes desta regra não
+      // liberar `request.auth == null`, a escuta do desktop
+      // (pedidoGarcomSyncService.iniciarEscutaPedidosGarcom) era recusada
+      // com permission-denied e nenhum pedido do garçom chegava. Mesmo
+      // nível de confiança do resto de installations/ (ver PARTE 1).
+      // `resource == null`: o celular pode escutar o próprio documento
+      // logo depois de criar (a escuta pode chegar no servidor antes da
+      // escrita) -- ler um documento que não existe não revela nada.
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.garcomUid == request.auth.uid));
 
       // Só o desktop (sem autenticação, mesmo nível de confiança de
       // hoje) atualiza status/erro depois de processar.
@@ -427,6 +456,67 @@ service cloud.firestore {
     match /installations/{installId}/historico_vendas/{docId} {
       allow read: if request.auth != null && dispositivoConsultaAtiva(installId);
 
+      allow write: if request.auth == null; // só o desktop publica
+    }
+
+    // --------------------------------------------------------------
+    // PDV MÓVEL -- ver pdvMobileSyncService.js / pdvMobileConsultaService.js
+    // e pwa-mobile/pdv*.js
+    // --------------------------------------------------------------
+
+    // Venda feita no celular. O celular cria UMA vez (status 'novo'),
+    // nunca altera nem apaga; o desktop revalida tudo (preço, estoque,
+    // caixa, desconto) e só ele escreve o resultado. Campos do create
+    // fechados numa lista pra ninguém usar o documento como depósito de
+    // dado arbitrário.
+    match /installations/{installId}/vendas_mobile/{vendaId} {
+      allow create: if request.auth != null
+        && request.resource.data.dispositivoUid == request.auth.uid
+        && request.resource.data.status == 'novo'
+        && request.resource.data.keys().hasOnly([
+             'dispositivoUid', 'status', 'itens', 'pagamentos', 'desconto', 'clienteId', 'clienteNome',
+             'subtotalEsperado', 'totalEsperado', 'observacoes', 'criadoEm', 'appVersao'])
+        && request.resource.data.itens is list && request.resource.data.itens.size() > 0 && request.resource.data.itens.size() <= 300
+        && request.resource.data.pagamentos is list && request.resource.data.pagamentos.size() > 0 && request.resource.data.pagamentos.size() <= 10
+        && dispositivoPdvAtivo(installId);
+
+      // Mesmo raciocínio de pedidos_garcom acima (desktop escuta sem
+      // autenticação; celular só o que é dele; documento inexistente não
+      // revela nada).
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.dispositivoUid == request.auth.uid));
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'erro', 'codigoErro', 'precosAtuais', 'saleId', 'resumo', 'reciboWhatsappUrl', 'processadoEm']);
+
+      allow delete: if false;
+    }
+
+    // Consulta sob demanda (produto fora do catálogo publicado, código
+    // lido na câmera, cliente, QR do Pix) -- pedido/resposta descartável.
+    match /installations/{installId}/consultas_pdv/{consultaId} {
+      allow create: if request.auth != null
+        && request.resource.data.dispositivoUid == request.auth.uid
+        && request.resource.data.status == 'novo'
+        && request.resource.data.tipo in ['produtos', 'codigo', 'clientes', 'pix']
+        && request.resource.data.keys().hasOnly(['dispositivoUid', 'status', 'tipo', 'termo', 'codigo', 'valor', 'txid', 'criadoEm'])
+        && dispositivoPdvAtivo(installId);
+
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.dispositivoUid == request.auth.uid));
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resultado', 'erro', 'respondidoEm']);
+
+      // Limpeza periódica das consultas antigas -- só o desktop.
+      allow delete: if request.auth == null;
+    }
+
+    // O que o celular pode fazer nesta loja + "sinal de vida" do
+    // servidor (ver pdvMobileConfigService.js).
+    match /installations/{installId}/config_mobile/{docId} {
+      allow read: if request.auth != null && dispositivoPdvAtivo(installId);
       allow write: if request.auth == null; // só o desktop publica
     }
 

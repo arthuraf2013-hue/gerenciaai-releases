@@ -16,6 +16,8 @@ const TIPO_LABEL = {
   pin_resetado: 'PIN redefinido',
   config_seguranca_alterada: 'Configuração de segurança alterada',
   backup_restaurado: 'Backup restaurado',
+  desconto_pdv_movel: 'Desconto no PDV móvel (celular)',
+  cancelamento_venda_automatico_sistema: 'Venda do celular desfeita pelo sistema',
 };
 
 export function AuditLog() {

@@ -17,13 +17,19 @@ const { precoEfetivo } = require('./productService');
  * pela tela de Separação já existente — evita inventar um caminho novo
  * de "virar venda sozinho" só pra esse caso, que já é raro.
  */
+/** Dispositivo que pode lançar pedido: celular pareado como garçom OU
+ * como PDV móvel (que embute o mesmo fluxo de mesas -- ver
+ * pwa-mobile/pdv.js) -- este último só enquanto a função "Mesas"
+ * estiver ligada em Configurações → Celular (pdv_mobile_config). */
 function buscarUsuarioLocalDoDispositivo(garcomUid) {
   const db = getDb();
-  return db.prepare(
+  const dispositivo = db.prepare(
     `SELECT pd.*, u.nome as vinculo_nome, u.role as vinculo_role FROM paired_devices pd
      JOIN users u ON u.id = pd.vinculo_user_id
-     WHERE pd.id = ? AND pd.tipo = 'garcom' AND pd.ativo = 1`
+     WHERE pd.id = ? AND pd.tipo IN ('garcom', 'pdv') AND pd.ativo = 1`
   ).get(garcomUid);
+  if (dispositivo?.tipo === 'pdv' && !require('./pdvMobileConfigService').getConfig().permitirMesas) return undefined;
+  return dispositivo;
 }
 
 /** Cria a linha local (bot_orders + bot_order_items) a partir do que
@@ -86,7 +92,7 @@ async function processarPedidoRecebido(docSnap, { firestore, installId }) {
 
   const dispositivo = buscarUsuarioLocalDoDispositivo(dados.garcomUid);
   if (!dispositivo) {
-    await updateDoc(ref, { status: 'erro', erro: 'Dispositivo não reconhecido ou revogado nesta loja.', processadoEm: serverTimestamp() }).catch(() => {});
+    await updateDoc(ref, { status: 'erro', erro: 'Dispositivo não reconhecido, revogado ou sem permissão pra lançar pedido nesta loja.', processadoEm: serverTimestamp() }).catch(() => {});
     return;
   }
 

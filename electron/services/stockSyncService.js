@@ -120,17 +120,39 @@ async function verificarEDebitarEstoqueRemoto(itens) {
       });
     });
 
+    // Conseguiu completar a transação -- o Firestore respondeu, então a
+    // conexão está OK (mesmo quando a resposta é "sem estoque").
+    require('./connectivityService').marcarOnline();
     return { ok: true };
   } catch (err) {
     if (String(err.message || '').startsWith('ESTOQUE_INSUFICIENTE:')) {
-      return { ok: false, error: 'Estoque insuficiente no grupo: ' + err.message.replace('ESTOQUE_INSUFICIENTE: ', '') };
+      // Isso só acontece depois de ler o Firestore com sucesso -- não é
+      // falha de rede, é uma resposta de verdade dizendo "não tem". Marca
+      // online (chegamos a falar com o servidor) e devolve um motivo
+      // diferente de erro de rede, pra quem chama saber que tentar de
+      // novo sozinho não resolve (só retirar/ajustar o item resolve).
+      require('./connectivityService').marcarOnline();
+      return {
+        ok: false,
+        motivo: 'estoque_insuficiente',
+        error: 'Estoque insuficiente no grupo: ' + err.message.replace('ESTOQUE_INSUFICIENTE: ', ''),
+      };
     }
     console.error('[stockSyncService] falha na checagem de estoque remoto:', err.message);
+    require('./connectivityService').marcarOffline();
     // Rede fora, Firestore indisponível etc. — decisão deliberada: NÃO
     // deixa passar sem checar (o pedido explícito foi "garantir essa
     // consulta"), bloqueia a finalização com um erro claro em vez de
-    // arriscar vender em dobro silenciosamente.
-    return { ok: false, error: 'Não foi possível confirmar o estoque com o servidor do grupo agora. Tente novamente em instantes.' };
+    // arriscar vender em dobro silenciosamente. `motivo: 'rede'` é o que
+    // deixa saleService.finalizeSaleComVerificacaoDeGrupo saber que vale
+    // a pena tentar de novo sozinho mais tarde (ver
+    // tentarFinalizarVendasPendentesDeEstoque), diferente do caso de
+    // estoque insuficiente de verdade acima.
+    return {
+      ok: false,
+      motivo: 'rede',
+      error: 'Não foi possível confirmar o estoque com o servidor do grupo agora. Tente novamente em instantes.',
+    };
   }
 }
 

@@ -15,6 +15,16 @@ const WHATSAPP_STATUS_LABEL = {
   erro: 'Erro na conexão',
 };
 const WHATSAPP_QUALIDADE_LABEL = { boa: 'Estável', instavel: 'Instável (reconectando com frequência)' };
+
+const TIPO_PAREAMENTO_LABEL = { garcom: 'Garçom', consulta: 'Consulta remota', pdv: 'PDV móvel' };
+// Mesma lista de pdvMobileConfigService.METODOS_PAGAMENTO_VALIDOS.
+const PDV_MOVEL_METODOS = [
+  { id: 'dinheiro', label: 'Dinheiro' },
+  { id: 'cartao_credito', label: 'Cartão de crédito' },
+  { id: 'cartao_debito', label: 'Cartão de débito' },
+  { id: 'pix', label: 'Pix' },
+  { id: 'fiado', label: 'Fiado' },
+];
 const WHATSAPP_STATUS_COR = {
   desconectado: 'var(--color-text-muted)',
   aguardando_leitura: '#f5a623',
@@ -71,13 +81,19 @@ export function SettingsScreen() {
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
 
-  const [pairingTipo, setPairingTipo] = useState('garcom'); // 'garcom' | 'consulta'
+  const [pairingTipo, setPairingTipo] = useState('garcom'); // 'garcom' | 'consulta' | 'pdv'
   const [pairingVinculoUserId, setPairingVinculoUserId] = useState('');
   const [pairingUsuarios, setPairingUsuarios] = useState([]);
   const [pairingGerando, setPairingGerando] = useState(false);
   const [pairingErro, setPairingErro] = useState('');
   const [pairingCodigosPendentes, setPairingCodigosPendentes] = useState([]);
   const [pairingDispositivos, setPairingDispositivos] = useState([]);
+
+  // PDV móvel (celular vendendo) -- ver pdvMobileConfigService.js.
+  const [pdvMobileForm, setPdvMobileForm] = useState(null); // null = carregando
+  const [pdvMobileSalvando, setPdvMobileSalvando] = useState(false);
+  const [pdvMobileMensagem, setPdvMobileMensagem] = useState(null); // { tipo: 'ok'|'erro', texto }
+  const [pdvMobileVendas, setPdvMobileVendas] = useState([]);
 
   const [loyaltyForm, setLoyaltyForm] = useState({
     ativado: false, reaisPorPonto: 10, valorResgatePonto: 0.05,
@@ -241,9 +257,13 @@ export function SettingsScreen() {
     window.pdv.users.listAll({ requestingUserId: currentUser.id }).then((r) => {
       if (r.ok) setPairingUsuarios(r.users.filter((u) => u.ativo));
     });
+    window.pdv.pdvMobile.getConfig().then((c) => {
+      if (c && !c.error) setPdvMobileForm({ ...c, descontoMaximoPercentual: String(c.descontoMaximoPercentual ?? 0) });
+    });
     function consultarPareamento() {
       window.pdv.pairing.listarCodigosPendentes().then((lista) => setPairingCodigosPendentes(Array.isArray(lista) ? lista : []));
       window.pdv.pairing.listarDispositivosPareados().then((lista) => setPairingDispositivos(Array.isArray(lista) ? lista : []));
+      window.pdv.pdvMobile.listarVendasRecentes({ limit: 15 }).then((lista) => setPdvMobileVendas(Array.isArray(lista) ? lista : []));
     }
     consultarPareamento();
     const id = setInterval(consultarPareamento, 3000);
@@ -252,6 +272,31 @@ export function SettingsScreen() {
 
   const pairingGarcons = pairingUsuarios.filter((u) => u.role === 'garcom');
   const pairingGerentesAdmins = pairingUsuarios.filter((u) => ['gerente', 'admin', 'suporte'].includes(u.role));
+  // PDV móvel: quem pode vender no caixa (as vendas do celular saem no nome dele).
+  const pairingOperadores = pairingUsuarios.filter((u) => ['operador', 'gerente', 'admin', 'suporte'].includes(u.role));
+  const pairingCandidatosVinculo = pairingTipo === 'garcom' ? pairingGarcons : pairingTipo === 'pdv' ? pairingOperadores : pairingGerentesAdmins;
+
+  function alternarMetodoPdvMobile(metodo, ligado) {
+    setPdvMobileForm((f) => ({
+      ...f,
+      metodosPagamento: ligado ? [...new Set([...f.metodosPagamento, metodo])] : f.metodosPagamento.filter((m) => m !== metodo),
+    }));
+  }
+
+  async function handleSalvarPdvMobile(e) {
+    e.preventDefault();
+    setPdvMobileSalvando(true);
+    setPdvMobileMensagem(null);
+    const result = await window.pdv.pdvMobile.saveConfig({
+      ...pdvMobileForm,
+      descontoMaximoPercentual: Number(String(pdvMobileForm.descontoMaximoPercentual).replace(',', '.')) || 0,
+      requestingUserId: currentUser.id,
+    });
+    setPdvMobileSalvando(false);
+    if (!result.ok) { setPdvMobileMensagem({ tipo: 'erro', texto: result.error }); return; }
+    setPdvMobileForm({ ...result.config, descontoMaximoPercentual: String(result.config.descontoMaximoPercentual) });
+    setPdvMobileMensagem({ tipo: 'ok', texto: 'Configuração salva — o celular recebe em alguns segundos.' });
+  }
 
   async function handleGerarCodigoPareamento(e) {
     e.preventDefault();
@@ -1642,9 +1687,11 @@ export function SettingsScreen() {
         <p className="screen-hint">
           Gere um código de 6 dígitos e informe pro dono do celular digitar no app — sem precisar
           entrar em contato com o suporte. Um código pro <strong>Garçom</strong> deixa o celular dele
-          lançar pedido a distância, vinculado à comanda da mesa. Um código de <strong>Consulta
-          remota</strong> deixa um Gerente ou Administrador ver o resumo do dia e a operação ao vivo
-          desta loja pelo próprio celular (inclusive de mais de uma loja, se ele parear com várias).
+          lançar pedido a distância, vinculado à comanda da mesa. Um código de <strong>PDV móvel</strong> transforma
+          o celular num caixa: vende, cobra (dinheiro, cartão, Pix…) e baixa o estoque daqui, no nome do
+          operador escolhido — e também lança pedido de mesa, se a função estiver ligada abaixo. Um código
+          de <strong>Consulta remota</strong> deixa um Gerente ou Administrador ver o resumo do dia e a
+          operação ao vivo desta loja pelo próprio celular (inclusive de mais de uma loja, se ele parear com várias).
         </p>
 
         <form className="product-form" onSubmit={handleGerarCodigoPareamento}>
@@ -1653,6 +1700,7 @@ export function SettingsScreen() {
               Tipo de pareamento
               <select value={pairingTipo} onChange={(e) => { setPairingTipo(e.target.value); setPairingVinculoUserId(''); }}>
                 <option value="garcom">Garçom (pedido a distância)</option>
+                <option value="pdv">PDV móvel (vender pelo celular)</option>
                 <option value="consulta">Consulta remota (Gerente/Admin)</option>
               </select>
             </label>
@@ -1660,7 +1708,7 @@ export function SettingsScreen() {
               Vincular a
               <select value={pairingVinculoUserId} onChange={(e) => setPairingVinculoUserId(e.target.value)}>
                 <option value="">Selecione...</option>
-                {(pairingTipo === 'garcom' ? pairingGarcons : pairingGerentesAdmins).map((u) => (
+                {pairingCandidatosVinculo.map((u) => (
                   <option key={u.id} value={u.id}>{u.nome}</option>
                 ))}
               </select>
@@ -1681,7 +1729,7 @@ export function SettingsScreen() {
             {pairingCodigosPendentes.map((c) => (
               <div key={c.id} className="pdv-number-badge" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, letterSpacing: 3 }}>{c.id}</span>
-                <span>{c.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'} — {c.vinculo_nome}</span>
+                <span>{TIPO_PAREAMENTO_LABEL[c.tipo] || c.tipo} — {c.vinculo_nome}</span>
                 {/* expira_em é UTC "naive" (sem Z, ver pairingService.js/timeService.js) --
                     precisa do 'Z' aqui pro Date interpretar como UTC, não como hora local
                     (mesma convenção já usada em AuditLog.jsx pra criado_em). Só concatena
@@ -1707,7 +1755,7 @@ export function SettingsScreen() {
               <tbody>
                 {pairingDispositivos.map((d) => (
                   <tr key={d.id}>
-                    <td>{d.tipo === 'garcom' ? 'Garçom' : 'Consulta remota'}</td>
+                    <td>{TIPO_PAREAMENTO_LABEL[d.tipo] || d.tipo}</td>
                     <td>{d.vinculo_nome}</td>
                     <td>{new Date(d.criado_em).toLocaleString('pt-BR')}</td>
                     <td>{d.ativo ? 'Ativo' : <span className="badge-warning">Desconectado</span>}</td>
@@ -1726,6 +1774,104 @@ export function SettingsScreen() {
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Excluir</span>
                         </button>
                       </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2><Icon name="mobile" size={16} /> PDV móvel (venda pelo celular)</h2>
+        <p className="screen-hint">
+          O que um celular pareado como <strong>PDV móvel</strong> pode fazer nesta loja. Toda venda do celular
+          é conferida aqui antes de valer (preço, estoque, caixa aberto, limite de desconto) — o celular precisa
+          de internet e este computador precisa estar com o GerenciaAI aberto e com o caixa aberto.
+        </p>
+        {!pdvMobileForm && <p className="screen-hint">Carregando...</p>}
+        {pdvMobileForm && (
+          <form className="product-form" onSubmit={handleSalvarPdvMobile}>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={pdvMobileForm.permitirVenda}
+                onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, permitirVenda: e.target.checked })} />
+              Vender pelo celular (carrinho, pagamento e baixa de estoque)
+            </label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={pdvMobileForm.permitirMesas}
+                onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, permitirMesas: e.target.checked })} />
+              Lançar pedido em mesa/comanda (mesmo fluxo do app do garçom)
+            </label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={pdvMobileForm.permitirCliente}
+                onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, permitirCliente: e.target.checked })} />
+              Buscar e vincular cliente cadastrado (fidelidade e fiado)
+            </label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={pdvMobileForm.imprimirReciboNoComputador}
+                onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, imprimirReciboNoComputador: e.target.checked })} />
+              Imprimir o recibo na impressora deste computador quando uma venda do celular finalizar
+            </label>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Formas de pagamento no celular</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                {PDV_MOVEL_METODOS.map((m) => (
+                  <label key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" style={{ width: 'auto' }}
+                      checked={pdvMobileForm.metodosPagamento.includes(m.id)}
+                      onChange={(e) => alternarMetodoPdvMobile(m.id, e.target.checked)} />
+                    {m.label}
+                  </label>
+                ))}
+              </div>
+              {pdvMobileForm.metodosPagamento.includes('fiado') && !pdvMobileForm.permitirCliente && (
+                <p className="screen-hint">Fiado precisa de cliente vinculado — ligue também "Buscar e vincular cliente".</p>
+              )}
+            </div>
+
+            <div className="form-grid" style={{ marginTop: 12 }}>
+              <label>
+                Desconto máximo pelo celular (% da venda)
+                <input type="number" min="0" max="100" step="0.5" value={pdvMobileForm.descontoMaximoPercentual}
+                  onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, descontoMaximoPercentual: e.target.value })} />
+              </label>
+            </div>
+            <p className="screen-hint">
+              {exigirAutorizacaoDesconto
+                ? <>Como a senha de gerente para desconto está ligada (Segurança), o celular só pode dar até este percentual — fica registrado na Auditoria com você ({currentUser.nome}) como quem autorizou a política. 0 = sem desconto no celular.</>
+                : <>A senha de gerente para desconto está desligada (Segurança), então o celular segue a mesma regra do caixa: desconto livre, com registro na Auditoria. Este limite passa a valer se você ligar a senha.</>}
+            </p>
+
+            <button className="btn-primary" type="submit" disabled={pdvMobileSalvando}>
+              {pdvMobileSalvando ? 'Salvando...' : 'Salvar configuração do PDV móvel'}
+            </button>
+            {pdvMobileMensagem && (
+              <p className={pdvMobileMensagem.tipo === 'erro' ? 'modal-error' : 'io-message'}>{pdvMobileMensagem.texto}</p>
+            )}
+          </form>
+        )}
+
+        <div style={{ marginTop: 18 }}>
+          <h3 style={{ fontSize: 14, marginBottom: 8 }}>Últimas vendas recebidas do celular</h3>
+          {pdvMobileVendas.length === 0 && <p className="empty-state">Nenhuma venda pelo celular ainda.</p>}
+          {pdvMobileVendas.length > 0 && (
+            <table className="data-table">
+              <thead>
+                <tr><th>Quando</th><th>Operador / celular</th><th>Total</th><th>Situação</th></tr>
+              </thead>
+              <tbody>
+                {pdvMobileVendas.map((v) => (
+                  <tr key={v.id}>
+                    {/* criado_em é UTC "naive" (NOW_SYNCED) -- mesmo cuidado do expira_em acima. */}
+                    <td>{new Date(v.criado_em.endsWith('Z') ? v.criado_em : `${v.criado_em.replace(' ', 'T')}Z`).toLocaleString('pt-BR')}</td>
+                    <td>{v.operador_nome || '—'}{v.nome_dispositivo ? ` · ${v.nome_dispositivo}` : ''}</td>
+                    <td>{v.total != null ? Number(v.total).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}</td>
+                    <td>
+                      {v.status === 'finalizada' && 'Finalizada'}
+                      {(v.status === 'criada' || v.status === 'pendente_estoque') && <span className="badge-warning">Aguardando confirmação</span>}
+                      {v.status === 'erro' && <span className="badge-warning" title={v.erro || ''}>Recusada: {v.erro}</span>}
                     </td>
                   </tr>
                 ))}

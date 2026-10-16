@@ -1,7 +1,7 @@
 {
-  "name": "GerenciaAI — Garçom e Consulta",
+  "name": "GerenciaAI — PDV móvel, Garçom e Consulta",
   "short_name": "GerenciaAI",
-  "description": "Lance pedidos de mesa e consulte os dados da loja em tempo real, direto do celular.",
+  "description": "Venda pelo celular sincronizado com o caixa da loja, lance pedidos de mesa e consulte os dados em tempo real.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

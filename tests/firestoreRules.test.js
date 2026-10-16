@@ -50,11 +50,11 @@ async function setupTestEnv() {
 // testes que não são especificamente sobre módulo pago/desativado; os
 // testes de módulo usam clienteId/modulosAtivos próprios pra simular o
 // cliente que não paga ou que teve o módulo desligado.
-async function setupModulos(installId, { clienteId = `cliente-de-${installId}`, consultaRemota = true, appGarcom = true } = {}) {
+async function setupModulos(installId, { clienteId = `cliente-de-${installId}`, consultaRemota = true, appGarcom = true, pdvMobile = true } = {}) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await db.doc(`installations/${installId}`).set({ clienteId }, { merge: true });
-    await db.doc(`clientes/${clienteId}`).set({ modulosAtivos: { consultaRemota, appGarcom } });
+    await db.doc(`clientes/${clienteId}`).set({ modulosAtivos: { consultaRemota, appGarcom, pdvMobile } });
   });
   return clienteId;
 }
@@ -125,7 +125,10 @@ test('celular consegue achar um código de pareamento via collectionGroup (fluxo
   const snap = await assertSucceeds(
     celular.collectionGroup('pareamentos').where('codigo', '==', '111111').get()
   );
-  assert.equal(snap.size, 1);
+  // Outras lojas dos testes anteriores também usam o código 111111 (ver
+  // seed()) e o emulador é compartilhado pela suíte inteira -- o que
+  // importa aqui é a busca funcionar e achar o desta loja.
+  assert.ok(snap.docs.some((d) => d.ref.path.startsWith('installations/install-U/')));
 });
 
 test('celular sem autenticar não consegue achar código nenhum via collectionGroup', { skip: !RODAR && SKIP_MSG }, async () => {
@@ -622,4 +625,112 @@ test('contas_google: escrita permitida sem autenticação (cada instalação gra
   await assertSucceeds(semAuth.doc('contas_google/install-CG1').set({ email: 'x@y.com', senhaCifradaRsa: 'abc' }));
   await assertFails(semAuth.doc('contas_google/install-CG1').get());
   await assertSucceeds(adminContext().doc('contas_google/install-CG1').get());
+});
+
+// ---------------------------------------------------------------------
+// PDV móvel (vendas_mobile, consultas_pdv, config_mobile) e a correção
+// da leitura de pedidos_garcom pelo desktop (sem autenticação).
+// ---------------------------------------------------------------------
+
+async function setupPdv(installId, uid, { ativo = true, pdvMobile = true, tipo = 'pdv' } = {}) {
+  await setupModulos(installId, { pdvMobile });
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc(`installations/${installId}/dispositivos/${uid}`).set({ tipo, ativo, vinculoUserId: 'user-operador-1' });
+  });
+}
+
+function vendaMobile(uid, extra = {}) {
+  return {
+    dispositivoUid: uid, status: 'novo',
+    itens: [{ productId: 'p1', nome: 'X', quantidade: 1, precoUnitario: 10 }],
+    pagamentos: [{ metodo: 'dinheiro', valor: 10 }],
+    subtotalEsperado: 10, totalEsperado: 10,
+    ...extra,
+  };
+}
+
+test('pedidos_garcom: o DESKTOP (sem autenticação) consegue escutar os pedidos novos', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-PG/pedidos_garcom/p1').set({ garcomUid: 'uid-x', status: 'novo', itens: [] });
+  });
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(desktop.collection('installations/install-PG/pedidos_garcom').where('status', '==', 'novo').get());
+});
+
+test('pedidos_garcom: PDV móvel ativo também lança pedido de mesa', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupPdv('install-PDV1', 'uid-pdv-mesa');
+  const pdv = testEnv.authenticatedContext('uid-pdv-mesa').firestore();
+  await assertSucceeds(pdv.collection('installations/install-PDV1/pedidos_garcom').add({
+    garcomUid: 'uid-pdv-mesa', mesaNumero: '3', itens: [{ productId: 'p1', quantidade: 1 }], status: 'novo',
+  }));
+});
+
+test('vendas_mobile: PDV móvel ativo cria venda; garçom, revogado ou módulo desligado não', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupPdv('install-PDV2', 'uid-pdv-ok');
+  const ok = testEnv.authenticatedContext('uid-pdv-ok').firestore();
+  await assertSucceeds(ok.doc('installations/install-PDV2/vendas_mobile/v1').set(vendaMobile('uid-pdv-ok')));
+  // em nome de outro celular
+  await assertFails(ok.doc('installations/install-PDV2/vendas_mobile/v2').set(vendaMobile('uid-outro')));
+  // já nascendo "finalizada"
+  await assertFails(ok.doc('installations/install-PDV2/vendas_mobile/v3').set(vendaMobile('uid-pdv-ok', { status: 'finalizada' })));
+  // campo fora da lista
+  await assertFails(ok.doc('installations/install-PDV2/vendas_mobile/v4').set(vendaMobile('uid-pdv-ok', { saleId: 'forjado' })));
+
+  await setupPdv('install-PDV3', 'uid-garcom-pdv', { tipo: 'garcom' });
+  const garcom = testEnv.authenticatedContext('uid-garcom-pdv').firestore();
+  await assertFails(garcom.doc('installations/install-PDV3/vendas_mobile/v1').set(vendaMobile('uid-garcom-pdv')));
+
+  await setupPdv('install-PDV4', 'uid-pdv-revogado', { ativo: false });
+  const revogado = testEnv.authenticatedContext('uid-pdv-revogado').firestore();
+  await assertFails(revogado.doc('installations/install-PDV4/vendas_mobile/v1').set(vendaMobile('uid-pdv-revogado')));
+
+  await setupPdv('install-PDV5', 'uid-pdv-sem-modulo', { pdvMobile: false });
+  const semModulo = testEnv.authenticatedContext('uid-pdv-sem-modulo').firestore();
+  await assertFails(semModulo.doc('installations/install-PDV5/vendas_mobile/v1').set(vendaMobile('uid-pdv-sem-modulo')));
+});
+
+test('vendas_mobile: celular não altera a própria venda depois de criada; desktop só mexe nos campos de resultado', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupPdv('install-PDV6', 'uid-pdv-6');
+  const celular = testEnv.authenticatedContext('uid-pdv-6').firestore();
+  await assertSucceeds(celular.doc('installations/install-PDV6/vendas_mobile/v1').set(vendaMobile('uid-pdv-6')));
+  await assertFails(celular.doc('installations/install-PDV6/vendas_mobile/v1').update({ status: 'finalizada' }));
+  await assertSucceeds(celular.doc('installations/install-PDV6/vendas_mobile/v1').get());
+
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(desktop.doc('installations/install-PDV6/vendas_mobile/v1').update({ status: 'finalizada', saleId: 's1', resumo: { total: 10 } }));
+  await assertFails(desktop.doc('installations/install-PDV6/vendas_mobile/v1').update({ itens: [] }));
+});
+
+test('vendas_mobile: um celular não lê a venda de outro', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupPdv('install-PDV7', 'uid-pdv-7a');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-PDV7/vendas_mobile/v1').set(vendaMobile('uid-pdv-7a'));
+  });
+  const outro = testEnv.authenticatedContext('uid-pdv-7b').firestore();
+  await assertFails(outro.doc('installations/install-PDV7/vendas_mobile/v1').get());
+});
+
+test('consultas_pdv: PDV móvel cria consulta de tipo conhecido; desktop responde', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupPdv('install-PDV8', 'uid-pdv-8');
+  const celular = testEnv.authenticatedContext('uid-pdv-8').firestore();
+  await assertSucceeds(celular.doc('installations/install-PDV8/consultas_pdv/c1').set({ dispositivoUid: 'uid-pdv-8', status: 'novo', tipo: 'produtos', termo: 'coca' }));
+  await assertFails(celular.doc('installations/install-PDV8/consultas_pdv/c2').set({ dispositivoUid: 'uid-pdv-8', status: 'novo', tipo: 'apagar_tudo' }));
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(desktop.doc('installations/install-PDV8/consultas_pdv/c1').update({ status: 'respondida', resultado: [] }));
+});
+
+test('config_mobile: só PDV móvel ativo lê; só o desktop escreve', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupPdv('install-PDV9', 'uid-pdv-9');
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(desktop.doc('installations/install-PDV9/config_mobile/pdv').set({ permitirVenda: true }));
+  await assertSucceeds(testEnv.authenticatedContext('uid-pdv-9').firestore().doc('installations/install-PDV9/config_mobile/pdv').get());
+  await assertFails(testEnv.authenticatedContext('uid-qualquer').firestore().doc('installations/install-PDV9/config_mobile/pdv').get());
+  await assertFails(testEnv.authenticatedContext('uid-pdv-9').firestore().doc('installations/install-PDV9/config_mobile/pdv').set({ permitirVenda: false }));
 });

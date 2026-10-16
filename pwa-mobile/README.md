@@ -7,6 +7,12 @@ desktop (Configurações → Celular):
 - **Garçom**: monta um pedido a partir do catálogo da loja e manda pra
   `installations/{installId}/pedidos_garcom` — o desktop converte em
   comanda de verdade (ver `electron/services/pedidoGarcomSyncService.js`).
+- **PDV móvel**: vender pelo celular (catálogo, leitor de código,
+  carrinho, cliente, desconto, dinheiro/cartão/Pix/fiado, recibo) +
+  pedidos de mesa + histórico, com abas que a loja configura em
+  Configurações → Celular. Precisa de internet: a venda só vale depois
+  que o GerenciaAI do computador confere e registra (ver
+  `electron/services/pdvMobileSyncService.js`).
 - **Consulta remota** (Adm/Gerente): vê o resumo financeiro do dia e a
   operação ao vivo (mesas, pedidos em andamento) da(s) loja(s) a que
   está vinculado — suporta mais de uma loja no mesmo celular (dono de
@@ -29,7 +35,12 @@ copiar a pasta pra um servidor — sem precisar instalar Node nem rodar
   (pareamento, garçom ou consulta) com base no que está salvo em
   `localStorage` (ver `store.js`).
 - `pairing.js` — troca o código de 6 dígitos por um vínculo permanente.
-- `garcom.js` / `consulta.js` — as duas telas principais.
+- `garcom.js` / `consulta.js` — telas do garçom e da consulta remota.
+- `pdv.js` — casca do PDV móvel (abas, indicador de conexão, config da
+  loja); `pdv-venda.js` (vender), `pdv-historico.js` (vendas),
+  `pdv-recibo.js`, `pdv-scanner.js` (câmera via BarcodeDetector),
+  `pdv-servidor.js` (tudo que fala com o computador via Firestore),
+  `pdv-util.js`.
 - `firebase-config.js` — inicializa o Firebase (mesmo projeto único do
   Electron, `gerenciaai-licencas`) com cache local persistente — é isso
   que dá a "fila offline" do garçom sem precisar escrever fila nenhuma

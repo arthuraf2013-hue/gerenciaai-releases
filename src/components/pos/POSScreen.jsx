@@ -82,6 +82,37 @@ export function POSScreen() {
   const [showTour, setShowTour] = useState(false);
   const [showTraining, setShowTraining] = useState(false);
 
+  // Vendas deste local que já têm pagamento lançado e estão só esperando
+  // confirmação do estoque do grupo (ver pendente_estoque_grupo no
+  // backend) -- desde que elas deixaram de travar o carrinho (ver
+  // getOrOpenCurrentSale), esse indicador é o único lugar onde o
+  // operador consegue ver que ainda tem venda(s) em pré-finalização
+  // sendo tentadas sozinhas em segundo plano.
+  const [pendentesEstoqueGrupo, setPendentesEstoqueGrupo] = useState(0);
+  const [tentandoPendentesAgora, setTentandoPendentesAgora] = useState(false);
+
+  async function atualizarPendentesEstoqueGrupo() {
+    try {
+      const n = await window.pdv.sale.contarPendentesEstoqueGrupo({ locationId: LOCATION_ID });
+      if (typeof n === 'number') setPendentesEstoqueGrupo(n);
+    } catch {
+      // não crítico -- só o indicador deixa de atualizar nessa rodada
+    }
+  }
+  useEffect(() => {
+    atualizarPendentesEstoqueGrupo();
+    const intervalo = setInterval(atualizarPendentesEstoqueGrupo, 15000);
+    return () => clearInterval(intervalo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function tentarPendentesEstoqueGrupoAgora() {
+    setTentandoPendentesAgora(true);
+    try { await window.pdv.sale.tentarPendentesEstoqueGrupo(); } catch { /* ciclo automático tenta de novo sozinho */ }
+    await atualizarPendentesEstoqueGrupo();
+    setTentandoPendentesAgora(false);
+  }
+
   // O PDV exige um caixa aberto para o local antes de qualquer venda —
   // sem isso não dá pra conferir dinheiro no fechamento do turno.
   useEffect(() => {
@@ -494,6 +525,25 @@ export function POSScreen() {
 
       <HomeMessageBanner />
 
+      {pendentesEstoqueGrupo > 0 && (
+        <p className="io-message-aviso" style={{ margin: '0 0 10px' }}>
+          <Icon name="plug" size={15} />
+          {pendentesEstoqueGrupo === 1
+            ? '1 venda aguardando confirmação do estoque do grupo'
+            : `${pendentesEstoqueGrupo} vendas aguardando confirmação do estoque do grupo`}
+          {' — '}já estão salvas e serão confirmadas sozinhas, uma a uma, assim que a conexão voltar.
+          <button
+            className="btn-link" style={{ marginLeft: 6 }}
+            disabled={tentandoPendentesAgora}
+            onClick={tentarPendentesEstoqueGrupoAgora}
+          >
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="refresh" size={13} /> {tentandoPendentesAgora ? 'Tentando...' : 'Tentar agora'}
+            </span>
+          </button>
+        </p>
+      )}
+
       <div className="pos-search-row">
         <div className="qty-stepper" title="Quantidade do próximo item — digite antes de escanear ou buscar pra adicionar várias unidades de uma vez">
           <input
@@ -608,14 +658,31 @@ export function POSScreen() {
       {showPayment && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <PaymentPanel saleId={saleId} total={total} onFinalized={() => {
-              setShowPayment(false);
-              setItems([]);
-              setTotal(0);
-              setSugestaoCombo(null);
-              setSaleId(null);
-              carregarVendasHoje();
-            }} />
+            <PaymentPanel
+              saleId={saleId}
+              total={total}
+              onFinalized={() => {
+                setShowPayment(false);
+                setItems([]);
+                setTotal(0);
+                setSugestaoCombo(null);
+                setSaleId(null);
+                carregarVendasHoje();
+              }}
+              onAdiarPendente={() => {
+                // A venda NÃO foi finalizada -- continua aberta, pendente,
+                // e vai ser confirmada sozinha em segundo plano (ver
+                // indicador no header). Só libera o carrinho pra uma venda
+                // nova: getOrOpenCurrentSale já ignora essa venda pendente
+                // ao decidir qual carrinho abrir a seguir.
+                setShowPayment(false);
+                setItems([]);
+                setTotal(0);
+                setSugestaoCombo(null);
+                setSaleId(null);
+                atualizarPendentesEstoqueGrupo();
+              }}
+            />
             <button className="btn-secondary" onClick={() => setShowPayment(false)}>Voltar ao carrinho</button>
           </div>
         </div>

@@ -433,7 +433,7 @@ export function SalesHistory({ onDevolver }) {
             {salesFiltradas.map((s) => (
               <Fragment key={s.id}>
                 <tr
-                  className={s.status === 'cancelada' ? 'row-critical' : s.oculta_historico ? 'row-warning' : ''}
+                  className={s.status === 'cancelada' ? 'row-critical' : s.pendente_estoque_grupo === 1 ? 'row-warning' : s.oculta_historico ? 'row-warning' : ''}
                   onClick={() => handleToggleVenda(s.id)}
                   style={{ cursor: 'pointer' }}
                   title="Clique pra ver os produtos dessa venda"
@@ -443,7 +443,12 @@ export function SalesHistory({ onDevolver }) {
                   <td>{vendaExpandidaId === s.id ? '▾' : '▸'} {s.total_itens}</td>
                   <td>R$ {s.total.toFixed(2)}</td>
                   <td>{formatMetodos(s.metodos_pagamento)}</td>
-                  <td>{STATUS_LABEL[s.status] || s.status}{s.oculta_historico ? ' (excluída)' : ''}</td>
+                  <td>
+                    {s.pendente_estoque_grupo === 1
+                      ? `Aguardando estoque do grupo${s.pendente_estoque_tentativas ? ` (tentativa ${s.pendente_estoque_tentativas})` : ''}`
+                      : STATUS_LABEL[s.status] || s.status}
+                    {s.oculta_historico ? ' (excluída)' : ''}
+                  </td>
                   <td>
                     {s.status === 'finalizada' && (
                       <button className="btn-link" onClick={(e) => { e.stopPropagation(); onDevolver?.(s.id); }}>

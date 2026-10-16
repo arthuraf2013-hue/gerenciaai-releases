@@ -3,6 +3,7 @@ import { getLojaAtiva, listarLojas, definirLojaAtiva, removerLoja } from './stor
 import * as pairing from './pairing.js';
 import * as garcom from './garcom.js';
 import * as consulta from './consulta.js';
+import * as pdv from './pdv.js';
 
 const root = document.getElementById('app');
 let desmontarAtual = () => {};
@@ -18,7 +19,9 @@ function abrirLojaAtiva() {
     trocarTela(pairing.mount, { onPareado: abrirLojaAtiva });
     return;
   }
-  const modulo = loja.tipo === 'garcom' ? garcom : consulta;
+  // 'pdv' = PDV móvel (vender + mesas + histórico, configurável pela loja);
+  // 'garcom' = só lançar pedido; 'consulta' = só ver dados da loja.
+  const modulo = loja.tipo === 'pdv' ? pdv : loja.tipo === 'garcom' ? garcom : consulta;
   trocarTela(modulo.mount, {
     loja,
     lojas: listarLojas(),

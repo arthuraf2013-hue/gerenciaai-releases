@@ -237,6 +237,14 @@ Peças do lado do Electron:
   Ambas as pegadinhas só apareceram num deploy real, sem rota de rede
   até o Firebase nesta sandbox de desenvolvimento pra testar antes.
 
+**PDV móvel** (`tipo = 'pdv'`, `pwa-mobile/pdv*.js`): o celular vende de
+verdade, mas só o desktop grava venda — `pdvMobileSyncService.js`
+revalida e cria via `saleService` (mesmos caminhos do balcão), com
+`mobile_sales` garantindo idempotência; consultas sob demanda (produto,
+código, cliente, Pix) em `pdvMobileConsultaService.js`; config em
+`pdv_mobile_config` publicada em `config_mobile/pdv`. Módulo pago
+`pdvMobile`. Ver a entrada "PDV móvel" no README.
+
 Ver a entrada "App do garçom + consulta remota pelo celular" no
 README.md pro raciocínio completo, e `tests/firestoreRules.test.js`
 pro que ainda falta rodar contra o emulador de verdade (não foi

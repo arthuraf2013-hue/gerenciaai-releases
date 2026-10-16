@@ -2689,6 +2689,11 @@
                 ${cliente.modulosAtivos?.appGarcom ? 'checked' : ''} style="width:auto;">
               App do garçom
             </label>
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
+              <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="pdvMobile"
+                ${cliente.modulosAtivos?.pdvMobile ? 'checked' : ''} style="width:auto;">
+              PDV móvel
+            </label>
           </div>
           ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
         </div>

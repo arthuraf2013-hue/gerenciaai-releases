@@ -41,17 +41,38 @@ function requireGerenteOuAdmin(requestingUserId) {
   return { ok: true };
 }
 
+const TIPOS_PAREAMENTO = ['garcom', 'consulta', 'pdv'];
+
+// Papéis que podem ser o "operador" de um PDV móvel -- os mesmos que
+// conseguem bater venda no PDV de balcão. Garçom fica de fora de
+// propósito: no desktop ele também não finaliza venda (só lança pedido
+// em mesa), e o app do garçom continua existindo pra ele.
+const PAPEIS_PDV_MOVEL = ['operador', 'gerente', 'admin', 'suporte'];
+
+/** Módulo pago (clientes/{id}.modulosAtivos.<nome>) exigido por cada
+ * tipo de pareamento -- mesmo mapeamento de moduloDoTipoDePareamento em
+ * firestore.rules. */
+function moduloDoTipo(tipo) {
+  if (tipo === 'garcom') return 'appGarcom';
+  if (tipo === 'pdv') return 'pdvMobile';
+  return 'consultaRemota';
+}
+
+const NOME_MODULO = { appGarcom: 'App do garçom', consultaRemota: 'Consulta remota', pdvMobile: 'PDV móvel' };
+
 /**
  * Gera um código de pareamento novo. `tipo` decide quem pode ser o
  * vínculo: 'garcom' só aceita um usuário com papel garcom; 'consulta'
  * só aceita gerente/admin (é a própria pessoa que vai consultar do
- * celular, não um funcionário à parte).
+ * celular, não um funcionário à parte); 'pdv' aceita quem pode vender
+ * no balcão (operador/gerente/admin/suporte) -- as vendas feitas no
+ * celular entram no nome desse usuário.
  */
 async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
   const guard = requireGerenteOuAdmin(requestingUserId);
   if (!guard.ok) return guard;
 
-  if (!['garcom', 'consulta'].includes(tipo)) return { ok: false, error: 'Tipo de pareamento inválido.' };
+  if (!TIPOS_PAREAMENTO.includes(tipo)) return { ok: false, error: 'Tipo de pareamento inválido.' };
 
   const db = getDb();
   const vinculo = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(vinculoUserId);
@@ -62,6 +83,9 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
   if (tipo === 'consulta' && !['gerente', 'admin', 'suporte'].includes(vinculo.role)) {
     return { ok: false, error: 'Um código de consulta remota só pode ser vinculado a um Gerente ou Administrador.' };
   }
+  if (tipo === 'pdv' && !PAPEIS_PDV_MOVEL.includes(vinculo.role)) {
+    return { ok: false, error: 'Um código de PDV móvel só pode ser vinculado a um Operador, Gerente ou Administrador (quem pode vender no caixa).' };
+  }
 
   // Consulta remota e App do garçom são módulos pagos à parte (ver
   // PARTE 1.5 de firestore.rules, onde a checagem de verdade acontece)
@@ -70,10 +94,9 @@ async function gerarCodigo({ tipo, vinculoUserId, requestingUserId }) {
   // sem nem tentar a chamada de rede. Se o espelho local ainda não
   // sincronizou, deixa passar e a regra do Firestore decide (ver
   // modulosPagosService.moduloAtivo).
-  const modulo = tipo === 'garcom' ? 'appGarcom' : 'consultaRemota';
+  const modulo = moduloDoTipo(tipo);
   if (!require('./modulosPagosService').moduloAtivo(modulo)) {
-    const nomeModulo = tipo === 'garcom' ? 'App do garçom' : 'Consulta remota';
-    return { ok: false, error: `O módulo "${nomeModulo}" não está ativo pra este cliente. Fale com o suporte pra contratar.` };
+    return { ok: false, error: `O módulo "${NOME_MODULO[modulo]}" não está ativo pra este cliente. Fale com o suporte pra contratar.` };
   }
 
   // Firestore precisa estar acessível pra publicar o código (é ele quem
@@ -183,6 +206,10 @@ function listarDispositivosPareados() {
  * nunca cria vínculo NOVO por conta própria (isso só acontece do lado
  * do celular, que sabe o código); aqui só espelha o que já foi criado. */
 function espelharDispositivoPareado({ uid, tipo, vinculoUserId, nomeDispositivo, ativo }) {
+  // Tipo desconhecido (documento escrito por uma versão mais nova do
+  // celular, ou lixo) estouraria o CHECK da tabela dentro do callback do
+  // onSnapshot -- ignora em vez de derrubar a escuta inteira.
+  if (!TIPOS_PAREAMENTO.includes(tipo)) return;
   const db = getDb();
   const usuarioExiste = db.prepare('SELECT id FROM users WHERE id = ?').get(vinculoUserId);
   if (!usuarioExiste) return; // vínculo apontando pra usuário que não existe mais aqui -- ignora
@@ -362,6 +389,7 @@ module.exports = {
   gerarCodigo, listarCodigosPendentes, listarDispositivosPareados, revogarDispositivo,
   reativarDispositivo, excluirDispositivo,
   iniciarEscutaPareamentos,
+  TIPOS_PAREAMENTO, PAPEIS_PDV_MOVEL, moduloDoTipo,
   // Exportados só pra teste (a parte que não depende de rede).
   marcarCodigoComoUsado, espelharDispositivoPareado,
 };

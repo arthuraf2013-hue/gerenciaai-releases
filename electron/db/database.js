@@ -261,6 +261,77 @@ function atualizarCheckRoleParaIncluirSuporte(database) {
 }
 
 /**
+ * Mesmo raciocínio de atualizarCheckRoleParaIncluirGarcom, agora pro CHECK
+ * de `tipo` em pairing_codes e paired_devices -- precisam aceitar 'pdv'
+ * (PDV móvel, ver pdvMobileSyncService.js). Nenhuma outra tabela
+ * referencia essas duas, mas o cuidado de recriar num nome temporário e
+ * só renomear no final é o mesmo (consistência com as outras migrações
+ * de CHECK deste arquivo). Cada tabela é migrada independente da outra:
+ * se uma já estiver certa (banco novo, ou migração parcial anterior),
+ * só a outra é recriada.
+ */
+function atualizarCheckTipoPareamentoParaIncluirPdv(database) {
+  const migracoes = [
+    {
+      tabela: 'pairing_codes',
+      criar: `
+        CREATE TABLE pairing_codes_novo_com_pdv (
+          id              TEXT PRIMARY KEY,
+          tipo            TEXT NOT NULL CHECK (tipo IN ('garcom','consulta','pdv')),
+          vinculo_user_id TEXT NOT NULL REFERENCES users(id),
+          criado_por_id   TEXT NOT NULL REFERENCES users(id),
+          criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          expira_em       TEXT NOT NULL,
+          usado           INTEGER NOT NULL DEFAULT 0,
+          usado_em        TEXT
+        );`,
+      colunas: 'id, tipo, vinculo_user_id, criado_por_id, criado_em, expira_em, usado, usado_em',
+      indices: ['CREATE INDEX IF NOT EXISTS idx_pairing_codes_usado ON pairing_codes(usado, expira_em);'],
+    },
+    {
+      tabela: 'paired_devices',
+      criar: `
+        CREATE TABLE paired_devices_novo_com_pdv (
+          id               TEXT PRIMARY KEY,
+          tipo             TEXT NOT NULL CHECK (tipo IN ('garcom','consulta','pdv')),
+          vinculo_user_id  TEXT NOT NULL REFERENCES users(id),
+          nome_dispositivo TEXT,
+          criado_em        TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          ativo            INTEGER NOT NULL DEFAULT 1,
+          ultimo_acesso    TEXT
+        );`,
+      colunas: 'id, tipo, vinculo_user_id, nome_dispositivo, criado_em, ativo, ultimo_acesso',
+      indices: [],
+    },
+  ];
+
+  for (const m of migracoes) {
+    try {
+      const tabela = database.prepare(
+        `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`
+      ).get(m.tabela);
+      if (!tabela || tabela.sql.includes("'pdv'")) continue; // já migrado, ou banco novo
+
+      const fkEstava = database.pragma('foreign_keys', { simple: true });
+      database.pragma('foreign_keys = OFF');
+      try {
+        database.transaction(() => {
+          database.exec(m.criar);
+          database.exec(`INSERT INTO ${m.tabela}_novo_com_pdv (${m.colunas}) SELECT ${m.colunas} FROM ${m.tabela};`);
+          database.exec(`DROP TABLE ${m.tabela};`);
+          database.exec(`ALTER TABLE ${m.tabela}_novo_com_pdv RENAME TO ${m.tabela};`);
+          for (const sql of m.indices) database.exec(sql);
+        })();
+      } finally {
+        database.pragma(`foreign_keys = ${fkEstava ? 'ON' : 'OFF'}`);
+      }
+    } catch (err) {
+      console.error(`[migração] falhou ao atualizar CHECK de ${m.tabela}.tipo pra incluir pdv:`, err);
+    }
+  }
+}
+
+/**
  * Garante que um campo extra específico exista em custom_profiles.campos_extras_json
  * de um perfil já existente -- sem isso, adicionar um campo novo a um
  * seedProfileIfMissing() só valeria pra instalação NOVA (seedProfileIfMissing
@@ -401,9 +472,19 @@ function migrateColumnsIfNeeded(database) {
   // comentário da coluna em schema.sql e saleService.addItem.
   adicionarColunaSeFaltando(database, 'products', 'tipo', "TEXT NOT NULL DEFAULT 'produto' CHECK (tipo IN ('produto','servico'))");
 
+  // Finalização pendente de confirmação de estoque do grupo -- ver
+  // comentário completo em schema.sql e saleService.js.
+  adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_grupo', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_tentativas', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_proxima_tentativa', 'TEXT');
+
   atualizarCheckRoleParaIncluirGarcom(database);
   atualizarCheckOrigemParaIncluirAppGarcom(database);
   atualizarCheckRoleParaIncluirSuporte(database);
+  atualizarCheckTipoPareamentoParaIncluirPdv(database);
+
+  // PDV móvel -- módulo pago próprio (ver modulosPagosService.js).
+  adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'pdv_mobile', 'INTEGER NOT NULL DEFAULT 0');
 
   // Tabela de preços de serviços (ver comentário de garantirCampoExtraNoPerfil).
   garantirCampoExtraNoPerfil(database, 'salao_beleza', {
@@ -629,6 +710,8 @@ module.exports = {
   atualizarCheckRoleParaIncluirSuporte,
   // Idem, pra tests/servicePriceTableService.test.js (migração do campo tipo_servico).
   garantirCampoExtraNoPerfil,
+  // Idem, pra tests/pdvMobileSyncService.test.js (CHECK de tipo de pareamento com 'pdv').
+  atualizarCheckTipoPareamentoParaIncluirPdv,
 };
 
 function getDbPath() {

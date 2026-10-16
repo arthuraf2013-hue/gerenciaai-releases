@@ -5098,3 +5098,483 @@ contagem/lista padrão de usuários que centenas de testes já existentes
 já contam. `pairingService.gerarCodigo`/`revogarDispositivo` continuam
 fora do escopo de teste local (exigem Firestore de verdade — mesma
 limitação já documentada no próprio `pairingService.test.js`).
+
+## Separar o repositório de código (privado) do repositório de releases (público)
+
+Pedido: "o repositório de versões está público pra que as atualizações
+possam ser enviadas, mas isso deixa o app todo exposto — quero privar e
+manter atualizando normalmente".
+
+**Causa:** hoje existe um único repositório no GitHub
+(`gerenciaai-releases`) cumprindo dois papéis ao mesmo tempo — é pra onde
+o `electron-builder` publica os instaladores (que o `electron-updater`,
+dentro do app já instalado, verifica **sem login nenhum** — por isso
+precisa ser público, ver a seção "Atualização automática" mais acima) e
+é também, desde que o código-fonte foi enviado pro GitHub por engano
+nessa mesma seção, onde os **353 commits de código-fonte** do projeto
+inteiro ficaram hospedados. Deixar esse repositório privado do jeito que
+ele está hoje quebraria a verificação de atualização de todas as lojas
+(dá erro 404, o app não consegue nem saber que existe versão nova).
+
+**Achado separado, mais sério, durante essa investigação:** o histórico
+do git desse mesmo repositório (não a pasta atual — o **histórico**)
+tinha, em algum momento, backups reais do banco de dados (`.data/`) e um
+comprovante de venda em PDF, além de um arquivo chamado `masterkey
+co.txt`. Esses arquivos foram removidos da pasta do projeto e colocados
+no `.gitignore` há um tempo (commit `fix: remove do Git masterkey co.txt
+e .data/, adiciona ao .gitignore`), mas isso **não apaga o histórico** —
+qualquer pessoa que já tenha clonado o repositório (ou que use `git log`
+na própria página do GitHub) ainda conseguia recuperar esses arquivos
+antigos, porque o repositório sempre foi público. `masterkey co.txt` não
+é referenciado em nenhum lugar do código (busquei no projeto inteiro) —
+não é uma chave usada pelo app; parece ser um arquivo pessoal seu que
+entrou por acidente num `git add .` antigo. **Recomendo fortemente**:
+abra esse arquivo você mesmo (ele não existe mais na pasta atual, só no
+histórico antigo do GitHub) e, se for uma senha/chave de verdade, troque
+ou revogue o que estiver nele — ela ficou publicamente acessível por
+semanas.
+
+### Como ficou
+
+Dois repositórios, cada um com um papel só:
+
+- **Repositório novo, privado** — só o código-fonte. É pra onde o `git
+  push` do dia a dia passa a ir, e é onde os workflows do GitHub Actions
+  (`release.yml`, `auto-version.yml`, `rollback-release.yml`) agora
+  moram e disparam.
+- **`gerenciaai-releases`, continua público** — só os instaladores
+  publicados (GitHub Releases). Nenhum código-fonte novo é enviado pra
+  ele a partir de agora. Continua público de propósito (é assim que o
+  `electron-updater`, já instalado em cada loja, consegue verificar
+  atualização sem precisar de nenhuma senha/token — ver "Atualização
+  automática" mais acima) — mas agora só expõe instaladores, nunca mais
+  o código.
+
+Nada muda no app que roda nas lojas: `electron-updater` continua
+verificando o mesmo repositório público de sempre, sem nenhuma
+credencial embutida no instalador. A separação acontece inteira do seu
+lado (onde o código mora e quem publica a release), não do lado do
+cliente. `package.json` não precisou mudar — `build.publish` já apontava
+pra `gerenciaai-releases` e continua apontando.
+
+### Passo a passo pra ativar (só você consegue fazer, não tenho acesso à sua conta do GitHub nem posso gravar arquivo de workflow remotamente)
+
+**0. Antes de qualquer coisa, trate o achado do `masterkey co.txt`**
+acima (abrir, conferir o que é, trocar/revogar se for uma credencial de
+verdade). Os passos abaixo resolvem a exposição *daqui pra frente* — não
+desfazem o que já ficou público.
+
+**1. Crie o repositório novo, privado.** No GitHub, "New repository" →
+escolha um nome (sugestão: `gerenciaai`; se já existir na sua conta, use
+outro como `gerenciaai-codigo`) → marque **Private** → crie vazio (sem
+README/gitignore automático).
+
+**2. Gere dois tokens de acesso** (fine-grained, cada um só com permissão
+no repositório que precisa): Settings da sua conta → Developer settings
+→ Personal access tokens → Fine-grained tokens → Generate new token, duas
+vezes:
+
+  - **`RELEASE_PAT`** — Repository access: "Only select repositories" →
+    escolha o repositório **novo (privado)** → Permissions → Repository
+    permissions → "Contents" → **Read and write**. Usado só dentro do
+    próprio repositório de código, pra criar o commit/tag de versão
+    automaticamente.
+  - **`RELEASES_REPO_TOKEN`** — mesma coisa, mas escolhendo o repositório
+    **`gerenciaai-releases`** (o público), mesma permissão "Contents:
+    Read and write". Usado pra publicar e pra reverter uma release, nos
+    dois casos de dentro do repositório de código pro repositório de
+    releases.
+
+Guarde os dois valores — cada token só aparece uma vez na tela.
+
+**3. Cadastre os dois tokens como *secrets* no repositório novo
+(privado)**: nele, Settings → Secrets and variables → Actions → "New
+repository secret" → crie `RELEASE_PAT` com o primeiro valor e
+`RELEASES_REPO_TOKEN` com o segundo.
+
+**4. Clone o repositório atual numa pasta separada** (não a sua pasta do
+dia a dia — o próximo passo reescreve todo o histórico, e a ferramenta
+exige um clone "fresco", sem nenhuma alteração local, pra rodar com
+segurança):
+
+```powershell
+cd C:\Users\DEFINITECH\Desktop
+git clone https://github.com/arthuraf2013-hue/gerenciaai-releases.git gerenciaai-historico-limpo
+cd gerenciaai-historico-limpo
+```
+
+**5. Troque o conteúdo dos três workflows nessa pasta nova** —
+`.github\workflows\release.yml`, `.github\workflows\auto-version.yml` e
+`.github\workflows\rollback-release.yml` — pelos três arquivos que
+anexei na conversa (eles já publicam/revertem usando `RELEASES_REPO_TOKEN`
+em vez do token automático do GitHub Actions, que não teria permissão
+no repositório separado de releases). Depois:
+
+```powershell
+git add .github/workflows
+git commit -m "ci: usa RELEASES_REPO_TOKEN para publicar/reverter no repositorio de releases separado"
+```
+
+**6. Limpe o histórico, removendo `.data/` e `masterkey co.txt` de
+todos os commits antigos:**
+
+```powershell
+pip install git-filter-repo
+git filter-repo --invert-paths --path ".data" --path "masterkey co.txt"
+```
+
+(`git filter-repo` remove o remote `origin` automaticamente depois de
+rodar — é esperado, você adiciona o remote novo no próximo passo.)
+
+**7. Envie esse histórico limpo pro repositório novo:**
+
+```powershell
+git remote add origin https://github.com/arthuraf2013-hue/<NOME-DO-REPO-NOVO>.git
+git push -u origin main
+git push origin --tags
+```
+
+Confira no GitHub (aba "Code" e o histórico de commits do repositório
+novo) que `.data/` e `masterkey co.txt` realmente não aparecem em nenhum
+commit antes de seguir.
+
+**8. Só depois de confirmar o passo 7, sincronize sua pasta de trabalho
+do dia a dia** (`C:\Users\DEFINITECH\Desktop\gerenciaai`) **com esse
+histórico novo.** Antes de mais nada, confira se não há nada pendente
+pra perder — `git status`; se houver qualquer mudança não commitada que
+você queira manter, commite ou copie pra fora antes de continuar, porque
+o próximo comando descarta qualquer coisa não commitada nessa pasta:
+
+```powershell
+cd C:\Users\DEFINITECH\Desktop\gerenciaai
+git remote set-url origin https://github.com/arthuraf2013-hue/<NOME-DO-REPO-NOVO>.git
+git fetch origin
+git reset --hard origin/main
+```
+
+Isso faz a pasta do dia a dia passar a espelhar exatamente o
+repositório novo e limpo (sem precisar rodar o `filter-repo` uma segunda
+vez nela).
+
+**9. Teste de ponta a ponta**: faça um commit nessa pasta com mensagem
+começando com `release:` (ex: `release: testa publicação pelo
+repositório novo`) e rode `git push`. Acompanhe em
+`github.com/arthuraf2013-hue/<NOME-DO-REPO-NOVO>/actions` até os dois
+workflows (`auto-versionar` e depois `build-e-publicar`) passarem com ✓
+verde, e confirme que a release nova aparece em
+`github.com/arthuraf2013-hue/gerenciaai-releases/releases`.
+
+**O que fazer com o histórico antigo do `gerenciaai-releases` (código
+que já ficou exposto por lá):** ele já esteve público, então só limpar
+agora não desfaz quem já pode ter clonado antes. Reescrever esse
+histórico também é possível, mas com um risco real: as releases já
+publicadas dependem das tags existentes nesse repositório, e mexer
+errado no histórico de um repositório com releases "ao vivo" pode
+quebrar a atualização pra quem já tem o app instalado. Minha
+recomendação é tratar isso como prioridade mais baixa, separado deste
+passo a passo — o mais importante (parar de expor código novo e tratar
+o `masterkey co.txt` do passo 0) já fica resolvido com os passos acima.
+Se quiser seguir com essa limpeza do repositório antigo depois, posso
+preparar os comandos com calma numa conversa dedicada a isso.
+
+## Venda do PDV esperando estoque do grupo — retry automático em segundo plano
+
+Pedido: ampliar o PDV desktop pra funcionar 100% offline, como o PDV
+mobile. Antes de mudar qualquer coisa, fiz uma auditoria completa do
+fluxo de venda (consulta de produto, carrinho, pagamento, caixa,
+licença, NFC-e) — o resultado foi que **quase tudo isso já é local e
+sempre funcionou sem servidor nenhum** (não existe um servidor HTTP
+próprio no projeto; "o servidor" é o Firestore, usado só como espelho
+best-effort). O único ponto onde uma venda genuinamente dependia de rede
+pra fechar é quando a instalação está num **grupo de sincronização com
+estoque centralizado** entre PDVs: `stockSyncService.
+verificarEDebitarEstoqueRemoto` confere e debita o estoque compartilhado
+numa transação atômica do Firestore antes de finalizar — decisão
+deliberada de antes, pra nunca vender a mesma última unidade em dois
+PDVs. Se o Firestore estava inacessível nesse momento, a venda ficava
+travada (sem se perder — continuava aberta localmente — mas exigindo
+clicar "Finalizar" na mão repetidas vezes até a conexão voltar).
+
+Decisão tomada: **manter essa trava** (continua sem risco nenhum de
+vender a mesma unidade duas vezes) e melhorar a experiência em torno
+dela — retry automático com backoff, indicador de que está tentando, e
+um botão pra tentar na hora.
+
+### Como funciona
+
+Quando a checagem remota de estoque falha por REDE (Firestore
+inacessível — `motivo: 'rede'`, diferente de `motivo:
+'estoque_insuficiente'`, que é uma resposta de verdade do servidor
+dizendo "não tem" e não compensa tentar de novo sozinho),
+`saleService.finalizeSaleComVerificacaoDeGrupo` marca a venda como
+pendente (`sales.pendente_estoque_grupo`) com um backoff crescente (10s,
+20s, 40s, 80s, depois sempre 2 min — `BACKOFF_ESTOQUE_GRUPO_MS`). Um
+ciclo automático em `main.js`, a cada 10s, chama
+`saleService.tentarFinalizarVendasPendentesDeEstoque()`, que só tenta de
+novo as vendas cujo horário de backoff já passou — quando não há nenhuma
+pendente (o caso comum), é uma única consulta local, sem nenhuma chamada
+de rede. Se a checagem der estoque insuficiente DE VERDADE numa
+retentativa (alguém vendeu a última unidade enquanto esperávamos), a
+pendência é limpa e a venda fica com um erro definitivo em vez de
+continuar tentando pra sempre.
+
+Na tela de pagamento (`PaymentPanel.jsx`), em vez do erro seco de antes,
+aparece um aviso ("Aguardando confirmação do estoque do grupo...") com
+um botão "Tentar agora" (ignora o backoff, tenta na hora a pedido do
+operador) e um polling leve (a cada 8s) que detecta quando o ciclo
+automático já resolveu a venda sozinho — nesse caso a tela avança pro
+sucesso (recibo, NFC-e) sem precisar de nenhuma ação.
+
+Sinal de conectividade (`connectivityService.js`): em vez de
+`navigator.onLine` (só diz se a placa de rede está ligada, não se o
+Firestore responde) ou um teste de rede dedicado, reaproveita o
+resultado das chamadas que a instalação já faz toda hora — o ping de
+presença a cada 2 min (`licenseService.enviarPing`) e cada tentativa de
+checar estoque do grupo.
+
+### Atualização: a venda pendente não trava mais o PDV pra novas vendas
+
+Pedido seguinte: enquanto uma venda fica em pré-finalização (pagamento já
+lançado, só esperando o estoque do grupo confirmar), o PDV precisa deixar
+o operador atender outro cliente — não ficar parado esperando a conexão
+voltar. E, quando a conexão volta, as pendentes têm que ser confirmadas
+**uma a uma** (nunca em paralelo), pra nunca duas venderem a mesma última
+unidade ao mesmo tempo.
+
+A segunda parte (uma a uma) **já era** assim desde a primeira versão
+disso: `tentarFinalizarVendasPendentesDeEstoque` sempre processou a lista
+de pendentes num `for` sequencial com `await` dentro, nunca em paralelo —
+cada venda só começa a ser checada depois que a anterior já terminou (e
+já gravou o resultado). Isso ficou mais explícito agora: o `SELECT` que
+monta essa lista passou a ter `ORDER BY criado_em ASC`, pra garantir que
+a venda mais antiga é sempre a primeira a ser confirmada (antes dependia
+da ordem física das linhas na tabela, que não é garantia de nada).
+
+A primeira parte (liberar o PDV pra novas vendas) era o gap de verdade:
+`saleService.getOrOpenCurrentSale` — a função que o PDV chama ao abrir a
+tela pra retomar o carrinho do operador — reaproveitava **qualquer**
+venda `aberta` do operador/local, incluindo uma que só estava "aberta"
+porque ficou pendente de confirmação de estoque. Na prática isso prendia
+o operador de volta na venda pendente (voltar pro carrinho, ou só
+reabrir o app) em vez de abrir um carrinho novo. Agora essa consulta
+ignora explicitamente `pendente_estoque_grupo = 1`, então uma venda
+pendente nunca volta a ser "o carrinho atual" — ela continua intacta e
+sendo tentada sozinha em segundo plano, só deixa de ser o que aparece na
+tela.
+
+Como o operador agora pode se afastar da tela de pagamento de uma venda
+pendente (botão "Fazer outra venda enquanto espera" no aviso, ou
+simplesmente reabrindo o PDV), ela deixou de ser visível só ali — por
+isso:
+
+- Indicador novo no topo do PDV (`POSScreen.jsx`): "N venda(s)
+  aguardando confirmação do estoque do grupo", com botão "Tentar agora"
+  (dispara `tentarFinalizarVendasPendentesDeEstoque({ forcar: true })`
+  pra todas, não só uma), atualizado por polling (15s).
+- `SalesHistory.jsx` já mostrava carrinho aberto com item (não esconde
+  mais uma venda que ficou pendente) — agora o status mostrado nessa
+  lista distingue "Aguardando estoque do grupo (tentativa N)" de um
+  "Em aberto" comum.
+- `saleService.listVendasPendentesDeEstoque(locationId)` — lista (não só
+  conta) as pendentes, mesma ordem (mais antiga primeiro) em que serão
+  confirmadas; `sale:listarPendentesEstoqueGrupo` e
+  `sale:contarPendentesEstoqueGrupo` expostos em `handlers.js`/`preload.js`.
+
+**Decisão explícita que ficou de fora**: o fluxo de mesa (`TableOrderScreen.jsx`)
+não foi alterado. Lá, `onFinalized` libera a mesa (`window.pdv.table.release`)
+só quando a venda finaliza de verdade — decidir se vale liberar a mesa
+ANTES disso (venda ainda pendente, cliente já pagou mas a confirmação de
+estoque do grupo ainda não voltou) é uma decisão de fluxo de atendimento,
+não uma correção técnica, e não tomei essa decisão sozinho. Se fizer
+sentido pro negócio, dá pra estender o mesmo botão "continuar depois" pra
+lá, mas aí precisa decidir conscientemente se a mesa fica ocupada,
+"fechando" ou livre nesse meio-tempo.
+
+### Onde foi mexido
+
+- `electron/db/schema.sql` / `database.js` — três colunas novas em
+  `sales` (`pendente_estoque_grupo`, `pendente_estoque_tentativas`,
+  `pendente_estoque_proxima_tentativa`) + índice pra cobrir a varredura
+  do ciclo automático, com migração pra banco já existente.
+- `electron/services/stockSyncService.js` — `verificarEDebitarEstoqueRemoto`
+  agora devolve `motivo: 'rede' | 'estoque_insuficiente'` em vez de só um
+  texto de erro, e alimenta `connectivityService` em cada tentativa.
+- `electron/services/connectivityService.js` (novo) — sinal em memória
+  de "conseguimos falar com o Firestore agora?".
+- `electron/services/saleService.js` — `finalizeSaleComVerificacaoDeGrupo`
+  reescrita pra marcar/limpar a pendência conforme o motivo;
+  `tentarFinalizarVendasPendentesDeEstoque`, `contarVendasPendentesDeEstoque`
+  e `getStatusPendenteEstoque` novas; depois, `getOrOpenCurrentSale`
+  passou a ignorar venda pendente (`AND pendente_estoque_grupo = 0`),
+  o retry ganhou `ORDER BY criado_em ASC` explícito, e
+  `listVendasPendentesDeEstoque` foi adicionada.
+- `electron/services/licenseService.js` — `enviarPing` agora também
+  atualiza `connectivityService`.
+- `electron/main.js` — novo ciclo a cada 10s chamando
+  `tentarFinalizarVendasPendentesDeEstoque`.
+- `electron/ipc/handlers.js` / `preload.js` — `sale.statusPendenteEstoque`,
+  `sale.tentarPendentesEstoqueGrupo`, `connectivity.getStatus`, e depois
+  `sale.contarPendentesEstoqueGrupo` / `sale.listarPendentesEstoqueGrupo`.
+- `src/components/pos/PaymentPanel.jsx` — aviso de pendência, botão
+  "Tentar agora", polling de auto-resolução, e botão "Fazer outra venda
+  enquanto espera" (`onAdiarPendente`).
+- `src/components/pos/POSScreen.jsx` — indicador de pendentes no topo,
+  com contagem e "Tentar agora" pra todas; `onAdiarPendente` libera o
+  carrinho sem marcar a venda como finalizada.
+- `src/components/pos/SalesHistory.jsx` — status distinto pra venda
+  pendente de estoque do grupo, em vez de só "Em aberto".
+- `src/styles/theme.css` — `.io-message-aviso`.
+
+### Testado
+
+`node --test` — suite (`tests/finalizacaoPendenteEstoqueGrupo.test.js`,
+13 testes): finaliza normal quando a checagem remota dá ok; falha de
+rede marca pendência e mantém a venda aberta; tentativas incrementam;
+estoque insuficiente de verdade não marca pendência (e limpa uma
+pendência anterior, se houver); o ciclo automático (forçado) finaliza
+as pendentes quando a rede volta; sem forçar, respeita o backoff e não
+tenta antes da hora; identifica e reporta conflito real sem insistir pra
+sempre; leitura de status e contagem/listagem de pendências por local;
+`getOrOpenCurrentSale` ignora venda pendente e abre carrinho novo; duas
+vendas pendentes do mesmo produto, com só 1 unidade de verdade restante
+no grupo, são processadas uma por vez na ordem de chegada — a mais
+antiga confirma, a mais nova encontra o conflito real, nunca as duas ao
+mesmo tempo. Esse último teste expôs (e corrigiu) um bug no PRÓPRIO
+helper de teste `comEstoqueRemotoMockado`: ele restaurava a função
+mockada antes dela de fato resolver (fazia `return fn()` em vez de
+`return await fn()`), então num laço com mais de uma pendência só a
+primeira chamada via o mock — as demais caíam na implementação real
+(que sem grupo configurado sempre devolve `ok: true`, mascarando o
+problema nos testes antigos porque todos usavam mocks literais
+`{ ok: true }`, que coincidem com esse comportamento). Resto da suite
+(199 testes) sem regressão — os 2 únicos que falham (`addPayment em
+cartão...`) já falhavam antes de toda essa mudança, são de uma
+inconsistência não relacionada em `METODOS_COBRADOS_FORA` (inclui
+`cartao_credito`/`cartao_debito` junto de pix/outro, então um valor
+"acima do que falta" em cartão é absorvido em vez de rejeitado) —
+sinalizando aqui, não corrigi por estar fora do que foi pedido nesta
+rodada.
+
+**Não testado de verdade** (precisa do Actions real / Firestore real,
+mesma limitação de sempre): o ciclo rodando no app empacotado de
+verdade, e o cenário de duas instalações reais (dois PCs) brigando pela
+mesma última unidade ao mesmo tempo — o teste acima prova a lógica de
+serialização local, não a concorrência real entre dois processos
+distintos escrevendo no mesmo documento do Firestore.
+
+## PDV móvel — vender pelo celular, sincronizado com o caixa do computador
+
+O app do celular (`pwa-mobile/`) ganhou um terceiro tipo de pareamento,
+**PDV móvel** (`tipo = 'pdv'`), que junta num app só a venda completa e o
+fluxo do garçom, com abas que a loja liga/desliga:
+
+- **Vender** — catálogo (busca, categorias, leitura de código de barras
+  pela câmera ou por leitor Bluetooth, produtos por peso), carrinho salvo
+  no próprio celular, cliente (busca no cadastro, com telefone/CPF
+  mascarados), desconto, pagamento misto (dinheiro com troco, crédito,
+  débito, Pix com QR, fiado), recibo por WhatsApp/compartilhar.
+- **Mesas** — o mesmo `garcom.js` de sempre, embutido (`embutido: true`).
+- **Vendas** — histórico do celular, total do dia por forma de pagamento,
+  recibo de cada venda, vendas recusadas com o motivo.
+- **Ajustes** — preferências do aparelho (tela inicial, grade/lista,
+  bipe, vibração, mostrar estoque) + o que a loja liberou.
+
+### Por que o computador continua sendo o "servidor"
+
+O celular nunca grava venda "pronta". Ele manda UM documento
+(`installations/{id}/vendas_mobile/{vendaId}`, id gerado no celular) com
+itens, desconto, cliente e pagamentos, e o desktop
+(`pdvMobileSyncService.js`) refaz tudo pelos MESMOS caminhos do balcão —
+`saleService.openSale/addItem/addPayment/finalizeSaleComVerificacaoDeGrupo`
+— numa transação só: preço do catálogo local (subtotal diferente do que o
+cliente viu → recusa com `precos_alterados` e os preços novos), estoque,
+caixa aberto (obrigatório, igual ao balcão), forma de pagamento liberada,
+fiado só com cliente, dinheiro acima do que falta vira troco
+(`detalhes.troco`, nunca entra no caixa). Qualquer recusa desfaz a venda
+inteira, inclusive a baixa de estoque dos itens anteriores (os `db.transaction`
+internos viram savepoints). O resultado volta no mesmo documento
+(`finalizada` com `resumo`, `pendente` ou `erro`).
+
+- **Idempotência**: tabela `mobile_sales` (id = id do documento).
+  Reentrega do listener ou app fechado no meio nunca duplicam venda; a
+  reconciliação (15 s) retoma vendas `criada`/`pendente_estoque` e
+  reenvia resultado que não chegou no celular (`status_notificado`).
+- **Grupo de sincronização**: falha de rede vira `pendente_estoque` e o
+  ciclo automático existente finaliza; falta de estoque de verdade em
+  outra máquina → `saleService.cancelarVendaAbertaPeloSistema` (estorno
+  completo, `audit_log` `cancelamento_venda_automatico_sistema`) e erro
+  pro celular. `cancelSale` foi refatorado pra compartilhar a parte
+  mecânica (`executarCancelamentoDaVenda`) — comportamento inalterado.
+- **Fila serial**: uma venda do celular por vez, pelo mesmo motivo da
+  serialização das pendentes do grupo.
+- **Carrinho do computador**: `getOrOpenCurrentSale` ignora vendas que
+  pertencem a `mobile_sales` — mesmo usuário logado nos dois lugares
+  nunca "herda" a venda do celular como carrinho.
+- **Desconto**: o celular não tem como pedir o PIN de um segundo
+  gerente. Com `exigir_autorizacao_desconto` ligado, vale só até o % que
+  um gerente pré-autorizou em Configurações → Celular (quem salvou fica
+  como `desconto_autorizado_por_id`, evento `desconto_pdv_movel`);
+  desligado, mesma regra do balcão.
+
+### Consultas sob demanda (`consultas_pdv`)
+
+O catálogo publicado em `status_ao_vivo` continua limitado a 800 itens —
+o que não estiver lá (busca por nome, código de barras, SKU, etiqueta de
+balança com peso/preço embutido), a busca de cliente e o QR do Pix são
+pedido/resposta (`pdvMobileConsultaService.js`). O Pix usa o mesmo
+`pixService.buildPixPayload` do balcão e devolve a matriz do QR como
+string de 0/1 — o celular desenha num `<canvas>`, sem biblioteca e sem
+renderizar SVG/HTML vindo do Firestore. Consultas com mais de 1 h são
+apagadas pelo desktop.
+
+### Configuração e sinal de vida (`config_mobile/pdv`)
+
+Tabela `pdv_mobile_config` (Configurações → Celular → "PDV móvel"):
+vender, mesas, cliente, formas de pagamento, desconto máximo, imprimir
+recibo no computador. Publicada a cada 25 s (só se existir PDV móvel
+pareado) junto com `caixaAberto` e `atualizadoEm` — o celular só deixa
+finalizar com internet, computador respondendo (< 90 s) e caixa aberto.
+
+### Módulo pago
+
+Novo módulo `pdvMobile` em `clientes/{id}.modulosAtivos` (checkbox "PDV
+móvel" no admin-panel, coluna `modulos_pagos_state.pdv_mobile`), checado
+no pareamento e em toda escrita/leitura do celular nas regras.
+
+### Correção que veio junto: desktop não conseguia ler `pedidos_garcom`
+
+A regra de leitura de `pedidos_garcom` só liberava o próprio garçom
+(`request.auth != null`). O desktop escuta sem autenticação, então
+`pedidoGarcomSyncService.iniciarEscutaPedidosGarcom` era recusado com
+permission-denied — confirmado no emulador. Agora a leitura também vale
+pra `request.auth == null` (mesmo nível de confiança do resto de
+`installations/`), igual às coleções novas.
+
+### Publicar
+
+1. `firebase deploy --only firestore:rules,firestore:indexes` — dois
+   índices compostos novos (`pedidos_garcom` e `vendas_mobile`:
+   uid + `criadoEm` desc), exigidos pelas listas "Meus pedidos"/"Vendas".
+2. Republicar o `pwa-mobile/` (cache do service worker foi pra `v2`).
+3. Ativar "PDV móvel" pro cliente no admin-panel.
+4. Liberar uma versão do desktop (migrações: CHECK de `tipo` em
+   `pairing_codes`/`paired_devices`, colunas/tabelas novas).
+
+### Testado
+
+- `tests/pdvMobileSyncService.test.js` (25 testes): venda completa,
+  troco, rollback de estoque, preço alterado, caixa fechado, política de
+  desconto, fiado, grupo (rede e falta de estoque), idempotência,
+  consultas (cliente mascarado, código/etiqueta de balança, Pix),
+  pareamento e migração do CHECK.
+- `tests/firestoreRules.test.js` rodado de verdade no emulador (antes só
+  existia escrito): 56/56 passam, incluindo os 7 novos. O teste #4 (busca
+  do código 111111) falhava também com as regras antigas por depender de
+  dados de outros testes — foi ajustado pra procurar a loja certa.
+- PWA exercitado ponta a ponta num navegador com um Firestore/desktop
+  simulados (catálogo, kg, sem estoque, cliente, desconto, Pix, dinheiro
+  com troco, finalizar, recibo, histórico, mesas, ajustes, preço
+  alterado, offline, recarregar com carrinho salvo), claro e escuro.
+- **Não testado**: Firestore/celular reais, câmera (BarcodeDetector
+  existe no Chrome do Android; no iPhone cai pra digitar o código ou
+  leitor Bluetooth) e impressão do recibo no computador.

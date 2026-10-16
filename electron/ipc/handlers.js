@@ -29,6 +29,7 @@ const timeService = require('../services/timeService');
 const reportService = require('../services/reportService');
 const pdvRegistryService = require('../services/pdvRegistryService');
 const salesSyncService = require('../services/salesSyncService');
+const connectivityService = require('../services/connectivityService');
 const posDisplayService = require('../services/posDisplayService');
 const backupService = require('../services/backupService');
 const updateService = require('../services/updateService');
@@ -221,6 +222,23 @@ function registerIpcHandlers() {
   safeHandle('sale:setItemPrice', (_e, payload) => saleService.setItemPrice(payload));
   safeHandle('sale:editarHistorico', (_e, payload) => saleService.editarHistoricoVenda(payload));
   safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSaleComVerificacaoDeGrupo(saleId));
+  // Leitura simples (sem tentar nada, sem tocar rede) pra tela de
+  // pagamento saber se o ciclo automático em segundo plano já resolveu
+  // sozinho uma venda que ficou esperando confirmação de estoque do
+  // grupo. Ver comentário completo em saleService.getStatusPendenteEstoque.
+  safeHandle('sale:statusPendenteEstoque', (_e, { saleId }) => saleService.getStatusPendenteEstoque(saleId));
+  // Botão "Tentar agora" da tela de pagamento -- ignora o backoff
+  // automático (forcar: true) e tenta de novo na hora, a pedido do
+  // operador.
+  safeHandle('sale:tentarPendentesEstoqueGrupo', () => saleService.tentarFinalizarVendasPendentesDeEstoque({ forcar: true }));
+  // Indicador no PDV (POSScreen) -- desde que uma venda pendente deixou
+  // de travar o carrinho (ver getOrOpenCurrentSale), o operador só
+  // enxerga que ela existe através desse contador/lista, não mais
+  // olhando pra tela de pagamento (ele já saiu dela pra fazer outra
+  // venda).
+  safeHandle('sale:contarPendentesEstoqueGrupo', (_e, { locationId }) => saleService.contarVendasPendentesDeEstoque(locationId));
+  safeHandle('sale:listarPendentesEstoqueGrupo', (_e, { locationId }) => saleService.listVendasPendentesDeEstoque(locationId));
+  safeHandle('connectivity:getStatus', () => connectivityService.getStatus());
 
   // --- Cancelamento seguro (exige autorização de gerente) ---
   safeHandle('sale:cancelItem', (_e, payload) => saleService.cancelSaleItem(payload));
@@ -312,6 +330,10 @@ function registerIpcHandlers() {
   safeHandle('pairing:revogarDispositivo', (_e, payload) => pairingService.revogarDispositivo(payload));
   safeHandle('pairing:reativarDispositivo', (_e, payload) => pairingService.reativarDispositivo(payload));
   safeHandle('pairing:excluirDispositivo', (_e, payload) => pairingService.excluirDispositivo(payload));
+  // PDV móvel (celular vendendo) -- ver pdvMobileConfigService/pdvMobileSyncService.
+  safeHandle('pdvMobile:getConfig', () => require('../services/pdvMobileConfigService').getConfig());
+  safeHandle('pdvMobile:saveConfig', (event, payload) => guardRole(event, PAPEIS_GESTAO) || require('../services/pdvMobileConfigService').saveConfig(payload));
+  safeHandle('pdvMobile:listarVendasRecentes', (_e, payload) => require('../services/pdvMobileSyncService').listarVendasRecentes(payload || {}));
 
   // --- Importação/exportação de planilhas de estoque ---
   safeHandle('io:exportProducts', async (_e, { locationId }) => {

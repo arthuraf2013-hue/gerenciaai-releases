@@ -12,8 +12,13 @@ const formatarMoeda = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency
  * (ver firebase-config.js) -- então addDoc() funciona e resolve mesmo
  * sem internet (fica na fila local e sincroniza sozinho depois); é essa
  * a "fila offline" pedida, sem precisar escrever fila nenhuma à mão.
+ *
+ * `embutido: true` = montado dentro do PDV móvel (aba "Mesas", ver
+ * pdv.js): sem cabeçalho/menu próprios (o PDV já tem os dele) e sem o
+ * sinal de vida (o PDV já manda) -- o resto do fluxo é exatamente o
+ * mesmo do app do garçom.
  */
-function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja }) {
+function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja, embutido = false }) {
   let status = { catalogoProdutos: [], mesas: [], nomeNegocio: loja.nomeNegocio, perfilAtivo: null };
   let mesaSelecionada = null;
   let categoriaAtiva = 'todas';
@@ -22,7 +27,8 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   let abaAtiva = 'novo'; // 'novo' | 'meus-pedidos'
 
   root.innerHTML = `
-    <div class="app-shell">
+    <div class="${embutido ? 'garcom-embutido' : 'app-shell'}">
+      ${embutido ? '' : `
       <header class="topo">
         <div>
           <div class="nome-loja">${escapeHtml(status.nomeNegocio)}</div>
@@ -30,7 +36,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
         </div>
         <button id="btn-menu-topo" class="btn-icone" aria-label="Menu">${icon('menu')}</button>
       </header>
-      <div id="menu-topo" class="menu-suspenso" hidden></div>
+      <div id="menu-topo" class="menu-suspenso" hidden></div>`}
 
       <nav class="abas">
         <button class="aba ativa" data-aba="novo">Novo pedido</button>
@@ -43,7 +49,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     </div>
   `;
 
-  montarMenuTopo();
+  if (!embutido) montarMenuTopo();
   root.querySelectorAll('.aba').forEach((btn) => {
     btn.addEventListener('click', () => {
       abaAtiva = btn.dataset.aba;
@@ -420,7 +426,8 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     (snap) => {
       if (!snap.exists()) return;
       status = snap.data();
-      root.querySelector('.nome-loja').textContent = status.nomeNegocio || loja.nomeNegocio;
+      const nomeLojaEl = root.querySelector('.nome-loja');
+      if (nomeLojaEl) nomeLojaEl.textContent = status.nomeNegocio || loja.nomeNegocio;
       if (abaAtiva === 'novo') renderNovoPedido();
     },
     (err) => console.error('[garcom] escuta de status ao vivo falhou', err)
@@ -428,11 +435,13 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
 
   // Heartbeat -- atualiza "visto por último" pro gerente ver em
   // Configurações → Celular (só os dois campos que a regra permite).
-  firestoreFns.setDoc(
-    firestoreFns.doc(db, 'installations', loja.installId, 'dispositivos', auth.currentUser.uid),
-    { ultimoAcesso: firestoreFns.serverTimestamp() },
-    { merge: true }
-  ).catch(() => {});
+  if (!embutido) {
+    firestoreFns.setDoc(
+      firestoreFns.doc(db, 'installations', loja.installId, 'dispositivos', auth.currentUser.uid),
+      { ultimoAcesso: firestoreFns.serverTimestamp() },
+      { merge: true }
+    ).catch(() => {});
+  }
 
   renderNovoPedido();
 

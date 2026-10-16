@@ -379,7 +379,17 @@ CREATE TABLE IF NOT EXISTS sales (
   oculta_historico            INTEGER NOT NULL DEFAULT 0,
   oculta_historico_por_id     TEXT REFERENCES users(id),
   oculta_historico_em         TEXT,
-  oculta_historico_motivo     TEXT
+  oculta_historico_motivo     TEXT,
+  -- Finalização pendente de confirmação de estoque do grupo (ver
+  -- stockSyncService.verificarEDebitarEstoqueRemoto e
+  -- saleService.tentarFinalizarVendasPendentesDeEstoque) -- marcado só
+  -- quando a REDE falhou na checagem, nunca por falta de estoque de
+  -- verdade, pra tentar de novo automaticamente em segundo plano sem
+  -- travar a venda nem exigir que o operador clique "Finalizar" na mão
+  -- repetidamente.
+  pendente_estoque_grupo             INTEGER NOT NULL DEFAULT 0,
+  pendente_estoque_tentativas        INTEGER NOT NULL DEFAULT 0,
+  pendente_estoque_proxima_tentativa TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_location_status_criado ON sales(location_id, status, criado_em);
@@ -399,6 +409,11 @@ CREATE INDEX IF NOT EXISTS idx_sales_location_data_efetiva ON sales(location_id,
 -- sync, NFC-e) que já sabem que só olham vendas finalizadas e não
 -- precisam do COALESCE com carrinho aberto.
 CREATE INDEX IF NOT EXISTS idx_sales_finalizada_em ON sales(finalizada_em);
+-- Cobre a varredura do ciclo automático de retry de estoque do grupo
+-- (saleService.tentarFinalizarVendasPendentesDeEstoque), que roda a cada
+-- poucos segundos -- sem isso, escanearia a tabela sales inteira (todo
+-- status, toda venda já finalizada incluída) a cada passada.
+CREATE INDEX IF NOT EXISTS idx_sales_pendente_estoque_grupo ON sales(status, pendente_estoque_grupo, pendente_estoque_proxima_tentativa);
 
 CREATE TABLE IF NOT EXISTS sale_items (
   id              TEXT PRIMARY KEY,
@@ -746,6 +761,7 @@ CREATE TABLE IF NOT EXISTS modulos_pagos_state (
   cliente_id        TEXT,
   consulta_remota   INTEGER NOT NULL DEFAULT 0,
   app_garcom        INTEGER NOT NULL DEFAULT 0,
+  pdv_mobile        INTEGER NOT NULL DEFAULT 0,
   ja_sincronizado   INTEGER NOT NULL DEFAULT 0
 );
 
@@ -1323,8 +1339,13 @@ CREATE INDEX IF NOT EXISTS idx_return_items_return ON return_items(return_id);
 -- ============================================================
 CREATE TABLE IF NOT EXISTS pairing_codes (
   id              TEXT PRIMARY KEY, -- o código de 6 dígitos
-  tipo            TEXT NOT NULL CHECK (tipo IN ('garcom','consulta')),
+  tipo            TEXT NOT NULL CHECK (tipo IN ('garcom','consulta','pdv')),
   -- 'garcom': o funcionário que vai usar o celular pra lançar pedido.
+  -- 'pdv': PDV móvel -- o celular vende de verdade (carrinho, pagamento,
+  -- baixa de estoque) em nome do operador do vínculo, e também pode
+  -- lançar pedido de mesa se a função estiver ligada (ver
+  -- pdv_mobile_config e pdvMobileSyncService.js). Em banco já
+  -- existente, precisa da migração atualizarCheckTipoPareamentoParaIncluirPdv.
   -- 'consulta': o próprio Adm/Gerente que vai consultar os dados da
   -- loja pelo celular (pode ser um vínculo a mais de uma loja -- essa
   -- lista mora só no celular/Firestore, não aqui).
@@ -1339,10 +1360,79 @@ CREATE INDEX IF NOT EXISTS idx_pairing_codes_usado ON pairing_codes(usado, expir
 
 CREATE TABLE IF NOT EXISTS paired_devices (
   id               TEXT PRIMARY KEY, -- uid da autenticação anônima do Firebase no celular
-  tipo             TEXT NOT NULL CHECK (tipo IN ('garcom','consulta')),
+  tipo             TEXT NOT NULL CHECK (tipo IN ('garcom','consulta','pdv')),
   vinculo_user_id  TEXT NOT NULL REFERENCES users(id),
   nome_dispositivo TEXT,
   criado_em        TEXT NOT NULL DEFAULT (NOW_SYNCED()),
   ativo            INTEGER NOT NULL DEFAULT 1,
   ultimo_acesso    TEXT
 );
+
+-- ============================================================
+-- PDV MÓVEL (celular vendendo de verdade) -- ver pdvMobileSyncService.js
+-- e pwa-mobile/pdv*.js.
+--
+-- O celular nunca toca neste SQLite: ele escreve a venda INTEIRA
+-- (itens, desconto, cliente, pagamentos) num documento do Firestore
+-- (installations/{installId}/vendas_mobile/{id}) e o desktop -- que é o
+-- "servidor" da loja -- revalida tudo (preço, estoque, caixa aberto,
+-- política de desconto) e cria a venda local pelos mesmos caminhos do
+-- PDV de balcão (saleService.addItem/addPayment/finalize...). O
+-- resultado (finalizada / erro / pendente) volta pro mesmo documento.
+-- ============================================================
+
+-- Configuração única (linha 'default') do que o app do celular pode
+-- fazer nesta loja -- publicada pro celular em
+-- installations/{installId}/config_mobile/pdv.
+CREATE TABLE IF NOT EXISTS pdv_mobile_config (
+  id                            TEXT PRIMARY KEY DEFAULT 'default',
+  permitir_venda                INTEGER NOT NULL DEFAULT 1,
+  -- Lançar pedido em mesa/comanda (o mesmo fluxo do app do garçom,
+  -- embutido no app do PDV móvel).
+  permitir_mesas                INTEGER NOT NULL DEFAULT 1,
+  -- Buscar e vincular cliente cadastrado à venda (fidelidade/fiado).
+  permitir_cliente              INTEGER NOT NULL DEFAULT 1,
+  -- JSON com os métodos aceitos no celular (subconjunto do CHECK de
+  -- payments.metodo). Fiado só funciona com cliente vinculado.
+  metodos_pagamento             TEXT NOT NULL DEFAULT '["dinheiro","cartao_credito","cartao_debito","pix"]',
+  -- Desconto máximo (% sobre o subtotal) que o celular pode dar sem PIN
+  -- de gerente -- só vale quando security_config.exigir_autorizacao_desconto
+  -- está ligado (desligado, o celular segue a mesma regra do balcão:
+  -- desconto livre, com rastro em audit_log). 0 = celular não dá desconto.
+  -- Quem salvou esta política fica registrado como o autorizador do
+  -- desconto (desconto_autorizado_por_id), já que o celular não tem
+  -- como pedir o PIN de um segundo gerente na hora.
+  desconto_maximo_percentual    REAL NOT NULL DEFAULT 0,
+  -- Imprime o recibo na impressora DESTE computador quando uma venda do
+  -- celular finaliza (útil quando o celular atende perto do caixa).
+  imprimir_recibo_no_computador INTEGER NOT NULL DEFAULT 0,
+  atualizado_por_id             TEXT REFERENCES users(id),
+  atualizado_em                 TEXT
+);
+
+-- Uma linha por venda recebida do celular -- id = id do documento no
+-- Firestore (gerado no próprio celular). É o que deixa o processamento
+-- idempotente: o listener do Firestore pode reentregar o mesmo
+-- documento (reconexão, reinício do app no meio do processamento) sem
+-- nunca criar a venda duas vezes.
+CREATE TABLE IF NOT EXISTS mobile_sales (
+  id            TEXT PRIMARY KEY,
+  device_id     TEXT NOT NULL,
+  sale_id       TEXT REFERENCES sales(id),
+  -- 'criada': venda local criada, ainda não finalizada (estado
+  -- transitório -- se o app fechar aqui, o próximo processamento
+  -- continua de onde parou). 'pendente_estoque': aguardando confirmação
+  -- de estoque do grupo de sincronização (ver
+  -- saleService.finalizeSaleComVerificacaoDeGrupo).
+  status        TEXT NOT NULL CHECK (status IN ('criada','pendente_estoque','finalizada','erro')),
+  erro          TEXT,
+  codigo_erro   TEXT,
+  -- Último status que o celular de fato recebeu (escrita no Firestore
+  -- confirmada). Diferente de `status` = a confirmação ainda não chegou
+  -- lá (internet caiu na hora) -- o ciclo de reconciliação reenvia.
+  status_notificado TEXT,
+  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  atualizado_em TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mobile_sales_status ON mobile_sales(status);
+CREATE INDEX IF NOT EXISTS idx_mobile_sales_sale ON mobile_sales(sale_id);
