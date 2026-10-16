@@ -232,6 +232,9 @@ contextBridge.exposeInMainWorld('pdv', {
     updateConfig: invoke('payment:updateConfig'),
     buildPixPayload: invoke('payment:buildPixPayload'),
   },
+  system: {
+    getPerfilDesempenho: invoke('system:getPerfilDesempenho'),
+  },
   time: {
     getStatus: invoke('time:getStatus'),
     getBrasiliaNow: invoke('time:getBrasiliaNow'),

@@ -183,7 +183,14 @@ export function AppShell() {
     if (!botDeliveryAtivo) { setPedidosSeparacaoAtivos([]); return; }
     function carregarPedidosAtivos() {
       window.pdv.botOrders.listActive({ locationId: window.APP_LOCATION_ID })
-        .then((list) => setPedidosSeparacaoAtivos(Array.isArray(list) ? list : []));
+        .then((list) => {
+          const novos = Array.isArray(list) ? list : [];
+          // Só troca o estado se a lista mudou de verdade -- um array novo
+          // a cada 20 s (mesmo igual) redesenhava a casca inteira do app,
+          // PDV incluso, à toa; numa máquina fraca isso aparecia como
+          // pequenos travamentos periódicos no meio da venda.
+          setPedidosSeparacaoAtivos((atuais) => (JSON.stringify(atuais) === JSON.stringify(novos) ? atuais : novos));
+        });
     }
     carregarPedidosAtivos();
     // Um pedido pode cair na fila a qualquer momento (digitado por

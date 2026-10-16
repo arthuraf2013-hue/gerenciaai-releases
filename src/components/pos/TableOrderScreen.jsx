@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ProductSearchBox } from './ProductSearchBox';
-import { CustomItemBuilder } from './CustomItemBuilder';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { PaymentPanel } from './PaymentPanel';
+
+// Só carrega quando alguém abre o montador de item personalizado (ver POSScreen).
+const CustomItemBuilder = lazy(() => import('./CustomItemBuilder').then((m) => ({ default: m.CustomItemBuilder })));
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
@@ -461,14 +463,16 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       )}
 
       {showCustomItemBuilder && (
-        <CustomItemBuilder
-          saleId={saleId}
-          locationId={LOCATION_ID}
-          operadorId={currentUser.id}
-          deviceId={DEVICE_ID}
-          onAdded={handleCustomItemAdded}
-          onClose={() => setShowCustomItemBuilder(false)}
-        />
+        <Suspense fallback={null}>
+          <CustomItemBuilder
+            saleId={saleId}
+            locationId={LOCATION_ID}
+            operadorId={currentUser.id}
+            deviceId={DEVICE_ID}
+            onAdded={handleCustomItemAdded}
+            onClose={() => setShowCustomItemBuilder(false)}
+          />
+        </Suspense>
       )}
 
       {editandoPessoas && (

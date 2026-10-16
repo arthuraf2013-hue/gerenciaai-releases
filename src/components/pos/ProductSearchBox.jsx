@@ -28,7 +28,10 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
       setOpen(false);
       return;
     }
-    window.pdv.products.list({ query: debouncedQuery, locationId: window.APP_LOCATION_ID }).then((list) => {
+    // limit: 8 -- a lista só mostra 8; sem isso o backend devolvia (e
+    // anexava estoque a) TODO produto que bate com o termo, centenas
+    // numa busca de 2 letras, só pra jogar fora aqui.
+    window.pdv.products.list({ query: debouncedQuery, locationId: window.APP_LOCATION_ID, limit: 8 }).then((list) => {
       if (ignore) return;
       const listaLocal = Array.isArray(list) ? list.slice(0, 8) : [];
       setResults(listaLocal);
@@ -139,7 +142,7 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
       // digitação humana). Busca na hora, sem esperar o debounce, e
       // adiciona direto — sem isso, o código ficava "esperando" no
       // campo até o dropdown aparecer sozinho, exigindo clicar depois.
-      const listaFresca = await window.pdv.products.list({ query: query.trim(), locationId: window.APP_LOCATION_ID });
+      const listaFresca = await window.pdv.products.list({ query: query.trim(), locationId: window.APP_LOCATION_ID, limit: 1 });
       if (Array.isArray(listaFresca) && listaFresca.length > 0) {
         handleSelect(listaFresca[0]);
         return;

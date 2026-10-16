@@ -36,6 +36,16 @@ atual.
   (`adicionarColunaSeFaltando`) — TODA coluna nova em tabela já
   existente precisa de uma linha aqui, além do `schema.sql` (que só
   vale pra banco novo).
+  **Regra que já derrubou a abertura do app em produção:** o
+  `schema.sql` roda ANTES de `migrateColumnsIfNeeded`, então ele nunca
+  pode citar (em índice, gatilho ou view) uma coluna que só a migração
+  adiciona — num banco antigo isso dá `no such column` e o app não
+  abre. Índice de coluna nova vai dentro de `migrateColumnsIfNeeded`,
+  logo depois do `adicionarColunaSeFaltando` dela (ver
+  `idx_sales_pendente_estoque_grupo`, `idx_customers_cnpj`). Existe uma
+  rede de segurança (`aplicarSchemaComRedeDeSeguranca`: em "no such
+  column", migra primeiro e reaplica o schema), mas ela é proteção, não
+  licença pra quebrar a regra.
 - **`src/components/`** — React, organizado por área (`pos/`,
   `inventory/`, `layout/`, `users/`, `settings/`). Cada tela grande
   é um arquivo, sem Redux/Context genérico — estado local +
@@ -188,6 +198,40 @@ deliberada (partes do Firebase não usadas, `exceljs/dist`,
 e chamando a função real antes de excluir. Ver histórico no README
 ("Otimização de armazenamento") pro raciocínio completo antes de
 mexer nessa lista.
+
+**Versão 1.0:** o `package.json` está em `1.0.0-0` de propósito — o
+`npm version patch` do bot, num pré-lançamento, só tira o sufixo, então
+o próximo commit `release:` publica exatamente a `v1.0.0`. Depois disso
+segue normal (1.0.1, 1.0.2...). Não "corrigir" pra `1.0.0` na mão: aí o
+bot publicaria `1.0.1` e a 1.0.0 nunca existiria.
+
+## Desempenho e máquina fraca (v1.0)
+
+Meta: rodar bem num Celeron com 4 GB de RAM sem tirar funcionalidade.
+Detalhes e números em `CHANGELOG_PERFORMANCE.md` (seção v1.0). O que
+precisa ser respeitado ao mexer no código:
+
+- **Modo leve**: `hardwareService.modoLeve()` (RAM ≤ 4,6 GB, ≤ 2
+  núcleos ou CPU de entrada) ajusta cache do SQLite e adia serviços de
+  fundo; no renderer, a classe `modo-leve` no `<html>` (ver
+  `src/utils/modoLeve.js`) desliga transições. Modo leve nunca desliga
+  funcionalidade — só adia ou simplifica visual.
+- **Boot em etapas** (`main.js`, `quandoJanelaPronta`): serviço novo em
+  segundo plano entra numa das três etapas, não no topo do `whenReady`.
+- **Cache de busca de produtos** (`productService`): invalidado pela
+  tabela `cache_versao`, que gatilhos em `products` incrementam. Não
+  precisa invalidar na mão — qualquer escrita em `products` já conta.
+- **Vendas do grupo**: `group_sync_sales` marca o que já foi enviado;
+  gatilhos em `sales`/`sale_items`/`payments` apagam a marca quando a
+  venda muda. Tabela nova que altere o conteúdo de uma venda enviada
+  ao grupo precisa de gatilho igual.
+- **Sync com Firestore**: publicar só quando houver celular pareado e
+  só quando o conteúdo mudar (ver `liveStatusSyncService`).
+- **`sqlite_stat4`**: o better-sqlite3 tem STAT4 ligado; com amostras
+  nessa tabela, toda statement com parâmetro é repreparada a cada valor
+  novo (custo dobrado em laço). `otimizarBanco()` esvazia o stat4 depois
+  do `PRAGMA optimize` — não rodar `ANALYZE` solto em outro lugar sem
+  fazer o mesmo.
 
 ## Perfis de negócio
 

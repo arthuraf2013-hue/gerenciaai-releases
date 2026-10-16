@@ -5578,3 +5578,25 @@ pra `request.auth == null` (mesmo nível de confiança do resto de
 - **Não testado**: Firestore/celular reais, câmera (BarcodeDetector
   existe no Chrome do Android; no iPhone cai pra digitar o código ou
   leitor Bluetooth) e impressão do recibo no computador.
+
+## Versão 1.0 — desempenho para máquina fraca + correção da abertura
+
+Rodada de otimização do app inteiro para rodar bem num Celeron com 4 GB
+de RAM, sem tirar nenhuma funcionalidade. Números, o que mudou e por quê
+estão em `CHANGELOG_PERFORMANCE.md` (seção "v1.0"). Em resumo:
+
+- busca do PDV de 2,5× a 17× mais rápida (índice em memória), atalhos de
+  "vendidos recentemente" de 660 ms para 5 ms, Estoque e catálogo do
+  celular de 5× a 24× mais rápidos;
+- muito menos trabalho em segundo plano: nada vai pro Firestore sem
+  celular pareado, e só quando algo mudou; vendas do grupo enviadas de
+  forma incremental;
+- boot em etapas (a janela aparece antes dos serviços de fundo);
+- **modo leve** automático para máquina fraca (Configurações → Geral →
+  Desempenho), que dá pra forçar ligado ou desligado;
+- correção do erro "no such column: pendente_estoque_grupo" que impedia
+  o app de abrir em bancos antigos, com uma rede de segurança para esse
+  tipo de erro não travar a abertura de novo.
+
+A versão no `package.json` ficou `1.0.0-0`: o próximo commit `release:`
+publica a `v1.0.0` (ver "Build e release" no `CLAUDE.md`).

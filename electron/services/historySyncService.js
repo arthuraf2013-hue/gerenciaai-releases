@@ -55,6 +55,10 @@ function getResumoPeriodo({ locationId, dias }) {
 async function publicarHistorico() {
   try {
     const db = getDb();
+    // Só celular de "Consulta remota" lê este documento -- sem nenhum
+    // pareado e ativo, não roda as duas consultas de painel (7 e 30
+    // dias, as mais pesadas deste ciclo) a cada 10 min à toa.
+    if (!db.prepare(`SELECT 1 FROM paired_devices WHERE tipo = 'consulta' AND ativo = 1 LIMIT 1`).get()) return;
     const location = db.prepare('SELECT id FROM locations LIMIT 1').get();
     if (!location) return;
     const locationId = location.id;

@@ -47,8 +47,16 @@ function getDb() {
   // Cache maior e mmap ajudam consultas de relatório/dashboard que
   // varrem tabelas grandes (sales, audit_log) -- padrão do SQLite é
   // conservador demais pro tamanho que esse banco cresce com o tempo.
-  db.pragma('cache_size = -20000'); // ~20MB de cache de páginas (negativo = KB)
-  db.pragma('mmap_size = 268435456'); // 256MB
+  // Máquina de entrada (4 GB de RAM, ver hardwareService) usa metade do
+  // cache -- ainda folgado pras consultas do dia a dia, e devolve memória
+  // pro Chromium da janela, que é quem mais sente falta dela nessas
+  // máquinas. mmap não pesa na conta da mesma forma (são páginas do
+  // próprio arquivo, que o Windows pode descartar quando precisar), mas
+  // também é reduzido por segurança.
+  const modoLeve = require('../services/hardwareService').modoLeve();
+  db.pragma(`cache_size = ${modoLeve ? -10000 : -20000}`); // ~10/20MB de cache de páginas (negativo = KB)
+  db.pragma(`mmap_size = ${modoLeve ? 134217728 : 268435456}`); // 128/256MB
+  db.pragma('temp_store = MEMORY'); // ORDER BY/GROUP BY temporários sem tocar o disco (HD lento)
   db.pragma('foreign_keys = ON');
 
   // Toda vez que o schema usa NOW_SYNCED() (no lugar de datetime('now')),
@@ -57,12 +65,77 @@ function getDb() {
   db.function('NOW_SYNCED', () => timeService.nowSyncedUTCString());
 
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
-  db.exec(schema);
+  aplicarSchemaComRedeDeSeguranca(db, schema);
 
   migrateColumnsIfNeeded(db);
   seedIfEmpty(db);
 
+  // Estatísticas do planejador de consultas (recomendação oficial do
+  // SQLite pra conexão de vida longa): analisa só as tabelas que
+  // precisam, rápido -- sem isso, índices novos (ou tabelas que
+  // cresceram muito) podem ficar sem uso por falta de estatística.
+  otimizarBanco(db, { naAbertura: true });
+
   return db;
+}
+
+/**
+ * `db.exec(schema)` com rede de segurança contra o erro que já impediu o
+ * app de abrir mais de uma vez: um CREATE INDEX (ou trigger) no
+ * schema.sql citando uma coluna que só existe DEPOIS de
+ * migrateColumnsIfNeeded -- num banco de quem já usava o app, o exec
+ * parava no meio com "no such column: ..." e a janela nem abria (o
+ * último caso: idx_sales_pendente_estoque_grupo). A regra continua a
+ * mesma (índice de coluna nova vai em database.js, logo depois do ALTER
+ * TABLE), mas se alguém esquecer, em vez de travar a loja: roda as
+ * migrações primeiro e aplica o schema de novo (tudo nele é IF NOT
+ * EXISTS, então repetir é seguro). Qualquer outro erro continua subindo
+ * normalmente, como antes.
+ */
+function aplicarSchemaComRedeDeSeguranca(database, schema) {
+  try {
+    database.exec(schema);
+  } catch (err) {
+    if (!/no such column/i.test(err.message || '')) throw err;
+    console.error('[db] schema.sql citou coluna ainda não migrada -- migrando antes e aplicando de novo:', err.message);
+    migrateColumnsIfNeeded(database);
+    database.exec(schema);
+  }
+}
+
+/** `PRAGMA optimize` -- na abertura com o limite recomendado pra não
+ * demorar (0x10002); depois, chamado periodicamente por main.js. Nunca
+ * deixa erro subir: é só otimização. */
+function otimizarBanco(database = db, { naAbertura = false } = {}) {
+  if (!database) return;
+  try {
+    database.pragma(naAbertura ? 'optimize = 0x10002' : 'optimize');
+  } catch (err) {
+    console.error('[db] PRAGMA optimize falhou:', err.message);
+  }
+  descartarAmostrasStat4(database);
+}
+
+/**
+ * O better-sqlite3 é compilado com SQLITE_ENABLE_STAT4: quando o ANALYZE
+ * (disparado pelo optimize) grava amostras em `sqlite_stat4`, o SQLite
+ * passa a REPREPARAR a statement toda vez que o valor do parâmetro muda
+ * (o plano pode depender do valor). Em laço -- itens de cada venda,
+ * estoque de cada produto, sync do grupo -- isso dobrava o custo de cada
+ * consulta (medido: 69 ms -> 138 ms em 11 mil buscas por sale_id). Só o
+ * `sqlite_stat1` já dá ao planejador o que ele precisa (e deixou a mesma
+ * busca em 56 ms), então mantém o stat1 e esvazia o stat4, recarregando
+ * as estatísticas na conexão (`ANALYZE sqlite_schema`). Nunca deixa erro
+ * subir: é só otimização.
+ */
+function descartarAmostrasStat4(database) {
+  try {
+    const existe = database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_stat4'`).get();
+    if (!existe || !database.prepare('SELECT 1 FROM sqlite_stat4 LIMIT 1').get()) return;
+    database.exec('DELETE FROM sqlite_stat4; ANALYZE sqlite_schema;');
+  } catch (err) {
+    console.error('[db] limpeza do sqlite_stat4 falhou:', err.message);
+  }
 }
 
 /**
@@ -332,6 +405,26 @@ function atualizarCheckTipoPareamentoParaIncluirPdv(database) {
 }
 
 /**
+ * Índices que viraram redundantes porque um índice novo os cobre
+ * (mesmo prefixo de colunas) -- manter os dois só dobra o custo de toda
+ * escrita (cada venda gera movimento de estoque) sem ajudar leitura
+ * nenhuma. Só remove quando o substituto já existe.
+ */
+function removerIndicesSubstituidos(database) {
+  const substituicoes = [
+    { antigo: 'idx_stock_mov_product_loc', novo: 'idx_stock_mov_prod_loc_qtd' },
+  ];
+  for (const { antigo, novo } of substituicoes) {
+    try {
+      const existeNovo = database.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?`).get(novo);
+      if (existeNovo) database.exec(`DROP INDEX IF EXISTS ${antigo}`);
+    } catch (err) {
+      console.error(`[migração] falhou ao remover índice substituído ${antigo}:`, err);
+    }
+  }
+}
+
+/**
  * Garante que um campo extra específico exista em custom_profiles.campos_extras_json
  * de um perfil já existente -- sem isso, adicionar um campo novo a um
  * seedProfileIfMissing() só valeria pra instalação NOVA (seedProfileIfMissing
@@ -368,6 +461,14 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'receipt_config', 'impressora_padrao', 'TEXT');
   adicionarColunaSeFaltando(database, 'products', 'codigo_balanca', 'TEXT');
   adicionarColunaSeFaltando(database, 'customers', 'cnpj', 'TEXT');
+  // Mesmo motivo do comentário em idx_sales_pendente_estoque_grupo mais
+  // abaixo: esse índice também vive solto no bloco de CREATE INDEX do
+  // schema.sql, que roda ANTES desta migração -- banco de quem já tinha
+  // o app instalado antes da coluna `cnpj` existir quebraria aqui do
+  // mesmo jeito. Só não quebrava na prática porque o CREATE INDEX da
+  // pendência de estoque do grupo (mais abaixo no schema.sql) já lançava
+  // erro antes de chegar até este.
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_customers_cnpj ON customers(cnpj);`);
   adicionarColunaSeFaltando(database, 'license_state', 'bloqueio_imediato', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_por_id', 'TEXT');
@@ -477,11 +578,23 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_grupo', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_tentativas', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_proxima_tentativa', 'TEXT');
+  // O índice tem que ser criado AQUI (depois do ALTER acima), não só no
+  // bloco solto de CREATE INDEX do schema.sql: `db.exec(schema)` roda
+  // ANTES de migrateColumnsIfNeeded (ver getDb), então num banco já
+  // existente (instalação de quem já usava o app) esse CREATE INDEX lá
+  // do schema.sql tentava rodar contra a tabela `sales` ainda SEM a
+  // coluna nova -- "no such column: pendente_estoque_grupo" e o app
+  // não conseguia nem abrir (quebrou justamente pra quem já tinha a
+  // instalação rodando). IF NOT EXISTS torna rodar aqui também idempotente
+  // com o que já existe no schema.sql (que continua necessário pra banco
+  // novo, criado do zero já com a coluna).
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_sales_pendente_estoque_grupo ON sales(status, pendente_estoque_grupo, pendente_estoque_proxima_tentativa);`);
 
   atualizarCheckRoleParaIncluirGarcom(database);
   atualizarCheckOrigemParaIncluirAppGarcom(database);
   atualizarCheckRoleParaIncluirSuporte(database);
   atualizarCheckTipoPareamentoParaIncluirPdv(database);
+  removerIndicesSubstituidos(database);
 
   // PDV móvel -- módulo pago próprio (ver modulosPagosService.js).
   adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'pdv_mobile', 'INTEGER NOT NULL DEFAULT 0');
@@ -699,7 +812,7 @@ function seedIfEmpty(database) {
 }
 
 module.exports = {
-  getDb, setDbForTesting, getDbPath, closeConnection,
+  getDb, setDbForTesting, getDbPath, closeConnection, otimizarBanco,
   // Exportado só pra teste de migração (tests/migracaoRoleGarcom.test.js) —
   // precisa simular um banco "antigo" (CHECK sem 'garcom') e chamar a
   // migração isoladamente, já que setDbForTesting não roda migrateColumnsIfNeeded.
@@ -712,6 +825,8 @@ module.exports = {
   garantirCampoExtraNoPerfil,
   // Idem, pra tests/pdvMobileSyncService.test.js (CHECK de tipo de pareamento com 'pdv').
   atualizarCheckTipoPareamentoParaIncluirPdv,
+  // Pra tests/desempenho.test.js (abertura de banco antigo sem travar).
+  aplicarSchemaComRedeDeSeguranca, migrateColumnsIfNeeded,
 };
 
 function getDbPath() {

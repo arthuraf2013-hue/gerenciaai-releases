@@ -827,3 +827,12 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .attachment-extraction dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: 12px; }
 .attachment-extraction dt { color: var(--color-text-muted); }
 .attachment-extraction dd { margin: 0; }
+
+/* Modo leve (máquina de entrada -- ver src/utils/modoLeve.js): sem
+   transições nem rolagem animada, que redesenham a tela quadro a quadro
+   numa placa de vídeo integrada fraca. Animações de carregamento
+   (spinners) continuam -- sem elas, um carregamento parece travamento. */
+.modo-leve *, .modo-leve *::before, .modo-leve *::after {
+  transition: none !important;
+  scroll-behavior: auto !important;
+}

@@ -50,7 +50,14 @@ function getUsuariosParaConsulta() {
  */
 async function publicarUsuarios() {
   try {
+    // Só celular de "Consulta remota" lê este documento -- sem nenhum
+    // pareado e ativo, nem consulta o banco nem escreve no Firestore.
+    if (!getDb().prepare(`SELECT 1 FROM paired_devices WHERE tipo = 'consulta' AND ativo = 1 LIMIT 1`).get()) return;
     const usuarios = getUsuariosParaConsulta();
+    // Lista de funcionários quase nunca muda: só reescreve quando mudou
+    // (ou a cada 30 min, por segurança).
+    const assinatura = JSON.stringify(usuarios);
+    if (assinatura === ultimaAssinatura && Date.now() - ultimaPublicacaoEm < 30 * 60 * 1000) return;
 
     const licenseService = require('./licenseService');
     const pdvRegistryService = require('./pdvRegistryService');
@@ -62,6 +69,8 @@ async function publicarUsuarios() {
       usuarios,
       atualizadoEm: serverTimestamp(),
     });
+    ultimaAssinatura = assinatura;
+    ultimaPublicacaoEm = Date.now();
   } catch (err) {
     // Rede fora, Firestore indisponível, ou nenhum dispositivo pareado
     // ainda -- best-effort, sem alarde (mesmo critério de
@@ -70,6 +79,8 @@ async function publicarUsuarios() {
 }
 
 let intervalo = null;
+let ultimaAssinatura = null;
+let ultimaPublicacaoEm = 0;
 
 function iniciarPublicacaoContinua() {
   if (intervalo) clearInterval(intervalo);

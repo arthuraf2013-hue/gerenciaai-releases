@@ -198,3 +198,146 @@ mesma função já estava sendo editada por causa do filtro de data.
 - `SettingsScreen.jsx`: poderia carregar cada aba sob demanda também
   (hoje é uma tela só, sempre carregada inteira quando alguém abre
   Configurações).
+
+
+---
+
+# v1.0 — rodada de desempenho para máquina fraca (Celeron, 4 GB de RAM)
+
+Objetivo: o app inteiro rodar bem num Celeron/Pentium/Atom com 4 GB de
+RAM **sem perder nenhuma funcionalidade**. Toda troca abaixo devolve
+exatamente o mesmo resultado que antes — `tests/desempenho.test.js` (10
+testes) reproduz a lógica antiga e compara com a nova.
+
+## Números medidos
+
+Banco sintético de "loja grande com 1 ano de uso" (8.000 produtos,
+65.880 vendas, 197 mil itens, 3.000 clientes, 232 MB), **rodando em 1
+núcleo só** (`taskset -c 0`) pra se aproximar de um Celeron. Média de
+várias execuções, mesma máquina, mesmo banco (`bench/medir.js`).
+
+| Operação | v0.5.99 | v1.0 |
+|---|---:|---:|
+| Busca do PDV "ca" (381 resultados) | 36 ms | 14 ms |
+| Busca do PDV "cafe pilao" | 20 ms | 1,2 ms |
+| Busca do PDV "biscoito" | 25 ms | 5 ms |
+| Busca por código de barras (Enter) | 18 ms | 1,1 ms |
+| Atalhos "vendidos recentemente" do PDV | **660 ms** | **5 ms** |
+| Catálogo do celular com estoque (800 itens, a cada ~25 s) | 241 ms | 10 ms |
+| Tela Estoque (8.000 produtos) | 247 ms | 44 ms |
+| Lista de produtos, 1ª página | 6 ms | 2,4 ms |
+| Venda completa, painel, histórico, fechamento de caixa | = | = (sem regressão) |
+| Abertura do banco (a partir da 2ª vez) | 9 ms | 5–10 ms |
+| **Primeira** abertura depois de atualizar (cria os índices novos) | — | ~0,9 s, uma vez só |
+
+Fora o tempo de CPU, o que mais pesa numa máquina de 4 GB é o que roda
+em segundo plano. Isso caiu bastante:
+
+- **Escritas no Firestore**: o status ao vivo, o status de usuários e o
+  histórico remoto não rodam nada se não houver celular pareado. Quando
+  há, só reenviam o documento inteiro se algo mudou; se não mudou,
+  mandam só um "ainda estou vivo" (um campo) e republicam completo no
+  máximo a cada 10 min (status) / 30 min (usuários).
+- **Vendas do grupo**: em vez de reenviar os últimos 60 dias inteiros a
+  cada 15 min, envia só as vendas novas ou alteradas (tabela
+  `group_sync_sales`, invalidada por gatilho em `sales`, `sale_items` e
+  `payments`). A repassada completa de 60 dias continua existindo como
+  rede de segurança, mas uma vez por dia.
+- **Catálogo do grupo**: o listener aplica só as mudanças
+  (`docChanges()`) em vez de reconstruir o mapa inteiro a cada evento.
+
+## O que mudou, por área
+
+### Banco (`schema.sql`, `database.js`)
+
+- Índice cobrindo `stock_movements(product_id, location_id, quantidade)`,
+  que substitui o antigo `idx_stock_mov_product_loc` (removido pela
+  migração por ser redundante). O saldo de estoque passa a ser lido só
+  do índice, sem tocar na tabela.
+- Índice `sale_items(criado_em)` para os atalhos de "vendidos
+  recentemente".
+- Tabela `cache_versao` + gatilhos em `products`: qualquer
+  inserção/alteração/exclusão de produto (por qualquer caminho, inclusive
+  sync e importação) incrementa a versão, e o cache de busca em memória
+  se invalida sozinho.
+- PRAGMAs ajustados ao hardware: `cache_size` de 10 MB e `mmap_size` de
+  128 MB no modo leve (20 MB e 256 MB nos demais); `temp_store = MEMORY`.
+- `PRAGMA optimize` na abertura (com limite, pra não demorar) e a cada
+  6 h. **Pegadinha encontrada na medição:** o better-sqlite3 é compilado
+  com `SQLITE_ENABLE_STAT4`. Com amostras em `sqlite_stat4`, o SQLite
+  **reprepara a statement toda vez que o valor do parâmetro muda** — em laço
+  (itens de cada venda, estoque de cada produto) isso dobrava o custo
+  (69 → 138 ms em 11 mil buscas). `otimizarBanco()` mantém o
+  `sqlite_stat1` (que melhora os planos: a mesma busca ficou em 56 ms) e
+  esvazia o `sqlite_stat4` logo depois. Teste dedicado.
+
+### Busca do PDV (`productService.list`)
+
+Índice em memória dos produtos ativos (nome normalizado, SKU, código),
+cacheado pela versão de `cache_versao`. A busca não varre mais a
+tabela nem normaliza 8.000 nomes a cada tecla. Relevância, ordenação,
+limite e cursor idênticos. O frontend passou a pedir `limit: 8` na busca
+digitada e `limit: 1` no Enter/leitor.
+
+### Atalhos de "vendidos recentemente" (`saleService.listRecentlySold`)
+
+Antes agrupava **todo** o histórico de itens vendidos. Agora lê só as
+últimas linhas pelo índice de data e para assim que junta produtos
+distintos suficientes, com fallback pro agrupamento completo se a
+janela não bastar. Mesmo resultado (teste compara os dois).
+
+### Inicialização (`main.js`)
+
+A janela abre primeiro. Os serviços em segundo plano entram em três
+etapas, depois que a janela está pronta:
+
+1. 1,5 s: atualização, licença, mensagens, pareamento, pedidos do
+   garçom, PDV móvel.
+2. 15 s (40 s no modo leve): sync de produtos, status ao vivo, status de
+   usuários, histórico remoto, WhatsApp.
+3. 60 s (150 s no modo leve): backup e vendas do grupo.
+
+`registerIpcHandlers` passou a ser carregado sob demanda e a janela usa
+`v8CacheOptions: 'bypassHeatCheck'` (cache de código compilado desde a
+primeira abertura).
+
+### Frontend
+
+- Mais telas e modais carregados sob demanda (`React.lazy`): montador de
+  item personalizado, anexos da venda, cadastro por foto, fechamento de
+  caixa, treinamento, cardápio do dia e cardápio digital. O bundle
+  principal ficou ~23 KB menor.
+- `AppShell` só re-renderiza os pedidos ativos quando eles mudam de
+  verdade; o relógio compacto atualiza uma vez por minuto em vez de
+  por segundo, com formatadores reaproveitados.
+
+### Modo leve (novo, em Configurações → Geral → Desempenho)
+
+`electron/services/hardwareService.js` detecta a máquina: liga o modo
+leve sozinho com RAM ≤ 4,6 GB, 2 núcleos ou menos, ou CPU de entrada
+(Celeron, Pentium, Atom, Athlon, Sempron, N4xxx/N5xxx/Jxxxx) com até
+8 GB. O modo leve:
+
+- desliga transições/animações de interface e rolagem suave (os
+  indicadores de carregamento continuam girando);
+- reduz o cache do SQLite;
+- adia mais os serviços de segundo plano na abertura.
+
+**Nenhuma funcionalidade é desligada.** A tela mostra CPU, núcleos e
+RAM detectados e deixa forçar "Sempre ligado" ou "Desligado"
+(preferência local da máquina, `localStorage`
+`gerenciaai:modoLeve`).
+
+## Correção: "no such column: pendente_estoque_grupo" ao abrir
+
+A versão anterior travava a abertura em bancos antigos: o `schema.sql` (que
+roda **antes** das migrações) criava um índice numa coluna que só a
+migração adiciona. Corrigido em dois níveis:
+
+1. Os índices dessas colunas (`idx_sales_pendente_estoque_grupo`,
+   `idx_customers_cnpj`) foram para dentro de `migrateColumnsIfNeeded`,
+   logo depois do `ALTER TABLE` correspondente.
+2. Rede de segurança (`aplicarSchemaComRedeDeSeguranca`): se o
+   `schema.sql` falhar com "no such column", roda a migração primeiro e
+   aplica o schema de novo, em vez de impedir o app de abrir. Testado
+   com um banco real de uma instalação antiga.

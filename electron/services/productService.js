@@ -102,6 +102,52 @@ function anexarEstoque(db, produtos, locationId) {
   ));
 }
 
+// Ordenação igual à de `a.localeCompare(b, 'pt-BR')`, mas com o collator
+// criado UMA vez -- localeCompare com locale monta um collator novo a
+// cada comparação, o que pesa ordenando centenas de nomes por tecla.
+const COLLATOR_PT_BR = new Intl.Collator('pt-BR');
+
+/**
+ * Índice de busca de produtos em memória: só os campos que a busca do
+ * PDV compara (nome já normalizado, SKU em minúsculas, código de barras,
+ * tipo, conflito pendente), dos produtos ATIVOS. Reconstruído só quando
+ * `cache_versao.produtos` muda -- triggers em schema.sql incrementam
+ * esse número em QUALQUER insert/update/delete de products, então não
+ * há caminho de escrita que deixe o índice velho. Guardado por instância
+ * de banco (os testes trocam de banco a cada caso).
+ */
+let cacheIndiceBusca = { db: null, versao: null, linhas: [] };
+function indiceDeBusca(db) {
+  const versao = db.prepare(`SELECT valor FROM cache_versao WHERE chave = 'produtos'`).get()?.valor ?? null;
+  if (versao !== null && cacheIndiceBusca.db === db && cacheIndiceBusca.versao === versao) return cacheIndiceBusca.linhas;
+  const linhas = db.prepare(
+    `SELECT id, nome, sku, codigo_barras, tipo, conflito_codigo_barras_pendente FROM products WHERE ativo = 1`
+  ).all().map((p) => ({
+    id: p.id,
+    nome: p.nome,
+    nomeNormalizado: normalizarTexto(p.nome),
+    skuLower: p.sku ? String(p.sku).toLowerCase() : null,
+    codigoBarras: p.codigo_barras ? String(p.codigo_barras) : null,
+    tipo: p.tipo,
+    temConflito: p.conflito_codigo_barras_pendente != null,
+  }));
+  cacheIndiceBusca = { db, versao, linhas };
+  return linhas;
+}
+
+/** Linhas completas (`SELECT *`) na MESMA ordem dos ids pedidos --
+ * em blocos, longe do limite de parâmetros do SQLite. */
+function carregarProdutosPorId(db, ids) {
+  if (ids.length === 0) return [];
+  const porId = new Map();
+  for (let i = 0; i < ids.length; i += 500) {
+    const bloco = ids.slice(i, i + 500);
+    const linhas = db.prepare(`SELECT * FROM products WHERE id IN (${bloco.map(() => '?').join(',')})`).all(...bloco);
+    for (const l of linhas) porId.set(l.id, l);
+  }
+  return ids.map((id) => porId.get(id)).filter(Boolean);
+}
+
 function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, cursorId, locationId } = {}) {
   const db = getDb();
 
@@ -124,18 +170,21 @@ function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, 
     // simplesmente não devolver nada.
     const queryNormalizada = normalizarTexto(query);
     const queryLower = query.toLowerCase();
-    const filtroTipoSql = tipo ? ' AND tipo = ?' : '';
-    const filtroConflitoSql = comConflito ? ' AND conflito_codigo_barras_pendente IS NOT NULL' : '';
-    const argsFiltro = tipo ? [tipo] : [];
-    const todosAtivos = db.prepare(`SELECT * FROM products WHERE ativo = 1${filtroTipoSql}${filtroConflitoSql}`).all(...argsFiltro);
+    // Varre o ÍNDICE DE BUSCA em memória (ver indiceDeBusca) em vez de
+    // `SELECT *` + normalizar o nome de todo produto a cada tecla
+    // digitada no PDV -- o mesmo critério de antes, linha por linha; só
+    // os produtos que de fato entram no resultado são lidos do banco no
+    // final.
+    const candidatos = indiceDeBusca(db).filter((p) =>
+      (!tipo || p.tipo === tipo) && (!comConflito || p.temConflito)
+    );
 
     const comecamComOTermo = [];
     const outrosMatches = [];
-    for (const p of todosAtivos) {
-      const nomeNormalizado = normalizarTexto(p.nome);
-      const idxNome = nomeNormalizado.indexOf(queryNormalizada);
-      const skuMatch = p.sku && String(p.sku).toLowerCase().includes(queryLower);
-      const codigoMatch = p.codigo_barras && String(p.codigo_barras).includes(query);
+    for (const p of candidatos) {
+      const idxNome = p.nomeNormalizado.indexOf(queryNormalizada);
+      const skuMatch = p.skuLower !== null && p.skuLower.includes(queryLower);
+      const codigoMatch = p.codigoBarras !== null && p.codigoBarras.includes(query);
 
       if (idxNome === 0) {
         comecamComOTermo.push(p);
@@ -144,21 +193,21 @@ function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, 
       if (idxNome === -1 && !skuMatch && !codigoMatch) continue;
 
       let relevancia;
-      if (idxNome > 0 && nomeNormalizado[idxNome - 1] === ' ') relevancia = 1; // início de palavra no meio
+      if (idxNome > 0 && p.nomeNormalizado[idxNome - 1] === ' ') relevancia = 1; // início de palavra no meio
       else if (idxNome > 0) relevancia = 2; // meio de palavra
       else relevancia = 3; // só sku/código
       outrosMatches.push({ produto: p, relevancia, idxNome: idxNome === -1 ? 9999 : idxNome });
     }
 
-    let resultado;
+    let ordenados;
     if (comecamComOTermo.length > 0) {
-      comecamComOTermo.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-      resultado = comecamComOTermo;
+      comecamComOTermo.sort((a, b) => COLLATOR_PT_BR.compare(a.nome, b.nome));
+      ordenados = comecamComOTermo;
     } else {
       outrosMatches.sort((a, b) =>
-        a.relevancia - b.relevancia || a.idxNome - b.idxNome || a.produto.nome.localeCompare(b.produto.nome, 'pt-BR')
+        a.relevancia - b.relevancia || a.idxNome - b.idxNome || COLLATOR_PT_BR.compare(a.produto.nome, b.produto.nome)
       );
-      resultado = outrosMatches.map((r) => r.produto);
+      ordenados = outrosMatches.map((r) => r.produto);
     }
 
     if (limit) {
@@ -172,12 +221,13 @@ function list({ query, categoria, tipo, comConflito, limit, offset, cursorNome, 
       // item já visto é imune a isso — sempre pega "o que vem depois
       // dele", nunca "a partir da posição N".
       if (cursorId) {
-        const indiceCursor = resultado.findIndex((p) => p.id === cursorId);
-        resultado = indiceCursor === -1 ? [] : resultado.slice(indiceCursor + 1, indiceCursor + 1 + limit);
+        const indiceCursor = ordenados.findIndex((p) => p.id === cursorId);
+        ordenados = indiceCursor === -1 ? [] : ordenados.slice(indiceCursor + 1, indiceCursor + 1 + limit);
       } else {
-        resultado = resultado.slice(offset || 0, (offset || 0) + limit);
+        ordenados = ordenados.slice(offset || 0, (offset || 0) + limit);
       }
     }
+    const resultado = carregarProdutosPorId(db, ordenados.map((p) => p.id));
     return locationId ? anexarEstoque(db, resultado, locationId) : resultado;
   }
 

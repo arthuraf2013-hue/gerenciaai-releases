@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { RestaurantTables } from './RestaurantTables';
-import { DailyMenu } from '../inventory/DailyMenu';
-import { DigitalMenuScreen } from '../inventory/DigitalMenuScreen';
+
+// Abas secundárias carregam só quando abertas -- a de Mesas é a que abre
+// sempre e continua no pacote principal.
+const DailyMenu = lazy(() => import('../inventory/DailyMenu').then((m) => ({ default: m.DailyMenu })));
+const DigitalMenuScreen = lazy(() => import('../inventory/DigitalMenuScreen').then((m) => ({ default: m.DigitalMenuScreen })));
 
 export function RestaurantScreen() {
   const { currentUser } = useSession();
@@ -20,8 +23,10 @@ export function RestaurantScreen() {
       </div>
 
       {aba === 'mesas' && <RestaurantTables />}
-      {aba === 'cardapioDia' && <DailyMenu />}
-      {aba === 'cardapioDigital' && podeVerCardapioDigital && <DigitalMenuScreen />}
+      <Suspense fallback={<p className="empty-state">Carregando...</p>}>
+        {aba === 'cardapioDia' && <DailyMenu />}
+        {aba === 'cardapioDigital' && podeVerCardapioDigital && <DigitalMenuScreen />}
+      </Suspense>
     </div>
   );
 }

@@ -10,11 +10,31 @@ const timeService = require('./timeService');
  * cortar ingenuamente a data dava o dia errado no histórico do grupo.
  * Sempre usa isso pra calcular diaISO, nunca `.slice(0, 10)` direto.
  */
+// Criado uma vez só -- calcularDiaISO roda por venda, milhares de vezes
+// numa repassada do histórico.
+const FORMATO_DIA_SP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
+
 function calcularDiaISO(finalizadaEmUTC) {
   if (!finalizadaEmUTC) return '';
   const data = new Date(finalizadaEmUTC.includes('Z') ? finalizadaEmUTC : finalizadaEmUTC + 'Z');
   if (isNaN(data.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(data);
+  return FORMATO_DIA_SP.format(data);
+}
+
+/** Marca vendas como já espelhadas neste grupo (tabela group_sync_sales,
+ * ver schema.sql -- os triggers de lá apagam a marca se a venda, os
+ * itens ou os pagamentos mudarem depois). */
+function marcarEnviadas(saleIds, grupoId) {
+  if (!saleIds.length) return;
+  try {
+    const { getDb } = require('../db/database');
+    const db = getDb();
+    const stmt = db.prepare(`INSERT OR REPLACE INTO group_sync_sales (sale_id, grupo_id, enviado_em) VALUES (?, ?, NOW_SYNCED())`);
+    db.transaction(() => { for (const id of saleIds) stmt.run(id, grupoId); })();
+  } catch (err) {
+    // Sem a marca, a venda só vai de novo no próximo ciclo -- inofensivo.
+    console.error('[salesSyncService] falha ao marcar vendas enviadas:', err.message);
+  }
 }
 
 /**
@@ -45,6 +65,7 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
       installId, total, totalItens, itens: itens || [], metodosPagamento: metodosPagamento || [],
       operadorNome, locationNome, finalizadaEm, diaISO,
     });
+    marcarEnviadas([saleId], grupoId);
   } catch (err) {
     // Best-effort de propósito — a venda já está gravada localmente, isso
     // é só um espelho pro relatório consolidado. Nunca deixa o erro subir.
@@ -70,10 +91,17 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
  * objetivo delas é só corrigir alguma sincronização que falhou
  * silenciosamente há pouco tempo, não reprocessar anos de vendas.
  */
-async function pushTodoOHistorico({ diasRecentes } = {}) {
+async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false } = {}) {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId) return;
+    if (!grupoId) return true;
+    // apenasPendentes: só o que ainda não foi pra ESTE grupo (ou mudou
+    // depois de ir) -- o ciclo automático usa isso; o botão "Atualizar"
+    // do Histórico e a entrada num grupo novo continuam mandando tudo.
+    const filtroPendentes = apenasPendentes
+      ? ' AND NOT EXISTS (SELECT 1 FROM group_sync_sales g WHERE g.sale_id = s.id AND g.grupo_id = ?)'
+      : '';
+    const argsPendentes = apenasPendentes ? [grupoId] : [];
 
     const { getDb } = require('../db/database');
     const db = getDb();
@@ -94,15 +122,15 @@ async function pushTodoOHistorico({ diasRecentes } = {}) {
           return db.prepare(
             `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
              FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-             WHERE s.status = 'finalizada' AND s.finalizada_em >= ?`
-          ).all(inicioUtc);
+             WHERE s.status = 'finalizada' AND s.finalizada_em >= ?${filtroPendentes}`
+          ).all(inicioUtc, ...argsPendentes);
         })()
       : db.prepare(
           `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
            FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-           WHERE s.status = 'finalizada'`
-        ).all();
-    if (vendas.length === 0) return;
+           WHERE s.status = 'finalizada'${filtroPendentes}`
+        ).all(...argsPendentes);
+    if (vendas.length === 0) return true;
 
     const licenseService = require('./licenseService');
     const firestore = licenseService.getLicenseFirestore();
@@ -142,10 +170,41 @@ async function pushTodoOHistorico({ diasRecentes } = {}) {
         });
       }
       await batch.commit();
+      marcarEnviadas(lote.map((v) => v.id), grupoId);
     }
+    return true;
   } catch (err) {
     console.error('[salesSyncService] falha ao mandar o histórico inteiro pro grupo:', err.message);
+    return false;
   }
+}
+
+/**
+ * Ciclo automático (abertura do app + a cada 15 min, ver main.js): só as
+ * vendas pendentes dos últimos 60 dias -- no dia a dia, quase sempre
+ * nenhuma, porque cada venda já vai sozinha ao finalizar (pushSale).
+ * Uma vez por dia (primeiro ciclo depois da virada do dia) repassa os 60
+ * dias completos, como o ciclo antigo fazia sempre -- rede de segurança
+ * pra qualquer marca que tenha ficado errada (ex: venda alterada no
+ * exato instante em que estava sendo enviada).
+ */
+async function pushPeriodico() {
+  const grupoId = syncStateService.getGrupoSincronizacaoId();
+  if (!grupoId) return;
+  const { getDb } = require('../db/database');
+  const db = getDb();
+  const hoje = timeService.hojeLocalISO();
+  const chave = `grupo_repassada_completa:${grupoId}`;
+  const ultima = db.prepare('SELECT valor FROM sync_marcadores WHERE chave = ?').get(chave)?.valor;
+  if (ultima !== hoje) {
+    // Só dá o dia como "repassado" se a repassada terminou de verdade
+    // (sem internet, tenta de novo no próximo ciclo).
+    if (await pushTodoOHistorico({ diasRecentes: 60 })) {
+      db.prepare('INSERT OR REPLACE INTO sync_marcadores (chave, valor) VALUES (?, ?)').run(chave, hoje);
+    }
+    return;
+  }
+  await pushTodoOHistorico({ diasRecentes: 60, apenasPendentes: true });
 }
 
 /**
@@ -225,4 +284,4 @@ async function getConsolidated({ dataInicio, dataFim }) {
   };
 }
 
-module.exports = { pushSale, pushTodoOHistorico, getConsolidated, getGroupHistory };
+module.exports = { pushSale, pushTodoOHistorico, pushPeriodico, getConsolidated, getGroupHistory, calcularDiaISO };

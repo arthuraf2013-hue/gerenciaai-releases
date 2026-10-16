@@ -54,11 +54,20 @@ function getCatalogoProdutos(locationId = null) {
   // productService.anexarEstoque). O PDV móvel usa isso só pra AVISAR
   // ("3 em estoque") -- quem bloqueia venda sem estoque de verdade
   // continua sendo saleService.addItem, no desktop, na hora de processar.
+  // Só dos produtos do catálogo (IN), não do ledger inteiro do local --
+  // com o índice cobrindo idx_stock_mov_prod_loc_qtd isso é ~50x mais
+  // rápido que agrupar todos os movimentos da loja a cada publicação.
   let estoquePorProduto = null;
-  if (locationId) {
-    estoquePorProduto = new Map(db.prepare(
-      `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements WHERE location_id = ? GROUP BY product_id`
-    ).all(locationId).map((l) => [l.product_id, l.total]));
+  if (locationId && produtos.length > 0) {
+    const ids = produtos.filter((p) => p.tipo !== 'servico').map((p) => p.id);
+    estoquePorProduto = new Map();
+    if (ids.length > 0) {
+      const linhas = db.prepare(
+        `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements
+         WHERE location_id = ? AND product_id IN (${ids.map(() => '?').join(',')}) GROUP BY product_id`
+      ).all(locationId, ...ids);
+      for (const l of linhas) estoquePorProduto.set(l.product_id, l.total);
+    }
   }
 
   return produtos.map((p) => {
@@ -94,6 +103,11 @@ function getCatalogoProdutos(locationId = null) {
 async function publicarStatusAoVivo() {
   try {
     const db = getDb();
+    // Ninguém pareado (garçom, PDV móvel ou consulta) = ninguém pra ler
+    // este documento -- não monta catálogo nem gasta escrita no Firestore
+    // a cada 25 s à toa. Assim que um celular parear, a próxima passada
+    // já publica.
+    if (!db.prepare('SELECT 1 FROM paired_devices WHERE ativo = 1 LIMIT 1').get()) return;
     const location = db.prepare('SELECT id FROM locations LIMIT 1').get();
     if (!location) return;
     const locationId = location.id;
@@ -135,21 +149,40 @@ async function publicarStatusAoVivo() {
     const firestore = licenseService.getLicenseFirestore();
     const installId = pdvRegistryService.getOrCreateDeviceUid();
 
-    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
-    await setDoc(doc(firestore, 'installations', installId, 'status_ao_vivo', 'atual'), {
+    const { doc, setDoc, updateDoc, serverTimestamp } = require('firebase/firestore');
+    const ref = doc(firestore, 'installations', installId, 'status_ao_vivo', 'atual');
+    const dados = {
       nomeNegocio: fiscalService.getNomeNegocio() || 'Sua loja',
       perfilAtivo: profile?.id || null,
       resumoHoje,
       mesas,
       pedidosEmAndamento,
       catalogoProdutos,
-      atualizadoEm: serverTimestamp(),
-    });
+    };
+
+    // Nada mudou desde a última publicação (o caso de quase todo ciclo
+    // fora do horário de pico): só renova o carimbo de hora -- o celular
+    // continua vendo "atualizado agora", sem reenviar o catálogo inteiro
+    // (dezenas a centenas de KB) a cada 25 s. Republica completo mesmo
+    // sem mudança a cada 10 min, por segurança.
+    const assinatura = JSON.stringify(dados);
+    const agora = Date.now();
+    if (assinatura === ultimaPublicacao.assinatura && agora - ultimaPublicacao.completaEm < REPUBLICAR_COMPLETO_MS) {
+      await updateDoc(ref, { atualizadoEm: serverTimestamp() });
+      return;
+    }
+    await setDoc(ref, { ...dados, atualizadoEm: serverTimestamp() });
+    ultimaPublicacao = { assinatura, completaEm: agora };
   } catch (err) {
     // Rede fora, Firestore indisponível, ou nenhum dispositivo pareado
     // ainda -- nada disso deveria gerar alarde nenhum, é só best-effort.
+    // Esquece a assinatura: a próxima passada publica tudo de novo.
+    ultimaPublicacao = { assinatura: null, completaEm: 0 };
   }
 }
+
+const REPUBLICAR_COMPLETO_MS = 10 * 60 * 1000;
+let ultimaPublicacao = { assinatura: null, completaEm: 0 };
 
 let intervalo = null;
 

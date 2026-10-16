@@ -2,7 +2,8 @@ const { app, BrowserWindow, protocol, net } = require('electron');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { getDb } = require('./db/database');
-const { registerIpcHandlers } = require('./ipc/handlers');
+// ipc/handlers (que carrega TODOS os serviços do app) é carregado só
+// depois de pedir a janela -- ver o comentário em app.whenReady.
 const sessionService = require('./services/sessionService');
 const timeService = require('./services/timeService');
 const backupService = require('./services/backupService');
@@ -73,6 +74,11 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       plugins: true, // necessário para o visualizador de PDF nativo funcionar embutido (iframe)
+      // Guarda o código JS já compilado da interface em disco desde a
+      // primeira abertura (sem esperar o "aquecimento" padrão do V8) --
+      // as aberturas seguintes pulam boa parte da compilação, o que pesa
+      // muito num processador de entrada.
+      v8CacheOptions: 'bypassHeatCheck',
     },
   });
 
@@ -120,6 +126,19 @@ function createWindow() {
   win.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
     console.error('[did-fail-load]', errorCode, errorDescription, validatedURL);
   });
+
+  return win;
+}
+
+/** Chama `fn` uma vez, quando a janela já está desenhada na tela
+ * (ready-to-show) -- ou depois de 8 s, o que vier primeiro (se a
+ * janela demorar demais, ou um erro de carregamento impedir o evento,
+ * as tarefas de segundo plano não podem ficar paradas pra sempre). */
+function quandoJanelaPronta(win, fn) {
+  let chamado = false;
+  const uma = () => { if (!chamado) { chamado = true; fn(); } };
+  win.once('ready-to-show', uma);
+  setTimeout(uma, 8000);
 }
 
 app.whenReady().then(() => {
@@ -138,90 +157,131 @@ app.whenReady().then(() => {
     });
   }
 
-  getDb(); // garante schema criado e seed aplicado antes de abrir a janela
-  timeService.startAutoSync(); // sincroniza com a internet assim que possível, e a cada 15 min
-  registerIpcHandlers();
+  // Janela PRIMEIRO, no mesmo "tick" síncrono de getDb() e dos
+  // handlers de IPC logo abaixo: o processo do Chromium (o que mais
+  // demora pra subir numa máquina de entrada) começa a carregar EM
+  // PARALELO com o resto da inicialização, em vez de só depois dela. É
+  // seguro porque nenhuma mensagem do renderer (IPC) é atendida antes de
+  // este bloco síncrono inteiro terminar -- handlers, banco e o
+  // autoUpdater (ver comentário de setupAutoUpdater) já estão prontos
+  // quando a primeira chamada da janela chega.
+  const janelaPrincipal = createWindow();
 
-  // Precisa rodar ANTES de createWindow() — a tela de atualização
-  // obrigatória (UpdateGate) pode disparar uma checagem de atualização
-  // assim que a janela abre (baseada só em dado local, sem esperar
+  getDb(); // garante schema criado e seed aplicado antes de atender a janela
+  timeService.startAutoSync(); // sincroniza com a internet assim que possível, e a cada 15 min
+  require('./ipc/handlers').registerIpcHandlers();
+
+  // Tem que existir antes da PRIMEIRA mensagem da janela -- a tela de
+  // atualização obrigatória (UpdateGate) pode disparar uma checagem de
+  // atualização assim que abre (baseada só em dado local, sem esperar
   // nada de rede), e se isso acontecer antes dos listeners do
   // autoUpdater existirem, o resultado da checagem (achou, não achou,
-  // deu erro) se perde no vazio — ninguém está escutando ainda. Foi
-  // exatamente isso que deixava a tela de bloqueio presa, enquanto o
-  // fluxo manual em Configurações (que só roda bem depois, com tudo
-  // já pronto) funcionava normal.
+  // deu erro) se perde no vazio. Foi exatamente isso que deixava a tela
+  // de bloqueio presa, enquanto o fluxo manual em Configurações (que só
+  // roda bem depois, com tudo já pronto) funcionava normal. Como a
+  // janela só fala com o processo principal depois deste bloco síncrono,
+  // aqui ainda é "antes".
   updateService.setupAutoUpdater();
 
-  createWindow();
+  // ---------------------------------------------------------------
+  // Tarefas de segundo plano EM ETAPAS (v1.0). Antes tudo isto subia de
+  // uma vez junto com a janela: Firebase (~0,1 s só pra carregar a
+  // biblioteca num PC bom, várias vezes isso num Celeron), conexão do
+  // WhatsApp (Baileys, ~0,4 s), backup diário copiando o banco inteiro,
+  // repassada do histórico pro grupo... tudo disputando CPU e disco com
+  // a primeira tela, que numa máquina fraca demorava pra responder.
+  // Agora a tela abre primeiro e cada grupo entra depois; nada deixou
+  // de rodar, só começa um pouco mais tarde. Em modo leve (máquina de
+  // entrada, ver hardwareService) os atrasos são maiores.
+  // ---------------------------------------------------------------
+  const modoLeve = require('./services/hardwareService').modoLeve();
+  const ATRASO_ETAPA_1_MS = 1500; // conexão com a central: licença, atualização obrigatória, celulares
+  const ATRASO_ETAPA_2_MS = modoLeve ? 40000 : 15000; // publicações pro celular, catálogo do grupo, WhatsApp
+  const ATRASO_ETAPA_3_MS = modoLeve ? 150000 : 60000; // backup diário, repassada do histórico pro grupo
+  quandoJanelaPronta(janelaPrincipal, () => {
+    setTimeout(iniciarEtapa1, ATRASO_ETAPA_1_MS);
+    setTimeout(iniciarEtapa2, ATRASO_ETAPA_2_MS);
+    setTimeout(iniciarEtapa3, ATRASO_ETAPA_3_MS);
+  });
 
-  // Backup automático (uma vez por dia) — não trava a abertura do app.
-  // Verifica de novo periodicamente porque muita farmácia deixa o app
-  // aberto o dia inteiro sem reiniciar.
-  backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err));
-  setInterval(() => backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err)), 2 * 60 * 60 * 1000);
+  function iniciarEtapa1() {
+    // Limpa o status de download/instalação no Firestore assim que o app
+    // sobe — sem isso, depois que o cliente reinicia na versão nova, o
+    // painel continuava mostrando "baixado, aguardando reiniciar" pra
+    // sempre (o status só era escrito DURANTE o download, nunca
+    // "zerado" depois que o reinício de verdade acontecia).
+    updateService.reportarProgressoNoFirestore().catch((err) => console.error('[update]', err));
+    // Confere se uma atualização que tinha ficado marcada como "baixada,
+    // esperando reiniciar" realmente foi aplicada -- se o app reabriu
+    // ainda na versão antiga, reporta pra Central (aba Erros, contexto
+    // 'atualizacao_falhou') e tenta buscar a atualização de novo sozinho.
+    updateService.verificarAtualizacaoFoiAplicada();
+    updateService.iniciarEscutaAtualizacaoObrigatoria();
 
-  // Limpa o status de download/instalação no Firestore assim que o app
-  // sobe — sem isso, depois que o cliente reinicia na versão nova, o
-  // painel continuava mostrando "baixado, aguardando reiniciar" pra
-  // sempre (o status só era escrito DURANTE o download, nunca
-  // "zerado" depois que o reinício de verdade acontecia).
-  updateService.reportarProgressoNoFirestore().catch((err) => console.error('[update]', err));
-  // Confere se uma atualização que tinha ficado marcada como "baixada,
-  // esperando reiniciar" realmente foi aplicada -- se o app reabriu
-  // ainda na versão antiga, reporta pra Central (aba Erros, contexto
-  // 'atualizacao_falhou') e tenta buscar a atualização de novo sozinho.
-  updateService.verificarAtualizacaoFoiAplicada();
-  updateService.iniciarEscutaAtualizacaoObrigatoria();
+    // Licenciamento — confere com o servidor central se a instalação
+    // está ativa. Nunca trava a abertura do app esperando rede (roda em
+    // segundo plano); o bloqueio de verdade, se acontecer, é decidido
+    // pelo próprio React a partir do estado local já salvo.
+    licenseService.checkLicense().catch((err) => console.error('[license]', err));
+    licenseService.iniciarEscutaTempoReal();
+    licenseService.iniciarPingDePresenca();
+    require('./services/messageService').iniciarEscutaMensagemGlobal();
+    // Pareamento de celular e o que chega DO celular (pedido do garçom,
+    // venda do PDV móvel) -- logo no começo: alguém pode estar esperando
+    // do outro lado.
+    require('./services/pairingService').iniciarEscutaPareamentos();
+    require('./services/pedidoGarcomSyncService').iniciarEscutaPedidosGarcom();
+    // PDV móvel -- vendas feitas no celular (pareado com tipo 'pdv')
+    // viram venda de verdade aqui, consultas sob demanda (produto fora do
+    // catálogo publicado, cliente, Pix) e config/sinal de vida pro celular.
+    // Ver pdvMobileSyncService.js.
+    require('./services/pdvMobileSyncService').iniciarPdvMobile();
+  }
+
+  function iniciarEtapa2() {
+    require('./services/productSyncService').iniciarEscutaProdutos();
+    // Status ao vivo pro celular de quem já estiver pareado — ver
+    // liveStatusSyncService.js (só publica se houver celular pareado).
+    require('./services/liveStatusSyncService').iniciarPublicacaoContinua();
+    // Lista de funcionários (nome/papel/status) pra quem parear como
+    // "Consulta remota" -- ver userStatusSyncService.js e a seção
+    // "Usuários" em pwa-mobile/consulta.js.
+    require('./services/userStatusSyncService').iniciarPublicacaoContinua();
+    // Histórico de vendas (últimos 7/30 dias) pra quem parear como
+    // "Consulta remota" -- ver historySyncService.js e a seção
+    // "Histórico" em pwa-mobile/consulta.js.
+    require('./services/historySyncService').iniciarPublicacaoContinua();
+    // Reconecta sozinho no chatbot de WhatsApp se esta máquina já tinha
+    // sido pareada antes e a aba "Separação" está ativada — sem isso, o
+    // bot só voltaria a responder depois de alguém abrir Configurações
+    // manualmente a cada vez que o app é reiniciado.
+    require('./services/whatsappBotService').iniciarAutomaticamenteSeConfigurado();
+  }
+
+  function iniciarEtapa3() {
+    // Backup automático (uma vez por dia). Verifica de novo
+    // periodicamente porque muita farmácia deixa o app aberto o dia
+    // inteiro sem reiniciar.
+    backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err));
+    setInterval(() => backupService.runBackupIfNeeded().catch((err) => console.error('[backup]', err)), 2 * 60 * 60 * 1000);
+
+    // Espelho das vendas no grupo de sincronização -- o push de cada
+    // venda ao finalizar é best-effort (não trava a venda se a rede cair
+    // naquele instante exato); este ciclo recupera o que falhou. Desde a
+    // v1.0 manda só o que ainda não foi (ver salesSyncService.pushPeriodico
+    // e a tabela group_sync_sales), com uma repassada completa dos
+    // últimos 60 dias uma vez por dia.
+    const pushGrupo = () => executarSeNaoEstiverRodando('grupoVendas', () => require('./services/salesSyncService').pushPeriodico());
+    pushGrupo();
+    setInterval(pushGrupo, 15 * 60 * 1000);
+  }
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);
-
-  // Licenciamento — confere com o servidor central se a instalação
-  // está ativa. Nunca trava a abertura do app esperando rede (roda em
-  // segundo plano); o bloqueio de verdade, se acontecer, é decidido
-  // pelo próprio React a partir do estado local já salvo.
-  licenseService.checkLicense().catch((err) => console.error('[license]', err));
-  licenseService.iniciarEscutaTempoReal();
-  licenseService.iniciarPingDePresenca();
-  require('./services/productSyncService').iniciarEscutaProdutos();
-  require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 });
-  require('./services/messageService').iniciarEscutaMensagemGlobal();
-  // Pareamento de celular (app do garçom / consulta remota) e status ao
-  // vivo pro celular de quem já estiver pareado — ver pairingService.js
-  // e liveStatusSyncService.js.
-  require('./services/pairingService').iniciarEscutaPareamentos();
-  require('./services/liveStatusSyncService').iniciarPublicacaoContinua();
-  require('./services/pedidoGarcomSyncService').iniciarEscutaPedidosGarcom();
-  // PDV móvel -- vendas feitas no celular (pareado com tipo 'pdv')
-  // viram venda de verdade aqui, consultas sob demanda (produto fora do
-  // catálogo publicado, cliente, Pix) e config/sinal de vida pro celular.
-  // Ver pdvMobileSyncService.js.
-  require('./services/pdvMobileSyncService').iniciarPdvMobile();
-  // Lista de funcionários (nome/papel/status) pra quem parear como
-  // "Consulta remota" -- ver userStatusSyncService.js e a seção
-  // "Usuários" em pwa-mobile/consulta.js.
-  require('./services/userStatusSyncService').iniciarPublicacaoContinua();
-  // Histórico de vendas (últimos 7/30 dias) pra quem parear como
-  // "Consulta remota" -- ver historySyncService.js e a seção
-  // "Histórico" em pwa-mobile/consulta.js.
-  require('./services/historySyncService').iniciarPublicacaoContinua();
-  // Reconecta sozinho no chatbot de WhatsApp se esta máquina já tinha
-  // sido pareada antes e a aba "Separação" está ativada — sem isso, o
-  // bot só voltaria a responder depois de alguém abrir Configurações
-  // manualmente a cada vez que o app é reiniciado.
-  require('./services/whatsappBotService').iniciarAutomaticamenteSeConfigurado();
   setInterval(() => licenseService.checkLicense().catch((err) => console.error('[license]', err)), licenseService.INTERVALO_CHECAGEM_MS);
-  // Reenvio periódico de segurança — o push de cada venda ao finalizar
-  // é best-effort (não trava a venda se a rede cair naquele instante
-  // exato); sem isso, uma falha silenciosa isolada só seria corrigida
-  // no próximo reinício do app. Reescrever a mesma venda de novo é
-  // inofensivo (mesmo ID sobrescreve), então repetir isso não tem risco.
-  // Limitado aos últimos 60 dias — o objetivo é só recuperar uma
-  // sincronização recente que falhou, não reprocessar o histórico
-  // inteiro toda vez (isso ficava mais lento conforme o histórico
-  // crescia, sem ganho nenhum — vendas de anos atrás já sincronizadas
-  // não precisam ser reenviadas de novo pra sempre).
-  setInterval(() => require('./services/salesSyncService').pushTodoOHistorico({ diasRecentes: 60 }), 15 * 60 * 1000);
+  // Estatísticas do planejador do SQLite em dia (PRAGMA optimize) -- o
+  // app costuma ficar aberto o dia inteiro, e as tabelas de venda/estoque
+  // crescem; recomendado pelo próprio SQLite pra conexão de vida longa.
+  setInterval(() => require('./db/database').otimizarBanco(), 6 * 60 * 60 * 1000);
 
   // Lembrete de reserva "1h antes" — não existe agendador exato no
   // projeto (ver comentário em reservationService.findPendingLembrete),

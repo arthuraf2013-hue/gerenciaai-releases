@@ -438,6 +438,8 @@ function registerIpcHandlers() {
 
   // --- Relógio sincronizado (Brasília) ---
   safeHandle('time:getStatus', () => timeService.getStatus());
+  // Perfil de hardware (RAM, núcleos, modo leve automático) -- ver hardwareService.
+  safeHandle('system:getPerfilDesempenho', () => require('../services/hardwareService').perfil());
   safeHandle('time:getBrasiliaNow', () => timeService.getBrasiliaNowParts());
   safeHandle('time:syncNow', () => timeService.syncNow());
 

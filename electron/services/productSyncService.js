@@ -105,13 +105,18 @@ function iniciarEscutaProdutos() {
     pararEscutaProdutos = onSnapshot(
       ref,
       (snap) => {
-        const novoCatalogo = new Map();
-        for (const docSnap of snap.docs) {
-          const dados = docSnap.data();
-          if (dados.excluido === true) continue; // produto removido em outra máquina -- não mostra na consulta
-          novoCatalogo.set(docSnap.id, { id: docSnap.id, ...dados });
+        // Só aplica o que MUDOU (docChanges) em vez de reconstruir o mapa
+        // inteiro a cada produto editado em qualquer máquina do grupo --
+        // num catálogo de milhares de itens, reconstruir tudo a cada
+        // alteração custava CPU e memória à toa. O primeiro snapshot
+        // traz todos como 'added', então o resultado final é o mesmo.
+        for (const change of snap.docChanges()) {
+          const id = change.doc.id;
+          if (change.type === 'removed') { catalogoDoGrupoEmMemoria.delete(id); continue; }
+          const dados = change.doc.data();
+          if (dados.excluido === true) { catalogoDoGrupoEmMemoria.delete(id); continue; } // removido em outra máquina -- não mostra na consulta
+          catalogoDoGrupoEmMemoria.set(id, { id, ...dados });
         }
-        catalogoDoGrupoEmMemoria = novoCatalogo;
       },
       (err) => console.error('[productSyncService] escuta de produtos falhou:', err)
     );

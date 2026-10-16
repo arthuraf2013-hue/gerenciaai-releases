@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
@@ -8,19 +8,25 @@ import { PromptModal } from '../common/PromptModal';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { PaymentPanel } from './PaymentPanel';
 import { ProductSearchBox } from './ProductSearchBox';
-import { CustomItemBuilder } from './CustomItemBuilder';
-import { SaleAttachmentsPanel } from './SaleAttachmentsPanel';
 import { OpenCashScreen } from './OpenCashScreen';
-import { CloseCashModal } from './CloseCashModal';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { playBeep } from '../../utils/sound';
 import { RecentlySoldStrip } from './RecentlySoldStrip';
 import { Clock } from '../layout/Clock';
 import { PosTour } from './PosTour';
-import { TrainingPresentationModal } from './TrainingPresentationModal';
 import { HomeMessageBanner } from './HomeMessageBanner';
-import { NovoProdutoPorFotoModal } from './NovoProdutoPorFotoModal';
 import Icon from '../common/Icon';
+
+// Janelas que só abrem sob demanda (item personalizado, anexos/receita,
+// cadastro por foto, fechamento de caixa, treinamento) carregam o
+// próprio código só na primeira vez que alguém abre -- o PDV abre mais
+// rápido (menos JavaScript pra interpretar na largada), sem nenhuma
+// diferença no uso.
+const CustomItemBuilder = lazy(() => import('./CustomItemBuilder').then((m) => ({ default: m.CustomItemBuilder })));
+const SaleAttachmentsPanel = lazy(() => import('./SaleAttachmentsPanel').then((m) => ({ default: m.SaleAttachmentsPanel })));
+const NovoProdutoPorFotoModal = lazy(() => import('./NovoProdutoPorFotoModal').then((m) => ({ default: m.NovoProdutoPorFotoModal })));
+const CloseCashModal = lazy(() => import('./CloseCashModal').then((m) => ({ default: m.CloseCashModal })));
+const TrainingPresentationModal = lazy(() => import('./TrainingPresentationModal').then((m) => ({ default: m.TrainingPresentationModal })));
 
 function playErrorBeep() {
   try {
@@ -218,7 +224,7 @@ export function POSScreen() {
     const naoEncontrados = [];
 
     for (const nome of nomes) {
-      const matches = await window.pdv.products.list({ query: nome });
+      const matches = await window.pdv.products.list({ query: nome, limit: 1 });
       if (!Array.isArray(matches) || matches.length === 0) {
         naoEncontrados.push(nome);
         continue;
@@ -738,6 +744,7 @@ export function POSScreen() {
         />
       )}
 
+      <Suspense fallback={null}>
       {showCustomItemBuilder && (
         <CustomItemBuilder
           saleId={saleId}
@@ -777,8 +784,9 @@ export function POSScreen() {
         />
       )}
 
-      <PosTour forceOpen={showTour} onClose={() => setShowTour(false)} />
       {showTraining && <TrainingPresentationModal onClose={() => setShowTraining(false)} />}
+      </Suspense>
+      <PosTour forceOpen={showTour} onClose={() => setShowTour(false)} />
       {promptState && (
         <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}

@@ -340,7 +340,14 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED()),
   sincronizado_em   TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_stock_mov_product_loc ON stock_movements(product_id, location_id);
+-- Índice COBRINDO (inclui `quantidade`): toda conta de "estoque atual" é
+-- SUM(quantidade) por produto/local -- com a quantidade dentro do próprio
+-- índice, o SQLite soma sem nem abrir a tabela (4-8x mais rápido medido
+-- num banco de 1 ano de uso: addItem, tela de Estoque, busca do PDV,
+-- catálogo do celular). Substitui o antigo idx_stock_mov_product_loc
+-- (product_id, location_id), que é prefixo deste -- removido em
+-- database.js (removerIndicesSubstituidos) pra não pagar escrita em dobro.
+CREATE INDEX IF NOT EXISTS idx_stock_mov_prod_loc_qtd ON stock_movements(product_id, location_id, quantidade);
 -- Cobre a previsão de ruptura (stockService.previsaoDeRuptura) e
 -- qualquer outra consulta que soma saídas de venda por local num
 -- intervalo de tempo -- sem isso, esse tipo de consulta teria que
@@ -409,11 +416,15 @@ CREATE INDEX IF NOT EXISTS idx_sales_location_data_efetiva ON sales(location_id,
 -- sync, NFC-e) que já sabem que só olham vendas finalizadas e não
 -- precisam do COALESCE com carrinho aberto.
 CREATE INDEX IF NOT EXISTS idx_sales_finalizada_em ON sales(finalizada_em);
--- Cobre a varredura do ciclo automático de retry de estoque do grupo
--- (saleService.tentarFinalizarVendasPendentesDeEstoque), que roda a cada
--- poucos segundos -- sem isso, escanearia a tabela sales inteira (todo
--- status, toda venda já finalizada incluída) a cada passada.
-CREATE INDEX IF NOT EXISTS idx_sales_pendente_estoque_grupo ON sales(status, pendente_estoque_grupo, pendente_estoque_proxima_tentativa);
+-- idx_sales_pendente_estoque_grupo (cobre a varredura do ciclo automático
+-- de retry de estoque do grupo) é criado em database.js, dentro de
+-- migrateColumnsIfNeeded, logo depois do ALTER TABLE que adiciona as
+-- colunas pendente_estoque_* -- NUNCA aqui. `db.exec(schema)` roda esse
+-- bloco inteiro ANTES da migração (ver getDb em database.js); num banco
+-- de quem já tinha o app instalado, a tabela `sales` ainda não tem essas
+-- colunas nesse momento, e um CREATE INDEX referenciando uma coluna que
+-- não existe derruba o `db.exec` inteiro com "no such column" -- o app
+-- nem abre. Isso já aconteceu (ver changelog/README); não reintroduzir.
 
 CREATE TABLE IF NOT EXISTS sale_items (
   id              TEXT PRIMARY KEY,
@@ -460,6 +471,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
+-- "Vendidos recentemente" (atalhos do PDV) lê as últimas linhas vendidas
+-- em ordem de data -- sem isso agrupava o histórico INTEIRO de itens a
+-- cada venda (ver saleService.listRecentlySold).
+CREATE INDEX IF NOT EXISTS idx_sale_items_criado ON sale_items(criado_em);
 
 -- Pagamentos: uma venda pode ter múltiplos métodos (pagamento
 -- misto, ex: parte dinheiro + parte cartão).
@@ -902,7 +917,11 @@ CREATE TABLE IF NOT EXISTS customers (
 -- precisaria de FTS5), mas cobre os lookups exatos, muito mais frequentes.
 CREATE INDEX IF NOT EXISTS idx_customers_telefone ON customers(telefone);
 CREATE INDEX IF NOT EXISTS idx_customers_cpf ON customers(cpf);
-CREATE INDEX IF NOT EXISTS idx_customers_cnpj ON customers(cnpj);
+-- idx_customers_cnpj é criado em database.js (migrateColumnsIfNeeded),
+-- logo depois do ALTER TABLE que adiciona a coluna `cnpj` -- mesmo
+-- motivo do idx_sales_pendente_estoque_grupo acima: colocar aqui
+-- quebraria `db.exec(schema)` pra quem já tinha o app instalado antes
+-- dessa coluna existir.
 
 -- Ledger de fiado — mesmo princípio do estoque: nunca edita, só lança
 -- movimento novo. Saldo devedor = SUM(valor) dos movimentos do cliente.
@@ -1436,3 +1455,63 @@ CREATE TABLE IF NOT EXISTS mobile_sales (
 );
 CREATE INDEX IF NOT EXISTS idx_mobile_sales_status ON mobile_sales(status);
 CREATE INDEX IF NOT EXISTS idx_mobile_sales_sale ON mobile_sales(sale_id);
+
+-- ============================================================
+-- DESEMPENHO (v1.0) -- tabelas/triggers de apoio a caches e
+-- sincronização incremental. Ficam no FIM do schema de propósito: os
+-- triggers referenciam products/sales/sale_items/payments, que já
+-- existem a esta altura (banco novo ou antigo). Só colunas que existem
+-- desde a primeira versão de cada tabela -- ver o aviso sobre
+-- "no such column" perto de idx_sales_pendente_estoque_grupo.
+-- ============================================================
+
+-- Contador de versão por "assunto" -- triggers incrementam quando o dado
+-- muda, e quem mantém cache em memória (ver productService, busca do
+-- PDV) só reconstrói quando o número mudou. Pega TODO caminho de
+-- escrita (cadastro, importação, sincronização entre máquinas, mescla de
+-- duplicados...) sem precisar lembrar de invalidar à mão em cada um.
+CREATE TABLE IF NOT EXISTS cache_versao (
+  chave  TEXT PRIMARY KEY,
+  valor  INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO cache_versao (chave, valor) VALUES ('produtos', 0);
+CREATE TRIGGER IF NOT EXISTS trg_cache_produtos_ins AFTER INSERT ON products
+BEGIN UPDATE cache_versao SET valor = valor + 1 WHERE chave = 'produtos'; END;
+CREATE TRIGGER IF NOT EXISTS trg_cache_produtos_upd AFTER UPDATE ON products
+BEGIN UPDATE cache_versao SET valor = valor + 1 WHERE chave = 'produtos'; END;
+CREATE TRIGGER IF NOT EXISTS trg_cache_produtos_del AFTER DELETE ON products
+BEGIN UPDATE cache_versao SET valor = valor + 1 WHERE chave = 'produtos'; END;
+
+-- Vendas já espelhadas no grupo de sincronização (grupos_sincronizacao/
+-- {grupo}/vendas) -- ver salesSyncService. Antes, o ciclo de 15 em 15
+-- minutos reescrevia no Firestore TODAS as vendas dos últimos 60 dias
+-- (milhares de escritas por ciclo numa loja movimentada); agora só vai o
+-- que ainda não foi (ou mudou desde que foi). Qualquer alteração na
+-- venda, nos itens ou nos pagamentos apaga a marca (triggers abaixo) e a
+-- venda volta pra fila no próximo ciclo.
+CREATE TABLE IF NOT EXISTS group_sync_sales (
+  sale_id    TEXT PRIMARY KEY,
+  grupo_id   TEXT NOT NULL,
+  enviado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_sales_upd AFTER UPDATE ON sales
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = NEW.id; END;
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_items_ins AFTER INSERT ON sale_items
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = NEW.sale_id; END;
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_items_upd AFTER UPDATE ON sale_items
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = NEW.sale_id; END;
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_items_del AFTER DELETE ON sale_items
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = OLD.sale_id; END;
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_pay_ins AFTER INSERT ON payments
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = NEW.sale_id; END;
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_pay_upd AFTER UPDATE ON payments
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = NEW.sale_id; END;
+CREATE TRIGGER IF NOT EXISTS trg_group_sync_pay_del AFTER DELETE ON payments
+BEGIN DELETE FROM group_sync_sales WHERE sale_id = OLD.sale_id; END;
+
+-- Marcadores simples de "quando foi a última vez que X rodou" (chave/valor)
+-- -- ex: a repassada completa diária do histórico pro grupo.
+CREATE TABLE IF NOT EXISTS sync_marcadores (
+  chave TEXT PRIMARY KEY,
+  valor TEXT
+);

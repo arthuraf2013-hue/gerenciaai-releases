@@ -4,6 +4,7 @@ import { useSession } from '../../context/SessionContext';
 import { ProfileManager } from './ProfileManager';
 import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
 import Icon from '../common/Icon';
+import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/modoLeve';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
@@ -80,6 +81,19 @@ export function SettingsScreen() {
   const [pixSaved, setPixSaved] = useState(false);
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
+
+  // Desempenho -- ver src/utils/modoLeve.js e electron/services/hardwareService.js.
+  const [perfilDesempenho, setPerfilDesempenho] = useState(null);
+  const [prefModoLeve, setPrefModoLeve] = useState(() => lerPreferenciaModoLeve());
+  const [modoLeveAtivo, setModoLeveAtivo] = useState(() => document.documentElement.classList.contains('modo-leve'));
+  useEffect(() => {
+    if (aba !== 'geral') return;
+    window.pdv.system.getPerfilDesempenho().then((p) => { if (p && !p.error) setPerfilDesempenho(p); });
+  }, [aba]);
+  async function handleModoLeve(valor) {
+    setPrefModoLeve(valor);
+    setModoLeveAtivo(await gravarPreferenciaModoLeve(valor));
+  }
 
   const [pairingTipo, setPairingTipo] = useState('garcom'); // 'garcom' | 'consulta' | 'pdv'
   const [pairingVinculoUserId, setPairingVinculoUserId] = useState('');
@@ -727,6 +741,28 @@ export function SettingsScreen() {
 
       {aba === 'geral' && (
       <>
+      <section className="settings-section">
+        <h2><Icon name="sliders" size={16} /> Desempenho</h2>
+        <p className="screen-hint">
+          {perfilDesempenho
+            ? <>Este computador: {perfilDesempenho.cpuModelo} · {perfilDesempenho.nucleos} {perfilDesempenho.nucleos === 1 ? 'núcleo' : 'núcleos'} · {String(perfilDesempenho.memoriaTotalGb).replace('.', ',')} GB de RAM — {perfilDesempenho.modoLeveAutomatico ? 'máquina de entrada detectada: o sistema já economiza memória e adia as tarefas de segundo plano na abertura.' : 'desempenho normal.'}</>
+            : 'Verificando este computador...'}
+        </p>
+        <div className="form-grid">
+          <label>
+            Modo leve da tela (sem animações)
+            <select value={prefModoLeve} onChange={(e) => handleModoLeve(e.target.value)}>
+              <option value="auto">Automático (recomendado)</option>
+              <option value="ligado">Sempre ligado</option>
+              <option value="desligado">Desligado</option>
+            </select>
+          </label>
+        </div>
+        <p className="screen-hint">
+          {modoLeveAtivo ? 'Ligado agora neste computador.' : 'Desligado agora neste computador.'} Nenhuma função do sistema é desativada — só os efeitos visuais.
+        </p>
+      </section>
+
       <section className="settings-section">
         <h2><Icon name="save" size={16} /> Backup</h2>
         <p className="screen-hint">
