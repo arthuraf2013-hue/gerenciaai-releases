@@ -19,6 +19,14 @@ atual.
 - **`electron/preload.js`** — único ponto de exposição de IPC pro
   renderer, via `contextBridge`. Cada namespace (`window.pdv.produtos`,
   `window.pdv.clientes`, etc.) mapeia 1:1 pra um canal IPC.
+- **Política de acesso no IPC (out/2026):** `safeHandle` exige sessão real
+  em TODO canal, exceto `CANAIS_PUBLICOS` (login, licença, atualização,
+  erro); canais em `PAPEL_POR_CANAL` exigem gerente/admin/suporte; e
+  `operadorId`/`currentOperatorId`/`requestingUserId` do payload são
+  SEMPRE trocados pelo usuário da sessão. Canal novo nasce exigindo login
+  (fail-closed). Se a tela for só de gestão, ponha o canal em
+  `PAPEL_POR_CANAL`. `tests/ipcPoliticaAcesso.test.js` falha se a política
+  citar canal que não existe.
 - **`electron/ipc/handlers.js`** — registra todo handler com
   `safeHandle(canal, fn)`, que já embrulha em try/catch e devolve
   `{ ok: false, error }` em vez de deixar a IPC explodir. `fn` pode
@@ -134,7 +142,31 @@ precisa mais de rebuild nenhum**, nem manual nem pelo
 install`, o mais provável é o lockfile ter voltado pra uma v11 antiga
 — confere `node_modules/better-sqlite3/package.json` → `version`.
 
+## Estoque do grupo multi-PDV (out/2026)
+
+O contador `grupos_sincronizacao/{g}/estoque/{produto}` só recebe
+**variações**: `stockSyncService.registrarMovimentoDoServidor` (entrada,
+ajuste, perda, importação — só no servidor) e `registrarDevolucaoDeVenda`
+(devolução de venda com `sales.estoque_grupo_debitado = 1`, em qualquer
+máquina). Cada variação vai pra fila `estoque_grupo_pendente` e é aplicada
+uma vez (livro `.../movimentos/{id}` + transação). **Nunca** regravar o
+total absoluto (o antigo `pushEstoqueProduto` apagava os débitos das outras
+máquinas). Venda ABERTA não mexe no contador (débito só na finalização).
+
+## SQL: nada de função JS no WHERE
+
+`datetime(NOW_SYNCED(), '-30 days')` dentro de WHERE chama a função JS a
+cada linha e impede o índice — use `timeService.utcSqlAtras({ dias: 30 })`
+como parâmetro. Medir com `node bench/medir.js` (banco sintético de loja
+grande; `--limites` falha se uma operação passar do limite).
+
 ## Testes
+
+Regras do Firestore: `tests/firestoreRules.test.js` roda contra o
+emulador (`firebase emulators:start --only firestore` e
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node --test tests/firestoreRules.test.js`);
+sem a variável, os testes são pulados. Campo novo que só a Central muda em
+`installations/{id}` vai em `camposDeControle()` em `firestore.rules`.
 
 `node --test` puro (sem framework externo), um arquivo por serviço
 em `tests/`, helper compartilhado em `tests/helpers/testDb.js`

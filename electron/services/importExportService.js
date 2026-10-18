@@ -221,6 +221,7 @@ async function importFromFile(filePath, { locationId, operadorId, deviceId }) {
           `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, operador_id, device_id)
            VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?)`
         ).run(randomUUID(), productId, locationId, quantidadeInicial, 'Importação de planilha', operadorId, deviceId);
+        require('./stockSyncService').registrarMovimentoDoServidor(productId, quantidadeInicial, 'importação de planilha');
       }
 
       if (existing) report.atualizados += 1; else report.importados += 1;

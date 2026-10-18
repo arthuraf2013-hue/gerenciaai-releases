@@ -162,25 +162,72 @@ function computeDishCost(productId) {
  * estoque já permite hoje. Bloquear a venda por causa do insumo não
  * foi pedido e mudaria o fluxo do caixa.
  */
-function descontarPorVenda(productId, quantidadeVendida) {
+function descontarPorVenda(productId, quantidadeVendida, saleId = null) {
   const db = getDb();
   const receita = db.prepare('SELECT ingredient_id, quantidade FROM dish_ingredients WHERE product_id = ?').all(productId);
   for (const linha of receita) {
     db.prepare('UPDATE ingredients SET estoque_atual = estoque_atual - ? WHERE id = ?')
       .run(linha.quantidade * quantidadeVendida, linha.ingredient_id);
+    registrarConsumo(db, linha.ingredient_id, productId, saleId, linha.quantidade * quantidadeVendida);
   }
+}
+
+// Livro do consumo TEÓRICO (pela ficha técnica) -- antes a venda só
+// baixava estoque_atual, sem deixar rastro; sem isso não dá pra comparar
+// o que deveria ter saído com o que o inventário mostra que saiu.
+function registrarConsumo(db, ingredientId, productId, saleId, quantidade) {
+  db.prepare(
+    'INSERT INTO ingredient_consumo (id, ingredient_id, product_id, sale_id, quantidade) VALUES (?, ?, ?, ?, ?)'
+  ).run(randomUUID(), ingredientId, productId, saleId || null, quantidade);
 }
 
 /** Estorna (devolve) o estoque de insumos de um prato cancelado —
  * espelho exato de descontarPorVenda, chamada de dentro da mesma
  * transação de saleService.cancelSaleItem/cancelSale. */
-function reverterPorVenda(productId, quantidadeCancelada) {
+function reverterPorVenda(productId, quantidadeCancelada, saleId = null) {
   const db = getDb();
   const receita = db.prepare('SELECT ingredient_id, quantidade FROM dish_ingredients WHERE product_id = ?').all(productId);
   for (const linha of receita) {
     db.prepare('UPDATE ingredients SET estoque_atual = estoque_atual + ? WHERE id = ?')
       .run(linha.quantidade * quantidadeCancelada, linha.ingredient_id);
+    registrarConsumo(db, linha.ingredient_id, productId, saleId, -(linha.quantidade * quantidadeCancelada));
   }
+}
+
+/**
+ * Consumo teórico × inventário, por insumo, num período (datas locais).
+ * - consumoTeorico: o que as vendas tiraram pela ficha técnica;
+ * - perdas: quebra/desperdício registrados;
+ * - ajusteInventario: correções de contagem (negativo = sumiu mais do que
+ *   a ficha explica: porção maior, desperdício não registrado, desvio).
+ * O desvio em R$ usa o custo atual do insumo.
+ */
+function relatorioConsumoTeoricoVsReal({ dataInicio, dataFim }) {
+  const db = getDb();
+  const timeService = require('./timeService');
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
+  const linhas = db.prepare(
+    `SELECT i.id, i.nome, i.unidade, i.custo_unitario, i.estoque_atual,
+       COALESCE((SELECT SUM(c.quantidade) FROM ingredient_consumo c WHERE c.ingredient_id = i.id AND c.criado_em >= ? AND c.criado_em < ?), 0) AS consumoTeorico,
+       COALESCE((SELECT SUM(m.quantidade) FROM ingredient_stock_movements m WHERE m.ingredient_id = i.id AND m.tipo = 'entrada' AND m.criado_em >= ? AND m.criado_em < ?), 0) AS entradas,
+       COALESCE((SELECT SUM(-m.quantidade) FROM ingredient_stock_movements m WHERE m.ingredient_id = i.id AND m.tipo = 'perda' AND m.criado_em >= ? AND m.criado_em < ?), 0) AS perdas,
+       COALESCE((SELECT SUM(m.quantidade) FROM ingredient_stock_movements m WHERE m.ingredient_id = i.id AND m.tipo = 'ajuste' AND m.criado_em >= ? AND m.criado_em < ?), 0) AS ajusteInventario
+     FROM ingredients i WHERE i.ativo = 1 ORDER BY i.nome`
+  ).all(inicioUtc, fimUtcExclusivo, inicioUtc, fimUtcExclusivo, inicioUtc, fimUtcExclusivo, inicioUtc, fimUtcExclusivo);
+  const itens = linhas
+    .filter((l) => l.consumoTeorico || l.entradas || l.perdas || l.ajusteInventario)
+    .map((l) => ({
+      ...l,
+      custoTeorico: l.consumoTeorico * l.custo_unitario,
+      custoPerdas: l.perdas * l.custo_unitario,
+      custoDesvio: l.ajusteInventario * l.custo_unitario,
+      desvioPercentual: l.consumoTeorico > 0 ? (-l.ajusteInventario / l.consumoTeorico) * 100 : null,
+    }))
+    .sort((a, b) => a.custoDesvio - b.custoDesvio);
+  const totais = itens.reduce((t, l) => ({
+    custoTeorico: t.custoTeorico + l.custoTeorico, custoPerdas: t.custoPerdas + l.custoPerdas, custoDesvio: t.custoDesvio + l.custoDesvio,
+  }), { custoTeorico: 0, custoPerdas: 0, custoDesvio: 0 });
+  return { itens, totais };
 }
 
 /**
@@ -223,4 +270,5 @@ function preverPorcoesPossiveisTodos() {
 module.exports = {
   list, upsert, deactivate, adjustStock, listStockMovements, getRecipe, setRecipe, computeDishCost,
   descontarPorVenda, reverterPorVenda, preverPorcoesPossiveis, preverPorcoesPossiveisTodos,
+  relatorioConsumoTeoricoVsReal,
 };

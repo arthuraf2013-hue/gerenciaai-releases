@@ -193,6 +193,19 @@ CREATE TABLE IF NOT EXISTS ingredient_stock_movements (
 );
 CREATE INDEX IF NOT EXISTS idx_ingredient_stock_mov_ingredient ON ingredient_stock_movements(ingredient_id);
 
+-- Consumo TEÓRICO de insumo pela ficha técnica, um registro por venda
+-- (negativo = estorno). Base do relatório "consumo teórico × inventário"
+-- (ingredientService.relatorioConsumoTeoricoVsReal).
+CREATE TABLE IF NOT EXISTS ingredient_consumo (
+  id             TEXT PRIMARY KEY,
+  ingredient_id  TEXT NOT NULL REFERENCES ingredients(id),
+  product_id     TEXT,
+  sale_id        TEXT,
+  quantidade     REAL NOT NULL,
+  criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_ingredient_consumo_ing_data ON ingredient_consumo(ingredient_id, criado_em);
+
 -- Ficha técnica — quais insumos (e quanto de cada) entram num prato.
 -- Um prato é um `product` normal; isso só documenta a composição dele
 -- pra poder calcular o custo automaticamente.
@@ -396,7 +409,39 @@ CREATE TABLE IF NOT EXISTS sales (
   -- repetidamente.
   pendente_estoque_grupo             INTEGER NOT NULL DEFAULT 0,
   pendente_estoque_tentativas        INTEGER NOT NULL DEFAULT 0,
-  pendente_estoque_proxima_tentativa TEXT
+  pendente_estoque_proxima_tentativa TEXT,
+  -- 1 = a finalização debitou o estoque compartilhado do grupo
+  -- (stockSyncService.verificarEDebitarEstoqueRemoto). Devolução dessa
+  -- venda devolve ao contador do grupo, em qualquer máquina.
+  estoque_grupo_debitado             INTEGER NOT NULL DEFAULT 0
+);
+
+-- Fila persistente de VARIAÇÕES do estoque compartilhado do grupo
+-- (stockSyncService). Antes, o servidor gravava o total absoluto do
+-- estoque local dele -- que não inclui as vendas das outras máquinas --
+-- e apagava os débitos delas. Cada linha vira, uma única vez, um
+-- documento grupos_sincronizacao/{g}/estoque/{produto}/movimentos/{id} +
+-- increment() no contador, numa transação (repetir não soma duas vezes).
+-- Mensagem automática mandada a um cliente (reconquista, aniversário) --
+-- é o que permite dizer quanto a campanha trouxe de volta
+-- (whatsappAutomationService.resultadoCampanhas).
+CREATE TABLE IF NOT EXISTS campanha_envios (
+  id          TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL,
+  tipo        TEXT NOT NULL, -- 'reconquista' | 'aniversario'
+  enviado_em  TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_campanha_envios_tipo_data ON campanha_envios(tipo, enviado_em);
+
+CREATE TABLE IF NOT EXISTS estoque_grupo_pendente (
+  id          TEXT PRIMARY KEY,
+  grupo_id    TEXT NOT NULL,
+  product_id  TEXT NOT NULL,
+  delta       REAL NOT NULL,
+  motivo      TEXT,
+  tentativas  INTEGER NOT NULL DEFAULT 0,
+  ultimo_erro TEXT,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 
 CREATE INDEX IF NOT EXISTS idx_sales_location_status_criado ON sales(location_id, status, criado_em);
@@ -1295,7 +1340,9 @@ CREATE TABLE IF NOT EXISTS suppliers (
   telefone      TEXT,
   email         TEXT,
   ativo         INTEGER DEFAULT 1,
-  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  -- Dias entre pedir e a mercadoria chegar (supplierService.suggestPurchases).
+  prazo_entrega_dias INTEGER
 );
 
 -- Despesas e contas a pagar — o mesmo registro serve pros dois casos.

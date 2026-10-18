@@ -455,7 +455,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       // Produto sem ficha técnica: não faz nada (ver ingredientService).
       // Serviço nunca tem ficha técnica (não existe "produção" pra
       // consumir insumo).
-      ingredientService.descontarPorVenda(productId, quantidade);
+      ingredientService.descontarPorVenda(productId, quantidade, saleId);
     }
 
     // Serviço com materiais cadastrados: gera as linhas de consumo
@@ -912,7 +912,7 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
       // Espelha o estorno de estoque do produto pros insumos da ficha
       // técnica (se tiver) — devolve exatamente o que foi descontado
       // no addItem original.
-      ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+      ingredientService.reverterPorVenda(item.product_id, item.quantidade, saleId);
     }
 
     // Devolve o estoque de cada insumo/produto usado como componente
@@ -937,9 +937,9 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
   });
   tx();
 
-  if (!ehServico) {
-    require('./stockSyncService').pushEstoqueProduto(item.product_id).catch(() => {});
-  }
+  // Venda ABERTA: o contador do grupo só é debitado na finalização, então
+  // cancelar item aqui não mexe nele (antes o servidor regravava o total
+  // local -- ver stockSyncService).
 
   return { ok: true, autorizadoPor: autorizadoPorNome ? { nome: autorizadoPorNome } : null, produto: product.nome, exigiuAutorizacao: exigeAutorizacao, novoTotal };
 }
@@ -1012,7 +1012,7 @@ function executarCancelamentoDaVenda({ saleId, locationId, currentOperatorId, au
            VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
         ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPorId || null, deviceId);
 
-        ingredientService.reverterPorVenda(item.product_id, item.quantidade);
+        ingredientService.reverterPorVenda(item.product_id, item.quantidade, saleId);
       }
 
       // Devolve o estoque de componentes deste item, se houver (item
@@ -1038,12 +1038,7 @@ function executarCancelamentoDaVenda({ saleId, locationId, currentOperatorId, au
   });
   tx();
 
-  const stockSyncService = require('./stockSyncService');
-  const produtosUnicos = [...new Set(items.map((item) => item.product_id))];
-  for (const productId of produtosUnicos) {
-    stockSyncService.pushEstoqueProduto(productId).catch(() => {});
-  }
-
+  // Venda aberta: nada a devolver ao contador do grupo (ver cancelSaleItem).
   return novoTotal;
 }
 
@@ -1159,9 +1154,23 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   }
 
   db.prepare(
-    `UPDATE sales SET pendente_estoque_grupo = 0, pendente_estoque_tentativas = 0, pendente_estoque_proxima_tentativa = NULL WHERE id = ?`
-  ).run(saleId);
-  return finalizeSale(saleId);
+    `UPDATE sales SET pendente_estoque_grupo = 0, pendente_estoque_tentativas = 0, pendente_estoque_proxima_tentativa = NULL,
+       estoque_grupo_debitado = ? WHERE id = ?`
+  ).run(checagem.debitado ? 1 : 0, saleId);
+  let resultado;
+  try {
+    resultado = finalizeSale(saleId);
+  } catch (err) {
+    resultado = { ok: false, error: err?.message || 'Falha ao finalizar.' };
+  }
+  if (!resultado?.ok && checagem.debitado) {
+    // O contador do grupo já foi debitado, mas a venda não fechou (ex.:
+    // pagamento faltando): devolve o débito, senão o grupo "perde"
+    // essas unidades pra sempre.
+    db.prepare('UPDATE sales SET estoque_grupo_debitado = 0 WHERE id = ?').run(saleId);
+    stockSyncService.estornarDebitoDaVenda(itens, 'finalização não concluída');
+  }
+  return resultado;
 }
 
 // 10s, 20s, 40s, 80s, depois sempre 2 min -- cresce rápido no começo (boa

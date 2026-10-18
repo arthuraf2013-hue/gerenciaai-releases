@@ -111,9 +111,9 @@ function listStaleProducts({ locationId, dias = 30 }) {
      WHERE p.ativo = 1
      GROUP BY p.id
      HAVING estoque_atual > 0
-       AND (ultima_venda_em IS NULL OR ultima_venda_em < datetime(NOW_SYNCED(), '-' || ? || ' days'))
+       AND (ultima_venda_em IS NULL OR ultima_venda_em < ?)
      ORDER BY ultima_venda_em ASC NULLS FIRST, p.nome`
-  ).all(locationId, dias);
+  ).all(locationId, timeService.utcSqlAtras({ dias: Number(dias) || 0 }));
 }
 
 /** Total vendido por operador num período — pra calcular comissão ou
@@ -231,4 +231,113 @@ function getResultadoSimples({ locationId, dataInicio, dataFim }) {
   };
 }
 
-module.exports = { getSummary, listStaleProducts, getSalesByOperator, getRelatorioProdutos, getResultadoSimples };
+// ------------------------------------------------------------------
+// "Por que o resultado mudou": período pedido x o período anterior de
+// mesmo tamanho. Decomposição EXATA (as parcelas somam a variação):
+//   faturado = bruto - descontos;  bruto = vendas x ticket bruto
+//   Δfaturado = (Δvendas x ticket bruto anterior)     -> movimento
+//             + (Δticket bruto x vendas atuais)       -> ticket
+//             - Δdescontos                            -> descontos
+// Sem IA: os números são calculados aqui; o texto só os descreve.
+// ------------------------------------------------------------------
+const FAIXAS = [
+  { id: 'madrugada', rotulo: 'de madrugada', de: 0, ate: 6 },
+  { id: 'manha', rotulo: 'de manhã', de: 6, ate: 12 },
+  { id: 'tarde', rotulo: 'à tarde', de: 12, ate: 18 },
+  { id: 'noite', rotulo: 'à noite', de: 18, ate: 24 },
+];
+
+function somarDias(iso, dias) {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+function numerosDoPeriodo(db, locationId, dataInicio, dataFim) {
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
+  const t = db.prepare(
+    `SELECT COUNT(*) AS vendas, COALESCE(SUM(total), 0) AS bruto, COALESCE(SUM(desconto + desconto_gerente), 0) AS descontos
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo);
+  const porFaixa = Object.fromEntries(FAIXAS.map((f) => [f.id, 0]));
+  for (const l of db.prepare(
+    `SELECT CAST(strftime('%H', finalizada_em, '-3 hours') AS INTEGER) AS hora, SUM(total - desconto - desconto_gerente) AS valor
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?
+     GROUP BY hora`
+  ).all(locationId, inicioUtc, fimUtcExclusivo)) {
+    const faixa = FAIXAS.find((f) => l.hora >= f.de && l.hora < f.ate);
+    if (faixa) porFaixa[faixa.id] += l.valor;
+  }
+  const produtos = new Map(db.prepare(
+    `SELECT si.product_id AS id, p.nome, SUM(si.quantidade * si.preco_unitario) AS valor
+     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN products p ON p.id = si.product_id
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0 AND s.finalizada_em >= ? AND s.finalizada_em < ?
+     GROUP BY si.product_id`
+  ).all(locationId, inicioUtc, fimUtcExclusivo).map((p) => [p.id, p]));
+  const canceladas = db.prepare(
+    `SELECT COUNT(*) AS c FROM sales WHERE location_id = ? AND status = 'cancelada' AND cancelada_em >= ? AND cancelada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).c;
+  const devolvido = db.prepare(
+    `SELECT COALESCE(SUM(valor_devolvido), 0) AS v FROM returns WHERE location_id = ? AND criado_em >= ? AND criado_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).v;
+  const faturado = t.bruto - t.descontos;
+  return { ...t, faturado, ticketBruto: t.vendas ? t.bruto / t.vendas : 0, porFaixa, produtos, canceladas, devolvido };
+}
+
+const brl = (v) => `R$ ${Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function explicarVariacao({ locationId, dataInicio, dataFim }) {
+  const db = getDb();
+  const dias = Math.round((new Date(`${dataFim}T12:00:00Z`) - new Date(`${dataInicio}T12:00:00Z`)) / 86400000) + 1;
+  const antInicio = somarDias(dataInicio, -dias);
+  const antFim = somarDias(dataInicio, -1);
+  const atual = numerosDoPeriodo(db, locationId, dataInicio, dataFim);
+  const ant = numerosDoPeriodo(db, locationId, antInicio, antFim);
+
+  const variacao = atual.faturado - ant.faturado;
+  const efeitos = {
+    movimento: (atual.vendas - ant.vendas) * ant.ticketBruto,
+    ticket: (atual.ticketBruto - ant.ticketBruto) * atual.vendas,
+    descontos: -(atual.descontos - ant.descontos),
+  };
+  const faixas = FAIXAS.map((f) => ({ id: f.id, rotulo: f.rotulo, variacao: atual.porFaixa[f.id] - ant.porFaixa[f.id] }))
+    .filter((f) => Math.abs(f.variacao) >= 0.01).sort((a, b) => a.variacao - b.variacao);
+  const ids = new Set([...atual.produtos.keys(), ...ant.produtos.keys()]);
+  const produtos = [...ids].map((id) => ({
+    id, nome: (atual.produtos.get(id) || ant.produtos.get(id)).nome,
+    variacao: (atual.produtos.get(id)?.valor || 0) - (ant.produtos.get(id)?.valor || 0),
+  })).filter((p) => Math.abs(p.variacao) >= 0.01).sort((a, b) => a.variacao - b.variacao);
+
+  const frases = [];
+  if (ant.vendas === 0 && atual.vendas === 0) {
+    frases.push('Sem vendas nos dois períodos.');
+  } else {
+    const pct = ant.faturado ? (variacao / ant.faturado) * 100 : null;
+    frases.push(`Faturamento ${variacao >= 0 ? 'subiu' : 'caiu'} ${brl(variacao)}${pct == null ? '' : ` (${pct >= 0 ? '+' : ''}${pct.toFixed(1).replace('.', ',')}%)`} em relação aos ${dias} dias anteriores.`);
+    const ordem = Object.entries(efeitos).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+    for (const [nome, v] of ordem) {
+      if (Math.abs(v) < 0.005 * Math.max(1, Math.abs(ant.faturado))) continue;
+      if (nome === 'movimento') frases.push(`${v >= 0 ? '+' : '−'}${brl(v)} por ${atual.vendas >= ant.vendas ? 'mais' : 'menos'} vendas (${ant.vendas} → ${atual.vendas}).`);
+      if (nome === 'ticket') frases.push(`${v >= 0 ? '+' : '−'}${brl(v)} pelo ticket médio ${atual.ticketBruto >= ant.ticketBruto ? 'maior' : 'menor'} (${brl(ant.ticketBruto)} → ${brl(atual.ticketBruto)}).`);
+      if (nome === 'descontos') frases.push(`${v >= 0 ? '+' : '−'}${brl(v)} por ${v >= 0 ? 'menos' : 'mais'} desconto dado (${brl(ant.descontos)} → ${brl(atual.descontos)}).`);
+    }
+    const piorFaixa = faixas[0];
+    if (variacao < 0 && piorFaixa && piorFaixa.variacao < 0) frases.push(`A maior queda foi ${piorFaixa.rotulo} (−${brl(piorFaixa.variacao)}).`);
+    const melhorFaixa = faixas[faixas.length - 1];
+    if (variacao > 0 && melhorFaixa && melhorFaixa.variacao > 0) frases.push(`O maior ganho foi ${melhorFaixa.rotulo} (+${brl(melhorFaixa.variacao)}).`);
+    const piores = produtos.filter((p) => p.variacao < 0).slice(0, 3);
+    if (piores.length) frases.push(`Venderam menos: ${piores.map((p) => `${p.nome} (−${brl(p.variacao)})`).join(', ')}.`);
+    if (atual.canceladas > ant.canceladas + 2) frases.push(`Vendas canceladas subiram de ${ant.canceladas} para ${atual.canceladas} — vale olhar a Auditoria.`);
+    if (atual.devolvido > ant.devolvido * 1.5 && atual.devolvido - ant.devolvido > 50) frases.push(`Devoluções subiram de ${brl(ant.devolvido)} para ${brl(atual.devolvido)}.`);
+  }
+
+  return {
+    periodo: { dataInicio, dataFim }, anterior: { dataInicio: antInicio, dataFim: antFim },
+    atual: { faturado: atual.faturado, vendas: atual.vendas, ticketBruto: atual.ticketBruto, descontos: atual.descontos, canceladas: atual.canceladas, devolvido: atual.devolvido },
+    anteriorNumeros: { faturado: ant.faturado, vendas: ant.vendas, ticketBruto: ant.ticketBruto, descontos: ant.descontos, canceladas: ant.canceladas, devolvido: ant.devolvido },
+    variacao, efeitos, faixas, produtosQueCairam: produtos.filter((p) => p.variacao < 0).slice(0, 5),
+    produtosQueSubiram: produtos.filter((p) => p.variacao > 0).reverse().slice(0, 5), frases,
+  };
+}
+
+module.exports = { getSummary, listStaleProducts, getSalesByOperator, getRelatorioProdutos, getResultadoSimples, explicarVariacao };

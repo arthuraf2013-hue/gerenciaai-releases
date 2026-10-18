@@ -580,6 +580,8 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_grupo', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_tentativas', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sales', 'pendente_estoque_proxima_tentativa', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sales', 'estoque_grupo_debitado', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'suppliers', 'prazo_entrega_dias', 'INTEGER');
   // O índice tem que ser criado AQUI (depois do ALTER acima), não só no
   // bloco solto de CREATE INDEX do schema.sql: `db.exec(schema)` roda
   // ANTES de migrateColumnsIfNeeded (ver getDb), então num banco já

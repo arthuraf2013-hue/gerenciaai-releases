@@ -4,7 +4,7 @@ import Icon from '../common/Icon';
 export function SupplierList() {
   const [suppliers, setSuppliers] = useState([]);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ nome: '', cnpjCpf: '', telefone: '', email: '' });
+  const [form, setForm] = useState({ nome: '', cnpjCpf: '', telefone: '', email: '', prazoEntregaDias: '' });
   const [sugestoes, setSugestoes] = useState([]);
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
   const [exportandoLista, setExportandoLista] = useState(false);
@@ -19,12 +19,12 @@ export function SupplierList() {
   useEffect(() => { reload(); }, []);
 
   function startNew() {
-    setForm({ nome: '', cnpjCpf: '', telefone: '', email: '' });
+    setForm({ nome: '', cnpjCpf: '', telefone: '', email: '', prazoEntregaDias: '' });
     setEditing('new');
   }
 
   function startEdit(s) {
-    setForm({ id: s.id, nome: s.nome, cnpjCpf: s.cnpj_cpf || '', telefone: s.telefone || '', email: s.email || '' });
+    setForm({ id: s.id, nome: s.nome, cnpjCpf: s.cnpj_cpf || '', telefone: s.telefone || '', email: s.email || '', prazoEntregaDias: s.prazo_entrega_dias ?? '' });
     setEditing(s.id);
   }
 
@@ -78,6 +78,7 @@ export function SupplierList() {
             <label>CNPJ/CPF<input value={form.cnpjCpf} onChange={(e) => setForm({ ...form, cnpjCpf: e.target.value })} /></label>
             <label>Telefone<input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} /></label>
             <label>E-mail<input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+            <label>Prazo de entrega (dias)<input type="number" min="0" max="120" value={form.prazoEntregaDias} placeholder="ex.: 3" onChange={(e) => setForm({ ...form, prazoEntregaDias: e.target.value })} /></label>
           </div>
           {saveError && <p className="modal-error">{saveError}</p>}
           <div style={{ display: 'flex', gap: 10 }}>
@@ -112,8 +113,9 @@ export function SupplierList() {
       <section className="settings-section" style={{ marginTop: 28 }}>
         <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="truck" size={18} /> Lista de compra sugerida</h2>
         <p className="screen-hint">
-          Baseada na velocidade de venda dos últimos 30 dias — sem IA, só estatística. Só considera
-          produtos no estoque mínimo ou abaixo. Agrupada por fornecedor, pronta pra levar ou mandar.
+          Baseada nas vendas das últimas 8 semanas, por dia da semana, sem contar os dias em que o produto
+          estava em falta — sem IA, só estatística. Entra quem já está no mínimo ou vai chegar nele antes da
+          mercadoria chegar (prazo de entrega do fornecedor). Agrupada por fornecedor, pronta pra levar ou mandar.
           Quando a mercadoria chegar, use o <strong>Abastecimento</strong> pra dar entrada no estoque.
         </p>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -136,13 +138,14 @@ export function SupplierList() {
           <div key={fornecedor} style={{ marginTop: 20 }}>
             <h3 style={{ marginBottom: 6 }}>{fornecedor}</h3>
             <table className="data-table">
-              <thead><tr><th>Produto</th><th>Estoque atual</th><th>Venda/dia</th><th>Sugerido</th></tr></thead>
+              <thead><tr><th>Produto</th><th>Estoque atual</th><th>Venda/dia</th><th>Dias em falta (8 sem.)</th><th>Sugerido</th></tr></thead>
               <tbody>
                 {itens.map((s) => (
                   <tr key={s.id}>
                     <td>{s.nome}</td>
                     <td>{s.estoque_atual}</td>
                     <td>{s.velocidadeDiaria}</td>
+                    <td>{s.diasZeradoNaJanela > 0 ? <span style={{ color: 'var(--color-danger)' }}>{s.diasZeradoNaJanela}</span> : '—'}</td>
                     <td><strong>{s.quantidadeSugerida}</strong></td>
                   </tr>
                 ))}

@@ -220,6 +220,9 @@ export class ServicoLicenca {
         motivoBloqueio: null, mensagemPersonalizada: null,
         backupFrequenciaHoras: BACKUP_FREQUENCIA_PADRAO_H, backupRetencaoDias: BACKUP_RETENCAO_PADRAO_DIAS,
         ativadoEmMs: servidorMs || agoraMs(),
+        // A regra do Firestore só aceita a instalação dizer de qual cliente
+        // é com o código que este aparelho resgatou (ver firestore.rules).
+        ativadoComCodigo: cod,
       });
       await gravarConfig(tx, 'relogio_max_ms', relogioMax());
       await tx.run(`DELETE FROM config WHERE chave = 'instalacao_pendente'`);
@@ -278,6 +281,7 @@ export class ServicoLicenca {
         motivoBloqueio: this.estado.motivoBloqueio || null, versaoApp: this.versaoApp, prefixoVenda: this.estado.prefixoVenda,
         backupFrequenciaHoras: this.estado.backupFrequenciaHoras, backupRetencaoDias: this.estado.backupRetencaoDias,
         recriadoPeloAparelho: true,
+        ...(this.estado.ativadoComCodigo ? { ativadoComCodigo: this.estado.ativadoComCodigo } : {}),
       });
     }
     const metricas = await this.#metricas();

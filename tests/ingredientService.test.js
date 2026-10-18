@@ -144,3 +144,29 @@ test('adjustStock recusa insumo inexistente', () => {
   const r = ingredientService.adjustStock({ ingredientId: 'nao-existe', quantidade: 5, tipo: 'entrada' });
   assert.equal(r.ok, false);
 });
+
+test('venda de prato grava o consumo teórico; cancelamento estorna; relatório compara com o inventário', () => {
+  const { db, locationId, operadorId, adminId } = require('./helpers/testDb').freshTestDb();
+  const ingredientService = require('../electron/services/ingredientService');
+  const saleService = require('../electron/services/saleService');
+  const { createProduct, addStock } = require('./helpers/testDb');
+  const farinha = ingredientService.upsert({ nome: 'Farinha', unidade: 'kg', custoUnitario: 5, estoqueAtual: 10 }).id;
+  const pizza = createProduct(db, { preco: 40 });
+  addStock(db, { productId: pizza, locationId, quantidade: 50, operadorId: adminId });
+  ingredientService.setRecipe(pizza, [{ ingredientId: farinha, quantidade: 0.3 }]);
+  const { id: saleId } = saleService.openSale({ locationId, operadorId });
+  saleService.addItem({ saleId, productId: pizza, locationId, quantidade: 2, operadorId, deviceId: 'd' });
+  const consumo = db.prepare('SELECT SUM(quantidade) AS q FROM ingredient_consumo WHERE sale_id = ?').get(saleId).q;
+  assert.ok(Math.abs(consumo - 0.6) < 1e-9);
+  // Inventário: contou 0.2 kg a menos do que o sistema esperava.
+  ingredientService.adjustStock({ ingredientId: farinha, quantidade: -0.2, tipo: 'ajuste', motivo: 'contagem', operadorId: adminId });
+  const hoje = require('../electron/services/timeService').hojeLocalISO();
+  const r = ingredientService.relatorioConsumoTeoricoVsReal({ dataInicio: hoje, dataFim: hoje });
+  const l = r.itens.find((x) => x.id === farinha);
+  assert.ok(Math.abs(l.consumoTeorico - 0.6) < 1e-9);
+  assert.ok(Math.abs(l.custoDesvio - (-1)) < 1e-9);
+  assert.ok(Math.abs(l.desvioPercentual - (0.2 / 0.6) * 100) < 1e-6);
+  const itemId = db.prepare('SELECT id FROM sale_items WHERE sale_id = ?').get(saleId).id;
+  saleService.cancelSaleItem({ saleId, saleItemId: itemId, locationId, currentOperatorId: operadorId, deviceId: 'd' });
+  assert.ok(Math.abs(db.prepare('SELECT SUM(quantidade) AS q FROM ingredient_consumo WHERE sale_id = ?').get(saleId).q) < 1e-9);
+});

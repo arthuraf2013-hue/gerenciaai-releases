@@ -245,7 +245,22 @@ function updateSecurityConfig(requestingUserId, { exigirAutorizacaoCancelamento,
   return { ok: true };
 }
 
+/**
+ * Registro genérico na Auditoria para mudança de configuração sensível
+ * (chave Pix, perfil de negócio, importação de produtos...). Nunca lança:
+ * falhar o registro não pode desfazer nem travar a ação já feita.
+ */
+function registrarEventoAuditoria({ tipoEvento, solicitanteId, motivo }) {
+  try {
+    getDb().prepare(
+      `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso) VALUES (?, ?, ?, ?, 1)`
+    ).run(randomUUID(), tipoEvento, solicitanteId || null, motivo ? String(motivo).slice(0, 500) : null);
+  } catch (err) {
+    console.error('[authService] não consegui registrar na auditoria:', tipoEvento, err.message);
+  }
+}
+
 module.exports = {
   login, listActiveUsers, authorizeManagerOverride, changeOwnPin, listAuditLog,
-  getSecurityConfig, updateSecurityConfig, requireRole,
+  getSecurityConfig, updateSecurityConfig, requireRole, registrarEventoAuditoria,
 };

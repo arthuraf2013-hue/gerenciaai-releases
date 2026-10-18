@@ -12,6 +12,9 @@ async function pushEstoqueInicial() {
 
     const { getDb } = require('../db/database');
     const db = getDb();
+    // Variações ainda na fila já estão dentro do total local -- depois do
+    // retrato absoluto elas não podem ser somadas de novo.
+    const filaAntes = db.prepare('SELECT id FROM estoque_grupo_pendente WHERE grupo_id = ?').all(grupoId).map((r) => r.id);
     const linhas = db.prepare(
       `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements GROUP BY product_id`
     ).all();
@@ -25,35 +28,124 @@ async function pushEstoqueInicial() {
       batch.set(ref, { quantidade: linha.total, atualizadoEm: serverTimestamp() });
     }
     if (linhas.length > 0) await batch.commit();
+    const apagar = db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?');
+    for (const id of filaAntes) apagar.run(id);
   } catch (err) {
     console.error('[stockSyncService] falha ao mandar o estoque inicial:', err.message);
   }
 }
 
-/** A servidor manda a contagem atualizada de UM produto — chamado
- * sempre que o estoque dela muda localmente (abastecimento, ajuste,
- * ou uma venda finalizada nela mesma). Só a servidor faz isso — as
- * outras máquinas não têm estoque físico "de verdade" pra reportar,
- * só consultam/debitam o contador dela. */
-async function pushEstoqueProduto(productId) {
-  try {
-    const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId || !syncStateService.ehServidorDoGrupo()) return;
+// ------------------------------------------------------------------
+// Variações do estoque compartilhado (fila persistente + idempotente)
+// ------------------------------------------------------------------
+// Antes existia pushEstoqueProduto(): o SERVIDOR gravava no contador do
+// grupo o total absoluto do estoque LOCAL dele (setDoc). Esse total não
+// inclui o que as outras máquinas venderam (o débito delas só existe no
+// contador), nem as vendas ainda abertas no próprio servidor (o estoque
+// local é debitado ao adicionar o item; o do grupo só ao finalizar). Cada
+// entrada, devolução ou cancelamento no servidor apagava esses débitos e
+// "ressuscitava" unidades -- venda acima do estoque sem ninguém perceber.
+// Agora só VARIAÇÕES vão pro contador, cada uma uma vez só.
 
-    const { getDb } = require('../db/database');
-    const db = getDb();
-    const linha = db.prepare(
-      `SELECT COALESCE(SUM(quantidade), 0) as total FROM stock_movements WHERE product_id = ?`
-    ).get(productId);
+const { randomUUID } = require('crypto');
 
+/** Backend remoto trocável nos testes (sem Firestore de verdade). */
+let backend = {
+  async aplicarMovimento({ grupoId, productId, movimentoId, delta, motivo }) {
     const licenseService = require('./licenseService');
     const firestore = licenseService.getLicenseFirestore();
-    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
-    const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', productId);
-    await setDoc(ref, { quantidade: linha.total, atualizadoEm: serverTimestamp() });
-  } catch (err) {
-    console.error('[stockSyncService] falha ao atualizar estoque de um produto:', err.message);
+    const { doc, runTransaction, serverTimestamp } = require('firebase/firestore');
+    const contadorRef = doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', productId);
+    const movRef = doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', productId, 'movimentos', movimentoId);
+    await runTransaction(firestore, async (tx) => {
+      const [mov, contador] = await Promise.all([tx.get(movRef), tx.get(contadorRef)]);
+      if (mov.exists()) return; // já aplicado numa tentativa anterior (resposta perdida)
+      const atual = contador.exists() ? (contador.data().quantidade || 0) : 0;
+      tx.set(movRef, { delta, motivo: motivo || null, criadoEm: serverTimestamp() });
+      tx.set(contadorRef, { quantidade: atual + delta, atualizadoEm: serverTimestamp() }, { merge: true });
+    });
+  },
+};
+function _definirBackendParaTeste(b) { backend = b; }
+
+function enfileirarVariacao(productId, delta, motivo) {
+  const grupoId = syncStateService.getGrupoSincronizacaoId();
+  const qtd = Number(delta);
+  if (!grupoId || !productId || !qtd) return null;
+  const { getDb } = require('../db/database');
+  const id = randomUUID();
+  getDb().prepare(
+    'INSERT INTO estoque_grupo_pendente (id, grupo_id, product_id, delta, motivo) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, grupoId, productId, qtd, motivo || null);
+  // Tenta mandar logo (fora da transação de quem chamou); se falhar, o
+  // ciclo de 10 s do main.js tenta de novo.
+  setImmediate(() => enviarVariacoesPendentes().catch(() => {}));
+  return id;
+}
+
+/**
+ * Movimento de estoque do SERVIDOR que não é venda: entrada/abastecimento,
+ * ajuste, perda, importação. Só o servidor -- o estoque físico do grupo é
+ * o dele; as outras máquinas só debitam o contador ao vender.
+ * Pode ser chamada de dentro da transação SQLite de quem chama (só grava
+ * na fila local).
+ */
+function registrarMovimentoDoServidor(productId, delta, motivo) {
+  if (!syncStateService.ehServidorDoGrupo()) return null;
+  return enfileirarVariacao(productId, delta, motivo || 'movimento no servidor');
+}
+
+/**
+ * Devolução de item de uma venda finalizada. Se a finalização debitou o
+ * contador do grupo (sales.estoque_grupo_debitado), devolve -- em
+ * qualquer máquina. Venda de antes do grupo: só o servidor devolve (era
+ * estoque dele).
+ */
+function registrarDevolucaoDeVenda(saleId, productId, quantidade) {
+  const { getDb } = require('../db/database');
+  const venda = getDb().prepare('SELECT estoque_grupo_debitado FROM sales WHERE id = ?').get(saleId);
+  if (venda?.estoque_grupo_debitado === 1 || syncStateService.ehServidorDoGrupo()) {
+    return enfileirarVariacao(productId, Math.abs(Number(quantidade)), 'devolução');
   }
+  return null;
+}
+
+/** Desfaz no contador o débito de uma finalização que não chegou a gravar. */
+function estornarDebitoDaVenda(itens, motivo) {
+  for (const item of itens) enfileirarVariacao(item.productId, Math.abs(Number(item.quantidade)), motivo || 'estorno de débito');
+}
+
+let enviando = null;
+/** Manda a fila local pro Firestore, em ordem. Nunca lança. */
+async function enviarVariacoesPendentes() {
+  if (enviando) return enviando;
+  enviando = (async () => {
+    const { getDb } = require('../db/database');
+    const db = getDb();
+    const pendentes = db.prepare('SELECT * FROM estoque_grupo_pendente ORDER BY criado_em, rowid LIMIT 200').all();
+    let enviados = 0;
+    for (const p of pendentes) {
+      try {
+        await backend.aplicarMovimento({ grupoId: p.grupo_id, productId: p.product_id, movimentoId: p.id, delta: p.delta, motivo: p.motivo });
+        db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?').run(p.id);
+        enviados += 1;
+      } catch (err) {
+        db.prepare('UPDATE estoque_grupo_pendente SET tentativas = tentativas + 1, ultimo_erro = ? WHERE id = ?')
+          .run(String(err?.message || err).slice(0, 300), p.id);
+        break; // sem rede: para e tenta tudo de novo no próximo ciclo, mantendo a ordem
+      }
+    }
+    return { enviados, restantes: pendentes.length - enviados };
+  })().catch((err) => {
+    console.error('[stockSyncService] falha ao enviar variações do estoque do grupo:', err.message);
+    return { enviados: 0, erro: err.message };
+  }).finally(() => { enviando = null; });
+  return enviando;
+}
+
+function contarVariacoesPendentes() {
+  const { getDb } = require('../db/database');
+  return getDb().prepare('SELECT COUNT(*) AS c FROM estoque_grupo_pendente').get().c;
 }
 
 /**
@@ -79,6 +171,7 @@ async function verificarEDebitarEstoqueRemoto(itens) {
     porProduto.set(item.productId, atual);
   }
   if (porProduto.size === 0) return { ok: true };
+  if (backend.verificarEDebitar) return backend.verificarEDebitar({ grupoId, porProduto });
 
   try {
     const licenseService = require('./licenseService');
@@ -123,7 +216,7 @@ async function verificarEDebitarEstoqueRemoto(itens) {
     // Conseguiu completar a transação -- o Firestore respondeu, então a
     // conexão está OK (mesmo quando a resposta é "sem estoque").
     require('./connectivityService').marcarOnline();
-    return { ok: true };
+    return { ok: true, debitado: true };
   } catch (err) {
     if (String(err.message || '').startsWith('ESTOQUE_INSUFICIENTE:')) {
       // Isso só acontece depois de ler o Firestore com sucesso -- não é
@@ -156,4 +249,8 @@ async function verificarEDebitarEstoqueRemoto(itens) {
   }
 }
 
-module.exports = { pushEstoqueInicial, pushEstoqueProduto, verificarEDebitarEstoqueRemoto };
+module.exports = {
+  pushEstoqueInicial, verificarEDebitarEstoqueRemoto,
+  registrarMovimentoDoServidor, registrarDevolucaoDeVenda, estornarDebitoDaVenda,
+  enviarVariacoesPendentes, contarVariacoesPendentes, _definirBackendParaTeste,
+};

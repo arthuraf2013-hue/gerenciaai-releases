@@ -11,7 +11,13 @@ export function SessionProvider({ children }) {
     return result;
   }, []);
 
-  const logout = useCallback(() => setCurrentUser(null), []);
+  // Encerra também a sessão do processo principal: sem isso, depois do
+  // "Sair"/bloqueio por inatividade a janela continuava autorizada como o
+  // usuário anterior até o próximo login.
+  const logout = useCallback(() => {
+    try { window.pdv.auth.logout().catch(() => {}); } catch { /* sem ponte (testes) */ }
+    setCurrentUser(null);
+  }, []);
 
   const clearPinTemporario = useCallback(() => {
     setCurrentUser((prev) => (prev ? { ...prev, pinTemporario: false } : prev));

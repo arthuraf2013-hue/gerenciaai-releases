@@ -22,10 +22,12 @@ rules_version = '2';
 //   `ehAdminAutenticado()` -- o login e-mail/senha do admin-panel já
 //   existia (ver LICENCIAMENTO.md Passo 3), mas até esta mudança ele
 //   não protegia dado nenhum de verdade. `installations/` e
-//   `grupos_sincronizacao/` continuam com leitura/escrita livre de
-//   propósito -- são escritos pelo DESKTOP sem nenhuma autenticação, e
-//   restringir isso exigiria dar ao desktop uma identidade autenticada
-//   própria, uma mudança bem maior, fora do escopo desta rodada.
+//   `grupos_sincronizacao/` são escritos pelo DESKTOP sem nenhuma
+//   autenticação. Desde a "fase A" (out/2026) a máquina não consegue mais
+//   mudar os campos de licença/controle do próprio documento nem apagá-lo,
+//   e a lista de grupos/cofre ficou só para a Central -- testado no
+//   emulador (tests/firestoreRules.test.js). Fechar a LEITURA exige dar
+//   ao desktop uma identidade autenticada própria (fase B).
 //
 //   PARTE 2 — regras de verdade pro que é novo (pareamento de celular,
 //   pedidos do garçom, status ao vivo), porque aqui quem escreve pode
@@ -79,8 +81,62 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password';
     }
 
+    // ---- Licença: campos que SÓ a Central muda ---------------------
+    // A máquina (desktop sem login, celular) continua lendo e gravando o
+    // próprio documento (ping, versão, métricas, status de atualização,
+    // backup), mas NÃO consegue mexer no que decide se ela funciona ou não:
+    // congelamento, bloqueio, vínculo com cliente (módulos pagos), grupo,
+    // modo terminal, override de versão, "segurar atualização", pedido de
+    // restauração. Antes, qualquer um com a config do Firebase (que vai
+    // dentro do instalador) podia gravar `ativo: true` na própria licença.
+    // `diff().affectedKeys()` só conta campo que MUDOU de valor -- reenviar
+    // o mesmo valor (o celular faz isso ao reativar) continua permitido.
+    function camposDeControle() {
+      return ['ativo', 'bloqueioImediato', 'motivoBloqueio', 'mensagemPersonalizada',
+        'clienteId', 'grupoSincronizacaoId', 'servidorDoGrupo',
+        'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalDesde', 'terminalAte',
+        'overrideAtivo', 'versaoMinimaOverride', 'excluidaEm', 'backupFrequenciaHoras',
+        'restaurarBackupSolicitado',
+        'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo',
+        'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm'];
+    }
+    // Celular (PDV mobile autônomo) ativado com código da Central: o código
+    // já foi resgatado POR ESTE aparelho (regra de ativacoes_mobile abaixo)
+    // e diz de qual cliente ele é -- só assim a máquina pode se dizer de um
+    // cliente (o que liga os módulos pagos daquele cliente nela).
+    function ativacaoConfirmaCliente(installId, d) {
+      return d.get('ativadoComCodigo', null) is string
+        && exists(/databases/$(database)/documents/ativacoes_mobile/$(d.ativadoComCodigo))
+        && get(/databases/$(database)/documents/ativacoes_mobile/$(d.ativadoComCodigo)).data.usadoPorInstallId == installId
+        && get(/databases/$(database)/documents/ativacoes_mobile/$(d.ativadoComCodigo)).data.get('clienteId', null) == d.clienteId;
+    }
+    function criacaoDeInstalacaoValida(installId) {
+      let d = request.resource.data;
+      return (d.get('clienteId', null) == null || ativacaoConfirmaCliente(installId, d))
+        && !d.keys().hasAny(['grupoSincronizacaoId', 'servidorDoGrupo', 'overrideAtivo', 'versaoMinimaOverride',
+          'excluidaEm', 'restaurarBackupSolicitado', 'atualizacaoSegurada', 'atualizacaoSeguradaVersao',
+          'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte']);
+    }
+    function atualizacaoDeInstalacaoValida(installId) {
+      let mudou = request.resource.data.diff(resource.data).affectedKeys();
+      return !mudou.hasAny(camposDeControle())
+        // Celular reativado com um código novo de outro cliente.
+        || (mudou.hasOnly(['clienteId', 'ativadoComCodigo', 'nomeNegocio', 'versaoApp', 'plataforma', 'prefixoVenda',
+              'backupRetencaoDias', 'tipo', 'criadoEm', 'ultimoContato', 'ultimoPing'])
+            && ativacaoConfirmaCliente(installId, request.resource.data));
+    }
+
     match /installations/{installId} {
-      allow read, write: if true;
+      // Leitura e listagem continuam abertas nesta fase: o desktop (sem
+      // login) e o celular consultam instalações por servidorInstallId,
+      // clienteId e grupoSincronizacaoId. Fechar isso exige identidade da
+      // máquina (fase B, ver docs).
+      allow read: if true;
+      allow create: if ehAdminAutenticado() || criacaoDeInstalacaoValida(installId);
+      allow update: if ehAdminAutenticado() || atualizacaoDeInstalacaoValida(installId);
+      // "Excluir" na Central nunca apaga (grava excluidaEm). Apagar abria
+      // um atalho: o desktop recria o documento ATIVO no próximo contato.
+      allow delete: if ehAdminAutenticado();
 
       match /backups/{arquivo} {
         allow read, write: if true;
@@ -188,14 +244,29 @@ service cloud.firestore {
     // Cofre de senhas — recurso CONGELADO/obsoleto (ver CLAUDE.md).
     // Regra aqui só preserva o comportamento de hoje; não desenvolver
     // nem mexer nisso além do necessário pra essa preservação.
-    match /cofre_acessos/{docId} { allow read, write: if true; }
-    match /cofre_config/{docId} { allow read, write: if true; }
+    // Só a Central (logada) usa: nada no desktop, no celular ou no PWA
+    // lê ou grava aqui. cofre_config guarda a chave privada (cifrada) das
+    // contas Google -- não tinha por que ficar aberto.
+    match /cofre_acessos/{docId} { allow read, write: if ehAdminAutenticado(); }
+    match /cofre_config/{docId} { allow read, write: if ehAdminAutenticado(); }
 
     match /grupos_sincronizacao/{grupoId} {
-      allow read, write: if true;
+      // O documento do grupo (nome) e a LISTA de grupos são coisa da
+      // Central. As máquinas só usam as subcoleções abaixo, sempre pelo id
+      // do grupo (aleatório, 20 caracteres) -- listar todos os grupos dava
+      // o caminho pras vendas de todos os clientes.
+      allow read, write: if ehAdminAutenticado();
       match /produtos/{produtoId} { allow read, write: if true; }
       match /vendas/{vendaId} { allow read, write: if true; }
-      match /estoque/{produtoId} { allow read, write: if true; }
+      match /estoque/{produtoId} {
+        allow read, write: if true;
+        // Livro das variações (stockSyncService): cada movimento é gravado
+        // uma vez e nunca mais muda -- é o que torna o reenvio idempotente.
+        match /movimentos/{movimentoId} {
+          allow read, create: if true;
+          allow update, delete: if ehAdminAutenticado();
+        }
+      }
     }
 
     // --------------------------------------------------------------

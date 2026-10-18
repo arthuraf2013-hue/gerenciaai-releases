@@ -337,7 +337,12 @@ app.whenReady().then(() => {
   // numa única consulta local antes de qualquer chamada de rede — rodar
   // a cada 10s não pesa nada nesse caso.
   setInterval(
-    () => executarSeNaoEstiverRodando('estoqueGrupoRetry', () => require('./services/saleService').tentarFinalizarVendasPendentesDeEstoque()),
+    () => executarSeNaoEstiverRodando('estoqueGrupoRetry', async () => {
+      // Primeiro as variações já registradas (devoluções, entradas no
+      // servidor), depois as vendas que esperam o estoque do grupo.
+      await require('./services/stockSyncService').enviarVariacoesPendentes();
+      return require('./services/saleService').tentarFinalizarVendasPendentesDeEstoque();
+    }),
     10 * 1000
   );
 

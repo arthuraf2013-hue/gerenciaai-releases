@@ -129,6 +129,7 @@ contextBridge.exposeInMainWorld('pdv', {
     computeDishCost: invoke('ingredient:computeDishCost'),
     preverPorcoesPossiveis: invoke('ingredient:preverPorcoesPossiveis'),
     preverPorcoesPossiveisTodos: invoke('ingredient:preverPorcoesPossiveisTodos'),
+    relatorioConsumo: invoke('ingredient:relatorioConsumo'),
   },
   customItem: {
     buscar: invoke('customItem:buscar'),
@@ -367,6 +368,7 @@ contextBridge.exposeInMainWorld('pdv', {
   whatsappAutomation: {
     getConfig: invoke('whatsappAutomation:getConfig'),
     updateConfig: invoke('whatsappAutomation:updateConfig'),
+    resultadoCampanhas: invoke('whatsappAutomation:resultadoCampanhas'),
   },
   kitchen: {
     listActiveItems: invoke('kitchen:listActiveItems'),
@@ -422,6 +424,7 @@ contextBridge.exposeInMainWorld('pdv', {
     getSalesByOperator: invoke('dashboard:getSalesByOperator'),
     getRelatorioProdutos: invoke('dashboard:getRelatorioProdutos'),
     getResultadoSimples: invoke('dashboard:getResultadoSimples'),
+    explicarVariacao: invoke('dashboard:explicarVariacao'),
   },
   backup: {
     getStatus: invoke('backup:getStatus'),
@@ -453,5 +456,9 @@ contextBridge.exposeInMainWorld('pdv', {
   },
   error: {
     report: invoke('error:report'),
+  },
+  saude: {
+    pendencias: invoke('saude:pendencias'),
+    implantacao: invoke('saude:implantacao'),
   },
 });

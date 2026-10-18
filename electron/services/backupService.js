@@ -4,6 +4,49 @@ const { getDb, getDbPath } = require('../db/database');
 
 const RETENCAO_DIAS = 30; // backups mais velhos que isso são apagados na rotação
 
+// Acima disso, a verificação automática de cada backup faz só a checagem
+// leve (cabeçalho, tamanho x páginas, tabelas e contagens) -- o
+// quick_check completo de um banco grande pode levar segundos e o
+// better-sqlite3 é síncrono (travaria a interface). Na restauração, que é
+// ação manual e já para o uso, a checagem é sempre a completa.
+const LIMITE_QUICK_CHECK_AUTOMATICO_BYTES = 64 * 1024 * 1024;
+const TABELAS_ESSENCIAIS = ['users', 'products', 'sales', 'sale_items', 'stock_movements'];
+
+/**
+ * Confere se um arquivo é um banco do GerenciaAI íntegro, sem alterar
+ * nada (abre só para leitura). Pega: arquivo truncado (disco cheio,
+ * cópia interrompida), arquivo que não é SQLite, banco de outro programa,
+ * páginas corrompidas (no modo completo).
+ * @returns {{ok: true, vendas: number, produtos: number, completo: boolean} | {ok: false, error: string}}
+ */
+function verificarArquivoDeBackup(caminho, { completo = false } = {}) {
+  let banco;
+  try {
+    const stat = fs.statSync(caminho);
+    if (stat.size < 512) return { ok: false, error: 'Arquivo vazio ou pequeno demais para ser um banco.' };
+    const Database = require('better-sqlite3');
+    banco = new Database(caminho, { readonly: true, fileMustExist: true });
+    const paginas = banco.pragma('page_count', { simple: true });
+    const tamPagina = banco.pragma('page_size', { simple: true });
+    if (paginas * tamPagina > stat.size) return { ok: false, error: 'Arquivo incompleto (cópia interrompida ou disco cheio).' };
+    const tabelas = new Set(banco.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all().map((t) => t.name));
+    const faltando = TABELAS_ESSENCIAIS.filter((t) => !tabelas.has(t));
+    if (faltando.length) return { ok: false, error: `Não é um backup do GerenciaAI (faltam: ${faltando.join(', ')}).` };
+    const fazerCompleto = completo || stat.size <= LIMITE_QUICK_CHECK_AUTOMATICO_BYTES;
+    if (fazerCompleto) {
+      const resultado = banco.pragma('quick_check', { simple: true });
+      if (resultado !== 'ok') return { ok: false, error: `Banco corrompido: ${String(resultado).slice(0, 200)}` };
+    }
+    const vendas = banco.prepare('SELECT COUNT(*) AS c FROM sales').get().c;
+    const produtos = banco.prepare('SELECT COUNT(*) AS c FROM products').get().c;
+    return { ok: true, vendas, produtos, completo: fazerCompleto };
+  } catch (err) {
+    return { ok: false, error: `Arquivo de backup ilegível: ${err.message}` };
+  } finally {
+    try { banco?.close(); } catch { /* já fechado */ }
+  }
+}
+
 function backupsDir() {
   // Carregado sob demanda -- ver comentário equivalente em attachmentService.js.
   const { app } = require('electron');
@@ -243,6 +286,17 @@ async function runBackup() {
     return { ok: false, error: `Falha ao fazer backup: ${err.message}` };
   }
 
+  // Um backup só conta como feito depois de conferido. Arquivo ruim é
+  // apagado (não pode aparecer como opção de restauração) e não sobe pra
+  // nuvem nem vai pra pasta secundária.
+  const verificacao = verificarArquivoDeBackup(destinoPrincipal);
+  if (!verificacao.ok) {
+    try { fs.unlinkSync(destinoPrincipal); } catch { /* já não existe */ }
+    marcarResultado(false);
+    console.error('[backupService] backup gerado não passou na verificação:', verificacao.error);
+    return { ok: false, error: `O backup foi gerado mas não passou na verificação: ${verificacao.error}` };
+  }
+
   rotacionarBackupsAntigos();
 
   const avisosArquivos = await espelharArquivosAdicionais(path.join(backupsDir(), 'arquivos'));
@@ -277,7 +331,7 @@ async function runBackup() {
     console.error('[backupService] falha ao subir backup pra nuvem', err);
   });
 
-  return { ok: true, arquivo: destinoPrincipal, avisoSecundaria };
+  return { ok: true, arquivo: destinoPrincipal, avisoSecundaria, verificado: verificacao };
 }
 
 /**
@@ -385,8 +439,14 @@ async function restaurarSolicitadoSeHouver(dadosInstalacao) {
     const firestore = getFirestore(licenseService.getLicenseApp());
 
     const bytes = await getBytes(ref(storage, pedido.caminhoStorage));
-    const destino = path.join(backupsDir(), `nuvem-${pedido.nomeArquivo}`);
+    const destino = path.join(backupsDir(), `nuvem-${path.basename(pedido.nomeArquivo)}`);
     fs.writeFileSync(destino, Buffer.from(bytes));
+
+    // Nunca troca o banco bom por um arquivo ruim: confere antes e guarda
+    // o estado atual pra poder voltar.
+    const verificacao = verificarArquivoDeBackup(destino, { completo: true });
+    if (!verificacao.ok) throw new Error(verificacao.error);
+    await guardarCopiaAntesDeRestaurar();
 
     aplicarArquivoDeBackup(destino);
 
@@ -505,6 +565,10 @@ async function restoreBackup(requestingUserId, nomeArquivo) {
   const guard = require('./authService').requireRole(requestingUserId, ['admin', 'suporte']);
   if (!guard.ok) return guard;
 
+  // Só nome de arquivo -- nunca um caminho ("../outro.sqlite3").
+  if (!nomeArquivo || path.basename(String(nomeArquivo)) !== String(nomeArquivo)) {
+    return { ok: false, error: 'Nome de arquivo de backup inválido.' };
+  }
   const backupPath = path.join(backupsDir(), nomeArquivo);
   if (!fs.existsSync(backupPath)) return { ok: false, error: 'Arquivo de backup não encontrado.' };
 
@@ -520,7 +584,31 @@ async function restoreBackup(requestingUserId, nomeArquivo) {
   }
 }
 
+/**
+ * Cópia do banco ATUAL antes de qualquer restauração -- aparece na lista
+ * de backups ("antes-da-restauracao-...") e permite desfazer. Usa o backup
+ * online do SQLite (consistente mesmo com o banco aberto). Se não
+ * conseguir copiar, a restauração não acontece.
+ */
+async function guardarCopiaAntesDeRestaurar() {
+  const carimbo = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const destino = path.join(backupsDir(), `antes-da-restauracao-${carimbo}.sqlite3`);
+  await getDb().backup(destino);
+  return destino;
+}
+
 async function restaurarBackupInterno(requestingUserId, backupPath, nomeArquivo) {
+  const verificacao = verificarArquivoDeBackup(backupPath, { completo: true });
+  if (!verificacao.ok) {
+    return { ok: false, error: `Este backup não pode ser restaurado: ${verificacao.error} Seus dados atuais não foram alterados.` };
+  }
+  let copiaAnterior;
+  try {
+    copiaAnterior = await guardarCopiaAntesDeRestaurar();
+  } catch (err) {
+    return { ok: false, error: `Não consegui guardar uma cópia dos dados atuais antes de restaurar (${err.message}). Nada foi alterado.` };
+  }
+
   // Precisa do nome de quem pediu ANTES de fechar a conexão atual --
   // depois da restauração o banco vira outro arquivo (o do backup), que
   // pode nem ter esse usuário (ex: admin criado depois da data do
@@ -590,9 +678,10 @@ async function restaurarBackupInterno(requestingUserId, backupPath, nomeArquivo)
   } catch (err) { /* auditoria não deve travar a restauração se falhar */ }
 
   const avisosArquivos = await restaurarArquivosAdicionaisSeHouver();
+  const copia = path.basename(copiaAnterior);
   return avisosArquivos.length > 0
-    ? { ok: true, avisoArquivos: `Banco restaurado, mas alguns arquivos não: ${avisosArquivos.join('; ')}` }
-    : { ok: true };
+    ? { ok: true, copiaAnterior: copia, avisoArquivos: `Banco restaurado, mas alguns arquivos não: ${avisosArquivos.join('; ')}` }
+    : { ok: true, copiaAnterior: copia };
 }
 
 /** Contraparte de espelharArquivosAdicionais -- devolve fotos/anexos/
@@ -622,6 +711,7 @@ async function restaurarArquivosAdicionaisSeHouver() {
 
 module.exports = {
   getStatus, updateConfig, runBackup, runBackupIfNeeded, listBackups, restoreBackup, backupsDir, getDbPath,
+  verificarArquivoDeBackup,
   restaurarSolicitadoSeHouver, executarBackupRemotoSeSolicitado, salvarContaGoogle,
   // Exportado só pra teste direto da criptografia (ver tests/backupService.test.js)
   // -- sem precisar de um projeto Firebase de verdade pra validar o

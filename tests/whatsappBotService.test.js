@@ -34,3 +34,19 @@ test('desconectar funciona pra suporte, igual admin/gerente (passa da checagem d
   const result = await whatsappBotService.desconectar(suporteId);
   assert.equal(result.ok, true);
 });
+
+test('resultadoCampanhas: conta quem voltou depois da mensagem e o quanto comprou, uma vez por cliente', () => {
+  const { randomUUID } = require('crypto');
+  const { db, locationId, operadorId } = require('./helpers/testDb').freshTestDb();
+  const w = require('../electron/services/whatsappAutomationService');
+  const cli1 = randomUUID(); const cli2 = randomUUID();
+  db.prepare(`INSERT INTO customers (id, nome) VALUES (?, 'Ana'), (?, 'Beto')`).run(cli1, cli2);
+  db.prepare(`INSERT INTO campanha_envios (id, customer_id, tipo, enviado_em) VALUES (?, ?, 'reconquista', datetime('now', '-10 days'))`).run(randomUUID(), cli1);
+  db.prepare(`INSERT INTO campanha_envios (id, customer_id, tipo, enviado_em) VALUES (?, ?, 'reconquista', datetime('now', '-9 days'))`).run(randomUUID(), cli1);
+  db.prepare(`INSERT INTO campanha_envios (id, customer_id, tipo, enviado_em) VALUES (?, ?, 'reconquista', datetime('now', '-10 days'))`).run(randomUUID(), cli2);
+  db.prepare(`INSERT INTO sales (id, location_id, operador_id, customer_id, status, total, finalizada_em) VALUES (?, ?, ?, ?, 'finalizada', 80, datetime('now', '-5 days'))`).run(randomUUID(), locationId, operadorId, cli1);
+  // compra ANTES da mensagem não conta
+  db.prepare(`INSERT INTO sales (id, location_id, operador_id, customer_id, status, total, finalizada_em) VALUES (?, ?, ?, ?, 'finalizada', 999, datetime('now', '-20 days'))`).run(randomUUID(), locationId, operadorId, cli2);
+  const r = w.resultadoCampanhas({ dias: 30, janelaDias: 15 });
+  assert.deepEqual(r.porTipo.reconquista, { enviados: 2, voltaram: 1, receita: 80 });
+});

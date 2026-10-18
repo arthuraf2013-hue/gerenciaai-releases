@@ -7,10 +7,13 @@ const timeService = require('./timeService');
 function findFinalizedSales({ locationId, query }) {
   const db = getDb();
   const base = `SELECT s.*, u.nome as operador_nome FROM sales s JOIN users u ON u.id = s.operador_id
-     WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= datetime(NOW_SYNCED(), '-60 days')`;
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= ?`;
+  // Limite calculado em JS (ver timeService.utcSqlAtras) -- função JS
+  // dentro do WHERE rodava a cada linha e não usava o índice.
+  const desde = require('./timeService').utcSqlAtras({ dias: 60 });
 
   if (!query) {
-    return db.prepare(`${base} ORDER BY s.finalizada_em DESC LIMIT 50`).all(locationId);
+    return db.prepare(`${base} ORDER BY s.finalizada_em DESC LIMIT 50`).all(locationId, desde);
   }
 
   // O filtro de busca precisa entrar ANTES do LIMIT 50, não depois --
@@ -23,7 +26,7 @@ function findFinalizedSales({ locationId, query }) {
   const termo = `%${query}%`;
   return db.prepare(
     `${base} AND (s.id LIKE ? OR u.nome LIKE ?) ORDER BY s.finalizada_em DESC LIMIT 50`
-  ).all(locationId, termo, termo);
+  ).all(locationId, desde, termo, termo);
 }
 
 function getSaleItemsForReturn(saleId) {
@@ -145,13 +148,15 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
   });
   tx();
 
+  // Devolve ao contador do grupo só a variação (ver stockSyncService) --
+  // nunca regrava o total.
   const stockSyncService = require('./stockSyncService');
-  const produtosDevolvidos = [...new Set(itens.map((item) => {
-    const saleItem = db.prepare('SELECT product_id FROM sale_items WHERE id = ?').get(item.saleItemId);
-    return saleItem?.product_id;
-  }).filter(Boolean))];
-  for (const productId of produtosDevolvidos) {
-    stockSyncService.pushEstoqueProduto(productId).catch(() => {});
+  for (const item of itens) {
+    const saleItem = db.prepare('SELECT product_id, eh_personalizado FROM sale_items WHERE id = ?').get(item.saleItemId);
+    if (!saleItem?.product_id || saleItem.eh_personalizado) continue;
+    const tipo = db.prepare('SELECT tipo FROM products WHERE id = ?').get(saleItem.product_id)?.tipo;
+    if (tipo === 'servico') continue;
+    stockSyncService.registrarDevolucaoDeVenda(saleId, saleItem.product_id, item.quantidade);
   }
 
   return { ok: true, returnId, valorDevolvido: valorTotal, autorizadoPor: auth.autorizadoPor };

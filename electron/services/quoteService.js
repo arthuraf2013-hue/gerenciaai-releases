@@ -149,7 +149,7 @@ function convertToSale({ quoteId, operadorId, deviceId }) {
       // "sem deixar rastro" que já valia pro estoque do produto em si.
       for (const jaAdicionado of itensAdicionados) {
         if (!jaAdicionado.ehServico) {
-          ingredientService.reverterPorVenda(jaAdicionado.productId, jaAdicionado.quantidade);
+          ingredientService.reverterPorVenda(jaAdicionado.productId, jaAdicionado.quantidade, saleId);
         }
         customItemService.reverterLinhasDoItem(jaAdicionado.saleItemId, {
           locationId: quote.location_id, saleId, saleItemId: jaAdicionado.saleItemId, operadorId, deviceId,

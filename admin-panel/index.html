@@ -788,6 +788,7 @@
     'grupoSincronizacaoId', 'servidorDoGrupo', 'conflitosCodigoBarrasPendentes', 'excluidaEm', 'migradoPara', 'migradoEm',
     'migradoParaNome', 'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalPendentes', 'terminalErros',
     'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo', 'atualizacaoRetida', 'atualizacaoRetencaoIgnorada', 'atualizacaoBaixadaEm',
+    'saude',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -1084,6 +1085,27 @@
     if (online) return 'agora';
     return formatarData(ultimoSinalTimestamp(inst));
   }
+  /**
+   * Pendências e primeiros passos que a própria máquina manda
+   * (electron/services/saudeService.js) -- o suporte vê o problema na
+   * linha, sem acessar o computador.
+   */
+  function renderSaude(inst) {
+    const s = inst.saude;
+    if (!s || typeof s !== 'object') return '';
+    const partes = [];
+    const pend = Array.isArray(s.pendencias) ? s.pendencias : [];
+    if (pend.length) {
+      const dica = pend.map((p) => `• ${p.titulo}${p.quantidade > 1 ? ` (${p.quantidade})` : ''}`).join('\n');
+      partes.push(`<span class="${s.pendenciasAltas ? 'badge-warning' : 'status-pill'}" title="${escapeHtml(dica)}">${icon('warning', 12)} ${pend.length} pendência${pend.length > 1 ? 's' : ''}</span>`);
+    }
+    if (s.implantacaoTotal && s.implantacaoFeitos < s.implantacaoTotal) {
+      const falta = Array.isArray(s.implantacaoFaltando) ? s.implantacaoFaltando.map((t) => `• ${t}`).join('\n') : '';
+      partes.push(`<span class="status-pill" title="Falta na implantação:\n${escapeHtml(falta)}">Implantação ${s.implantacaoFeitos}/${s.implantacaoTotal}</span>`);
+    }
+    return partes.join('');
+  }
+
   const DICA_ULTIMO_CONTATO = 'Última vez que a máquina respondeu à Central (quando está offline, é o momento em que ela parou de responder).';
 
   function formatarMoeda(v) {
@@ -3477,6 +3499,7 @@
         ${renderSeloMigracao(inst)}
         ${inst.conflitosCodigoBarrasPendentes > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${inst.conflitosCodigoBarrasPendentes} conflito(s)</span>` : ''}
         ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${inst.id}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
+        ${renderSaude(inst)}
         <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">v${inst.versaoApp || '—'} · último contato: <span data-ultimo-contato="${inst.id}">${textoUltimoContato(inst, online)}</span></span>
         <div class="maquina-acoes">
           ${renderBotaoModoMobile(inst)}

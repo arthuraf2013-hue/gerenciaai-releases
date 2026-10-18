@@ -172,6 +172,9 @@ async function checkLicense() {
         vendasUltimos30Dias: metricas.vendasUltimos30Dias,
         perfilAtivo: metricas.perfilAtivo,
         conflitosCodigoBarrasPendentes: metricas.conflitosCodigoBarrasPendentes,
+        // Pendências e primeiros passos (saudeService) -- a Central mostra
+        // na linha da máquina, sem precisar acessar o computador.
+        saude: (() => { try { return { ...require('./saudeService').resumoParaCentral(), atualizadoEm: serverTimestamp() }; } catch { return null; } })(),
       }, { merge: true });
       aplicarDadosDoServidor(snap.data());
     } else {
@@ -266,13 +269,24 @@ function iniciarEscutaTempoReal() {
  * (queda de luz, processo morto à força), o painel só vai mostrar
  * "offline" depois de alguns minutos sem ping novo — não instantâneo.
  */
+let ultimaSaudeEnviada = null;
 async function enviarPing() {
   try {
     const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
     const firestore = getLicenseFirestore();
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const ref = doc(firestore, 'installations', installId);
-    await setDoc(ref, { ultimoPing: serverTimestamp() }, { merge: true });
+    // Pendências (saudeService) vão junto só quando MUDAM -- a Central vê
+    // em até 2 min sem custar uma escrita maior a cada ping.
+    const extra = {};
+    let assinatura = null;
+    try {
+      const saude = require('./saudeService').resumoParaCentral();
+      assinatura = JSON.stringify(saude);
+      if (assinatura !== ultimaSaudeEnviada) extra.saude = { ...saude, atualizadoEm: serverTimestamp() };
+    } catch { /* banco ainda abrindo */ }
+    await setDoc(ref, { ultimoPing: serverTimestamp(), ...extra }, { merge: true });
+    if (extra.saude) ultimaSaudeEnviada = assinatura; // só depois de gravar de verdade
     // Esse ping já é a chamada de rede mais frequente e mais leve que a
     // instalação faz o tempo todo — aproveita pra alimentar o sinal
     // genérico de "estamos online?" usado pelo indicador do PDV (ver

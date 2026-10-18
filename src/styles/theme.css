@@ -836,3 +836,24 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   transition: none !important;
   scroll-behavior: auto !important;
 }
+
+/* Primeiros passos da implantação (Configurações) */
+.primeiros-passos-barra { height: 6px; border-radius: 3px; background: var(--color-border); margin: 10px 0 12px; overflow: hidden; }
+.primeiros-passos-barra span { display: block; height: 100%; background: var(--color-primary); }
+.primeiros-passos-lista { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
+.primeiros-passos-lista li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--color-text); }
+.primeiros-passos-lista li svg { margin-top: 2px; color: var(--color-warning-text); flex-shrink: 0; }
+.primeiros-passos-lista li.feito { color: var(--color-text-muted); }
+.primeiros-passos-lista li.feito svg { color: var(--color-primary); }
+.primeiros-passos-lista small { color: var(--color-text-muted); }
+
+/* Por que o resultado mudou (Painel) */
+.explicacao-manchete { font-size: 16px; font-weight: 600; margin: 4px 0 12px; color: var(--color-text); }
+.explicacao-efeitos { display: grid; gap: 8px; max-width: 640px; }
+.explicacao-efeito { display: grid; grid-template-columns: 170px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; }
+.explicacao-efeito strong { text-align: right; font-variant-numeric: tabular-nums; }
+.explicacao-trilho { height: 8px; background: var(--color-border); border-radius: 4px; overflow: hidden; }
+.explicacao-trilho span { display: block; height: 100%; border-radius: 4px; }
+.explicacao-trilho span.pos { background: var(--color-primary); }
+.explicacao-trilho span.neg { background: var(--color-danger); }
+.explicacao-frases { margin: 12px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--color-text); }

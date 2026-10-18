@@ -29,7 +29,7 @@ function createBatch({ productId, locationId, lote, validade, quantidade, fornec
   });
   tx();
 
-  require('./stockSyncService').pushEstoqueProduto(productId).catch(() => {});
+  require('./stockSyncService').registrarMovimentoDoServidor(productId, qtd, 'abastecimento');
 
   return { ok: true, batchId };
 }

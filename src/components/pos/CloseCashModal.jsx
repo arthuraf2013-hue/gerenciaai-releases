@@ -20,6 +20,7 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [pendencias, setPendencias] = useState([]);
 
   useEffect(() => {
     window.pdv.cash.getSummary({ sessionId }).then((result) => {
@@ -30,6 +31,9 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
       }
       setSummary(result);
     });
+    window.pdv.saude?.pendencias({ locationId: window.APP_LOCATION_ID })
+      .then((r) => setPendencias(Array.isArray(r) ? r.filter((p) => p.id !== 'caixa_aberto_antigo') : []))
+      .catch(() => {});
   }, [sessionId]);
 
   async function handleSubmit(e) {
@@ -85,6 +89,14 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
               <div><span>Devoluções (em dinheiro)</span><strong>- R$ {summary.totalDevolvidoEmDinheiro.toFixed(2)}</strong></div>
             )}
             <div className="cash-summary-total"><span>Esperado em dinheiro</span><strong>R$ {summary.valorEsperado.toFixed(2)}</strong></div>
+          </div>
+        )}
+        {pendencias.length > 0 && (
+          <div className="io-message-aviso" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4, margin: '0 0 12px' }}>
+            <strong style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={15} /> Antes de ir embora, {pendencias.length === 1 ? '1 coisa pede' : `${pendencias.length} coisas pedem`} atenção</strong>
+            {pendencias.map((p) => (
+              <span key={p.id} style={{ fontSize: 13 }}>• <strong>{p.titulo}</strong>{p.quantidade > 1 ? ` (${p.quantidade})` : ''} — {p.detalhe}</span>
+            ))}
           </div>
         )}
         <label>

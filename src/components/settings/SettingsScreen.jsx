@@ -8,6 +8,8 @@ import Icon from '../common/Icon';
 import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/modoLeve';
 import { MigracaoPdvMobile } from './MigracaoPdvMobile';
 import { TerminaisPdvMobile } from './TerminaisPdvMobile';
+import { PrimeirosPassos } from './PrimeirosPassos';
+import { ResultadoCampanhas } from './ResultadoCampanhas';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
@@ -738,6 +740,7 @@ export function SettingsScreen() {
     <div className="screen">
       <h1>Configurações</h1>
       {erroConfiguracoes && <p className="modal-error">{erroConfiguracoes}</p>}
+      <PrimeirosPassos />
 
       <div className="settings-tabs">
         <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}><Icon name="home" size={15} /> Geral</button>
@@ -1735,6 +1738,7 @@ export function SettingsScreen() {
           </button>
         </form>
         {whatsappAutomationSaved && <p className="io-message">Automações salvas.</p>}
+        <ResultadoCampanhas />
       </section>
       </>
       )}

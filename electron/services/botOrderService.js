@@ -182,7 +182,7 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
          VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
       ).run(randomUUID(), item.product_id, pedido.location_id, -Math.abs(item.quantidade), saleId, saleItemId, operadorVenda, 'bot_orders');
-      ingredientService.descontarPorVenda(item.product_id, item.quantidade);
+      ingredientService.descontarPorVenda(item.product_id, item.quantidade, saleId);
       total += preco * item.quantidade;
     }
     db.prepare('UPDATE sales SET total = ? WHERE id = ?').run(total, saleId);

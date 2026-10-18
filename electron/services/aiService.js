@@ -219,7 +219,7 @@ async function extractAttachment(attachmentId) {
  * Resumo de vendas em linguagem natural — reaproveita a mesma
  * configuração/chave da extração de anexos, só que sem imagem, texto puro.
  */
-async function summarizeSales({ sales, periodo }) {
+async function summarizeSales({ sales, periodo, explicacao }) {
   const settings = getAiSettings();
   if (!settings.ativado || !settings.api_key) {
     return { ok: false, error: 'IA não configurada. Ative e informe a chave da API Gemini em Configurações.' };
@@ -230,7 +230,8 @@ async function summarizeSales({ sales, periodo }) {
   }));
 
   const prompt = `Você é um assistente de um sistema de PDV de farmácia. Analise os dados de vendas do período "${periodo}" abaixo e escreva um resumo curto (3-5 frases), em português, em tom direto e útil para o dono do negócio — destaque padrões, não liste cada venda.
-Dados (JSON): ${JSON.stringify(resumoDados)}`;
+Dados (JSON): ${JSON.stringify(resumoDados)}${Array.isArray(explicacao) && explicacao.length ? `
+Comparação com o período anterior, JÁ CALCULADA pelo sistema (use estes números exatamente como estão, não recalcule nem invente outros): ${JSON.stringify(explicacao.slice(0, 10))}` : ''}`;
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.modelo}:generateContent?key=${settings.api_key}`;
   const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.3 } };

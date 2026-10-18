@@ -53,7 +53,7 @@ function adjustStock({ productId, locationId, quantidade, tipo, motivo, operador
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(id, productId, locationId, tipo, qtd, motivo || null, operadorId, deviceId);
 
-  require('./stockSyncService').pushEstoqueProduto(productId).catch(() => {});
+  require('./stockSyncService').registrarMovimentoDoServidor(productId, qtd, `${tipo}${motivo ? `: ${motivo}` : ''}`);
 
   return { ok: true, id, estoqueAtual: getCurrentStock(productId, locationId) };
 }
@@ -157,9 +157,9 @@ function previsaoDeRuptura(locationId, { diasLimiar = 7 } = {}) {
   const vendasPorProduto = new Map();
   for (const linha of db.prepare(
     `SELECT product_id, COALESCE(SUM(-quantidade), 0) as total FROM stock_movements
-     WHERE location_id = ? AND tipo = 'venda' AND criado_em >= datetime(NOW_SYNCED(), '-30 days')
+     WHERE location_id = ? AND tipo = 'venda' AND criado_em >= ?
      GROUP BY product_id`
-  ).all(locationId)) {
+  ).all(locationId, require('./timeService').utcSqlAtras({ dias: 30 }))) {
     vendasPorProduto.set(linha.product_id, linha.total);
   }
 

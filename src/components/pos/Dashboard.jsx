@@ -5,6 +5,7 @@ import { AuditLog } from '../users/AuditLog';
 import { ProductProfitReport } from './ProductProfitReport';
 import { ControlledDrugsReport } from './ControlledDrugsReport';
 import { toISODate } from '../../utils/date';
+import { ExplicacaoResultado } from './ExplicacaoResultado';
 import Icon from '../common/Icon';
 
 
@@ -53,6 +54,7 @@ export function Dashboard() {
   const [vendasPorOperador, setVendasPorOperador] = useState([]);
   const [erroCarregamento, setErroCarregamento] = useState('');
   const [resumoIA, setResumoIA] = useState(null);
+  const [explicacao, setExplicacao] = useState(null);
   const [gerandoResumo, setGerandoResumo] = useState(false);
   const [erroResumo, setErroResumo] = useState('');
 
@@ -117,7 +119,7 @@ export function Dashboard() {
     setGerandoResumo(true);
     setErroResumo('');
     const sales = await window.pdv.sale.listByRange({ locationId: window.APP_LOCATION_ID, dataInicio, dataFim });
-    const result = await window.pdv.ai.summarizeSales({ sales, periodo: `${dataInicio} a ${dataFim}` });
+    const result = await window.pdv.ai.summarizeSales({ sales, periodo: `${dataInicio} a ${dataFim}`, explicacao: explicacao?.frases || null });
     setGerandoResumo(false);
     if (!result.ok) return setErroResumo(result.error);
     setResumoIA(result.resumo);
@@ -197,6 +199,8 @@ export function Dashboard() {
               <strong>R$ {summary.lucroBrutoEstimado.toFixed(2)}</strong>
             </div>
           </div>
+
+          <ExplicacaoResultado dataInicio={dataInicio} dataFim={dataFim} onExplicacao={setExplicacao} />
 
           <section className="settings-section">
             <h2><Icon name="money" size={16} /> Margem por produto (estimada)</h2>

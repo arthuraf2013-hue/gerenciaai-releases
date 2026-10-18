@@ -22,6 +22,9 @@ const TIPO_EVENTO_LABEL = {
   pin_resetado: 'PIN redefinido',
   config_seguranca_alterada: 'Configuração de segurança alterada',
   backup_restaurado: 'Backup restaurado',
+  chave_pix_alterada: 'Chave Pix alterada',
+  perfil_alterado: 'Perfil de negócio alterado',
+  produtos_importados: 'Produtos importados de planilha',
 };
 
 async function exportSalesReport(filePath, { locationId, dataInicio, dataFim }) {

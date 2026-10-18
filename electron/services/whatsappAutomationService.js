@@ -69,6 +69,7 @@ async function executarCupomAniversario() {
     const resultado = await whatsappBotService.enviarMensagem({ telefone: cliente.telefone, texto });
     if (resultado.ok) {
       customerService.creditarCupomAniversario(cliente.id, loyaltyConfig.pontos_bonus_aniversario, anoAtual);
+      registrarEnvioDeCampanha(cliente.id, 'aniversario');
     } else {
       console.error('[whatsappAutomationService] falha ao mandar cupom de aniversário', cliente.id, resultado.error);
     }
@@ -104,6 +105,7 @@ async function executarReconquistaAutomatica() {
     const resultado = await whatsappBotService.enviarMensagem({ telefone: cliente.telefone, texto });
     if (resultado.ok) {
       customerService.marcarReconquistaAutomaticaEnviada(cliente.id);
+      registrarEnvioDeCampanha(cliente.id, 'reconquista');
     } else {
       console.error('[whatsappAutomationService] falha ao mandar reconquista automática', cliente.id, resultado.error);
     }
@@ -177,6 +179,13 @@ async function executarResumoDiario({ locationId }) {
     `Faturado: R$ ${Number(resumo.totais?.totalFaturado ?? 0).toFixed(2).replace('.', ',')}`,
     topLinhas.length ? `\nMais vendidos hoje:\n${topLinhas.join('\n')}` : null,
   ].filter(Boolean);
+  // Coisas que viram chamado de suporte se ninguém olhar (saudeService).
+  try {
+    const pendencias = require('./saudeService').listarPendencias({ locationId });
+    if (pendencias.length) {
+      partes.push(`\n⚠️ *Pede atenção:*\n${pendencias.slice(0, 6).map((p) => `• ${p.titulo}${p.quantidade > 1 ? ` (${p.quantidade})` : ''}`).join('\n')}`);
+    }
+  } catch (err) { console.error('[whatsappAutomationService] pendências fora do resumo:', err.message); }
 
   const resultado = await whatsappBotService.enviarMensagem({ telefone: config.telefone_dono, texto: partes.join('\n') });
   if (resultado.ok) {
@@ -184,6 +193,44 @@ async function executarResumoDiario({ locationId }) {
   } else {
     console.error('[whatsappAutomationService] falha ao mandar resumo diário', resultado.error);
   }
+}
+
+function registrarEnvioDeCampanha(customerId, tipo) {
+  try {
+    getDb().prepare('INSERT INTO campanha_envios (id, customer_id, tipo) VALUES (?, ?, ?)').run(require('crypto').randomUUID(), customerId, tipo);
+  } catch (err) { console.error('[whatsappAutomationService] não registrei o envio da campanha:', err.message); }
+}
+
+/**
+ * Quanto as mensagens automáticas trouxeram de volta: dos clientes que
+ * receberam (nos últimos `dias`), quantos compraram em até `janelaDias`
+ * depois e quanto gastaram nessas compras. É atribuição simples (sem
+ * grupo de comparação): mostra quem voltou depois da mensagem, não prova
+ * que voltou por causa dela.
+ */
+function resultadoCampanhas({ dias = 30, janelaDias = 15 } = {}) {
+  const db = getDb();
+  // Um cliente conta uma vez por tipo (o primeiro envio do período), pra
+  // duas mensagens não contarem a mesma compra duas vezes.
+  const linhas = db.prepare(
+    `WITH primeiro AS (
+       SELECT tipo, customer_id, MIN(enviado_em) AS enviado_em
+       FROM campanha_envios WHERE enviado_em >= ?
+       GROUP BY tipo, customer_id
+     ), retorno AS (
+       SELECT p.tipo, p.customer_id,
+         (SELECT COALESCE(SUM(s.total), 0) FROM sales s WHERE s.customer_id = p.customer_id AND s.status = 'finalizada'
+            AND s.finalizada_em > p.enviado_em AND s.finalizada_em <= datetime(p.enviado_em, ?)) AS receita,
+         (SELECT COUNT(*) FROM sales s WHERE s.customer_id = p.customer_id AND s.status = 'finalizada'
+            AND s.finalizada_em > p.enviado_em AND s.finalizada_em <= datetime(p.enviado_em, ?)) AS compras
+       FROM primeiro p
+     )
+     SELECT tipo, COUNT(*) AS enviados, SUM(CASE WHEN compras > 0 THEN 1 ELSE 0 END) AS voltaram, COALESCE(SUM(receita), 0) AS receita
+     FROM retorno GROUP BY tipo`
+  ).all(timeService.utcSqlAtras({ dias }), `+${janelaDias} days`, `+${janelaDias} days`);
+  const porTipo = { reconquista: { enviados: 0, voltaram: 0, receita: 0 }, aniversario: { enviados: 0, voltaram: 0, receita: 0 } };
+  for (const l of linhas) porTipo[l.tipo] = { enviados: l.enviados, voltaram: l.voltaram, receita: l.receita };
+  return { dias, janelaDias, porTipo };
 }
 
 function marcarEnvioHoje(coluna, hoje) {
@@ -194,4 +241,5 @@ function marcarEnvioHoje(coluna, hoje) {
 module.exports = {
   getConfig, updateConfig,
   executarCupomAniversario, executarReconquistaAutomatica, executarAlertaEstoqueBaixo, executarResumoDiario,
+  resultadoCampanhas,
 };

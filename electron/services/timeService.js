@@ -54,6 +54,18 @@ function nowSyncedUTCString() {
   return new Date(nowMs()).toISOString().slice(0, 19).replace('T', ' ');
 }
 
+/**
+ * "Agora menos X" no mesmo formato de NOW_SYNCED(), calculado UMA vez em
+ * JS pra passar como parâmetro. Em SQL, `datetime(NOW_SYNCED(), '-30 days')`
+ * chama a função JS a cada linha (função de usuário não é constante pro
+ * SQLite) e impede o uso do índice em criado_em -- custava segundos numa
+ * loja grande (bench/medir.js).
+ */
+function utcSqlAtras({ dias = 0, horas = 0, minutos = 0 } = {}) {
+  const ms = nowMs() - ((dias * 24 + horas) * 60 + minutos) * 60000;
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 /** Hora de Brasília formatada, para exibir no relógio da interface. */
 function getBrasiliaNowParts() {
   const now = new Date(nowMs());
@@ -159,6 +171,6 @@ function startAutoSync() {
 }
 
 module.exports = {
-  syncNow, nowMs, nowSyncedUTCString, getBrasiliaNowParts, hojeLocalISO, diasAPartirDeHojeLocalISO,
+  syncNow, nowMs, nowSyncedUTCString, utcSqlAtras, getBrasiliaNowParts, hojeLocalISO, diasAPartirDeHojeLocalISO,
   agoraLocalString, getStatus, startAutoSync, localDateRangeToUtcBounds, utcDateRangeToBounds,
 };

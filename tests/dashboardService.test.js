@@ -63,3 +63,26 @@ test('getResultadoSimples soma despesas só dentro do intervalo local pedido', (
   const resultado = dashboardService.getResultadoSimples({ locationId, dataInicio: '2026-08-01', dataFim: '2026-08-31' });
   assert.equal(resultado.despesas, 50);
 });
+
+test('explicarVariacao: as parcelas (movimento, ticket, descontos) somam exatamente a variação', () => {
+  const { randomUUID } = require('crypto');
+  const { db, locationId, operadorId } = require('./helpers/testDb').freshTestDb();
+  const dash = require('../electron/services/dashboardService');
+  const venda = (dia, total, desconto = 0) => db.prepare(
+    `INSERT INTO sales (id, location_id, operador_id, status, total, desconto, desconto_gerente, finalizada_em) VALUES (?, ?, ?, 'finalizada', ?, ?, 0, ?)`
+  ).run(randomUUID(), locationId, operadorId, total, desconto, `${dia} 15:00:00`);
+  // anterior (01–07/09): 10 vendas de 50 = 500, sem desconto
+  for (let i = 0; i < 10; i += 1) venda('2026-09-03', 50);
+  // atual (08–14/09): 8 vendas de 60 com 5 de desconto cada = 440
+  for (let i = 0; i < 8; i += 1) venda('2026-09-10', 60, 5);
+  const r = dash.explicarVariacao({ locationId, dataInicio: '2026-09-08', dataFim: '2026-09-14' });
+  assert.equal(r.anterior.dataInicio, '2026-09-01');
+  assert.equal(r.anterior.dataFim, '2026-09-07');
+  assert.equal(r.variacao, 440 - 500);
+  const soma = r.efeitos.movimento + r.efeitos.ticket + r.efeitos.descontos;
+  assert.ok(Math.abs(soma - r.variacao) < 1e-9);
+  assert.equal(r.efeitos.movimento, -100); // 2 vendas a menos x 50
+  assert.equal(r.efeitos.ticket, 80);      // +10 de ticket x 8 vendas
+  assert.equal(r.efeitos.descontos, -40);  // 40 de desconto a mais
+  assert.match(r.frases[0], /caiu R\$ 60,00/);
+});

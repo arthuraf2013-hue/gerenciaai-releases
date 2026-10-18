@@ -52,6 +52,7 @@ const batchService = require('../services/batchService');
 const reservationService = require('../services/reservationService');
 const whatsappAutomationService = require('../services/whatsappAutomationService');
 const kitchenService = require('../services/kitchenService');
+const saudeService = require('../services/saudeService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -63,7 +64,14 @@ const kitchenService = require('../services/kitchenService');
 function safeHandle(channel, fn) {
   ipcMain.handle(channel, async (event, payload) => {
     try {
-      return await fn(event, payload);
+      // Política central de acesso (ver CANAIS_PUBLICOS / PAPEL_POR_CANAL
+      // abaixo): todo canal exige uma sessão real nesta janela, exceto os
+      // poucos usados antes do login; os de gestão exigem o papel também.
+      // Fail-closed: canal novo sem entrada em nenhuma lista já nasce
+      // exigindo login.
+      const negado = politicaDeAcesso(channel, event);
+      if (negado) return negado;
+      return await fn(event, comOperadorDaSessao(event, payload));
     } catch (err) {
       console.error(`[ipc:${channel}]`, err);
       return { ok: false, error: err?.message || 'Erro inesperado no processo principal.' };
@@ -102,6 +110,74 @@ function guardRole(event, roles) {
 // que não devia ficar ao alcance de quem só bate venda no dia a dia.
 const PAPEIS_GESTAO = ['gerente', 'admin', 'suporte'];
 
+// Únicos canais que funcionam SEM ninguém logado nesta janela: tela de
+// login, telas de licença/bloqueio e de atualização obrigatória (que
+// aparecem antes do login -- ver App.jsx: UpdateGate/LicenseGate envolvem
+// o login) e o relatório de erro. Todo o resto exige sessão.
+const CANAIS_PUBLICOS = new Set([
+  'auth:login', 'auth:logout', 'auth:listActiveUsers',
+  'license:check', 'license:getStatus', 'message:getForDisplay', 'message:getMotivoBloqueio',
+  'profile:getActive', 'settings:get', 'system:getPerfilDesempenho', 'connectivity:getStatus',
+  'time:getStatus', 'time:getBrasiliaNow',
+  'update:getStatus', 'update:getForcedStatus', 'update:check', 'update:download', 'update:install',
+  'error:report',
+]);
+
+// Canais que, além de login, exigem papel de gestão. São exatamente os
+// usados por telas que o menu só mostra pra gerente/admin/suporte
+// (Configurações, Produtos, Abastecimento, Painel, Financeiro) -- antes a
+// trava existia só na tela; quem chamasse o canal direto passava.
+// Canais com guarda própria (guardRole/requireRole dentro do handler)
+// continuam com ela; isto é a camada de baixo, igual pra todos.
+const PAPEL_POR_CANAL = Object.fromEntries([
+  'product:merge', 'product:deactivate', 'product:removeFoto', 'product:setFoto', 'product:generateInternalBarcode',
+  'product:listPriceHistory', 'productSync:prepararRevinculacaoViaGrupo',
+  'io:exportProducts', 'io:importProducts', 'io:prepararRevinculacaoCodigosBarras', 'io:aplicarRevinculacaoCodigosBarras',
+  'ingredient:setRecipe', 'ingredient:relatorioConsumo', 'serviceMaterial:setMateriais', 'customItem:ajustar',
+  'category:aplicarSugestoes', 'category:sugerirComIA',
+  'profile:setActive', 'profile:create', 'profile:update', 'profile:duplicate', 'profile:delete',
+  'settings:updateLocationName', 'payment:updateConfig', 'loyalty:updateConfig', 'whatsappAutomation:updateConfig',
+  'weightBarcode:updateConfig', 'scaleHardware:updateConfig', 'print:updateReceiptConfig', 'posDisplay:updateConfig',
+  'fiscal:selectCertificado',
+  'supply:pickAndExtract', 'supply:confirmEntries', 'supply:saveDraft', 'supply:clearDraft',
+  'supplier:suggestPurchases', 'report:exportPurchaseSuggestions', 'report:exportWaste',
+  'dashboard:getSummary', 'dashboard:listStaleProducts', 'dashboard:getSalesByOperator',
+  'dashboard:getRelatorioProdutos', 'dashboard:getResultadoSimples', 'salesSync:getConsolidated', 'ai:summarizeSales',
+  'backup:runNow', 'backup:chooseSecondaryFolder', 'backup:salvarContaGoogle', 'backup:abrirCriacaoContaGoogle', 'backup:openFolder',
+  'pairing:gerarCodigo', 'pairing:revogarDispositivo', 'pairing:reativarDispositivo', 'pairing:excluirDispositivo',
+  'saude:implantacao', 'whatsappAutomation:resultadoCampanhas', 'dashboard:explicarVariacao',
+].map((canal) => [canal, PAPEIS_GESTAO]));
+
+const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
+
+function politicaDeAcesso(channel, event) {
+  if (CANAIS_PUBLICOS.has(channel)) return null;
+  const usuarioId = usuarioLogado(event);
+  if (!usuarioId) return { ok: false, error: MSG_SEM_SESSAO, semSessao: true };
+  const papeis = PAPEL_POR_CANAL[channel];
+  if (papeis) {
+    const guard = authService.requireRole(usuarioId, papeis);
+    if (!guard.ok) return guard;
+  }
+  return null;
+}
+
+// Quem está operando é SEMPRE quem está logado nesta janela: o renderer
+// manda `operadorId`/`currentOperatorId`/`requestingUserId` = usuário
+// atual (conferido em todo src/), mas era só uma alegação. Isso vale
+// também pra regra "o próprio operador não autoriza a si mesmo"
+// (authService.authorizeManagerOverride), que dependia desse campo.
+const CAMPOS_DE_OPERADOR = ['operadorId', 'currentOperatorId', 'requestingUserId'];
+function comOperadorDaSessao(event, payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  if (!CAMPOS_DE_OPERADOR.some((c) => Object.prototype.hasOwnProperty.call(payload, c))) return payload;
+  const usuarioId = usuarioLogado(event);
+  if (!usuarioId) return payload;
+  const novo = { ...payload };
+  for (const c of CAMPOS_DE_OPERADOR) if (Object.prototype.hasOwnProperty.call(novo, c)) novo[c] = usuarioId;
+  return novo;
+}
+
 /**
  * Pra canais operacionais do dia a dia (registrar quebra, mover uma
  * entrega, converter orçamento em venda...) que qualquer papel logado
@@ -124,6 +200,15 @@ function guardLoggedIn(event) {
 // pro cliente quando o pedido ficava "pronto" e uma mensagem de "saiu
 // pra entrega" cedo demais (no momento em que o pedido só virava
 // venda/entrega, antes do entregador de fato sair). Removida.)
+
+// Grava na Auditoria só quando a ação deu certo (resultado {ok:true} ou
+// sem campo ok) e devolve o resultado sem mexer nele.
+function auditarSeOk(event, resultado, tipoEvento, motivo) {
+  if (resultado && resultado.ok !== false && !resultado.canceled) {
+    authService.registrarEventoAuditoria({ tipoEvento, solicitanteId: usuarioLogado(event), motivo });
+  }
+  return resultado;
+}
 
 function registerIpcHandlers() {
   // --- Auth ---
@@ -285,6 +370,7 @@ function registerIpcHandlers() {
   safeHandle('ingredient:computeDishCost', (_e, { productId }) => ingredientService.computeDishCost(productId));
   safeHandle('ingredient:preverPorcoesPossiveis', (_e, { productId }) => ingredientService.preverPorcoesPossiveis(productId));
   safeHandle('ingredient:preverPorcoesPossiveisTodos', () => ingredientService.preverPorcoesPossiveisTodos());
+  safeHandle('ingredient:relatorioConsumo', (_e, payload) => ingredientService.relatorioConsumoTeoricoVsReal(payload || {}));
   safeHandle('customItem:buscar', (_e, opts) => customItemService.buscarInsumosEProdutos(opts));
   safeHandle('customItem:sugerirPreco', (_e, payload) => customItemService.sugerirPreco(payload));
   safeHandle('customItem:listarParaAjuste', (_e, opts) => customItemService.listItensParaAjuste(opts));
@@ -310,11 +396,11 @@ function registerIpcHandlers() {
   // --- Perfil de negócio / configurações ---
   safeHandle('profile:listAvailable', () => profileService.listAvailableProfiles());
   safeHandle('profile:getActive', () => profileService.getActiveProfile());
-  safeHandle('profile:setActive', (_e, { profileId }) => profileService.setActiveProfile(profileId));
+  safeHandle('profile:setActive', (event, { profileId }) => auditarSeOk(event, profileService.setActiveProfile(profileId), 'perfil_alterado', `Perfil ativo trocado para ${profileId}`));
   safeHandle('profile:create', (_e, payload) => profileService.createProfile(payload));
   safeHandle('profile:update', (_e, { id, ...payload }) => profileService.updateProfile(id, payload));
   safeHandle('profile:duplicate', (_e, { id, novoNome }) => profileService.duplicateProfile(id, novoNome));
-  safeHandle('profile:delete', (_e, { id }) => profileService.deleteProfile(id));
+  safeHandle('profile:delete', (event, { id }) => auditarSeOk(event, profileService.deleteProfile(id), 'perfil_alterado', `Perfil ${id} excluído`));
   safeHandle('settings:get', () => profileService.getSettings());
   safeHandle('settings:updateLocationName', (_e, { locationId, nome }) => profileService.updateLocationName(locationId, nome));
 
@@ -372,7 +458,8 @@ function registerIpcHandlers() {
       filters: [{ name: 'Planilha Excel', extensions: ['xlsx', 'xls', 'csv'] }],
     });
     if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
-    return importExportService.importFromFile(filePaths[0], { locationId, operadorId, deviceId });
+    const resultado = await importExportService.importFromFile(filePaths[0], { locationId, operadorId, deviceId });
+    return auditarSeOk(_e, resultado, 'produtos_importados', `Planilha ${require('path').basename(filePaths[0])}`);
   });
   safeHandle('io:prepararRevinculacaoCodigosBarras', async () => {
     const win = BrowserWindow.getFocusedWindow();
@@ -450,7 +537,20 @@ function registerIpcHandlers() {
 
   // --- Pagamento / Pix ---
   safeHandle('payment:getConfig', () => pixService.getPaymentConfig());
-  safeHandle('payment:updateConfig', (_e, payload) => pixService.updatePaymentConfig(payload));
+  // Trocar a chave Pix muda pra QUEM o dinheiro das vendas vai -- precisa
+  // ficar na Auditoria com o antes e o depois.
+  safeHandle('payment:updateConfig', (event, payload) => {
+    const antes = pixService.getPaymentConfig() || {};
+    const resultado = pixService.updatePaymentConfig(payload);
+    const depois = pixService.getPaymentConfig() || {};
+    if (resultado?.ok && (antes.pix_chave !== depois.pix_chave || antes.pix_nome_recebedor !== depois.pix_nome_recebedor)) {
+      authService.registrarEventoAuditoria({
+        tipoEvento: 'chave_pix_alterada', solicitanteId: usuarioLogado(event),
+        motivo: `Chave Pix: "${antes.pix_chave || '—'}" → "${depois.pix_chave || '—'}" · recebedor: "${antes.pix_nome_recebedor || '—'}" → "${depois.pix_nome_recebedor || '—'}"`,
+      });
+    }
+    return resultado;
+  });
   safeHandle('payment:buildPixPayload', (_e, payload) => pixService.buildPixPayload(payload));
 
   // --- Relógio sincronizado (Brasília) ---
@@ -845,6 +945,12 @@ function registerIpcHandlers() {
   safeHandle('update:check', () => updateService.checkForUpdates());
   safeHandle('update:download', () => updateService.downloadUpdate());
   safeHandle('update:install', () => updateService.quitAndInstall());
+
+  // --- Pendências e primeiros passos (saudeService: só leitura) ---
+  safeHandle('saude:pendencias', (_e, payload) => saudeService.listarPendencias(payload || {}));
+  safeHandle('saude:implantacao', () => saudeService.progressoImplantacao());
+  safeHandle('dashboard:explicarVariacao', (_e, payload) => dashboardService.explicarVariacao(payload));
+  safeHandle('whatsappAutomation:resultadoCampanhas', (_e, payload) => whatsappAutomationService.resultadoCampanhas(payload || {}));
 }
 
 module.exports = { registerIpcHandlers };

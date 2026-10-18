@@ -39,6 +39,10 @@ async function setupTestEnv() {
       rules: fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf-8'),
     },
   });
+  // Começa de um banco vazio: sem isso, rodar o arquivo duas vezes seguidas
+  // no mesmo emulador falhava (documentos da rodada anterior transformam
+  // `create` em `update`).
+  await testEnv.clearFirestore();
   return testEnv;
 }
 
@@ -765,4 +769,132 @@ test('historico_vendas: PDV móvel liberado mas com o módulo desligado ou desco
     await db.doc('installations/install-HP2/config_mobile/pdv').set({ metricasLiberadasPara: ['uid-pdv-x'] });
   });
   await assertFails(testEnv.authenticatedContext('uid-pdv-x').firestore().doc('installations/install-HP2/historico_vendas/atual').get());
+});
+
+// ---------------------------------------------------------------------
+// Fase A: licença e dados entre clientes. A máquina (sem login) continua
+// gravando o próprio documento (ping, versão, métricas, pedidos que ela
+// consome), mas não muda o que decide se ela funciona.
+// ---------------------------------------------------------------------
+const SK = { skip: !RODAR && SKIP_MSG };
+const adminCtx = () => testEnv.authenticatedContext('admin-1', { firebase: { sign_in_provider: 'password' } }).firestore();
+const semLogin = () => testEnv.unauthenticatedContext().firestore();
+
+async function semRegras(fn) {
+  await testEnv.withSecurityRulesDisabled(async (context) => fn(context.firestore()));
+}
+
+test('instalação: desktop cria o próprio documento como sempre fez (ativo, sem cliente)', SK, async () => {
+  await setupTestEnv();
+  await assertSucceeds(semLogin().doc('installations/novo-pc-1').set({
+    ativo: true, bloqueioImediato: false, clienteId: null, nomeNegocio: null,
+    totalVendasHistorico: 0, vendasUltimos30Dias: 0, perfilAtivo: null, versaoApp: '1.0.2',
+  }));
+});
+
+test('instalação: desktop atualiza ping, versão, métricas e status de atualização', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/pc-ok').set({ ativo: true, bloqueioImediato: false, clienteId: 'cli-1' }));
+  const db = semLogin();
+  await assertSucceeds(db.doc('installations/pc-ok').set({ ultimoPing: new Date(), versaoApp: '1.0.3', vendasUltimos30Dias: 9 }, { merge: true }));
+  await assertSucceeds(db.doc('installations/pc-ok').set({ atualizacaoBaixado: true, atualizacaoVersaoAlvo: '1.0.4', atualizacaoRetida: true }, { merge: true }));
+  // Reenviar o MESMO valor de um campo de controle não é mudança.
+  await assertSucceeds(db.doc('installations/pc-ok').set({ ativo: true, clienteId: 'cli-1' }, { merge: true }));
+});
+
+test('instalação: máquina congelada/bloqueada NÃO se reativa sozinha', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/pc-bloq').set({ ativo: false, bloqueioImediato: true, motivoBloqueio: 'mensalidade' }));
+  const db = semLogin();
+  await assertFails(db.doc('installations/pc-bloq').set({ ativo: true }, { merge: true }));
+  await assertFails(db.doc('installations/pc-bloq').set({ bloqueioImediato: false }, { merge: true }));
+  await assertFails(db.doc('installations/pc-bloq').update({ motivoBloqueio: null }));
+  // Nem apagando pra recriar ativo.
+  await assertFails(db.doc('installations/pc-bloq').delete());
+});
+
+test('instalação: máquina não se vincula a cliente, grupo, override nem libera a própria atualização', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/pc-x').set({ ativo: true, clienteId: null, atualizacaoSegurada: true, atualizacaoSeguradaVersao: '*' }));
+  const db = semLogin();
+  for (const campos of [
+    { clienteId: 'cliente-que-paga' },
+    { grupoSincronizacaoId: 'grupo-alheio' },
+    { servidorDoGrupo: true },
+    { overrideAtivo: true, versaoMinimaOverride: '0.0.1' },
+    { atualizacaoSegurada: false },
+    { excluidaEm: null },
+    { modoOperacao: 'terminal', servidorInstallId: 'pc-atacante' },
+    { restaurarBackupSolicitado: { nomeArquivo: 'velho.sqlite3' } },
+  ]) {
+    await assertFails(db.doc('installations/pc-x').set(campos, { merge: true }));
+  }
+});
+
+test('instalação: ninguém cria documento novo já dizendo ser de um cliente (sem código de ativação)', SK, async () => {
+  await setupTestEnv();
+  await assertFails(semLogin().doc('installations/pc-falso').set({ ativo: true, clienteId: 'cliente-que-paga' }));
+  await assertFails(semLogin().doc('installations/pc-falso2').set({ ativo: true, grupoSincronizacaoId: 'g1' }));
+});
+
+test('instalação: celular ativado com código resgatado por ELE cria o documento com o cliente do código', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('ativacoes_mobile/ABCD2345').set({ clienteId: 'cli-cel', usado: true, usadoPorInstallId: 'cel-0000000000000001' }));
+  const db = semLogin();
+  await assertSucceeds(db.doc('installations/cel-0000000000000001').set({
+    tipo: 'pdv_mobile_autonomo', modoOperacao: 'autonomo', clienteId: 'cli-cel', nomeNegocio: 'Loja', ativo: true,
+    bloqueioImediato: false, backupFrequenciaHoras: 1, backupRetencaoDias: 30, ativadoComCodigo: 'ABCD2345',
+  }, { merge: true }));
+  // Código de OUTRO aparelho não serve.
+  await assertFails(db.doc('installations/cel-0000000000000002').set({ clienteId: 'cli-cel', ativadoComCodigo: 'ABCD2345', ativo: true }));
+  // Código certo, cliente diferente do código: não.
+  await assertFails(db.doc('installations/cel-0000000000000001').set({ clienteId: 'outro-cli', ativadoComCodigo: 'ABCD2345' }, { merge: true }));
+});
+
+test('instalação: computador registra a migração e pede backup no documento do celular', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/cel-mig').set({ ativo: true, clienteId: 'cli-1', modoOperacao: 'autonomo' }));
+  const db = semLogin();
+  await assertSucceeds(db.doc('installations/cel-mig').set({ backupSolicitadoEm: Date.now() }, { merge: true }));
+  await assertSucceeds(db.doc('installations/cel-mig').set({
+    migradoPara: 'pc-1', migradoParaNome: 'Caixa', migradoEm: new Date(), migradoBackupArquivo: 'b.json.gz', migradoCorteMs: 1, backupRetencaoDias: 30,
+  }, { merge: true }));
+});
+
+test('instalação: a Central (login com senha) continua mudando tudo', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/pc-c').set({ ativo: true }));
+  const db = adminCtx();
+  await assertSucceeds(db.doc('installations/pc-c').update({ ativo: false, bloqueioImediato: true, motivoBloqueio: 'x', clienteId: 'c', grupoSincronizacaoId: 'g' }));
+  await assertSucceeds(db.doc('installations/pc-c').update({ modoOperacao: 'terminal', servidorInstallId: 'pc-1', atualizacaoSegurada: true, excluidaEm: new Date() }));
+  // Login anônimo (celular pareado) não é a Central.
+  await assertFails(testEnv.authenticatedContext('anon-1').firestore().doc('installations/pc-c').update({ ativo: true }));
+});
+
+test('grupos: só a Central lista grupos; máquina usa vendas/produtos/estoque pelo id', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('grupos_sincronizacao/g-123').set({ nome: 'Rede X' }));
+  await assertFails(semLogin().collection('grupos_sincronizacao').get());
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-123').get());
+  await assertSucceeds(adminCtx().collection('grupos_sincronizacao').get());
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-123/vendas/v1').set({ total: 10 }));
+  await assertSucceeds(semLogin().collection('grupos_sincronizacao/g-123/vendas').get());
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-123/estoque/p1').set({ quantidade: 5 }));
+});
+
+test('cofre: fechado para quem não é a Central', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('cofre_config/chave_contas_google').set({ chavePrivadaEnc: 'x' }));
+  await assertFails(semLogin().doc('cofre_config/chave_contas_google').get());
+  await assertFails(semLogin().collection('cofre_acessos').get());
+  await assertFails(testEnv.authenticatedContext('anon').firestore().doc('cofre_config/verificacao').set({ salt: 'x' }));
+  await assertSucceeds(adminCtx().doc('cofre_config/chave_contas_google').get());
+});
+
+test('estoque do grupo: movimento do livro é gravado uma vez e não muda depois', SK, async () => {
+  await setupTestEnv();
+  const db = semLogin();
+  await assertSucceeds(db.doc('grupos_sincronizacao/g-9/estoque/p1/movimentos/m1').set({ delta: 3 }));
+  await assertFails(db.doc('grupos_sincronizacao/g-9/estoque/p1/movimentos/m1').set({ delta: 300 }));
+  await assertFails(db.doc('grupos_sincronizacao/g-9/estoque/p1/movimentos/m1').delete());
 });

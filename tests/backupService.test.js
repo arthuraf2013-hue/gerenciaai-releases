@@ -230,3 +230,65 @@ test('salvarContaGoogle falha com erro claro quando a chave pública ainda não 
   // lugar nenhum seguro.
   assert.equal(backupService.getStatus().contaGoogleEmail, '');
 });
+
+// ---------------------------------------------------------------------
+// Backup verificado e restauração segura
+// ---------------------------------------------------------------------
+
+test('runBackup confere o arquivo gerado e devolve o resultado da verificação', async () => {
+  freshTestDb();
+  const r = await backupService.runBackup();
+  assert.equal(r.ok, true);
+  assert.equal(r.verificado.ok, true);
+  assert.equal(typeof r.verificado.vendas, 'number');
+});
+
+test('verificarArquivoDeBackup recusa arquivo truncado, que não é SQLite ou de outro programa', async () => {
+  freshTestDb();
+  const r = await backupService.runBackup();
+  const dir = backupService.backupsDir();
+  const truncado = path.join(dir, 'teste-truncado.sqlite3');
+  const bytes = fs.readFileSync(r.arquivo);
+  fs.writeFileSync(truncado, bytes.subarray(0, Math.floor(bytes.length / 2)));
+  assert.equal(backupService.verificarArquivoDeBackup(truncado).ok, false);
+
+  const lixo = path.join(dir, 'teste-lixo.sqlite3');
+  fs.writeFileSync(lixo, Buffer.alloc(4096, 7));
+  assert.equal(backupService.verificarArquivoDeBackup(lixo).ok, false);
+
+  const outro = path.join(dir, 'teste-outro.sqlite3');
+  const Database = require('better-sqlite3');
+  const o = new Database(outro); o.exec('CREATE TABLE x (a)'); o.close();
+  assert.match(backupService.verificarArquivoDeBackup(outro).error, /Não é um backup do GerenciaAI/);
+  for (const f of [truncado, lixo, outro]) fs.unlinkSync(f);
+});
+
+test('restaurar um backup corrompido é recusado e os dados atuais ficam intactos', async () => {
+  const { db, adminId } = freshTestDb();
+  db.prepare(`INSERT INTO categories (id, nome) VALUES ('cat-intacta', 'Intacta')`).run();
+  const corrompido = path.join(backupService.backupsDir(), 'teste-corrompido.sqlite3');
+  fs.writeFileSync(corrompido, Buffer.alloc(8192, 1));
+  const r = await backupService.restoreBackup(adminId, 'teste-corrompido.sqlite3');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /não foram alterados/);
+  assert.ok(db.prepare(`SELECT id FROM categories WHERE id = 'cat-intacta'`).get(), 'o banco atual não pode ter sido tocado');
+  fs.unlinkSync(corrompido);
+});
+
+test('restaurar guarda antes uma cópia do banco atual, que aparece na lista de backups', async () => {
+  freshTestDb();
+  const backup = await backupService.runBackup();
+  const { adminId } = freshTestDb();
+  const r = await backupService.restoreBackup(adminId, path.basename(backup.arquivo));
+  assert.equal(r.ok, true);
+  assert.match(r.copiaAnterior, /^antes-da-restauracao-/);
+  assert.ok(backupService.listBackups().some((b) => b.nome === r.copiaAnterior));
+  assert.equal(backupService.verificarArquivoDeBackup(path.join(backupService.backupsDir(), r.copiaAnterior)).ok, true);
+});
+
+test('restoreBackup não aceita caminho no lugar de nome de arquivo', async () => {
+  const { adminId } = freshTestDb();
+  const r = await backupService.restoreBackup(adminId, '../gerenciaai.sqlite3');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /inválido/);
+});

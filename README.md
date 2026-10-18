@@ -5743,3 +5743,40 @@ republicar o `pwa-mobile/` (cache do service worker foi para `v3`).
 Testes: `tests/historySyncService.test.js` (formas de pagamento e hora
 local) e `tests/pdvMobileSyncService.test.js` (quem é liberado em cada
 opção); regras em `tests/firestoreRules.test.js` (rodam com o emulador).
+
+---
+
+## Segurança, integridade e gestão (out/2026)
+
+Rodada guiada pela análise "GerenciaAI — Análise de aperfeiçoamento e plano".
+
+**Correções**
+- **Firestore (fase A):** a máquina não muda mais os campos de licença/controle
+  do próprio documento (`ativo`, bloqueio, cliente, grupo, modo terminal,
+  override, segurar atualização, pedido de restauração), não apaga o documento
+  e só se diz de um cliente com código de ativação resgatado por ela. Lista de
+  grupos e cofre só para a Central. Testado no emulador (69 testes de regra).
+  Ler continua aberto: fechar exige identidade da máquina (fase B, pendente).
+- **IPC:** todo canal exige login (exceto login/licença/atualização), canais de
+  gestão exigem gerente/admin/suporte, operador sempre da sessão; troca de chave
+  Pix, perfil e importação vão para a Auditoria; "Sair" encerra também a sessão
+  do processo principal.
+- **Estoque do grupo:** só variações, fila persistente e idempotente; débito de
+  finalização que não fechou é estornado; devolução volta ao contador.
+- **Backup:** cada backup é conferido (tamanho x páginas, tabelas, `quick_check`
+  até 64 MB) antes de contar como feito; restaurar valida o arquivo (completo) e
+  guarda antes `antes-da-restauracao-*.sqlite3`; nome de arquivo com caminho é
+  recusado; restauração remota também valida.
+- **Desempenho:** limites de data calculados em JS (`timeService.utcSqlAtras`)
+  em vez de `datetime(NOW_SYNCED(), ...)` no WHERE; `bench/medir.js` recriado.
+
+**Novidades**
+- Sugestão de compra por dia da semana, sem contar dias em falta, com prazo de
+  entrega do fornecedor (campo novo).
+- Consumo de insumo pela ficha técnica gravado por venda (`ingredient_consumo`)
+  e relatório "Consumo pela ficha × inventário" na tela Insumos.
+- "Por que o resultado mudou" no Painel (decomposição exata, sem IA; o resumo por
+  IA passa a receber esses números).
+- Pendências (`saudeService`) no fechamento de caixa, no resumo diário do
+  WhatsApp e na Central; "Primeiros passos" em Configurações e na Central.
+- Resultado das campanhas automáticas (quem voltou e quanto comprou).

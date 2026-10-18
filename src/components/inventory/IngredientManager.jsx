@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { IngredientStockAdjustModal } from './IngredientStockAdjustModal';
+import { ConsumoTeoricoVsReal } from './ConsumoTeoricoVsReal';
 import Icon from '../common/Icon';
 
 const UNIDADES = ['kg', 'g', 'l', 'ml', 'un'];
@@ -110,6 +111,8 @@ export function IngredientManager() {
         </tbody>
       </table>
       )}
+
+      {ingredients.length > 0 && <ConsumoTeoricoVsReal />}
 
       {editing && (
         <div className="modal-overlay">
