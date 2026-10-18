@@ -335,6 +335,23 @@ function registerIpcHandlers() {
   safeHandle('pdvMobile:saveConfig', (event, payload) => guardRole(event, PAPEIS_GESTAO) || require('../services/pdvMobileConfigService').saveConfig(payload));
   safeHandle('pdvMobile:listarVendasRecentes', (_e, payload) => require('../services/pdvMobileSyncService').listarVendasRecentes(payload || {}));
 
+  // Migração de um PDV mobile AUTÔNOMO (celular que vendia sem computador)
+  // pra este computador -- só admin/suporte: grava produto, estoque, fiado
+  // e venda em lote. O operador registrado é sempre o da sessão real.
+  safeHandle('pdvMobileMigracao:listar', (event) => guardRole(event, ['admin', 'suporte']) || require('../services/pdvMobileMigracaoService').listarCelularesDoCliente());
+  safeHandle('pdvMobileMigracao:previsualizar', (event, payload) => guardRole(event, ['admin', 'suporte'])
+    || require('../services/pdvMobileMigracaoService').previsualizar(String(payload?.installId || ''), { operadorId: usuarioLogado(event) }));
+  safeHandle('pdvMobileMigracao:importar', (event, payload) => guardRole(event, ['admin', 'suporte'])
+    || require('../services/pdvMobileMigracaoService').importar(String(payload?.installId || ''), { operadorId: usuarioLogado(event) }));
+  safeHandle('pdvMobileMigracao:historico', (event) => guardRole(event, ['admin', 'suporte']) || require('../services/pdvMobileMigracaoService').historico());
+  // Celular migrado que virou TERMINAL deste computador -- ver pdvMobileTerminalService.js.
+  safeHandle('pdvTerminal:listar', (event) => guardRole(event, PAPEIS_GESTAO) || ({ ok: true, terminais: require('../services/pdvMobileTerminalService').listarTerminais() }));
+  safeHandle('pdvTerminal:eventos', (event, payload) => guardRole(event, PAPEIS_GESTAO)
+    || ({ ok: true, eventos: require('../services/pdvMobileTerminalService').listarEventos({ installId: payload?.installId || null, soProblemas: !!payload?.soProblemas, limit: payload?.limit }) }));
+  safeHandle('pdvTerminal:reprocessar', (event, payload) => guardRole(event, PAPEIS_GESTAO) || require('../services/pdvMobileTerminalService').reprocessar(String(payload?.eventoId || '')));
+  safeHandle('pdvTerminal:getConfig', (event) => guardRole(event, PAPEIS_GESTAO) || ({ ok: true, config: require('../services/pdvMobileTerminalService').getConfig() }));
+  safeHandle('pdvTerminal:salvarConfig', (event, payload) => guardRole(event, ['admin', 'suporte']) || require('../services/pdvMobileTerminalService').salvarConfig(payload || {}));
+
   // --- Importação/exportação de planilhas de estoque ---
   safeHandle('io:exportProducts', async (_e, { locationId }) => {
     const win = BrowserWindow.getFocusedWindow();

@@ -171,6 +171,19 @@ rodar `npm version patch` na mão:
    rollback ainda instala ela no próximo fechamento — rodar o
    rollback rápido é o que faz a proteção valer.
 
+**Segurar/liberar instalação pela Central** (por máquina ou por versão
+inteira, tela Atualização → "Baixadas, esperando instalar"): a máquina
+continua baixando, mas `updateService.reavaliarRetencao()` desliga o
+`autoInstallOnAppQuit` enquanto a versão baixada estiver coberta pelo
+pedido (`atualizacaoSegurada` + `atualizacaoSeguradaVersao` = versão ou
+`'*'`) e o "Instalar agora" recusa. O pedido fica no SQLite
+(`atualizacao_controle`) pra valer offline; a máquina confirma com
+`atualizacaoRetida`/`atualizacaoRetidaVersao`. Atualização obrigatória
+vence o pedido (senão a máquina travaria na tela de atualização) e a
+máquina avisa (`atualizacaoRetencaoIgnorada: 'obrigatoria'`). Enquanto
+segurada, o marcador de atualização pendente é apagado — senão a próxima
+abertura (na versão antiga, de propósito) viraria "atualização que falhou".
+
 **Atenção a um ponto não totalmente confirmado**: o `release.yml`
 publica num repositório DIFERENTE (`gerenciaai-releases`) do
 repositório onde o código/os workflows ficam, usando só
@@ -287,7 +300,32 @@ revalida e cria via `saleService` (mesmos caminhos do balcão), com
 `mobile_sales` garantindo idempotência; consultas sob demanda (produto,
 código, cliente, Pix) em `pdvMobileConsultaService.js`; config em
 `pdv_mobile_config` publicada em `config_mobile/pdv`. Módulo pago
-`pdvMobile`. Ver a entrada "PDV móvel" no README.
+`pdvMobile`. Ver a entrada "PDV móvel" no README. A aba **Painel** do PDV
+móvel e a Consulta remota usam o mesmo componente (`pwa-mobile/painel-loja.js`);
+quem vê no PDV é decidido aqui (`pdv_mobile_config.metricas_loja` →
+`config_mobile/pdv.metricasLiberadasPara`, que a regra de `historico_vendas`
+confere).
+
+**PDV mobile autônomo** (`mobile/`, app Android com Capacitor + SQLite
+nativo, `tipo = 'pdv_mobile_autonomo'`): vende sozinho, sem computador,
+online e offline; licença/bloqueios/3 dias offline e backup na nuvem
+controlados pela Central. Tem testes e README próprios (`mobile/README.md`,
+`cd mobile && npm test`). Do lado do desktop:
+- `pdvMobileMigracaoService.js` — importa o backup do celular (idempotente
+  pelos IDs do celular, conferência transacional). Grava `migradoCorteMs`
+  na Central e ligações produto/cliente em `pdv_terminal_mapa`.
+- `pdvMobileTerminalService.js` — celular migrado que virou TERMINAL
+  (`modoOperacao: 'terminal'`, `servidorInstallId` = este computador):
+  aplica `terminal_eventos` (uma vez cada, `pdv_terminal_eventos`), devolve
+  `terminal_acks`, publica `terminal_catalogo`. Só confia em celular que
+  está em `pdv_mobile_migracoes` daqui. Mesmos IDs da migração nos dois
+  caminhos — **mudou o formato do evento ou do backup? Rode
+  `mobile/scripts/gerarFixtureMigracao.mjs` de novo** (gera
+  `tests/fixtures/`) e os testes do desktop.
+- Pagamento com `detalhes.origem` `'pdv_mobile'` (importado) ou
+  `'pdv_mobile_terminal'` não entra no fechamento de caixa daqui
+  (`cashService.getSessionSummary`) — o dinheiro está no caixa do celular.
+  Qualquer soma nova de "dinheiro na gaveta" precisa do mesmo filtro.
 
 Ver a entrada "App do garçom + consulta remota pelo celular" no
 README.md pro raciocínio completo, e `tests/firestoreRules.test.js`

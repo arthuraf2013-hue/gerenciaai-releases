@@ -25,6 +25,7 @@ const ICON_SVGS = {
   pix: '<path d="M12 2.8l3.2 3.2-3.2 3.2L8.8 6zM12 14.8l3.2 3.2-3.2 3.2-3.2-3.2zM2.8 12L6 8.8 9.2 12 6 15.2zM14.8 12L18 8.8l3.2 3.2-3.2 3.2z" fill="currentColor" opacity="0.85"/>',
   dinheiro: `<rect x="2.5" y="6" width="19" height="12" rx="2" fill="currentColor" opacity="0.12"/><rect x="2.5" y="6" width="19" height="12" rx="2" ${T}/><circle cx="12" cy="12" r="2.6" ${T}/>`,
   cartao: `<rect x="2.5" y="5" width="19" height="14" rx="2.5" fill="currentColor" opacity="0.12"/><rect x="2.5" y="5" width="19" height="14" rx="2.5" ${T}/><path d="M2.5 9.5h19M6.5 15h4" ${T}/>`,
+  grafico: `<rect x="3.5" y="3.5" width="17" height="17" rx="3" fill="currentColor" opacity="0.12"/><path d="M8 16.5v-4M12 16.5V8M16 16.5v-6" ${T} stroke-width="2.3"/>`,
   caderno: `<rect x="5" y="3.5" width="14" height="17" rx="2" fill="currentColor" opacity="0.12"/><rect x="5" y="3.5" width="14" height="17" rx="2" ${T}/><path d="M9 8h6M9 12h6M9 16h3" ${T}/>`,
 };
 

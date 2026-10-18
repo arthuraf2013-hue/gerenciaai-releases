@@ -23,7 +23,14 @@ let status = {
   baixado: false,
   erro: null,
   versaoAtual: null,
+  // Instalação segurada pela Central (ver "Segurar/liberar instalação"
+  // mais abaixo): baixa normalmente, mas não instala.
+  retida: false,
+  retencaoIgnoradaPorObrigatoria: false,
+  retencaoVersao: null,
+  retencaoMotivo: null,
 };
+let autoUpdaterPronto = false;
 
 function setupAutoUpdater() {
   // Baixa sozinho assim que acha uma versão nova (checkForUpdates já
@@ -46,6 +53,7 @@ function setupAutoUpdater() {
   });
   autoUpdater.on('update-available', (info) => {
     status = { ...status, checking: false, disponivel: true, versaoDisponivel: info.version };
+    reavaliarRetencao();
   });
   autoUpdater.on('update-not-available', () => {
     status = { ...status, checking: false, disponivel: false };
@@ -54,14 +62,16 @@ function setupAutoUpdater() {
     status = { ...status, baixando: true, progresso: Math.round(p.percent) };
     reportarProgressoNoFirestore().catch(() => {}); // best-effort, nunca trava o download por causa disso
   });
-  autoUpdater.on('update-downloaded', () => {
-    status = { ...status, baixando: false, baixado: true, progresso: 100 };
-    reportarProgressoNoFirestore().catch(() => {});
-    // Grava o marcador AQUI (não só no clique de "instalar agora") porque
-    // é o ponto que cobre os dois jeitos da atualização ser aplicada: o
-    // clique manual e o automático via autoInstallOnAppQuit (que roda
-    // sozinho quando o app fecha, sem passar por quitAndInstall() daqui).
-    marcarAtualizacaoPendente(status.versaoDisponivel);
+  autoUpdater.on('update-downloaded', (info) => {
+    status = { ...status, baixando: false, baixado: true, progresso: 100, versaoDisponivel: info?.version || status.versaoDisponivel };
+    // O marcador de "atualização pendente" (ver verificarAtualizacaoFoiAplicada)
+    // é gravado/apagado em reavaliarRetencao: ele cobre os dois jeitos da
+    // atualização ser aplicada (clique manual e autoInstallOnAppQuit), mas
+    // NÃO pode existir enquanto a Central segura a instalação -- senão a
+    // próxima abertura, ainda na versão antiga de propósito, seria
+    // reportada como "atualização que falhou".
+    reavaliarRetencao({ semRelato: true }); // o relato vai logo abaixo, já com a data do download
+    reportarProgressoNoFirestore({ baixadaAgora: true }).catch(() => {});
   });
   autoUpdater.on('error', (err) => {
     // Erro mais comum aqui: o publish do package.json ainda não foi
@@ -70,6 +80,8 @@ function setupAutoUpdater() {
     // mostra isso como "verifique a configuração de publicação".
     status = { ...status, checking: false, baixando: false, erro: err.message };
   });
+  autoUpdaterPronto = true;
+  reavaliarRetencao();
 }
 
 function checkForUpdates() {
@@ -90,6 +102,12 @@ function downloadUpdate() {
 
 function quitAndInstall() {
   if (!status.baixado) return { ok: false, error: 'A atualização ainda não terminou de baixar.' };
+  if (status.retida) {
+    return {
+      ok: false,
+      error: `A instalação da versão ${status.versaoDisponivel} foi segurada pela Central${status.retencaoMotivo ? ` (${status.retencaoMotivo})` : ''}. Ela fica baixada e instala sozinha quando o suporte liberar.`,
+    };
+  }
   obterAutoUpdater().quitAndInstall();
   return { ok: true };
 }
@@ -125,7 +143,9 @@ function caminhoMarcadorAtualizacao() {
   // devolve só o caminho do binário (uma string) -- desestruturar
   // `app` dela dá `undefined` sem lançar erro, então cai no fallback.
   const { app } = require('electron');
-  const base = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+  // GERENCIAAI_MARCADOR_DIR só existe pros testes: isola o marcador numa pasta
+  // temporária (sem depender de poder apagar arquivo dentro do repositório).
+  const base = app ? app.getPath('userData') : (process.env.GERENCIAAI_MARCADOR_DIR || path.join(__dirname, '../../.data'));
   return path.join(base, 'atualizacao-pendente.json');
 }
 
@@ -229,6 +249,7 @@ function saveLocalForcedUpdateState({ versaoMinimaExigida, obrigatoria }) {
   const db = getDb();
   db.prepare('UPDATE forced_update_state SET versao_minima_exigida = ?, obrigatoria = ? WHERE id = ?')
     .run(versaoMinimaExigida || null, obrigatoria ? 1 : 0, 'default');
+  reavaliarRetencao();
 }
 
 /** Override POR INSTALAÇÃO (vem junto no documento da própria
@@ -246,6 +267,7 @@ function aplicarOverrideDaInstalacao(dadosInstalacao) {
       dadosInstalacao.overrideAtivo === true ? 1 : 0,
       'default'
     );
+  reavaliarRetencao();
 }
 
 /** Decide, só com dado local (sem rede), se a atualização obrigatória
@@ -305,24 +327,116 @@ function iniciarEscutaAtualizacaoObrigatoria() {
  * no Firestore (mesma coleção `installations` do licenciamento) — é
  * assim que o painel consegue mostrar a barra de progresso de cada
  * cliente. Melhor esforço só — nunca trava o download por causa disso. */
-async function reportarProgressoNoFirestore() {
+async function reportarProgressoNoFirestore({ baixadaAgora = false } = {}) {
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
-  const { doc, setDoc } = require('firebase/firestore');
+  const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
   const firestore = licenseService.getLicenseFirestore();
   const installId = pdvRegistryService.getOrCreateDeviceUid();
   const ref = doc(firestore, 'installations', installId);
-  await setDoc(ref, {
+  const campos = {
     atualizacaoBaixando: status.baixando,
     atualizacaoProgresso: status.progresso,
     atualizacaoBaixado: status.baixado,
     atualizacaoVersaoAlvo: status.versaoDisponivel || null,
-  }, { merge: true });
+    // Confirmação de que o pedido da Central está valendo NESTA máquina
+    // (a Central mostra "segurada" só depois disso -- antes é "pedido
+    // enviado, esperando a máquina").
+    atualizacaoRetida: status.retida,
+    atualizacaoRetidaVersao: status.retida ? (status.retencaoVersao || null) : null,
+    atualizacaoRetencaoIgnorada: status.retencaoIgnoradaPorObrigatoria ? 'obrigatoria' : null,
+  };
+  if (baixadaAgora) campos.atualizacaoBaixadaEm = serverTimestamp();
+  await setDoc(ref, campos, { merge: true });
+}
+
+// ============================================================
+// Segurar/liberar instalação pela Central. A Central grava no
+// documento da instalação:
+//   atualizacaoSegurada: true|false
+//   atualizacaoSeguradaVersao: '1.0.3' (só essa) | '*' (todas até liberar)
+//   atualizacaoSeguradaMotivo: texto opcional
+// e esta máquina:
+//   - continua BAIXANDO a versão nova (pra Central ver qual está
+//     esperando e pra instalar na hora quando liberar);
+//   - desliga o autoInstallOnAppQuit enquanto a versão baixada estiver
+//     coberta pelo pedido (o electron-updater lê essa flag na hora de
+//     fechar, então mudar a qualquer momento vale);
+//   - recusa o "Instalar agora" de Configurações.
+// O pedido fica gravado no SQLite (atualizacao_controle): vale mesmo se
+// o app fechar sem internet. Atualização OBRIGATÓRIA vence o pedido --
+// senão a máquina ficaria presa na tela de atualização sem poder
+// instalar; nesse caso a máquina avisa a Central ('obrigatoria').
+// ============================================================
+
+const TODAS_AS_VERSOES = '*';
+
+function lerControleAtualizacao() {
+  const db = getDb();
+  const r = db.prepare(`SELECT segurada, versao, motivo FROM atualizacao_controle WHERE id = 'default'`).get();
+  return r ? { segurada: r.segurada === 1, versao: r.versao || null, motivo: r.motivo || null } : { segurada: false, versao: null, motivo: null };
+}
+
+/** Chamada pela escuta em tempo real do documento da instalação (licenseService). */
+function aplicarControleDaInstalacao(dadosInstalacao) {
+  const versao = typeof dadosInstalacao.atualizacaoSeguradaVersao === 'string' ? dadosInstalacao.atualizacaoSeguradaVersao.trim() : '';
+  const segurada = dadosInstalacao.atualizacaoSegurada === true && (versao === TODAS_AS_VERSOES || /^\d+\.\d+\.\d+/.test(versao));
+  const motivo = segurada && dadosInstalacao.atualizacaoSeguradaMotivo ? String(dadosInstalacao.atualizacaoSeguradaMotivo).slice(0, 200) : null;
+  const atual = lerControleAtualizacao();
+  if (atual.segurada === segurada && (atual.versao || null) === (segurada ? versao : null) && atual.motivo === motivo) return;
+  getDb().prepare(
+    `INSERT INTO atualizacao_controle (id, segurada, versao, motivo, atualizado_em) VALUES ('default', ?, ?, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET segurada = excluded.segurada, versao = excluded.versao, motivo = excluded.motivo, atualizado_em = excluded.atualizado_em`,
+  ).run(segurada ? 1 : 0, segurada ? versao : null, motivo);
+  reavaliarRetencao({ forcarRelato: true });
+}
+
+/**
+ * Decisão pura (testável): a versão `alvo` (a disponível/baixada) está
+ * segurada? `obrigatoriaBloqueando` = a tela de atualização obrigatória
+ * está travando o uso agora (aí o pedido é ignorado).
+ */
+function decidirRetencao({ alvo, controle, obrigatoriaBloqueando }) {
+  const cobre = !!(controle?.segurada && controle.versao
+    && (controle.versao === TODAS_AS_VERSOES || (alvo && controle.versao === alvo)));
+  if (!cobre) return { retida: false, ignoradaPorObrigatoria: false };
+  if (obrigatoriaBloqueando) return { retida: false, ignoradaPorObrigatoria: true };
+  return { retida: true, ignoradaPorObrigatoria: false };
+}
+
+function reavaliarRetencao({ forcarRelato = false, semRelato = false } = {}) {
+  let controle;
+  try { controle = lerControleAtualizacao(); } catch { return; } // banco ainda não aberto
+  let obrigatoriaBloqueando = false;
+  try { obrigatoriaBloqueando = !!verificarAtualizacaoObrigatoria().bloqueado; } catch { /* fora do Electron (testes) */ }
+  const r = decidirRetencao({ alvo: status.versaoDisponivel, controle, obrigatoriaBloqueando });
+  if (autoUpdaterPronto) {
+    try { obterAutoUpdater().autoInstallOnAppQuit = !r.retida; } catch (err) { console.error('[updateService] não consegui ajustar a instalação automática:', err.message); }
+  }
+  const mudou = r.retida !== status.retida || r.ignoradaPorObrigatoria !== status.retencaoIgnoradaPorObrigatoria;
+  status = {
+    ...status,
+    retida: r.retida,
+    retencaoIgnoradaPorObrigatoria: r.ignoradaPorObrigatoria,
+    retencaoVersao: r.retida ? controle.versao : null,
+    retencaoMotivo: r.retida ? controle.motivo : null,
+  };
+  if (status.baixado) {
+    if (r.retida) apagarMarcadorAtualizacao();
+    else marcarAtualizacaoPendente(status.versaoDisponivel);
+  }
+  if (autoUpdaterPronto && !semRelato && (mudou || forcarRelato)) reportarProgressoNoFirestore().catch(() => {});
+  return r;
+}
+
+function apagarMarcadorAtualizacao() {
+  try { fs.unlinkSync(caminhoMarcadorAtualizacao()); } catch { /* não existia */ }
 }
 
 module.exports = {
   setupAutoUpdater, checkForUpdates, downloadUpdate, quitAndInstall, getStatus,
   verificarAtualizacaoObrigatoria, iniciarEscutaAtualizacaoObrigatoria, versaoMenorQue,
   reportarProgressoNoFirestore, aplicarOverrideDaInstalacao,
+  aplicarControleDaInstalacao, decidirRetencao, reavaliarRetencao, lerControleAtualizacao, TODAS_AS_VERSOES,
   marcarAtualizacaoPendente, verificarAtualizacaoFoiAplicada, caminhoMarcadorAtualizacao,
 };

@@ -2,6 +2,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+// Pasta temporária própria: o teste não depende de poder criar/apagar arquivo
+// dentro do repositório (pastas protegidas do Windows, antivírus) nem briga com
+// outro processo de teste rodando em paralelo.
+const PASTA_TEMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gerenciaai-marcador-'));
+process.env.GERENCIAAI_MARCADOR_DIR = PASTA_TEMP;
 const updateService = require('../electron/services/updateService');
 
 // Fora do Electron de verdade (rodando com node --test, como aqui),
@@ -9,14 +16,14 @@ const updateService = require('../electron/services/updateService');
 // código nesse cenário (ver comentário em caminhoMarcadorAtualizacao) —
 // é o que permite testar a gravação/leitura do marcador sem precisar
 // simular app.getPath('userData').
-const CAMINHO_MARCADOR = path.join(__dirname, '../.data', 'atualizacao-pendente.json');
+const CAMINHO_MARCADOR = path.join(PASTA_TEMP, 'atualizacao-pendente.json');
 
 function limparMarcador() {
   try { fs.unlinkSync(CAMINHO_MARCADOR); } catch { /* já não existia */ }
 }
 
 test.beforeEach(limparMarcador);
-test.after(limparMarcador);
+test.after(() => { limparMarcador(); try { fs.rmSync(PASTA_TEMP, { recursive: true, force: true }); } catch { /* ok */ } });
 
 // O marcador de atualização pendente é o que permite detectar, na
 // próxima abertura do app, se uma atualização baixada de fato foi
@@ -70,4 +77,40 @@ test('verificarAtualizacaoFoiAplicada consome (apaga) um marcador válido sem la
   assert.equal(fs.existsSync(CAMINHO_MARCADOR), true);
   assert.doesNotThrow(() => updateService.verificarAtualizacaoFoiAplicada());
   assert.equal(fs.existsSync(CAMINHO_MARCADOR), false);
+});
+
+// ------------------------------------------------------------
+// Segurar/liberar instalação pela Central
+// ------------------------------------------------------------
+const { freshTestDb } = require('./helpers/testDb');
+
+test('decidirRetencao: segura só a versão pedida, "*" segura todas, obrigatória vence o pedido', () => {
+  const { decidirRetencao } = updateService;
+  const so103 = { segurada: true, versao: '1.0.3' };
+  assert.deepEqual(decidirRetencao({ alvo: '1.0.3', controle: so103 }), { retida: true, ignoradaPorObrigatoria: false });
+  // Saiu a 1.0.4 (a correção): o pedido era só pra 1.0.3, então a nova instala.
+  assert.equal(decidirRetencao({ alvo: '1.0.4', controle: so103 }).retida, false);
+  assert.equal(decidirRetencao({ alvo: '1.0.4', controle: { segurada: true, versao: '*' } }).retida, true);
+  assert.equal(decidirRetencao({ alvo: null, controle: { segurada: true, versao: '*' } }).retida, true);
+  assert.equal(decidirRetencao({ alvo: '1.0.3', controle: { segurada: false, versao: null } }).retida, false);
+  assert.deepEqual(decidirRetencao({ alvo: '1.0.3', controle: so103, obrigatoriaBloqueando: true }), { retida: false, ignoradaPorObrigatoria: true });
+});
+
+test('aplicarControleDaInstalacao grava o pedido da Central localmente (vale offline) e libera ao desmarcar', () => {
+  freshTestDb();
+  assert.deepEqual(updateService.lerControleAtualizacao(), { segurada: false, versao: null, motivo: null });
+  updateService.aplicarControleDaInstalacao({ atualizacaoSegurada: true, atualizacaoSeguradaVersao: '1.0.3', atualizacaoSeguradaMotivo: 'versão com bug no troco' });
+  assert.deepEqual(updateService.lerControleAtualizacao(), { segurada: true, versao: '1.0.3', motivo: 'versão com bug no troco' });
+  const s = updateService.getStatus();
+  // Sem versão baixada ainda, um pedido de versão específica não segura nada.
+  assert.equal(s.retida, false);
+  updateService.aplicarControleDaInstalacao({ atualizacaoSegurada: true, atualizacaoSeguradaVersao: '*' });
+  assert.equal(updateService.getStatus().retida, true);
+  assert.equal(updateService.getStatus().retencaoVersao, '*');
+  assert.match(updateService.quitAndInstall().error || '', /baixar|segurada/);
+  // Versão em formato inválido é ignorada (não segura por engano).
+  updateService.aplicarControleDaInstalacao({ atualizacaoSegurada: true, atualizacaoSeguradaVersao: 'qualquer' });
+  assert.equal(updateService.lerControleAtualizacao().segurada, false);
+  updateService.aplicarControleDaInstalacao({ atualizacaoSegurada: false });
+  assert.equal(updateService.getStatus().retida, false);
 });

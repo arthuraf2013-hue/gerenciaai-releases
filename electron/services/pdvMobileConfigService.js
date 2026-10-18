@@ -19,6 +19,9 @@ const { getDb } = require('../db/database');
 // fechamento de caixa).
 const METODOS_PAGAMENTO_VALIDOS = ['dinheiro', 'cartao_credito', 'cartao_debito', 'pix', 'fiado'];
 const PAPEIS_GESTAO = ['gerente', 'admin', 'suporte'];
+// Quem vê o painel da loja (faturamento, histórico, mais vendidos, por
+// operador) no app do PDV móvel -- igual à "Consulta remota".
+const METRICAS_LOJA_VALIDAS = ['desligado', 'gestao', 'todos'];
 
 function getRow() {
   const db = getDb();
@@ -48,6 +51,7 @@ function getConfig() {
     metodosPagamento: parseMetodos(row.metodos_pagamento),
     descontoMaximoPercentual: Number(row.desconto_maximo_percentual) || 0,
     imprimirReciboNoComputador: row.imprimir_recibo_no_computador === 1,
+    metricasLoja: METRICAS_LOJA_VALIDAS.includes(row.metricas_loja) ? row.metricas_loja : 'gestao',
     atualizadoPorId: row.atualizado_por_id || null,
     atualizadoEm: row.atualizado_em || null,
   };
@@ -58,7 +62,7 @@ function getConfig() {
  * pairingService.requireGerenteOuAdmin). */
 function saveConfig({
   permitirVenda, permitirMesas, permitirCliente, metodosPagamento, descontoMaximoPercentual,
-  imprimirReciboNoComputador, requestingUserId,
+  imprimirReciboNoComputador, metricasLoja, requestingUserId,
 }) {
   const db = getDb();
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
@@ -76,6 +80,10 @@ function saveConfig({
   if (!Number.isFinite(desconto) || desconto < 0 || desconto > 100) {
     return { ok: false, error: 'Desconto máximo precisa ser um percentual entre 0 e 100.' };
   }
+  const metricas = metricasLoja === undefined ? getConfig().metricasLoja : metricasLoja;
+  if (!METRICAS_LOJA_VALIDAS.includes(metricas)) {
+    return { ok: false, error: 'Opção inválida para o painel da loja no celular.' };
+  }
   if (!permitirVenda && !permitirMesas) {
     return { ok: false, error: 'Deixe pelo menos uma função ligada (vender ou lançar pedido em mesa) -- senão o celular não tem o que fazer.' };
   }
@@ -83,17 +91,35 @@ function saveConfig({
   getRow(); // garante a linha 'default'
   db.prepare(
     `UPDATE pdv_mobile_config SET permitir_venda = ?, permitir_mesas = ?, permitir_cliente = ?, metodos_pagamento = ?,
-       desconto_maximo_percentual = ?, imprimir_recibo_no_computador = ?, atualizado_por_id = ?, atualizado_em = NOW_SYNCED()
+       desconto_maximo_percentual = ?, imprimir_recibo_no_computador = ?, metricas_loja = ?, atualizado_por_id = ?, atualizado_em = NOW_SYNCED()
      WHERE id = 'default'`
   ).run(
     permitirVenda ? 1 : 0, permitirMesas ? 1 : 0, permitirCliente ? 1 : 0, JSON.stringify(metodos),
-    desconto, imprimirReciboNoComputador ? 1 : 0, requestingUserId,
+    desconto, imprimirReciboNoComputador ? 1 : 0, metricas, requestingUserId,
   );
 
   // Best-effort: o ciclo periódico republica de qualquer jeito se isto
   // falhar por rede.
   publicarConfig().catch(() => {});
   return { ok: true, config: getConfig() };
+}
+
+/**
+ * Celulares PDV móvel (uid do Firebase) que podem ver o painel da loja,
+ * conforme `metricas_loja` e o papel ATUAL do usuário vinculado (mudou o
+ * papel ou desconectou o celular aqui -> some da lista na próxima
+ * publicação, ~25 s). Vai publicado em config_mobile/pdv e é o que a
+ * regra do Firestore confere pra liberar historico_vendas -- quem decide
+ * é este computador, não o celular.
+ */
+function dispositivosComMetricas() {
+  const { metricasLoja } = getConfig();
+  if (metricasLoja === 'desligado') return [];
+  const linhas = getDb().prepare(
+    `SELECT pd.id, u.role FROM paired_devices pd JOIN users u ON u.id = pd.vinculo_user_id
+     WHERE pd.tipo = 'pdv' AND pd.ativo = 1 AND u.ativo = 1`,
+  ).all();
+  return linhas.filter((l) => metricasLoja === 'todos' || PAPEIS_GESTAO.includes(l.role)).map((l) => l.id).sort();
 }
 
 /** Documento publicado pro celular -- inclui o estado vivo que o celular
@@ -119,6 +145,8 @@ function montarDocumentoPublico() {
     pixConfigurado: !!pagamento?.pix_chave,
     nomeNegocio: require('./fiscalService').getNomeNegocio() || 'Sua loja',
     perfilAtivo: profile?.id || null,
+    metricasLoja: config.metricasLoja,
+    metricasLiberadasPara: dispositivosComMetricas(),
   };
 }
 
@@ -138,4 +166,6 @@ async function publicarConfig() {
   });
 }
 
-module.exports = { METODOS_PAGAMENTO_VALIDOS, getConfig, saveConfig, montarDocumentoPublico, publicarConfig };
+module.exports = {
+  METODOS_PAGAMENTO_VALIDOS, METRICAS_LOJA_VALIDAS, getConfig, saveConfig, montarDocumentoPublico, publicarConfig, dispositivosComMetricas,
+};

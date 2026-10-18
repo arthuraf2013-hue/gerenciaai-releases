@@ -85,6 +85,24 @@ service cloud.firestore {
       match /backups/{arquivo} {
         allow read, write: if true;
       }
+
+      // PDV mobile autônomo como TERMINAL de um computador (ver
+      // mobile/src/services/terminal.js e electron/services/pdvMobileTerminalService.js).
+      // Mesmo modelo de confiança do documento da instalação (id do
+      // celular é um UUID que só ele, o computador dele e a Central
+      // conhecem): o celular grava os eventos e lê o catálogo/recibos;
+      // o computador lê os eventos e grava catálogo/recibos. O computador
+      // ainda confere, antes de aplicar, se aquele celular foi migrado
+      // pra ele -- o vínculo na Central sozinho não basta.
+      match /terminal_eventos/{eventoId} {
+        allow read, write: if true;
+      }
+      match /terminal_acks/{eventoId} {
+        allow read, write: if true;
+      }
+      match /terminal_catalogo/{parte} {
+        allow read, write: if true;
+      }
     }
 
     // O DESKTOP escuta este documento em tempo real, sem autenticação,
@@ -116,6 +134,25 @@ service cloud.firestore {
     // Log de auditoria do PRÓPRIO admin-panel (ações feitas ali) --
     // nunca tocado pelo desktop, então fica restrito dos dois lados.
     match /acoes_log/{logId} { allow read, write: if ehAdminAutenticado(); }
+
+    // Códigos de ativação do PDV MOBILE AUTÔNOMO (app GerenciaAI PDV, que
+    // vende no celular sem computador). A Central (admin logado) cria,
+    // lista e cancela. O CELULAR, ainda sem identidade nenhuma, só pode:
+    // (1) ler UM código pelo ID exato (8 caracteres aleatórios -- não dá
+    // pra listar/varrer); (2) resgatá-lo UMA vez, enquanto não venceu,
+    // mudando só os campos de resgate. Quem já usou não "desusa".
+    match /ativacoes_mobile/{codigo} {
+      allow get: if true;
+      allow list, create, delete: if ehAdminAutenticado();
+      allow update: if ehAdminAutenticado()
+        || (resource.data.usado == false
+            && resource.data.expiraEm > request.time
+            && request.resource.data.usado == true
+            && request.resource.data.usadoPorInstallId is string
+            && request.resource.data.usadoPorInstallId.size() >= 16
+            && request.resource.data.usadoEm == request.time
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usadoPorInstallId', 'usadoEm']));
+    }
 
     // config/atualizacao e config/mensagem: o DESKTOP escuta os dois em
     // tempo real sem autenticação (ver updateService.js/messageService.js),
@@ -453,8 +490,20 @@ service cloud.firestore {
     // status_ao_vivo já ser tratado como sensível: aqui é histórico
     // financeiro de verdade, ainda mais dado pra vazar sem necessidade
     // pro app do garçom do que o resumo "hoje" que ele nem usa.
+    // PDV móvel com o PAINEL DA LOJA liberado neste computador
+    // (Configurações → Celular → "Painel da loja no celular"): quem decide
+    // é o desktop, que publica a lista de uids liberados em
+    // config_mobile/pdv.metricasLiberadasPara conforme a opção e o papel
+    // atual do usuário vinculado (ver pdvMobileConfigService.dispositivosComMetricas).
+    function dispositivoPdvComMetricas(installId) {
+      let cRef = /databases/$(database)/documents/installations/$(installId)/config_mobile/pdv;
+      return dispositivoPdvAtivo(installId)
+        && exists(cRef)
+        && get(cRef).data.get('metricasLiberadasPara', []).hasAny([request.auth.uid]);
+    }
+
     match /installations/{installId}/historico_vendas/{docId} {
-      allow read: if request.auth != null && dispositivoConsultaAtiva(installId);
+      allow read: if request.auth != null && (dispositivoConsultaAtiva(installId) || dispositivoPdvComMetricas(installId));
 
       allow write: if request.auth == null; // só o desktop publica
     }

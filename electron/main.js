@@ -236,6 +236,11 @@ app.whenReady().then(() => {
     // catálogo publicado, cliente, Pix) e config/sinal de vida pro celular.
     // Ver pdvMobileSyncService.js.
     require('./services/pdvMobileSyncService').iniciarPdvMobile();
+    // Celular PDV mobile autônomo que foi migrado pra cá e virou TERMINAL
+    // deste computador (decidido na Central): recebe as vendas feitas
+    // nele (mesmo offline, chegam quando a rede volta) e publica o
+    // catálogo pra ele. Só escuta; se não houver terminal, não escreve nada.
+    require('./services/pdvMobileTerminalService').iniciarTerminais();
   }
 
   function iniciarEtapa2() {

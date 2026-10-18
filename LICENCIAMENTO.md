@@ -700,6 +700,15 @@ próprio com Cloud Functions pra gerar link assinado — fora do escopo
 de "sem servidor" desse projeto por enquanto. Se um dia isso incomodar,
 é a primeira coisa que eu mudaria com mais tempo de infraestrutura.
 
+**PDV mobile autônomo** (app `mobile/`): usa esta MESMA regra — os
+backups do celular vão para `backups/{installId}/mobile-*.json.gz`. A
+"rotação" do celular é diferente da do desktop (guarda tudo das últimas 48 h
+e depois um por dia, até 30 dias, conforme a Central), por isso o
+`allow delete` também é usado por ele. Nada a mudar aqui. As regras do
+Firestore para ele (`ativacoes_mobile` e as subcoleções do modo terminal
+`terminal_eventos`/`terminal_acks`/`terminal_catalogo`) já estão no
+`firestore.rules` do repositório: `firebase deploy --only firestore:rules`.
+
 **Teste rápido depois de publicar**: peça um backup pela aba 🗄
 Backups da Central numa instalação de teste — se dentro de alguns
 segundos (com a instalação online) aparecer um arquivo novo na lista,

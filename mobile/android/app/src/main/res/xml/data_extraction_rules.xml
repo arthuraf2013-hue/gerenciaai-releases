@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Nada do app vai pro backup automático do Android (nem nuvem do Google,
+  nem cópia direta pra outro aparelho). Motivo: o banco guarda a licença e
+  a identidade deste celular — copiar isso pra outro aparelho clonaria a
+  licença. O backup dos DADOS da loja é o do próprio app (nuvem do
+  GerenciaAI, controlado pela Central), que não leva a identidade junto.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

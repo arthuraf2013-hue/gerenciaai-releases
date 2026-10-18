@@ -1,0 +1,87 @@
+apply plugin: 'com.android.application'
+
+// Versão vem do mobile/package.json (fonte única). versionCode é derivado
+// dela (1.2.3 -> 10203): instalar um APK novo por cima do antigo exige
+// versionCode MAIOR, e assim ele sobe sozinho a cada versão publicada.
+def pacote = new groovy.json.JsonSlurper().parseText(file('../../package.json').text)
+def versaoApp = pacote.version.toString()
+def partes = versaoApp.tokenize('.-')
+def versaoCodigo = (partes[0] as int) * 10000 + (partes[1] as int) * 100 + (partes[2] as int)
+
+// Assinatura do APK de produção. A chave NUNCA vai pro repositório: vem
+// de mobile/android/keystore.properties (local, no .gitignore) ou das
+// variáveis de ambiente do GitHub Actions. TODA atualização precisa ser
+// assinada com a MESMA chave -- perder a chave = clientes não conseguem
+// atualizar por cima (teriam que desinstalar e perder os dados locais).
+def propsAssinatura = new Properties()
+def arqAssinatura = rootProject.file('keystore.properties')
+if (arqAssinatura.exists()) arqAssinatura.withInputStream { propsAssinatura.load(it) }
+def assinatura = { chave, env -> propsAssinatura.getProperty(chave) ?: System.getenv(env) }
+def temAssinatura = assinatura('storeFile', 'GERENCIAAI_KEYSTORE_PATH') != null
+
+android {
+    namespace = "br.com.vettasistemas.gerenciaai.pdv"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "br.com.vettasistemas.gerenciaai.pdv"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode versaoCodigo
+        versionName versaoApp
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        if (temAssinatura) {
+            producao {
+                storeFile file(assinatura('storeFile', 'GERENCIAAI_KEYSTORE_PATH'))
+                storePassword assinatura('storePassword', 'GERENCIAAI_KEYSTORE_PASSWORD')
+                keyAlias assinatura('keyAlias', 'GERENCIAAI_KEY_ALIAS')
+                keyPassword assinatura('keyPassword', 'GERENCIAAI_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (temAssinatura) signingConfig signingConfigs.producao
+            // Celular de verdade é ARM; x86 só serve pra emulador. Tirar
+            // os x86 diminui bem o APK (o SQLite nativo vem por arquitetura).
+            ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

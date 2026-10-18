@@ -253,6 +253,55 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .rotulo-metrica { color: var(--color-text-muted); font-size: 13px; margin-bottom: 6px; }
 .valor-metrica { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
+.valor-metrica-menor { font-size: 17px; }
+.grid-resumo-3 { margin-bottom: 8px; }
+
+/* ---------- Painel da loja (painel-loja.js: Consulta remota e aba Painel do PDV móvel) ---------- */
+/* Uma série, uma cor (a do app); barras finas com ponta arredondada no
+   topo, ancoradas na base; valor no toque, com tabela pra leitor de tela. */
+.painel-intro { margin: 0 0 12px; }
+.grafico-colunas {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 12px 12px 8px;
+}
+.grafico-leitura { font-size: 13px; color: var(--color-text-muted); min-height: 18px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+.grafico-leitura strong { color: var(--color-text); }
+.grafico-area {
+  display: flex; align-items: flex-end; gap: 2px; height: 120px;
+  border-bottom: 1px solid var(--color-border);
+}
+.grafico-coluna {
+  flex: 1; height: 100%; display: flex; align-items: flex-end; justify-content: center;
+  background: none; border: none; padding: 0 1px; min-width: 0;
+}
+.grafico-barra {
+  display: block; width: 100%; max-width: 22px; min-height: 2px;
+  background: var(--color-primary); opacity: 0.55; border-radius: 4px 4px 0 0; transition: opacity 0.15s ease;
+}
+.grafico-coluna-ativa .grafico-barra, .grafico-coluna:hover .grafico-barra { opacity: 1; }
+.grafico-eixo { display: flex; gap: 2px; margin-top: 4px; }
+.grafico-eixo span {
+  flex: 1; min-width: 0; text-align: center; font-size: 10px; color: var(--color-text-muted);
+  white-space: nowrap; overflow: visible; font-variant-numeric: tabular-nums;
+}
+.grafico-eixo span:first-child { text-align: left; }
+.grafico-eixo span:last-child { text-align: right; }
+.grafico-denso .grafico-area { gap: 1px; }
+.lista-barras {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 4px 14px;
+}
+.linha-barra { padding: 10px 0; border-bottom: 1px solid var(--color-border); }
+.linha-barra:last-child { border-bottom: none; }
+.linha-barra-topo { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; margin-bottom: 6px; }
+.linha-barra-topo span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linha-barra-topo strong { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.linha-barra-trilho { height: 6px; background: var(--color-surface2); border-radius: 4px; overflow: hidden; }
+.linha-barra-valor { display: block; height: 100%; background: var(--color-primary); border-radius: 4px; }
+.linha-barra .subtexto { margin-top: 4px; font-size: 12px; }
+.rodape-painel { margin: 14px 0 4px; font-size: 12px; }
+.so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
 .titulo-secao { font-size: 15px; margin: 20px 0 10px; }
 .subtitulo-secao { font-size: 13px; font-weight: 600; color: var(--color-text-muted); margin: 16px 0 8px; }
 

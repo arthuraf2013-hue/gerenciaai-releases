@@ -9,7 +9,10 @@ const dashboardService = require('./dashboardService');
 // dia/operador) são mais pesadas que o resumo do dia sozinho.
 const INTERVALO_PUBLICACAO_MS = 10 * 60 * 1000;
 
-const PERIODOS = { ultimos7: 7, ultimos30: 30 };
+// 'hoje' entrou junto com o painel da loja no PDV móvel (mais vendidos /
+// por operador / formas de pagamento / vendas por hora DO DIA) -- o total
+// do dia "ao vivo" continua vindo de status_ao_vivo (25 s).
+const PERIODOS = { hoje: 1, ultimos7: 7, ultimos30: 30 };
 
 /**
  * Resumo de um período (inclui hoje -- mesma convenção de "últimos N
@@ -32,6 +35,22 @@ function getResumoPeriodo({ locationId, dias }) {
 
   const resumo = dashboardService.getSummary({ locationId, dataInicio, dataFim });
   const porOperador = dashboardService.getSalesByOperator({ locationId, dataInicio, dataFim });
+  const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
+  const db = getDb();
+  // Recebido por forma de pagamento (todas as vendas da loja, inclusive as
+  // que vieram de celular -- é o faturamento da loja, não a gaveta).
+  const porMetodo = db.prepare(
+    `SELECT p.metodo, COALESCE(SUM(p.valor), 0) AS total FROM payments p JOIN sales s ON s.id = p.sale_id
+     WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= ? AND s.finalizada_em < ?
+     GROUP BY p.metodo ORDER BY total DESC`,
+  ).all(locationId, inicioUtc, fimUtcExclusivo).map((r) => ({ metodo: r.metodo, total: r.total }));
+  // Hora LOCAL (Brasília) de cada venda -- mesma convenção de -3 h do resto do app.
+  const vendasPorHora = dias === 1 ? db.prepare(
+    `SELECT CAST(strftime('%H', finalizada_em, '-3 hours') AS INTEGER) AS hora, COUNT(*) AS vendas,
+       COALESCE(SUM(total - desconto - desconto_gerente), 0) AS total
+     FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?
+     GROUP BY hora ORDER BY hora`,
+  ).all(locationId, inicioUtc, fimUtcExclusivo) : [];
 
   return {
     dataInicio, dataFim,
@@ -40,8 +59,10 @@ function getResumoPeriodo({ locationId, dias }) {
     ticketMedio: resumo.totalVendas > 0 ? resumo.totalFaturado / resumo.totalVendas : 0,
     devolucoes: resumo.devolucoes,
     vendasPorDia: resumo.vendasPorDia, // [{dia, total}]
-    topProdutos: resumo.topProdutos.map((p) => ({ nome: p.nome, quantidade: p.quantidade, valorTotal: p.valorTotal })),
+    topProdutos: resumo.topProdutos.map((p) => ({ nome: p.nome, unidade: p.unidade || 'un', quantidade: p.quantidade, valorTotal: p.valorTotal })),
     porOperador: porOperador.map((o) => ({ operador: o.operador, totalVendas: o.total_vendas, totalVendido: o.total_vendido })),
+    porMetodo,
+    vendasPorHora,
   };
 }
 
@@ -55,10 +76,11 @@ function getResumoPeriodo({ locationId, dias }) {
 async function publicarHistorico() {
   try {
     const db = getDb();
-    // Só celular de "Consulta remota" lê este documento -- sem nenhum
-    // pareado e ativo, não roda as duas consultas de painel (7 e 30
-    // dias, as mais pesadas deste ciclo) a cada 10 min à toa.
-    if (!db.prepare(`SELECT 1 FROM paired_devices WHERE tipo = 'consulta' AND ativo = 1 LIMIT 1`).get()) return;
+    // Só "Consulta remota" e PDV móvel com o painel da loja liberado leem
+    // este documento -- sem nenhum dos dois, não roda as consultas de
+    // painel (as mais pesadas deste ciclo) a cada 10 min à toa.
+    const temConsulta = !!db.prepare(`SELECT 1 FROM paired_devices WHERE tipo = 'consulta' AND ativo = 1 LIMIT 1`).get();
+    if (!temConsulta && require('./pdvMobileConfigService').dispositivosComMetricas().length === 0) return;
     const location = db.prepare('SELECT id FROM locations LIMIT 1').get();
     if (!location) return;
     const locationId = location.id;

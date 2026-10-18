@@ -10,12 +10,12 @@
 // Nunca intercepta chamada pro Firestore/Firebase -- só os arquivos
 // deste mesmo diretório.
 
-const CACHE = 'gerenciaai-garcom-v2';
+const CACHE = 'gerenciaai-garcom-v3';
 const ARQUIVOS_SHELL = [
   './', './index.html', './styles.css', './app.js', './firebase-config.js',
   './store.js', './pairing.js', './garcom.js', './consulta.js', './manifest.webmanifest', './icons.js',
   './pdv.js', './pdv-venda.js', './pdv-historico.js', './pdv-servidor.js', './pdv-scanner.js',
-  './pdv-recibo.js', './pdv-util.js',
+  './pdv-recibo.js', './pdv-util.js', './painel-loja.js',
 ];
 
 self.addEventListener('install', (event) => {

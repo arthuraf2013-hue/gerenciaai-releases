@@ -52,7 +52,7 @@ test('getResumoPeriodo NUNCA inclui lucroBrutoEstimado/margemPorProduto (custo/m
   const resumo = historySyncService.getResumoPeriodo({ locationId, dias: 30 });
   assert.deepEqual(
     Object.keys(resumo).sort(),
-    ['dataFim', 'dataInicio', 'devolucoes', 'porOperador', 'ticketMedio', 'topProdutos', 'totalFaturado', 'totalVendas', 'vendasPorDia'].sort()
+    ['dataFim', 'dataInicio', 'devolucoes', 'porMetodo', 'porOperador', 'ticketMedio', 'topProdutos', 'totalFaturado', 'totalVendas', 'vendasPorDia', 'vendasPorHora'].sort()
   );
 });
 
@@ -68,6 +68,23 @@ test('getResumoPeriodo.porOperador só traz operador/totalVendas/totalVendido (s
   assert.equal(resumo.porOperador[0].operador, 'Operador Teste');
 });
 
-test('PERIODOS define ultimos7 e ultimos30, e publicarHistorico usa os dois pra montar o payload', () => {
-  assert.deepEqual(historySyncService.PERIODOS, { ultimos7: 7, ultimos30: 30 });
+test('PERIODOS define hoje, ultimos7 e ultimos30, e publicarHistorico usa os três pra montar o payload', () => {
+  assert.deepEqual(historySyncService.PERIODOS, { hoje: 1, ultimos7: 7, ultimos30: 30 });
+});
+
+test('getResumoPeriodo: formas de pagamento no período e vendas por hora LOCAL só no período de hoje', () => {
+  const { db, locationId, operadorId } = freshTestDb();
+  const produtoId = createProduct(db, { preco: 10 });
+  const hoje = historySyncService.getResumoPeriodo({ locationId, dias: 1 }).dataFim;
+  const s1 = inserirVendaFinalizada(db, { locationId, operadorId, finalizadaEmUtc: `${hoje} 15:10:00`, total: 20, produtoId });
+  const s2 = inserirVendaFinalizada(db, { locationId, operadorId, finalizadaEmUtc: `${hoje} 15:40:00`, total: 30, produtoId });
+  db.prepare(`INSERT INTO payments (id, sale_id, metodo, valor) VALUES (?, ?, 'pix', 20)`).run(randomUUID(), s1);
+  db.prepare(`INSERT INTO payments (id, sale_id, metodo, valor) VALUES (?, ?, 'dinheiro', 10)`).run(randomUUID(), s2);
+  db.prepare(`INSERT INTO payments (id, sale_id, metodo, valor) VALUES (?, ?, 'pix', 20)`).run(randomUUID(), s2);
+
+  const r = historySyncService.getResumoPeriodo({ locationId, dias: 1 });
+  assert.deepEqual(r.porMetodo, [{ metodo: 'pix', total: 40 }, { metodo: 'dinheiro', total: 10 }]);
+  // 15h UTC = 12h em Brasília.
+  assert.deepEqual(r.vendasPorHora, [{ hora: 12, vendas: 2, total: 50 }]);
+  assert.deepEqual(historySyncService.getResumoPeriodo({ locationId, dias: 7 }).vendasPorHora, []);
 });

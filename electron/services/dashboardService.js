@@ -33,7 +33,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
   ).all(locationId, inicioUtc, fimUtcExclusivo);
 
   const topProdutos = db.prepare(
-    `SELECT p.nome, SUM(si.quantidade) as quantidade, SUM(si.quantidade * si.preco_unitario) as valorTotal
+    `SELECT p.nome, p.unidade, SUM(si.quantidade) as quantidade, SUM(si.quantidade * si.preco_unitario) as valorTotal
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id

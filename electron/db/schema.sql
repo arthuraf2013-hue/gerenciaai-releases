@@ -1425,6 +1425,12 @@ CREATE TABLE IF NOT EXISTS pdv_mobile_config (
   -- Imprime o recibo na impressora DESTE computador quando uma venda do
   -- celular finaliza (útil quando o celular atende perto do caixa).
   imprimir_recibo_no_computador INTEGER NOT NULL DEFAULT 0,
+  -- Painel da loja (faturamento do dia, histórico 7/30 dias, mais
+  -- vendidos, por operador, formas de pagamento) DENTRO do app do PDV
+  -- móvel -- o mesmo que a "Consulta remota" mostra. 'desligado' |
+  -- 'gestao' (só celular vinculado a gerente/admin/suporte) | 'todos'.
+  -- Em banco antigo a coluna vem de migrateColumnsIfNeeded.
+  metricas_loja                 TEXT NOT NULL DEFAULT 'gestao',
   atualizado_por_id             TEXT REFERENCES users(id),
   atualizado_em                 TEXT
 );
@@ -1514,4 +1520,68 @@ BEGIN DELETE FROM group_sync_sales WHERE sale_id = OLD.sale_id; END;
 CREATE TABLE IF NOT EXISTS sync_marcadores (
   chave TEXT PRIMARY KEY,
   valor TEXT
+);
+
+-- PDV mobile autônomo que virou TERMINAL deste computador (cliente
+-- começou só com o celular, comprou o computador, migrou -- ver
+-- pdvMobileMigracaoService.js -- e na Central marcou o celular como
+-- terminal daqui). O celular continua vendendo offline e manda cada fato
+-- (venda, cancelamento, fiado recebido, cliente) como evento; ver
+-- pdvMobileTerminalService.js.
+--
+-- Registro de cada evento recebido: garante que cada um é aplicado UMA
+-- vez só (o celular pode reenviar o mesmo evento quando a rede oscila).
+CREATE TABLE IF NOT EXISTS pdv_terminal_eventos (
+  evento_id     TEXT PRIMARY KEY,
+  install_id    TEXT NOT NULL,
+  tipo          TEXT NOT NULL,
+  ref_id        TEXT,
+  criado_em_ms  INTEGER NOT NULL,
+  status        TEXT NOT NULL CHECK (status IN ('aplicado','ignorado','erro','aguardando')),
+  erro          TEXT,
+  nfce_status   TEXT,
+  nfce_mensagem TEXT,
+  recebido_em   TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  aplicado_em   TEXT,
+  limpo_nuvem   INTEGER NOT NULL DEFAULT 0 -- 1 = já apagado de terminal_eventos (fica só aqui)
+);
+CREATE INDEX IF NOT EXISTS idx_pdv_terminal_eventos_install ON pdv_terminal_eventos(install_id, recebido_em);
+CREATE INDEX IF NOT EXISTS idx_pdv_terminal_eventos_ref ON pdv_terminal_eventos(ref_id);
+
+-- Produto/cliente do celular que foi LIGADO a um que já existia aqui (mesmo
+-- código de barras / mesmo CPF-CNPJ) na migração ou depois. Sem isso, o
+-- cancelamento de uma venda antiga (que aponta pro id do celular) não
+-- acharia mais o produto quando o código de barras do celular já foi
+-- limpo pelo catálogo.
+CREATE TABLE IF NOT EXISTS pdv_terminal_mapa (
+  install_id TEXT NOT NULL,
+  tipo       TEXT NOT NULL CHECK (tipo IN ('produto','cliente')),
+  id_mobile  TEXT NOT NULL,
+  id_local   TEXT NOT NULL,
+  criado_em  TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  PRIMARY KEY (install_id, tipo, id_mobile)
+);
+
+-- Uma linha só (id = 'default'). NFC-e da venda feita no celular terminal:
+-- desligada por padrão -- a nota sai quando a venda CHEGA aqui (com a
+-- data de agora), não na hora da venda; só dentro da janela.
+CREATE TABLE IF NOT EXISTS pdv_terminal_config (
+  id              TEXT PRIMARY KEY DEFAULT 'default',
+  emitir_nfce     INTEGER NOT NULL DEFAULT 0,
+  janela_nfce_min INTEGER NOT NULL DEFAULT 10,
+  atualizado_em   TEXT
+);
+
+-- Instalação de atualização SEGURADA pela Central (uma linha só,
+-- id = 'default'). A atualização continua baixando sozinha, mas não é
+-- instalada enquanto a Central segurar -- só uma versão específica
+-- (versao = '1.0.3') ou todas até liberar (versao = '*'). Cache local
+-- de propósito: o app costuma fechar (que é quando instalaria) sem
+-- internet, e o pedido precisa valer mesmo assim. Ver updateService.js.
+CREATE TABLE IF NOT EXISTS atualizacao_controle (
+  id            TEXT PRIMARY KEY DEFAULT 'default',
+  segurada      INTEGER NOT NULL DEFAULT 0,
+  versao        TEXT,
+  motivo        TEXT,
+  atualizado_em TEXT
 );

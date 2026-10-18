@@ -5600,3 +5600,146 @@ estão em `CHANGELOG_PERFORMANCE.md` (seção "v1.0"). Em resumo:
 
 A versão no `package.json` ficou `1.0.0-0`: o próximo commit `release:`
 publica a `v1.0.0` (ver "Build e release" no `CLAUDE.md`).
+
+## PDV mobile autônomo — vender só com o celular (e levar para um computador depois)
+
+Para vender o sistema a quem **não tem computador**. É um app Android próprio
+(pasta `mobile/`, Capacitor + SQLite nativo), diferente do "PDV móvel" do
+`pwa-mobile/` (que vende através do computador). Arquitetura, build do APK e
+chave de assinatura: `mobile/README.md`.
+
+### O que o celular faz sozinho
+
+- Vende com e sem internet: carrinho, desconto com autorização de gerente,
+  dinheiro com troco, cartão, Pix (QR estático), fiado com limite, caixa com
+  sangria/suprimento/fechamento, cancelamento com PIN de gerente, relatório.
+- Banco no aparelho, com regras de sempre: centavos inteiros, quantidade em
+  milésimos, estoque e fiado como livro + saldo na mesma transação, UUIDs e
+  numeração de venda com prefixo do aparelho (`M` + 4 caracteres do id).
+
+### Controle pela Central
+
+- Instalação aparece como **"PDV mobile autônomo"** (`tipo:
+  'pdv_mobile_autonomo'`), ativada por um código de 8 caracteres gerado para o
+  cliente (`ativacoes_mobile`).
+- Mesmos bloqueios do desktop: congelar (2 dias de aviso, depois só consulta),
+  bloquear agora, mensagem. **3 dias sem internet: trava** (aviso no 2º dia).
+  Atrasar o relógio do celular não estica prazo (trava).
+- Backup automático na nuvem a cada 1 h (programável na Central, 1–24 h),
+  guardado até 30 dias (tudo das últimas 48 h, depois um por dia). A Central
+  pode pedir backup e restauração.
+- NFC-e: o celular autônomo não emite. Só pelo computador (abaixo).
+
+### Quando o cliente compra um computador
+
+1. **Migração pelo backup** (Configurações → "Trazer dados de um PDV mobile",
+   no computador): pede um backup novo ao celular, mostra a conferência
+   celular × computador e só grava se tudo bater; pode repetir (traz só o
+   novo). Produto com o mesmo código de barras e cliente com o mesmo CPF/CNPJ
+   são ligados aos que já existiam. `electron/services/pdvMobileMigracaoService.js`.
+2. **Histórico e licença preservados na Central**: o celular ganha o selo
+   "Migrado p/ <computador> · data"; cliente, cobrança e bloqueios continuam
+   pelo cliente; os backups do celular ficam guardados 30 dias.
+3. **Celular como terminal do computador** (Central → "Usar como terminal"):
+   - o celular continua vendendo, inclusive offline, no caixa dele;
+   - vendas, cancelamentos, fiado recebido e clientes vão para o computador
+     quando houver internet (fila `sync_saida` gravada na mesma transação da
+     venda → `installations/{celular}/terminal_eventos`), incluindo tudo o que
+     foi feito desde a migração;
+   - o computador aplica cada evento uma vez só (`pdv_terminal_eventos`), na
+     ordem em que aconteceu, com os mesmos IDs da migração (importar de novo
+     depois não duplica — testado nos dois sentidos) e devolve um recibo
+     (`terminal_acks`);
+   - produtos, preços, estoque e clientes passam a ser do computador e vão
+     para o celular (`terminal_catalogo`, em partes de até 1000 produtos, só
+     quando muda); no celular o cadastro de produto/estoque trava;
+   - **NFC-e pelo computador**, opcional (Configurações → "Celulares terminais
+     deste computador"): desligada por padrão; quando ligada, emite ao receber
+     a venda, só dentro de uma janela de minutos (padrão 10), com a data/hora
+     da emissão — a SEFAZ recusa nota com horário atrasado. **Confirme com o
+     contador** se emitir depois da venda atende o caso do cliente;
+   - "Voltar a autônomo" só com nada pendente no celular;
+   - as vendas do terminal (e as importadas na migração) entram nos relatórios,
+     mas **não no fechamento do caixa do computador** (`cashService`), porque
+     o dinheiro está no caixa do celular. Isso também corrige a sobra falsa
+     que uma migração de complemento causava no caixa aberto.
+
+### Publicar
+
+1. `firebase deploy --only firestore:rules` (ativações e subcoleções do
+   terminal). O Storage usa a regra de backups que já existe.
+2. Central (`admin-panel/`): publicar de novo (botões "Usar como terminal" /
+   "Voltar a autônomo", selo de terminal).
+3. APK: ver `mobile/README.md` (tag `mobile-vX.Y.Z` → release pré-lançamento).
+4. Desktop: commit `release:` normal.
+
+### Testado
+
+- `mobile`: 32 testes (venda, caixa, fiado, licença, backup, modo terminal:
+  fila offline, atraso desde a migração, catálogo com estoque pendente,
+  apelidos, recibos, voltar a autônomo e voltar a ser terminal).
+- desktop: `tests/pdvMobileMigracao.test.js` e `tests/pdvMobileTerminal.test.js`
+  com backups e eventos gerados pelo próprio app do celular
+  (`mobile/scripts/gerarFixtureMigracao.mjs`), incluindo a prova de que
+  aplicar o atraso por eventos chega exatamente no mesmo estoque/fiado/vendas
+  que importar o backup de complemento.
+- Não testado contra o Firebase real nesta sessão (sem rota de rede até ele).
+
+## Central: ver a versão baixada esperando instalar e segurar/liberar
+
+Cada máquina baixa a versão nova sozinha e instala quando o app fecha. Agora
+a Central mostra, em cada máquina (tela Painel), **qual versão está baixada e
+desde quando**, com **"Segurar instalação"** / **"Liberar instalação"**, e a
+tela **Atualização** ganhou o quadro **"Baixadas, esperando instalar"**,
+agrupado por versão, para segurar ou liberar uma versão em todas as máquinas
+de uma vez.
+
+- **Segurar** tem duas opções: só a versão baixada (uma correção que sair
+  depois instala normalmente) ou esta e as próximas até liberar. Motivo
+  opcional, que aparece em Configurações → Atualização do app na máquina.
+- A máquina continua usando a versão atual normalmente e **continua
+  baixando** — ao liberar, instala no próximo fechamento (nunca no meio de
+  uma venda) ou se alguém clicar em "Instalar agora".
+- O pedido fica gravado na máquina (`atualizacao_controle`), então vale
+  mesmo se ela fechar sem internet. A Central mostra "Pedido enviado" até a
+  máquina confirmar, e "Segurada" depois.
+- Atualização **obrigatória** que exige a versão vence o pedido (senão a
+  máquina travaria na tela de atualização): a Central avisa antes de
+  segurar, e a máquina informa se ignorou o pedido por isso.
+- Para tirar uma versão de circulação para todo mundo, o rollback do GitHub
+  (`rollback-release.yml`) continua sendo o caminho; segurar é o controle
+  fino por máquina, inclusive para quem já baixou.
+- Testes: `tests/updateService.test.js` (decisão de segurar, pedido gravado
+  localmente, "Instalar agora" recusado).
+
+## PDV móvel: painel da loja no celular (mesclado com a Consulta remota)
+
+O app do PDV móvel (`pwa-mobile/`) ganhou a aba **Painel**, com o mesmo
+conteúdo da Consulta remota — agora um componente só
+(`pwa-mobile/painel-loja.js`) usado pelos dois apps:
+
+- faturamento, vendas e ticket médio de hoje (ao vivo, ~25 s), somando os
+  terminais quando a loja tem grupo de sincronização;
+- histórico **Hoje / 7 dias / 30 dias**: gráfico de vendas por hora (hoje)
+  ou faturamento por dia, melhor dia, devoluções, **formas de pagamento**,
+  mais vendidos (em R$, com quantidade em kg/un) e vendas por operador;
+- mesas (restaurante) e pedidos em andamento.
+
+Quem vê no PDV móvel: Configurações → Celular → PDV móvel → "Painel da loja
+no celular" — **só no celular de gerente/administrador** (padrão), **todos**
+ou **desligado**. O computador publica a lista de celulares liberados
+(`config_mobile/pdv.metricasLiberadasPara`, recalculada a cada ~25 s com o
+papel atual do usuário vinculado) e a regra do Firestore de
+`historico_vendas` confere a mesma lista — esconder a aba não é a única
+trava. Custo e margem continuam fora (não vão para o celular).
+
+Do lado do computador: `historico_vendas` ganhou o período `hoje`, formas de
+pagamento e vendas por hora, e passa a ser publicado também quando só há
+PDV móvel liberado (antes, só com Consulta remota pareada).
+
+Publicar: `firebase deploy --only firestore:rules` (regra nova) e
+republicar o `pwa-mobile/` (cache do service worker foi para `v3`).
+
+Testes: `tests/historySyncService.test.js` (formas de pagamento e hora
+local) e `tests/pdvMobileSyncService.test.js` (quem é liberado em cada
+opção); regras em `tests/firestoreRules.test.js` (rodam com o emulador).

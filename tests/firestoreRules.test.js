@@ -734,3 +734,35 @@ test('config_mobile: só PDV móvel ativo lê; só o desktop escreve', { skip: !
   await assertFails(testEnv.authenticatedContext('uid-qualquer').firestore().doc('installations/install-PDV9/config_mobile/pdv').get());
   await assertFails(testEnv.authenticatedContext('uid-pdv-9').firestore().doc('installations/install-PDV9/config_mobile/pdv').set({ permitirVenda: false }));
 });
+
+// ---------------------------------------------------------------------
+// historico_vendas pelo PDV móvel: só celular que o computador liberou
+// (config_mobile/pdv.metricasLiberadasPara -- ver
+// pdvMobileConfigService.dispositivosComMetricas).
+// ---------------------------------------------------------------------
+
+test('historico_vendas: PDV móvel liberado pelo computador lê; PDV fora da lista não lê', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-HP1');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-HP1/historico_vendas/atual').set({ hoje: {}, ultimos7: {}, ultimos30: {} });
+    await db.doc('installations/install-HP1/dispositivos/uid-pdv-gerente').set({ tipo: 'pdv', ativo: true, vinculoUserId: 'user-gerente-1' });
+    await db.doc('installations/install-HP1/dispositivos/uid-pdv-operador').set({ tipo: 'pdv', ativo: true, vinculoUserId: 'user-operador-1' });
+    await db.doc('installations/install-HP1/config_mobile/pdv').set({ metricasLoja: 'gestao', metricasLiberadasPara: ['uid-pdv-gerente'] });
+  });
+  await assertSucceeds(testEnv.authenticatedContext('uid-pdv-gerente').firestore().doc('installations/install-HP1/historico_vendas/atual').get());
+  await assertFails(testEnv.authenticatedContext('uid-pdv-operador').firestore().doc('installations/install-HP1/historico_vendas/atual').get());
+});
+
+test('historico_vendas: PDV móvel liberado mas com o módulo desligado ou desconectado não lê', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupModulos('install-HP2', { pdvMobile: false });
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc('installations/install-HP2/historico_vendas/atual').set({ hoje: {} });
+    await db.doc('installations/install-HP2/dispositivos/uid-pdv-x').set({ tipo: 'pdv', ativo: true, vinculoUserId: 'user-gerente-1' });
+    await db.doc('installations/install-HP2/config_mobile/pdv').set({ metricasLiberadasPara: ['uid-pdv-x'] });
+  });
+  await assertFails(testEnv.authenticatedContext('uid-pdv-x').firestore().doc('installations/install-HP2/historico_vendas/atual').get());
+});

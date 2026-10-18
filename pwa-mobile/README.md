@@ -13,6 +13,12 @@ desktop (Configurações → Celular):
   Configurações → Celular. Precisa de internet: a venda só vale depois
   que o GerenciaAI do computador confere e registra (ver
   `electron/services/pdvMobileSyncService.js`).
+- **Painel da loja dentro do PDV móvel**: a aba "Painel" mostra no
+  celular PDV o mesmo painel da Consulta remota (faturamento do dia,
+  histórico hoje/7/30 dias com gráfico, formas de pagamento, mais
+  vendidos, por operador, mesas e pedidos), se a loja liberar em
+  Configurações → Celular → "Painel da loja no celular" (padrão: só no
+  celular vinculado a gerente/administrador).
 - **Consulta remota** (Adm/Gerente): vê o resumo financeiro do dia e a
   operação ao vivo (mesas, pedidos em andamento) da(s) loja(s) a que
   está vinculado — suporta mais de uma loja no mesmo celular (dono de
@@ -36,6 +42,10 @@ copiar a pasta pra um servidor — sem precisar instalar Node nem rodar
   `localStorage` (ver `store.js`).
 - `pairing.js` — troca o código de 6 dígitos por um vínculo permanente.
 - `garcom.js` / `consulta.js` — telas do garçom e da consulta remota.
+- `painel-loja.js` — o painel da loja (resumo do dia, histórico com
+  gráficos, formas de pagamento, mais vendidos, por operador, mesas,
+  pedidos, agregação do grupo), usado pela consulta remota e pela aba
+  "Painel" do PDV móvel — uma fonte só, os dois mostram os mesmos números.
 - `pdv.js` — casca do PDV móvel (abas, indicador de conexão, config da
   loja); `pdv-venda.js` (vender), `pdv-historico.js` (vendas),
   `pdv-recibo.js`, `pdv-scanner.js` (câmera via BarcodeDetector),

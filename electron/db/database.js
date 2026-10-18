@@ -508,6 +508,8 @@ function migrateColumnsIfNeeded(database) {
   // E-mail (só o e-mail -- a senha nunca fica no banco local) da conta
   // Google criada pelo fluxo "Criar conta Google" -- ver schema.sql.
   adicionarColunaSeFaltando(database, 'backup_config', 'conta_google_email', 'TEXT');
+  // Painel da loja dentro do app do PDV móvel -- ver schema.sql.
+  adicionarColunaSeFaltando(database, 'pdv_mobile_config', 'metricas_loja', "TEXT NOT NULL DEFAULT 'gestao'");
   adicionarColunaSeFaltando(database, 'forced_update_state', 'versao_minima_override', 'TEXT');
   adicionarColunaSeFaltando(database, 'forced_update_state', 'override_ativo', 'INTEGER NOT NULL DEFAULT 0');
   // Guarda diária da reconquista automática (ver whatsappAutomationService.js)

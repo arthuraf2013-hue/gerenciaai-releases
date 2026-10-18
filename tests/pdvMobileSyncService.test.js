@@ -386,3 +386,27 @@ test('migração: banco antigo (CHECK sem pdv) passa a aceitar dispositivo/códi
   assert.equal(db.prepare(`SELECT COUNT(*) as c FROM pairing_codes`).get().c, 2);
   assert.ok(db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_pairing_codes_usado'`).get());
 });
+
+// ------------------------------------------------------------
+// Painel da loja no PDV móvel: quem pode ver
+// ------------------------------------------------------------
+test('dispositivosComMetricas: padrão só celular de gerente/admin; "todos" inclui operador; "desligado" ninguém; desconectado nunca', () => {
+  const { db, adminId, gerenteId, operadorId } = freshTestDb();
+  const cfg = require('../electron/services/pdvMobileConfigService');
+  const parear = (id, userId, ativo = 1) => db.prepare(`INSERT INTO paired_devices (id, tipo, vinculo_user_id, ativo) VALUES (?, 'pdv', ?, ?)`).run(id, userId, ativo);
+  parear('uid-gerente', gerenteId);
+  parear('uid-operador', operadorId);
+  parear('uid-revogado', adminId, 0);
+  db.prepare(`INSERT INTO paired_devices (id, tipo, vinculo_user_id) VALUES ('uid-consulta', 'consulta', ?)`).run(adminId);
+
+  assert.equal(cfg.getConfig().metricasLoja, 'gestao');
+  assert.deepEqual(cfg.dispositivosComMetricas(), ['uid-gerente']);
+  const base = { ...cfg.getConfig(), requestingUserId: gerenteId };
+  assert.equal(cfg.saveConfig({ ...base, metricasLoja: 'todos' }).ok, true);
+  assert.deepEqual(cfg.dispositivosComMetricas(), ['uid-gerente', 'uid-operador']);
+  assert.equal(cfg.saveConfig({ ...base, metricasLoja: 'qualquer' }).ok, false);
+  assert.equal(cfg.saveConfig({ ...base, metricasLoja: 'desligado' }).ok, true);
+  assert.deepEqual(cfg.dispositivosComMetricas(), []);
+  // Operador não muda a configuração.
+  assert.equal(cfg.saveConfig({ ...base, metricasLoja: 'todos', requestingUserId: operadorId }).ok, false);
+});

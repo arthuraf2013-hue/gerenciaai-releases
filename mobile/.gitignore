@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Copiado do node_modules a cada build (ver vite.config.js)
+public/sql-wasm-browser.wasm

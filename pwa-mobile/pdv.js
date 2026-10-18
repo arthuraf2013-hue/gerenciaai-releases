@@ -6,6 +6,8 @@ import {
 import * as telaVenda from './pdv-venda.js';
 import * as telaHistorico from './pdv-historico.js';
 import * as garcom from './garcom.js';
+import * as painelLoja from './painel-loja.js';
+import { auth } from './firebase-config.js';
 
 /**
  * PDV MÓVEL -- celular pareado com tipo 'pdv' (Configurações → Celular
@@ -13,6 +15,9 @@ import * as garcom from './garcom.js';
  *   Vender  -- venda completa (pdv-venda.js)
  *   Mesas   -- o mesmo fluxo do app do garçom (garcom.js, embutido)
  *   Vendas  -- histórico e recibos deste celular (pdv-historico.js)
+ *   Painel  -- números da LOJA toda (o mesmo da "Consulta remota",
+ *              painel-loja.js), só se o computador liberou este celular
+ *              (Configurações → Celular → "Painel da loja no celular")
  *   Ajustes -- preferências deste celular + o que a loja liberou
  * Quais abas aparecem quem decide é a loja (config_mobile/pdv, publicada
  * pelo computador); a tela inicial e a aparência, o próprio operador.
@@ -27,6 +32,7 @@ const ABAS = {
   vender: { rotulo: 'Vender', icone: 'vender' },
   mesas: { rotulo: 'Mesas', icone: 'mesa' },
   vendas: { rotulo: 'Vendas', icone: 'recibo' },
+  painel: { rotulo: 'Painel', icone: 'grafico' },
   ajustes: { rotulo: 'Ajustes', icone: 'ajustes' },
 };
 
@@ -72,8 +78,16 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     if (!c || c.permitirVenda) lista.push('vender');
     if (c?.permitirMesas) lista.push('mesas');
     if (!c || c.permitirVenda) lista.push('vendas');
+    if (painelLiberado()) lista.push('painel');
     lista.push('ajustes');
     return lista;
+  }
+
+  /** O computador publica quem pode ver o painel (e a regra do Firestore
+   * confere a MESMA lista) -- aqui só decide se mostra a aba. */
+  function painelLiberado() {
+    const uid = auth.currentUser?.uid;
+    return !!(uid && Array.isArray(estado.config?.metricasLiberadasPara) && estado.config.metricasLiberadasPara.includes(uid));
   }
 
   function renderNav() {
@@ -95,6 +109,12 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     if (aba === 'vender') desmontarAba = telaVenda.mount(conteudo, ctx) || (() => {});
     else if (aba === 'vendas') desmontarAba = telaHistorico.mount(conteudo, ctx) || (() => {});
     else if (aba === 'mesas') desmontarAba = garcom.mount(conteudo, { loja, lojas, embutido: true }) || (() => {});
+    else if (aba === 'painel') {
+      desmontarAba = painelLoja.mount(conteudo, {
+        loja,
+        introducao: '<p class="subtexto painel-intro">Números da loja inteira (todos os caixas e celulares), os mesmos do computador. Para as vendas só deste celular, veja a aba Vendas.</p>',
+      }) || (() => {});
+    }
     else desmontarAba = montarAjustes();
     renderNav();
   }
@@ -174,6 +194,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
             <div><span>Cliente na venda</span><strong>${c.permitirCliente ? 'Sim' : 'Não'}</strong></div>
             <div><span>Pagamentos</span><strong>${escapeHtml(metodos.join(', ') || '—')}</strong></div>
             <div><span>Desconto máximo</span><strong>${c.exigeAutorizacaoDesconto ? `${escapeHtml(String(c.descontoMaximoPercentual || 0))}%` : 'Livre (com registro)'}</strong></div>
+            <div><span>Painel da loja</span><strong>${painelLiberado() ? 'Liberado para este celular' : (c.metricasLoja === 'desligado' ? 'Desligado' : c.metricasLoja === 'todos' ? 'Aguardando o computador liberar' : 'Só no celular de gerente/administrador')}</strong></div>
           </div>
           <p class="subtexto">Quem muda isso é o gerente, no computador: Configurações → Celular.</p>`
           : '<p class="subtexto">Ainda sem configuração da loja — o computador precisa estar com o GerenciaAI aberto.</p>'}

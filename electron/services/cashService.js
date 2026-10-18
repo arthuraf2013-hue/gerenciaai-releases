@@ -40,6 +40,14 @@ function getSessionSummary(sessionId) {
      FROM payments p
      JOIN sales s ON s.id = p.sale_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= ?
+       -- Venda que veio do PDV mobile (importada na migração ou recebida
+       -- de um celular que é terminal deste computador) foi recebida no
+       -- caixa DO CELULAR, não na gaveta deste computador -- contar aqui
+       -- fazia o fechamento acusar sobra que não existe. A venda do "PDV
+       -- móvel" pareado (origem 'pdv_movel') continua contando: essa é
+       -- feita no caixa daqui. json_valid antes: detalhes antigo pode não
+       -- ser JSON (json_extract lançaria erro).
+       AND COALESCE(CASE WHEN json_valid(p.detalhes) THEN json_extract(p.detalhes, '$.origem') END, '') NOT IN ('pdv_mobile', 'pdv_mobile_terminal')
      GROUP BY p.metodo`
   ).all(session.location_id, session.aberta_em);
 

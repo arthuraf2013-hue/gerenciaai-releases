@@ -141,7 +141,14 @@ function configuracaoCompleta(config) {
  * cálculo da chave de acesso. Teste em homologação antes de confiar em
  * produção.
  */
-async function emitirNFCe(saleId) {
+/**
+ * `opcoes.dataEmissao` (Date): data/hora de emissão da nota quando não é
+ * o momento da venda -- usado pela venda que chega atrasada de um celular
+ * terminal (pdvMobileTerminalService): a SEFAZ recusa NFC-e emitida
+ * agora com data de minutos/horas atrás, então a nota sai com a data em
+ * que foi emitida de fato. Sem a opção, nada muda (data da venda).
+ */
+async function emitirNFCe(saleId, opcoes = {}) {
   const db = getDb();
   const config = getFiscalConfig();
   const faltando = configuracaoCompleta(config);
@@ -179,11 +186,13 @@ async function emitirNFCe(saleId) {
   const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
 
   const numero = config.proximo_numero_nfce || 1;
+  const dataEmissao = opcoes.dataEmissao instanceof Date && !Number.isNaN(opcoes.dataEmissao.getTime())
+    ? opcoes.dataEmissao : new Date(sale.finalizada_em);
 
   let xml, chaveAcesso;
   try {
     ({ xml, chaveAcesso } = gerarXmlNFCe({
-      config, sale, items, payments, numero, dataEmissao: new Date(sale.finalizada_em),
+      config, sale, items, payments, numero, dataEmissao,
     }));
   } catch (err) {
     return { ok: false, error: `Erro ao montar o XML: ${err.message}` };
@@ -238,7 +247,7 @@ async function emitirNFCe(saleId) {
   }
 
   if (erroComunicacao) {
-    return entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao });
+    return entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao, dataEmissao });
   }
 
   const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
@@ -266,11 +275,11 @@ async function emitirNFCe(saleId) {
  * fica pro job periódico (reenviarNFCe, chamado em loop por
  * main.js/reenviarPendentesEContingencia).
  */
-function entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao }) {
+function entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao, dataEmissao = new Date(sale.finalizada_em) }) {
   let xmlContingencia, chaveContingencia, xmlAssinadoContingencia;
   try {
     ({ xml: xmlContingencia, chaveAcesso: chaveContingencia } = gerarXmlNFCe({
-      config, sale, items, payments, numero, dataEmissao: new Date(sale.finalizada_em),
+      config, sale, items, payments, numero, dataEmissao,
       tpEmis: '9',
       justificativaContingencia: `Falha de comunicacao com a SEFAZ no momento da venda: ${String(erroComunicacao).slice(0, 200)}`,
     }));

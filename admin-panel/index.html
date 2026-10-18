@@ -106,6 +106,27 @@
   .maquina-nome-input:focus { background: var(--bg); border: 1px solid var(--border); outline: none; }
   .maquina-meta { color: var(--text-muted); font-size: 11px; }
   .maquina-acoes { display: flex; gap: 6px; margin-left: auto; }
+  /* "Excluir" fica discreto (contorno, não preenchido) pra não competir
+     com "Bloquear agora", que é a ação vermelha de verdade da linha. */
+  .status-migrado { background: rgba(242,206,122,0.14); color: var(--warning); display: inline-flex; align-items: center; gap: 4px; }
+  .status-pdv-mobile { background: rgba(55,171,153,0.16); color: var(--primary); display: inline-flex; align-items: center; gap: 4px; }
+  .status-terminal { background: rgba(126,162,255,0.16); color: #9db8ff; display: inline-flex; align-items: center; gap: 4px; }
+  .ativacao-mobile-wrap { flex-wrap: wrap; align-items: center; }
+  .codigo-ativacao { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); font-size: 12px; }
+  .codigo-ativacao code { font-weight: 700; letter-spacing: 0.06em; color: var(--text); }
+  .codigo-ativacao small { color: var(--text-muted); }
+  .codigo-ativacao.vencido { opacity: 0.55; }
+  .btn-link-pequeno { background: transparent; border: none; color: var(--text-muted); padding: 2px 6px; font-size: 12px; }
+  .btn-link-pequeno:hover { color: var(--danger); }
+  .backup-mobile-config { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; font-size: 13px; }
+  .backup-mobile-config label { display: flex; align-items: center; gap: 6px; }
+  .btn-excluir { background: transparent; border: 1px solid rgba(224,112,93,0.55); color: var(--danger); }
+  .btn-excluir:hover { background: rgba(224,112,93,0.12); }
+  .badge-botao { border: none; cursor: pointer; font-family: inherit; }
+  .badge-botao:hover { filter: brightness(1.15); }
+  .maquina-excluida { opacity: 0.6; border: 1px dashed var(--border); }
+  .maquina-excluida:hover { opacity: 0.85; }
+  .maquina-nome-excluida { font-size: 13px; font-weight: 600; padding: 4px 6px; width: 220px; color: var(--text-muted); text-decoration: line-through; }
 
   .nao-vinculados { border-color: var(--warning); }
   .vincular-select { font-size: 12px; padding: 6px 8px; }
@@ -114,6 +135,25 @@
   .maquina-progress-bar { width: 100%; height: 6px; background: var(--bg); border-radius: 4px; overflow: hidden; }
   .maquina-progress-fill { height: 100%; background: var(--primary); transition: width 0.3s; }
   .maquina-progress-texto { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  /* Atualização baixada esperando instalar / segurada pela Central */
+  .atualiz-pendente { flex-basis: 100%; margin-top: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 7px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
+  .atualiz-pendente strong { color: var(--text); }
+  .atualiz-pendente .atualiz-acoes { margin-left: auto; display: flex; gap: 6px; }
+  .atualiz-pendente.segurada { border-color: rgba(242,206,122,0.55); background: rgba(242,206,122,0.08); }
+  .atualiz-pendente.segurada strong { color: var(--warning); }
+  .atualiz-pendente.aviso { border-color: rgba(224,112,93,0.55); background: rgba(224,112,93,0.08); }
+  .status-segurada { background: rgba(242,206,122,0.14); color: var(--warning); display: inline-flex; align-items: center; gap: 4px; }
+  .tabela-atualiz { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  .tabela-atualiz th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .tabela-atualiz td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .grupo-versao { margin-top: 16px; padding: 12px; border-radius: 8px; background: var(--surface2); }
+  .grupo-versao-topo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .grupo-versao-topo h3 { margin: 0; font-size: 15px; }
+  .grupo-versao-topo .atualiz-acoes { margin-left: auto; display: flex; gap: 6px; }
+  .segurar-opcao { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .segurar-opcao input { margin-top: 3px; }
+  .segurar-opcao small { display: block; color: var(--text-muted); margin-top: 2px; }
   .mensagem-cliente-wrap { display: flex; gap: 8px; margin-bottom: 12px; }
   .mensagem-cliente-wrap input { flex: 1; font-size: 13px; }
   .metricas-grid { display: flex; gap: 16px; flex-wrap: wrap; }
@@ -128,12 +168,13 @@
   .erro-mensagem { font-weight: 600; margin-bottom: 4px; }
   .erro-stack { color: var(--text-muted); font-size: 11px; white-space: pre-wrap; font-family: monospace; max-height: 100px; overflow-y: auto; }
 
-  #novo-cliente-modal, #vincular-modal, #cofre-acesso-modal {
+  #novo-cliente-modal, #vincular-modal, #cofre-acesso-modal, #segurar-atualizacao-modal {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
     align-items: center; justify-content: center; z-index: 50;
   }
   #novo-cliente-modal .card, #vincular-modal .card { width: 360px; }
   #cofre-acesso-modal .card { width: 420px; }
+  #segurar-atualizacao-modal .card { width: 440px; }
   .modal-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
   .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
   .senha-mascarada { font-family: monospace; letter-spacing: 1px; }
@@ -194,6 +235,10 @@
         <label class="toolbar-check">
           <input type="checkbox" id="filtro-somente-online">
           Só online
+        </label>
+        <label class="toolbar-check" id="filtro-excluidas-label" style="display:none;" title="Mostra também as máquinas excluídas do painel, pra restaurar">
+          <input type="checkbox" id="filtro-mostrar-excluidas">
+          <span id="filtro-excluidas-texto">Excluídas</span>
         </label>
         <button class="btn-primary" id="novo-cliente-btn">+ Novo cliente</button>
       </div>
@@ -267,6 +312,16 @@
     </div>
 
     <div id="secao-atualizacao" style="display:none;">
+      <div id="atualizacao-pendentes-card" class="card" style="margin-bottom: 20px;">
+        <h2>Baixadas, esperando instalar</h2>
+        <p class="subtitle" style="margin-bottom: 4px;">
+          As máquinas baixam a versão nova sozinhas e instalam quando o app fecha (nunca no meio de uma venda).
+          Aqui você vê qual versão está esperando em cada uma e pode <strong>segurar</strong> a instalação (a
+          máquina continua na versão atual, funcionando normalmente) ou <strong>liberar</strong>. Para tirar uma
+          versão de circulação para todo mundo, use também o rollback do GitHub (ver CLAUDE.md).
+        </p>
+        <div id="atualizacao-pendentes-lista"><p class="cliente-resumo">Carregando...</p></div>
+      </div>
       <div id="atualizacao-card" class="card" style="margin-bottom: 20px;">
         <h2>Atualização obrigatória</h2>
         <p class="subtitle" style="margin-bottom: 14px;">
@@ -441,6 +496,31 @@
   </div>
 </div>
 
+<div id="segurar-atualizacao-modal">
+  <div class="card">
+    <h2>Segurar instalação</h2>
+    <p class="subtitle" id="segurar-atualizacao-sub" style="margin-top:6px;"></p>
+    <form class="modal-form" id="segurar-atualizacao-form">
+      <label class="segurar-opcao" id="segurar-opcao-versao-label">
+        <input type="radio" name="segurar-escopo" value="versao" checked>
+        <span><strong id="segurar-opcao-versao-texto">Só esta versão</strong>
+          <small>Se sair uma versão mais nova (uma correção, por exemplo), ela instala normalmente.</small></span>
+      </label>
+      <label class="segurar-opcao">
+        <input type="radio" name="segurar-escopo" value="todas">
+        <span><strong>Esta e as próximas, até eu liberar</strong>
+          <small>Nada instala nesta máquina enquanto estiver segurado. Continua baixando, pra instalar na hora quando liberar.</small></span>
+      </label>
+      <input type="text" id="segurar-atualizacao-motivo" maxlength="200" placeholder="Motivo (opcional — aparece pra quem estiver na máquina)">
+      <p class="modal-error" id="segurar-atualizacao-erro" style="display:none;"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="segurar-atualizacao-cancelar">Cancelar</button>
+        <button type="submit" class="btn-primary" id="segurar-atualizacao-confirmar">Segurar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="cofre-acesso-modal">
   <div class="card">
     <h2 id="cofre-acesso-modal-titulo">Novo acesso</h2>
@@ -493,7 +573,7 @@
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
   import {
     getFirestore, collection, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
-    writeBatch, query, orderBy, where, limit, serverTimestamp,
+    writeBatch, query, orderBy, where, limit, serverTimestamp, Timestamp,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
   import {
     initializeAppCheck, ReCaptchaEnterpriseProvider,
@@ -506,6 +586,7 @@
   // uma função simples em vez de um componente — sem framework de UI
   // nessa página pra justificar mais que isso.
   const ICON_SVGS = {
+    celular: '<rect x="6.5" y="2.5" width="11" height="19" rx="2.5" fill="currentColor" opacity="0.3"/><rect x="6.5" y="2.5" width="11" height="19" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 18h2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
     home: '<path d="M4 11.5L12 4l8 7.5" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10.5V20h12v-9.5" fill="currentColor" opacity="0.5"/><rect x="10" y="14" width="4" height="6" fill="currentColor"/>',
     chart: '<circle cx="12" cy="12" r="9.5" fill="currentColor" opacity="0.24"/><path d="M6 18V13M12 18V9M18 18v-5" stroke="currentColor" stroke-width="2.9" stroke-linecap="round"/>',
     warning: '<path d="M12 4.2L21 19H3L12 4.2z" fill="currentColor" opacity="0.5"/><path d="M12 10v4" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/>',
@@ -515,6 +596,8 @@
     archive: '<rect x="3.5" y="4" width="17" height="5.4" rx="1.2" fill="currentColor" opacity="0.5"/><rect x="4.3" y="10.2" width="15.4" height="9.8" rx="1" fill="none" stroke="currentColor" stroke-width="2.1"/><path d="M10.2 14.3h3.6" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/>',
     check: '<circle cx="12" cy="12" r="9.5" fill="currentColor" opacity="0.24"/><path d="M7 12.5l3.3 3.3L17 9" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
     clock: '<circle cx="12" cy="12" r="9" fill="currentColor" opacity="0.5"/><path d="M12 7.5V12l3.2 2" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+    pause: '<circle cx="12" cy="12" r="9.5" fill="currentColor" opacity="0.3"/><path d="M9.5 8v8M14.5 8v8" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
+    download: '<circle cx="12" cy="12" r="9.5" fill="currentColor" opacity="0.3"/><path d="M12 7v8" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><path d="M8.3 11.8L12 15.5l3.7-3.7" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   };
   function icon(name, size = 15) {
     const svg = ICON_SVGS[name];
@@ -562,6 +645,9 @@
   const vazioDiv = document.getElementById('vazio');
   const buscaInput = document.getElementById('busca');
   const filtroSomenteOnlineInput = document.getElementById('filtro-somente-online');
+  const filtroMostrarExcluidasInput = document.getElementById('filtro-mostrar-excluidas');
+  const filtroExcluidasLabel = document.getElementById('filtro-excluidas-label');
+  const filtroExcluidasTexto = document.getElementById('filtro-excluidas-texto');
   const novoClienteModal = document.getElementById('novo-cliente-modal');
   const vincularModal = document.getElementById('vincular-modal');
   const erroGeralDiv = document.getElementById('erro-geral');
@@ -612,6 +698,18 @@
   }
   aplicarTelaVisual(); // roda já, antes até do login, pra não piscar tudo montado na tela
 
+  // `todasInstalacoes` = tudo que existe no Firestore; `instalacoes` =
+  // só as visíveis (sem as excluídas do painel -- ver
+  // estaExcluidaDoPainel). Todo o resto da Central (métricas, grupos,
+  // cofre, alerta de sumidas) usa `instalacoes`, então uma máquina
+  // excluída some de todas as telas de uma vez.
+  let todasInstalacoes = [];
+  // Códigos de ativação do PDV mobile autônomo ainda não usados (ver
+  // gerarAtivacaoMobile). Vazio também se as regras do Firestore ainda
+  // não foram publicadas com a coleção nova -- o resto da Central segue.
+  let ativacoesMobile = [];
+  const TIPO_PDV_MOBILE = 'pdv_mobile_autonomo';
+  const ehPdvMobile = (inst) => inst?.tipo === TIPO_PDV_MOBILE;
   let instalacoes = [];
   let clientes = [];
   let atualizacaoConfig = null;
@@ -687,7 +785,9 @@
   const CAMPOS_QUE_EXIGEM_RENDER_COMPLETO = [
     'ativo', 'bloqueioImediato', 'clienteId', 'nomeNegocio', 'mensagemPersonalizada', 'motivoBloqueio',
     'atualizacaoBaixando', 'atualizacaoProgresso', 'atualizacaoBaixado', 'atualizacaoVersaoAlvo', 'versaoApp',
-    'grupoSincronizacaoId', 'servidorDoGrupo', 'conflitosCodigoBarrasPendentes',
+    'grupoSincronizacaoId', 'servidorDoGrupo', 'conflitosCodigoBarrasPendentes', 'excluidaEm', 'migradoPara', 'migradoEm',
+    'migradoParaNome', 'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalPendentes', 'terminalErros',
+    'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo', 'atualizacaoRetida', 'atualizacaoRetencaoIgnorada', 'atualizacaoBaixadaEm',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -712,8 +812,17 @@
       onSnapshot(
         query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
         (snap) => {
-          const novasInstalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          const precisaCompleto = precisaRenderCompleto(instalacoes, novasInstalacoes);
+          // 'estimate': logo depois de clicar em Excluir, o excluidaEm
+          // (serverTimestamp) ainda está pendente localmente -- sem isso
+          // ele chegaria como null e a máquina piscaria de volta na lista
+          // até o servidor confirmar.
+          const todasAntes = todasInstalacoes;
+          todasInstalacoes = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }));
+          const novasInstalacoes = todasInstalacoes.filter((i) => !estaExcluidaDoPainel(i));
+          // Com "Excluídas" marcado a lista mostra todasInstalacoes, então
+          // compara essa também (excluir/restaurar não muda o tamanho dela).
+          const precisaCompleto = precisaRenderCompleto(instalacoes, novasInstalacoes)
+            || (filtroMostrarExcluidasInput.checked && precisaRenderCompleto(todasAntes, todasInstalacoes));
           instalacoes = novasInstalacoes;
           if (precisaCompleto) {
             render();
@@ -736,8 +845,17 @@
         },
         (err) => mostrarErro(err, 'carregar os clientes')
       );
+      onSnapshot(
+        query(collection(db, 'ativacoes_mobile'), where('usado', '==', false)),
+        (snap) => {
+          ativacoesMobile = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          render();
+        },
+        (err) => console.warn('[ativacoes_mobile] sem acesso (regras do Firestore publicadas?)', err)
+      );
     }
     if (TELA_ATUAL === 'atualizacao') {
+      escutarPendentesDeInstalacao();
       onSnapshot(
         doc(db, 'config', 'atualizacao'),
         (snap) => {
@@ -865,6 +983,27 @@
     return ping.toMillis() >= contato.toMillis() ? ping : contato;
   }
 
+  /**
+   * "Excluir" na Central NÃO apaga o documento da instalação, de
+   * propósito: o desktop (licenseService) recria o documento sozinho no
+   * próximo ping se ele sumir -- e recria ATIVO e DESBLOQUEADO. Apagar de
+   * verdade uma máquina bloqueada/congelada seria, na prática,
+   * desbloqueá-la assim que ela voltasse a se conectar. Em vez disso
+   * grava `excluidaEm` e esconde a máquina de todas as telas, mantendo
+   * congelamento/bloqueio valendo. Se ela der sinal de vida DEPOIS da
+   * exclusão (ping ou contato mais novo que excluidaEm), volta a
+   * aparecer sozinha, com um aviso -- a Central nunca esconde uma
+   * máquina que está em uso.
+   */
+  function estaExcluidaDoPainel(inst) {
+    if (!inst.excluidaEm || typeof inst.excluidaEm.toMillis !== 'function') return false;
+    const sinal = ultimoSinalTimestamp(inst);
+    return !sinal || sinal.toMillis() <= inst.excluidaEm.toMillis();
+  }
+  function voltouDepoisDeExcluida(inst) {
+    return !!inst.excluidaEm && typeof inst.excluidaEm.toMillis === 'function' && !estaExcluidaDoPainel(inst);
+  }
+
   // Considera "online" se o ping de presença chegou nos últimos 3min
   // (o app manda a cada 2min — 3min dá folga pra latência sem
   // demorar demais pra virar "offline" quando realmente cai).
@@ -983,6 +1122,111 @@
       registrarAcao(ativoAtual ? 'congelar' : 'reativar', { installationId: id });
     } catch (err) {
       mostrarErro(err, acao);
+    }
+  }
+
+  // --- Ativação do PDV mobile autônomo ---
+  // Código de 8 caracteres sem os que confundem (0/O, 1/I/L), gerado com
+  // crypto. Vale 7 dias e ativa UM celular, já vinculado a este cliente
+  // (a regra do Firestore só deixa o celular marcar "usado" uma vez).
+  const ALFABETO_ATIVACAO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const VALIDADE_ATIVACAO_DIAS = 7;
+  function gerarCodigoAtivacao() {
+    const n = ALFABETO_ATIVACAO.length;
+    const limite = 256 - (256 % n); // descarta o resto pra não enviesar
+    let codigo = '';
+    while (codigo.length < 8) {
+      for (const b of crypto.getRandomValues(new Uint8Array(16))) {
+        if (b < limite && codigo.length < 8) codigo += ALFABETO_ATIVACAO[b % n];
+      }
+    }
+    return codigo;
+  }
+  const formatarCodigoAtivacao = (c) => `${c.slice(0, 4)}-${c.slice(4)}`;
+
+  function renderAtivacoesDoCliente(cliente) {
+    const agora = Date.now();
+    const pendentes = ativacoesMobile
+      .filter((a) => a.clienteId === cliente.id)
+      .sort((a, b) => (b.criadoEm?.toMillis?.() || 0) - (a.criadoEm?.toMillis?.() || 0));
+    return `
+      <div class="mensagem-cliente-wrap ativacao-mobile-wrap">
+        <span class="cliente-resumo" style="align-self:center;">${icon('celular', 13)} PDV mobile autônomo:</span>
+        <button class="btn-secondary btn-small" data-gerar-ativacao="${cliente.id}">Gerar código de ativação</button>
+        ${pendentes.map((a) => {
+          const expira = a.expiraEm?.toMillis?.() || 0;
+          const vencido = expira && expira < agora;
+          return `<span class="codigo-ativacao ${vencido ? 'vencido' : ''}" title="${vencido ? 'Expirado' : 'Ainda não usado'}">
+            <code>${formatarCodigoAtivacao(a.id)}</code>
+            <small>${vencido ? 'expirou' : `até ${formatarData(a.expiraEm)}`}</small>
+            <button class="btn-link-pequeno" data-cancelar-ativacao="${a.id}" aria-label="Cancelar código">✕</button>
+          </span>`;
+        }).join('')}
+      </div>`;
+  }
+
+  async function gerarAtivacaoMobile(clienteId) {
+    const cliente = clientes.find((c) => c.id === clienteId);
+    if (!cliente) return;
+    if (!confirm(`Gerar um código de ativação do PDV mobile para "${cliente.nome}"?\n\nVale ${VALIDADE_ATIVACAO_DIAS} dias e ativa UM celular, que já entra vinculado a este cliente.`)) return;
+    limparErro();
+    const codigo = gerarCodigoAtivacao();
+    try {
+      await setDoc(doc(db, 'ativacoes_mobile', codigo), {
+        clienteId, clienteNome: cliente.nome, usado: false,
+        criadoEm: serverTimestamp(),
+        expiraEm: Timestamp.fromMillis(Date.now() + VALIDADE_ATIVACAO_DIAS * 86400000),
+        criadoPor: auth.currentUser?.email || null,
+      });
+      registrarAcao('gerar_ativacao_mobile', { clienteId, codigo });
+      prompt('Código de ativação — copie e envie ao cliente (ele digita no app GerenciaAI PDV):', formatarCodigoAtivacao(codigo));
+    } catch (err) {
+      mostrarErro(err, 'gerar o código de ativação (as regras do Firestore com "ativacoes_mobile" já foram publicadas?)');
+    }
+  }
+
+  async function cancelarAtivacaoMobile(codigo) {
+    if (!confirm(`Cancelar o código ${formatarCodigoAtivacao(codigo)}? Ele deixa de funcionar na hora.`)) return;
+    limparErro();
+    try {
+      await deleteDoc(doc(db, 'ativacoes_mobile', codigo));
+      registrarAcao('cancelar_ativacao_mobile', { codigo });
+    } catch (err) {
+      mostrarErro(err, 'cancelar o código de ativação');
+    }
+  }
+
+  async function excluirDoPainel(id) {
+    const inst = todasInstalacoes.find((i) => i.id === id);
+    if (!inst) return;
+    const nome = inst.nomeNegocio || `${id.slice(0, 8)}...`;
+    if (estaOnline(inst)) {
+      alert(`"${nome}" está online agora -- ela voltaria pra lista sozinha em até 2 minutos.\n\nSe a ideia é tirar essa máquina de uso, congele ou bloqueie em vez de excluir.`);
+      return;
+    }
+    const estado = inst.bloqueioImediato ? 'bloqueada' : (inst.ativo === false ? 'congelada' : null);
+    const avisoEstado = estado ? `\n\nEla continua ${estado} -- excluir do painel não libera a máquina.` : '';
+    const avisoCliente = inst.clienteId ? '\nO vínculo com o cliente é mantido.' : '';
+    if (!confirm(
+      `Excluir "${nome}" do painel?\n\nEla some de todas as telas da Central. Se essa máquina voltar a se conectar algum dia, ` +
+      `ela reaparece aqui sozinha, com um aviso.${avisoCliente}${avisoEstado}\n\nDá pra desfazer em "Excluídas", na barra de busca.`
+    )) return;
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { excluidaEm: serverTimestamp() });
+      registrarAcao('excluir_do_painel', { installationId: id, estado: estado || 'ativa' });
+    } catch (err) {
+      mostrarErro(err, 'excluir a instalação do painel');
+    }
+  }
+
+  async function restaurarNoPainel(id) {
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { excluidaEm: null });
+      registrarAcao('restaurar_no_painel', { installationId: id });
+    } catch (err) {
+      mostrarErro(err, 'restaurar a instalação no painel');
     }
   }
 
@@ -1680,7 +1924,9 @@
 
     div.innerHTML = gruposSincronizacao.map((grupo) => {
       const maquinasDoGrupo = instalacoes.filter((i) => i.grupoSincronizacaoId === grupo.id);
-      const maquinasForaDoGrupo = instalacoes.filter((i) => i.grupoSincronizacaoId !== grupo.id);
+      // Celular autônomo não participa de grupo (estoque/vendas do grupo
+      // são coisa de computador) -- nem aparece pra adicionar.
+      const maquinasForaDoGrupo = instalacoes.filter((i) => i.grupoSincronizacaoId !== grupo.id && !ehPdvMobile(i));
 
       return `
         <div class="card cliente-card" style="margin-bottom: 14px;">
@@ -1773,8 +2019,58 @@
     const div = document.getElementById('backups-config-extra');
     const inst = instalacoes.find((i) => i.id === id);
     if (!inst) { div.innerHTML = ''; return; }
+    if (ehPdvMobile(inst)) {
+      renderConfigBackupMobile(div, inst);
+      return;
+    }
     const pastaOk = !!inst.backupPastaSecundariaConfigurada;
     div.innerHTML = `Pasta secundária: <strong>${pastaOk ? 'configurada' : 'não configurada'}</strong>`;
+  }
+
+  // PDV mobile autônomo: a frequência e o tempo de guarda do backup na
+  // nuvem são programados AQUI e o celular aplica sozinho (escuta o
+  // documento da instalação). Limites iguais aos do app (1–24 h, 1–30 dias).
+  const FREQUENCIAS_BACKUP_MOBILE = [1, 2, 3, 4, 6, 8, 12, 24];
+  function renderConfigBackupMobile(div, inst) {
+    const freq = inst.backupFrequenciaHoras || 1;
+    const ret = inst.backupRetencaoDias || 30;
+    const ultimo = inst.ultimoBackupNuvemEm ? formatarData(inst.ultimoBackupNuvemEm) : 'nenhum ainda';
+    div.innerHTML = `
+      <div class="backup-mobile-config">
+        <span class="status-pill status-pdv-mobile">${icon('celular', 12)} PDV mobile autônomo</span>
+        <label>Backup automático a cada
+          <select id="backup-mobile-freq">${FREQUENCIAS_BACKUP_MOBILE.map((h) => `<option value="${h}" ${h === freq ? 'selected' : ''}>${h} h</option>`).join('')}</select>
+        </label>
+        <label>Guardar por
+          <input id="backup-mobile-ret" type="number" min="1" max="30" step="1" value="${ret}" style="max-width:70px;"> dias
+        </label>
+        <button class="btn-primary btn-small" id="backup-mobile-salvar">Salvar</button>
+        <div class="cliente-resumo" style="width:100%;">
+          ${inst.migradoPara ? `<strong>Migrado para ${escapeHtml(inst.migradoParaNome || 'computador')} em ${formatarData(inst.migradoEm)}</strong> — os backups deste celular continuam guardados por até 30 dias.<br>` : ''}
+          Último backup: ${ultimo}${inst.ultimoBackupNuvemOk === false ? ` — <span style="color:var(--danger)">falhou: ${escapeHtml(inst.ultimoBackupNuvemErro || '')}</span>` : ''}.
+          Guarda tudo das últimas 48 h e, depois disso, um por dia até o limite. Só envia quando algo mudou no celular.
+        </div>
+      </div>`;
+    document.getElementById('backup-mobile-salvar').addEventListener('click', async () => {
+      const novaFreq = Number(document.getElementById('backup-mobile-freq').value);
+      const novaRet = Math.round(Number(document.getElementById('backup-mobile-ret').value));
+      if (!FREQUENCIAS_BACKUP_MOBILE.includes(novaFreq) || !(novaRet >= 1 && novaRet <= 30)) {
+        alert('Frequência entre 1 e 24 h e guarda entre 1 e 30 dias.');
+        return;
+      }
+      limparErro();
+      try {
+        await updateDoc(doc(db, 'installations', inst.id), { backupFrequenciaHoras: novaFreq, backupRetencaoDias: novaRet });
+        registrarAcao('backup_mobile_config', { installationId: inst.id, backupFrequenciaHoras: novaFreq, backupRetencaoDias: novaRet });
+      } catch (err) {
+        mostrarErro(err, 'salvar a programação de backup');
+      }
+    });
+  }
+
+  function formatarTamanho(bytes) {
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
 
   document.getElementById('backups-select-maquina').addEventListener('change', () => {
@@ -1821,7 +2117,7 @@
     div.innerHTML = backups.map((b) => `
       <div class="maquina-row">
         <span>${escapeHtml(b.nomeArquivo || '')}</span>
-        <span class="maquina-meta">${b.tamanhoBytes ? (b.tamanhoBytes / 1024 / 1024).toFixed(1) + ' MB · ' : ''}${formatarData(b.criadoEm)}</span>
+        <span class="maquina-meta">${b.tamanhoBytes ? formatarTamanho(b.tamanhoBytes) + ' · ' : ''}${b.motivo === 'pre_restauracao' ? 'antes de restaurar · ' : ''}${formatarData(b.criadoEm)}</span>
         <div class="maquina-acoes">
           <button class="btn-danger btn-small" data-restaurar-backup="${escapeHtml(b.nomeArquivo || '')}">Restaurar</button>
         </div>
@@ -2532,7 +2828,13 @@
     const filtro = buscaInput.value.trim().toLowerCase();
     const somenteOnline = filtroSomenteOnlineInput.checked;
 
-    let instalacoesFiltradas = !filtro ? instalacoes : instalacoes.filter((i) => {
+    const qtdExcluidas = todasInstalacoes.length - instalacoes.length;
+    if (qtdExcluidas === 0) filtroMostrarExcluidasInput.checked = false; // restaurou a última: volta ao normal
+    filtroExcluidasLabel.style.display = qtdExcluidas > 0 ? '' : 'none';
+    filtroExcluidasTexto.textContent = `Excluídas (${qtdExcluidas})`;
+    const base = filtroMostrarExcluidasInput.checked ? todasInstalacoes : instalacoes;
+
+    let instalacoesFiltradas = !filtro ? base : base.filter((i) => {
       const cliente = clientes.find((c) => c.id === i.clienteId);
       return (
         (i.nomeNegocio || '').toLowerCase().includes(filtro) ||
@@ -2695,6 +2997,7 @@
               PDV móvel
             </label>
           </div>
+          ${renderAtivacoesDoCliente(cliente)}
           ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
         </div>
       </div>
@@ -2721,9 +3024,431 @@
     `;
   }
 
+  // Celular PDV mobile cujos dados já foram levados pra um computador
+  // (Configurações → Celular → "Trazer dados de um PDV mobile", no
+  // GerenciaAI do computador, grava migradoPara/migradoEm aqui). O cliente,
+  // a cobrança e os bloqueios continuam pelo cliente -- nada muda de dono.
+  function renderSeloMigracao(inst) {
+    if (!inst.migradoPara) return '';
+    const destino = todasInstalacoes.find((i) => i.id === inst.migradoPara);
+    const nome = destino?.nomeNegocio || inst.migradoParaNome || 'computador';
+    return `<span class="status-pill status-migrado" title="Dados levados para o computador ${escapeHtml(nome)} em ${formatarData(inst.migradoEm)}. Backups do celular guardados por 30 dias.">${icon('archive', 12)} Migrado p/ ${escapeHtml(nome)} · ${formatarData(inst.migradoEm)}</span>`;
+  }
+
+  // PDV mobile que virou TERMINAL do computador pro qual foi migrado: o
+  // celular segue vendendo offline e manda as vendas pro computador, que
+  // passa a mandar nos produtos/preços/estoque (ver mobile/src/services/terminal.js
+  // e electron/services/pdvMobileTerminalService.js).
+  const ehTerminal = (inst) => inst?.modoOperacao === 'terminal' && !!inst.servidorInstallId;
+  function nomeDoComputador(inst) {
+    const id = inst.servidorInstallId || inst.migradoPara;
+    const destino = todasInstalacoes.find((i) => i.id === id);
+    return destino?.nomeNegocio || inst.servidorNome || inst.migradoParaNome || 'computador';
+  }
+  function renderSeloModoMobile(inst) {
+    if (!ehPdvMobile(inst)) return '';
+    if (!ehTerminal(inst)) {
+      return `<span class="status-pill status-pdv-mobile" title="Celular vendendo sozinho, sem computador (app GerenciaAI PDV)">${icon('celular', 12)} PDV mobile autônomo</span>`;
+    }
+    const pend = Number(inst.terminalPendentes) || 0;
+    const erros = Number(inst.terminalErros) || 0;
+    return `<span class="status-pill status-terminal" title="Vende offline e manda as vendas para o computador ${escapeHtml(nomeDoComputador(inst))}. Produtos, preços e estoque vêm de lá.">${icon('celular', 12)} Terminal de ${escapeHtml(nomeDoComputador(inst))}${pend ? ` · ${pend} a enviar` : ''}</span>`
+      + (erros ? `<span class="badge-warning" title="Registros que o computador recusou -- veja em Configurações → Migrar PDV mobile, no computador">${icon('warning', 12)} ${erros} recusado(s)</span>` : '');
+  }
+  function renderBotaoModoMobile(inst) {
+    if (!ehPdvMobile(inst) || !inst.migradoPara) return '';
+    return ehTerminal(inst)
+      ? `<button class="btn-secondary btn-small" data-autonomo="${inst.id}" title="O celular volta a cuidar dos próprios produtos e para de mandar vendas pro computador">Voltar a autônomo</button>`
+      : `<button class="btn-secondary btn-small" data-usar-terminal="${inst.id}" title="O celular continua vendendo (offline também) e manda as vendas pro computador ${escapeHtml(nomeDoComputador(inst))}">Usar como terminal</button>`;
+  }
+
+  async function usarComoTerminal(id) {
+    const inst = todasInstalacoes.find((i) => i.id === id);
+    if (!inst?.migradoPara) return;
+    const nome = inst.nomeNegocio || `${id.slice(0, 8)}...`;
+    const destino = todasInstalacoes.find((i) => i.id === inst.migradoPara);
+    const nomePc = nomeDoComputador(inst);
+    if (destino && estaExcluidaDoPainel(destino)) {
+      alert(`O computador "${nomePc}" está excluído do painel. Restaure-o antes (ou migre o celular para outro computador).`);
+      return;
+    }
+    if (!confirm(
+      `Usar "${nome}" como terminal do computador "${nomePc}"?\n\n`
+      + '• O celular continua vendendo, com ou sem internet, no caixa dele.\n'
+      + '• Vendas, cancelamentos, fiado recebido e clientes vão para o computador quando houver internet — inclusive o que foi feito no celular depois da migração.\n'
+      + '• Produtos, preços e estoque passam a vir do computador; no celular esse cadastro fica travado.\n'
+      + '• NFC-e: o computador pode emitir para as vendas que chegarem (opção no computador).\n\n'
+      + 'O GerenciaAI precisa estar aberto no computador para receber.',
+    )) return;
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), {
+        modoOperacao: 'terminal', servidorInstallId: inst.migradoPara, servidorNome: nomePc, terminalDesde: serverTimestamp(),
+      });
+      registrarAcao('pdv_mobile_usar_como_terminal', { installationId: id, servidorInstallId: inst.migradoPara });
+    } catch (err) {
+      mostrarErro(err, 'transformar o celular em terminal');
+    }
+  }
+
+  async function voltarAutonomo(id) {
+    const inst = todasInstalacoes.find((i) => i.id === id);
+    if (!inst) return;
+    const nome = inst.nomeNegocio || `${id.slice(0, 8)}...`;
+    const pend = Number(inst.terminalPendentes) || 0;
+    if (pend > 0) {
+      alert(
+        `Ainda não dá: "${nome}" tem ${pend} registro(s) que não chegaram ao computador.\n\n`
+        + 'Abra o app no celular com internet e o GerenciaAI no computador. Quando zerar, tente de novo — assim nenhuma venda fica só no celular.',
+      );
+      return;
+    }
+    const erros = Number(inst.terminalErros) || 0;
+    if (!confirm(
+      `Voltar "${nome}" a PDV mobile autônomo?\n\n`
+      + '• O celular volta a cuidar dos próprios produtos, preços e estoque (a partir do último catálogo que recebeu do computador).\n'
+      + '• As vendas novas param de ir para o computador.\n'
+      + `• Último relato do celular: ${formatarData(inst.terminalRelatoEm)} (sem nada pendente).`
+      + (erros ? `\n\nAtenção: ${erros} registro(s) foram recusados pelo computador e não serão reenviados.` : ''),
+    )) return;
+    limparErro();
+    try {
+      // servidorInstallId fica: se algo ainda estiver na fila do celular
+      // (ficou offline depois do último relato), o computador recebe.
+      await updateDoc(doc(db, 'installations', id), { modoOperacao: 'autonomo', terminalAte: serverTimestamp() });
+      registrarAcao('pdv_mobile_voltar_autonomo', { installationId: id, servidorInstallId: inst.servidorInstallId || null });
+    } catch (err) {
+      mostrarErro(err, 'voltar o celular a autônomo');
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Atualização baixada esperando instalar -- e o controle da Central
+  // pra SEGURAR (não deixar instalar) ou LIBERAR. A máquina continua
+  // baixando; quem decide se instala ao fechar é o pedido abaixo
+  // (electron/services/updateService.js, "Segurar/liberar instalação").
+  //   Central grava:  atualizacaoSegurada, atualizacaoSeguradaVersao ('1.0.3' | '*'), atualizacaoSeguradaMotivo
+  //   Máquina grava:  atualizacaoBaixado, atualizacaoVersaoAlvo, atualizacaoBaixadaEm,
+  //                   atualizacaoRetida (confirma que está segurando), atualizacaoRetencaoIgnorada ('obrigatoria')
+  // ------------------------------------------------------------------
+  const TODAS_AS_VERSOES = '*';
+  function pedidoDeSegurarCobre(inst) {
+    if (!inst.atualizacaoSegurada || !inst.atualizacaoSeguradaVersao) return false;
+    return inst.atualizacaoSeguradaVersao === TODAS_AS_VERSOES
+      || (!!inst.atualizacaoVersaoAlvo && inst.atualizacaoSeguradaVersao === inst.atualizacaoVersaoAlvo);
+  }
+  function textoDoPedido(inst) {
+    return inst.atualizacaoSeguradaVersao === TODAS_AS_VERSOES ? 'todas as versões, até liberar' : `versão ${inst.atualizacaoSeguradaVersao}`;
+  }
+  function situacaoAtualizacao(inst) {
+    const baixada = !!inst.atualizacaoBaixado && !!inst.atualizacaoVersaoAlvo;
+    if (inst.atualizacaoSegurada) {
+      if (inst.atualizacaoRetencaoIgnorada === 'obrigatoria' && pedidoDeSegurarCobre(inst)) return 'ignorada';
+      // "Segurada" só depois que a máquina confirmou ESTE pedido (não um anterior).
+      if (pedidoDeSegurarCobre(inst)) return inst.atualizacaoRetida && inst.atualizacaoRetidaVersao === inst.atualizacaoSeguradaVersao ? 'segurada' : 'segurando';
+      // Pedido era pra outra versão (ex.: segurou a 1.0.3 e já baixou a 1.0.4).
+      return baixada ? 'baixada_pedido_antigo' : 'pedido_sem_download';
+    }
+    return baixada ? 'baixada' : null;
+  }
+  function renderBlocoAtualizacao(inst) {
+    if (estaExcluidaDoPainel(inst)) return '';
+    const sit = situacaoAtualizacao(inst);
+    if (!sit) return '';
+    const versao = escapeHtml(inst.atualizacaoVersaoAlvo || '');
+    const quando = inst.atualizacaoBaixadaEm ? ` em ${formatarData(inst.atualizacaoBaixadaEm)}` : '';
+    const motivo = inst.atualizacaoSeguradaMotivo ? ` · <em>${escapeHtml(inst.atualizacaoSeguradaMotivo)}</em>` : '';
+    const btnSegurar = `<button class="btn-secondary btn-small" data-segurar-atualizacao="${inst.id}">${icon('pause', 13)} Segurar instalação</button>`;
+    const btnLiberar = `<button class="btn-primary btn-small" data-liberar-atualizacao="${inst.id}">Liberar instalação</button>`;
+    const atual = inst.versaoApp ? `v${escapeHtml(inst.versaoApp)} → ` : '';
+    if (sit === 'baixada') {
+      return `<div class="atualiz-pendente">${icon('download', 15)}
+        <span>${atual}<strong>v${versao}</strong> baixada${quando} — instala quando o app fechar (fim do expediente, reinício do Windows) ou se alguém clicar em "Instalar agora" na máquina.</span>
+        <span class="atualiz-acoes">${btnSegurar}</span></div>`;
+    }
+    if (sit === 'segurada') {
+      return `<div class="atualiz-pendente segurada">${icon('pause', 15)}
+        <span>${inst.atualizacaoBaixado
+          ? `${atual}<strong>v${versao}</strong> baixada e segurada pela Central (${textoDoPedido(inst)})`
+          : `<strong>Instalações seguradas</strong> pela Central (${textoDoPedido(inst)})`}${motivo}. A máquina confirmou: não instala até liberar.</span>
+        <span class="atualiz-acoes">${btnLiberar}</span></div>`;
+    }
+    if (sit === 'segurando') {
+      return `<div class="atualiz-pendente segurada">${icon('clock', 15)}
+        <span><strong>Pedido de segurar enviado</strong> (${textoDoPedido(inst)})${motivo} — esperando a máquina confirmar. Se ela fechar antes de receber (sem internet), pode instalar.</span>
+        <span class="atualiz-acoes">${btnLiberar}</span></div>`;
+    }
+    if (sit === 'ignorada') {
+      return `<div class="atualiz-pendente aviso">${icon('warning', 15)}
+        <span><strong>v${versao}</strong>: o pedido de segurar está sendo ignorado — a máquina está sob atualização obrigatória (que exige essa versão). Desative a obrigatória ou isente a máquina em "Testar versão".</span>
+        <span class="atualiz-acoes"><button class="btn-secondary btn-small" data-liberar-atualizacao="${inst.id}">Remover pedido</button></span></div>`;
+    }
+    if (sit === 'baixada_pedido_antigo') {
+      return `<div class="atualiz-pendente">${icon('download', 15)}
+        <span>${atual}<strong>v${versao}</strong> baixada${quando} — instala quando o app fechar. (O pedido de segurar era só pra v${escapeHtml(inst.atualizacaoSeguradaVersao)}.)</span>
+        <span class="atualiz-acoes">${btnSegurar}<button class="btn-secondary btn-small" data-liberar-atualizacao="${inst.id}">Remover pedido antigo</button></span></div>`;
+    }
+    return `<div class="atualiz-pendente segurada">${icon('pause', 15)}
+      <span>Segurando a <strong>v${escapeHtml(inst.atualizacaoSeguradaVersao)}</strong>${motivo} — essa versão não está baixada nesta máquina.</span>
+      <span class="atualiz-acoes">${btnLiberar}</span></div>`;
+  }
+
+  /** Atualização obrigatória que exige uma versão nesta máquina vence o pedido de segurar -- avisa antes. */
+  async function conflitoComObrigatoria(inst, versaoSegurada) {
+    let minima = null;
+    let origem = null;
+    if (inst.overrideAtivo) {
+      minima = inst.versaoMinimaOverride || null;
+      origem = 'o "Testar versão" desta máquina';
+    } else {
+      try {
+        const cfg = await getDoc(doc(db, 'config', 'atualizacao'));
+        if (cfg.exists() && cfg.data().obrigatoria && cfg.data().versaoMinimaExigida) {
+          minima = cfg.data().versaoMinimaExigida;
+          origem = 'a atualização obrigatória publicada para todos';
+        }
+      } catch { /* sem leitura: segue sem o aviso */ }
+    }
+    if (!minima || !inst.versaoApp || !versaoMenor(inst.versaoApp, minima)) return null;
+    if (versaoSegurada !== TODAS_AS_VERSOES && versaoMenor(versaoSegurada, minima)) return null;
+    return `Esta máquina (v${inst.versaoApp}) está obrigada a atualizar para a v${minima} por ${origem}. A obrigatória vence: ` +
+      `o pedido de segurar seria ignorado (senão a máquina ficaria travada na tela de atualização). ` +
+      `Desative a obrigatória ou isente esta máquina em "Testar versão" antes.`;
+  }
+  function versaoMenor(a, b) {
+    const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      if ((pa[i] || 0) < (pb[i] || 0)) return true;
+      if ((pa[i] || 0) > (pb[i] || 0)) return false;
+    }
+    return false;
+  }
+
+  const segurarModal = document.getElementById('segurar-atualizacao-modal');
+  let segurarAlvo = null; // { ids: [...], versao }
+  function abrirSegurarAtualizacao(ids, versao) {
+    const lista = (Array.isArray(ids) ? ids : [ids]).map((id) => todasInstalacoes.find((i) => i.id === id) || atualizInstalacoes.get(id)).filter(Boolean);
+    if (!lista.length) return;
+    segurarAlvo = { ids: lista.map((i) => i.id), versao: versao || null };
+    const nomes = lista.length === 1 ? `"${lista[0].nomeNegocio || lista[0].id.slice(0, 8)}"` : `${lista.length} máquinas`;
+    document.getElementById('segurar-atualizacao-sub').textContent = versao
+      ? `A versão ${versao} já está baixada em ${nomes}. Segurando, ela não instala quando o app fechar — o cliente continua usando a versão atual normalmente.`
+      : `Nada instala em ${nomes} enquanto estiver segurado.`;
+    const radioVersao = segurarModal.querySelector('input[value="versao"]');
+    radioVersao.disabled = !versao;
+    document.getElementById('segurar-opcao-versao-label').style.opacity = versao ? '1' : '0.5';
+    document.getElementById('segurar-opcao-versao-texto').textContent = versao ? `Só a versão ${versao}` : 'Só esta versão (nenhuma baixada)';
+    segurarModal.querySelector(versao ? 'input[value="versao"]' : 'input[value="todas"]').checked = true;
+    document.getElementById('segurar-atualizacao-motivo').value = '';
+    const erro = document.getElementById('segurar-atualizacao-erro');
+    erro.style.display = 'none';
+    segurarModal.style.display = 'flex';
+  }
+  document.getElementById('segurar-atualizacao-cancelar').addEventListener('click', () => { segurarModal.style.display = 'none'; });
+  document.getElementById('segurar-atualizacao-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!segurarAlvo) return;
+    const escopo = segurarModal.querySelector('input[name="segurar-escopo"]:checked')?.value;
+    const versao = escopo === 'versao' && segurarAlvo.versao ? segurarAlvo.versao : TODAS_AS_VERSOES;
+    const motivo = document.getElementById('segurar-atualizacao-motivo').value.trim() || null;
+    const erro = document.getElementById('segurar-atualizacao-erro');
+    const botao = document.getElementById('segurar-atualizacao-confirmar');
+    botao.disabled = true;
+    try {
+      const conflitos = [];
+      for (const id of segurarAlvo.ids) {
+        const inst = todasInstalacoes.find((i) => i.id === id) || atualizInstalacoes.get(id);
+        const c = inst && await conflitoComObrigatoria(inst, versao);
+        if (c) conflitos.push(segurarAlvo.ids.length === 1 ? c : `${inst.nomeNegocio || id.slice(0, 8)}: ${c}`);
+      }
+      if (conflitos.length) {
+        erro.textContent = conflitos.slice(0, 3).join(' ');
+        erro.style.display = 'block';
+        return;
+      }
+      const lote = writeBatch(db);
+      for (const id of segurarAlvo.ids) {
+        lote.update(doc(db, 'installations', id), {
+          atualizacaoSegurada: true, atualizacaoSeguradaVersao: versao, atualizacaoSeguradaMotivo: motivo, atualizacaoSeguradaEm: serverTimestamp(),
+        });
+      }
+      await lote.commit();
+      registrarAcao('segurar_instalacao_atualizacao', { installationIds: segurarAlvo.ids, versao, motivo });
+      segurarModal.style.display = 'none';
+    } catch (err) {
+      erro.textContent = `Não consegui salvar: ${err.message}`;
+      erro.style.display = 'block';
+    } finally {
+      botao.disabled = false;
+    }
+  });
+
+  async function liberarAtualizacao(ids) {
+    const lista = (Array.isArray(ids) ? ids : [ids]).map((id) => todasInstalacoes.find((i) => i.id === id) || atualizInstalacoes.get(id)).filter(Boolean);
+    if (!lista.length) return;
+    const alvo = lista.length === 1 ? `"${lista[0].nomeNegocio || lista[0].id.slice(0, 8)}"` : `${lista.length} máquinas`;
+    const baixadas = lista.filter((i) => i.atualizacaoBaixado && i.atualizacaoVersaoAlvo);
+    if (!confirm(
+      `Liberar a instalação em ${alvo}?\n\n` +
+      (baixadas.length
+        ? `${baixadas.length === 1 ? `A v${baixadas[0].atualizacaoVersaoAlvo}` : 'A versão baixada'} instala na próxima vez que o app fechar (ou se alguém clicar em "Instalar agora" na máquina) — nunca no meio de uma venda.`
+        : 'A próxima atualização baixada instala normalmente quando o app fechar.'),
+    )) return;
+    limparErro();
+    try {
+      const lote = writeBatch(db);
+      for (const i of lista) {
+        lote.update(doc(db, 'installations', i.id), {
+          atualizacaoSegurada: false, atualizacaoSeguradaVersao: null, atualizacaoSeguradaMotivo: null, atualizacaoLiberadaEm: serverTimestamp(),
+        });
+      }
+      await lote.commit();
+      registrarAcao('liberar_instalacao_atualizacao', { installationIds: lista.map((i) => i.id) });
+    } catch (err) {
+      mostrarErro(err, 'liberar a instalação da atualização');
+    }
+  }
+
+  // Cliques (lista do Painel e lista da tela Atualização usam os mesmos atributos).
+  document.addEventListener('click', (e) => {
+    const seg = e.target.closest('[data-segurar-atualizacao]');
+    if (seg) {
+      e.stopPropagation();
+      const inst = todasInstalacoes.find((i) => i.id === seg.dataset.segurarAtualizacao) || atualizInstalacoes.get(seg.dataset.segurarAtualizacao);
+      abrirSegurarAtualizacao(seg.dataset.segurarAtualizacao, inst?.atualizacaoBaixado ? inst.atualizacaoVersaoAlvo : null);
+      return;
+    }
+    const lib = e.target.closest('[data-liberar-atualizacao]');
+    if (lib) { e.stopPropagation(); liberarAtualizacao(lib.dataset.liberarAtualizacao); return; }
+    const segGrupo = e.target.closest('[data-segurar-grupo]');
+    if (segGrupo) {
+      e.stopPropagation();
+      const versao = segGrupo.dataset.segurarGrupo;
+      const ids = [...atualizInstalacoes.values()].filter((i) => i.atualizacaoVersaoAlvo === versao && i.atualizacaoBaixado && !pedidoDeSegurarCobre(i)).map((i) => i.id);
+      abrirSegurarAtualizacao(ids, versao);
+      return;
+    }
+    const libGrupo = e.target.closest('[data-liberar-grupo]');
+    if (libGrupo) {
+      e.stopPropagation();
+      const chave = libGrupo.dataset.liberarGrupo;
+      liberarAtualizacao([...atualizInstalacoes.values()].filter((i) => chaveGrupoAtualizacao(i) === chave && i.atualizacaoSegurada).map((i) => i.id));
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Tela Atualização: tudo o que está baixado esperando instalar (ou
+  // segurado), agrupado por versão -- pra segurar/liberar uma versão em
+  // todas as máquinas de uma vez.
+  // ------------------------------------------------------------------
+  const atualizInstalacoes = new Map();
+  function chaveGrupoAtualizacao(i) {
+    if (i.atualizacaoBaixado && i.atualizacaoVersaoAlvo) return i.atualizacaoVersaoAlvo;
+    return i.atualizacaoSegurada ? `segurada:${i.atualizacaoSeguradaVersao}` : '';
+  }
+  const pendBaixadas = new Map();
+  const pendSeguradas = new Map();
+  function escutarPendentesDeInstalacao() {
+    // Duas consultas simples (igualdade num campo só, sem índice
+    // composto): baixadas esperando instalar + com pedido de segurar.
+    const aoMudar = (mapa) => (snap) => {
+      mapa.clear();
+      for (const d of snap.docs) mapa.set(d.id, { id: d.id, ...d.data({ serverTimestamps: 'estimate' }) });
+      atualizInstalacoes.clear();
+      for (const m of [pendBaixadas, pendSeguradas]) for (const [id, i] of m) atualizInstalacoes.set(id, i);
+      renderPendentesDeInstalacao();
+    };
+    onSnapshot(query(collection(db, 'installations'), where('atualizacaoBaixado', '==', true)), aoMudar(pendBaixadas),
+      (err) => mostrarErro(err, 'carregar as atualizações baixadas'));
+    onSnapshot(query(collection(db, 'installations'), where('atualizacaoSegurada', '==', true)), aoMudar(pendSeguradas),
+      (err) => mostrarErro(err, 'carregar as instalações seguradas'));
+  }
+  function renderPendentesDeInstalacao() {
+    const div = document.getElementById('atualizacao-pendentes-lista');
+    if (!div) return;
+    const lista = [...atualizInstalacoes.values()].filter((i) => !estaExcluidaDoPainel(i));
+    if (lista.length === 0) {
+      div.innerHTML = '<p class="cliente-resumo">Nenhuma máquina com atualização baixada esperando instalar, e nenhuma instalação segurada.</p>';
+      return;
+    }
+    const grupos = new Map();
+    for (const i of lista) {
+      const k = chaveGrupoAtualizacao(i);
+      if (!grupos.has(k)) grupos.set(k, []);
+      grupos.get(k).push(i);
+    }
+    const chaves = [...grupos.keys()].sort((a, b) => (a.startsWith('segurada:') ? 1 : 0) - (b.startsWith('segurada:') ? 1 : 0) || (versaoMenor(a, b) ? 1 : -1));
+    div.innerHTML = chaves.map((k) => {
+      const maquinas = grupos.get(k).sort((a, b) => (a.nomeNegocio || '').localeCompare(b.nomeNegocio || ''));
+      const ehVersao = !k.startsWith('segurada:');
+      const naoSeguradas = maquinas.filter((i) => !pedidoDeSegurarCobre(i)).length;
+      const seguradas = maquinas.filter((i) => i.atualizacaoSegurada).length;
+      const titulo = ehVersao ? `Versão ${escapeHtml(k)}` : (k === `segurada:${TODAS_AS_VERSOES}` ? 'Seguradas até liberar (todas as versões)' : `Segurando a ${escapeHtml(k.slice(9))} (ainda não baixada)`);
+      return `
+        <div class="grupo-versao">
+          <div class="grupo-versao-topo">
+            <h3>${titulo}</h3>
+            <span class="cliente-resumo">${maquinas.length} máquina(s)${ehVersao ? ` · ${naoSeguradas} vão instalar ao fechar · ${maquinas.length - naoSeguradas} seguradas` : ''}</span>
+            <span class="atualiz-acoes">
+              ${ehVersao && naoSeguradas ? `<button class="btn-secondary btn-small" data-segurar-grupo="${escapeHtml(k)}">${icon('pause', 13)} Segurar em ${naoSeguradas === maquinas.length ? 'todas' : `${naoSeguradas}`}</button>` : ''}
+              ${seguradas ? `<button class="btn-primary btn-small" data-liberar-grupo="${escapeHtml(k)}">Liberar ${seguradas === 1 ? 'a segurada' : `as ${seguradas} seguradas`}</button>` : ''}
+            </span>
+          </div>
+          <table class="tabela-atualiz">
+            <thead><tr><th>Máquina</th><th>Versão atual</th><th>Baixada em</th><th>Situação</th><th></th></tr></thead>
+            <tbody>
+              ${maquinas.map((i) => {
+                const sit = situacaoAtualizacao(i);
+                const online = estaOnline(i);
+                const textoSit = {
+                  baixada: 'Instala quando o app fechar',
+                  segurada: `<span class="status-pill status-segurada">${icon('pause', 12)} Segurada</span>${i.atualizacaoSeguradaMotivo ? ` <span class="cliente-resumo">${escapeHtml(i.atualizacaoSeguradaMotivo)}</span>` : ''}`,
+                  segurando: `<span class="status-pill status-segurada">${icon('clock', 12)} Pedido enviado</span> <span class="cliente-resumo">esperando a máquina${online ? '' : ' (offline)'}</span>`,
+                  ignorada: `<span class="badge-warning">${icon('warning', 12)} Ignorado: atualização obrigatória</span>`,
+                  baixada_pedido_antigo: 'Instala quando o app fechar (pedido antigo era pra outra versão)',
+                  pedido_sem_download: `<span class="status-pill status-segurada">${icon('pause', 12)} Segurada</span>`,
+                }[sit] || '—';
+                const acao = i.atualizacaoSegurada
+                  ? `<button class="btn-secondary btn-small" data-liberar-atualizacao="${i.id}">Liberar</button>`
+                  : `<button class="btn-secondary btn-small" data-segurar-atualizacao="${i.id}">Segurar</button>`;
+                return `<tr>
+                  <td><span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" style="display:inline-block;width:9px;height:9px;margin-right:6px;" title="${online ? 'Online agora' : 'Offline'}"></span><strong>${escapeHtml(i.nomeNegocio || `${i.id.slice(0, 8)}...`)}</strong></td>
+                  <td>v${escapeHtml(i.versaoApp || '—')}</td>
+                  <td>${i.atualizacaoBaixado ? formatarData(i.atualizacaoBaixadaEm) : '—'}</td>
+                  <td>${textoSit}</td>
+                  <td style="text-align:right;">${acao}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }).join('');
+  }
+
   function renderMaquinaRow(inst, temCliente) {
     const status = statusDaInstalacao(inst);
     const online = estaOnline(inst);
+    const excluida = estaExcluidaDoPainel(inst);
+    if (excluida) {
+      // Só aparece com "Excluídas" marcado: linha enxuta, sem as ações de
+      // licença (a máquina está fora do painel), só pra restaurar.
+      return `
+      <div class="maquina-row maquina-excluida">
+        <span class="maquina-online-status">
+          <span class="online-dot online-dot-off" title="Offline"></span>
+          <span class="maquina-online-texto maquina-online-texto-off">Offline</span>
+        </span>
+        <span class="maquina-nome-excluida">${escapeHtml(inst.nomeNegocio || `${inst.id.slice(0, 8)}...`)}</span>
+        <span class="status-pill ${status.classe}">${status.texto}</span>
+        ${ehPdvMobile(inst) ? `<span class="status-pill status-pdv-mobile">${icon('celular', 12)} PDV mobile</span>` : ''}
+        <span class="maquina-meta">Excluída em ${formatarData(inst.excluidaEm)} · v${inst.versaoApp || '—'} · último contato: ${formatarData(inst.ultimoContato)}</span>
+        <div class="maquina-acoes">
+          <button class="btn-secondary btn-small" data-restaurar="${inst.id}">Restaurar</button>
+        </div>
+      </div>
+    `;
+    }
     return `
       <div class="maquina-row">
         <span class="maquina-online-status">
@@ -2733,9 +3458,13 @@
         <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
           placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
         <span class="status-pill ${status.classe}">${status.texto}</span>
+        ${renderSeloModoMobile(inst)}
+        ${renderSeloMigracao(inst)}
         ${inst.conflitosCodigoBarrasPendentes > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${inst.conflitosCodigoBarrasPendentes} conflito(s)</span>` : ''}
+        ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${inst.id}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
         <span class="maquina-meta">v${inst.versaoApp || '—'} · último contato: ${formatarData(inst.ultimoContato)}</span>
         <div class="maquina-acoes">
+          ${renderBotaoModoMobile(inst)}
           ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${inst.id}">Desvincular</button>`
                         : `<button class="btn-secondary btn-small" data-vincular="${inst.id}">Vincular a cliente</button>`}
           <button class="btn-secondary btn-small" data-congelar="${inst.id}" data-ativo="${inst.ativo}">
@@ -2749,17 +3478,18 @@
             title="Exigir/isentar uma versão de atualização só nessa máquina">
             ${inst.overrideAtivo ? `Override: ${inst.versaoMinimaOverride || 'isenta'}` : 'Testar versão'}
           </button>
+          <button class="btn-excluir btn-small" data-excluir="${inst.id}"
+            title="${online ? 'Online agora — congele ou bloqueie em vez de excluir' : 'Tirar essa máquina do painel (o congelamento/bloqueio continua valendo)'}">
+            Excluir
+          </button>
         </div>
         ${inst.atualizacaoBaixando ? `
           <div class="maquina-progress-wrap">
             <div class="maquina-progress-bar"><div class="maquina-progress-fill" style="width:${inst.atualizacaoProgresso || 0}%"></div></div>
-            <div class="maquina-progress-texto">Atualizando para ${inst.atualizacaoVersaoAlvo || '—'}... ${inst.atualizacaoProgresso || 0}%</div>
-          </div>
-        ` : inst.atualizacaoBaixado ? `
-          <div class="maquina-progress-wrap">
-            <div class="maquina-progress-texto">${icon('check', 13)} Atualização baixada, aguardando reiniciar no cliente.</div>
+            <div class="maquina-progress-texto">Baixando a versão ${inst.atualizacaoVersaoAlvo || '—'}... ${inst.atualizacaoProgresso || 0}%${pedidoDeSegurarCobre(inst) ? ' — instalação segurada, não instala ao terminar' : ''}</div>
           </div>
         ` : ''}
+        ${renderBlocoAtualizacao(inst)}
       </div>
     `;
   }
@@ -2776,6 +3506,30 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         alternarCongelamento(btn.dataset.congelar, btn.dataset.ativo === 'true');
+      });
+    });
+    listaClientes.querySelectorAll('[data-gerar-ativacao]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); gerarAtivacaoMobile(btn.dataset.gerarAtivacao); });
+    });
+    listaClientes.querySelectorAll('[data-cancelar-ativacao]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); cancelarAtivacaoMobile(btn.dataset.cancelarAtivacao); });
+    });
+    listaClientes.querySelectorAll('[data-usar-terminal]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); usarComoTerminal(btn.dataset.usarTerminal); });
+    });
+    listaClientes.querySelectorAll('[data-autonomo]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); voltarAutonomo(btn.dataset.autonomo); });
+    });
+    listaClientes.querySelectorAll('[data-excluir]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        excluirDoPainel(btn.dataset.excluir);
+      });
+    });
+    listaClientes.querySelectorAll('[data-restaurar], [data-manter]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        restaurarNoPainel(btn.dataset.restaurar || btn.dataset.manter);
       });
     });
     listaClientes.querySelectorAll('[data-bloquear]').forEach((btn) => {
@@ -2880,6 +3634,7 @@
 
   buscaInput.addEventListener('input', render);
   filtroSomenteOnlineInput.addEventListener('change', render);
+  filtroMostrarExcluidasInput.addEventListener('change', render);
 </script>
 </body>
 </html>

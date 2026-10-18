@@ -117,6 +117,13 @@ function aplicarDadosDoServidor(dados) {
     console.error('[licenseService] aplicarOverrideDaInstalacao falhou:', err);
   }
 
+  // Instalação de atualização segurada/liberada pela Central -- mesmo documento.
+  try {
+    require('./updateService').aplicarControleDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarControleDaInstalacao falhou:', err);
+  }
+
   // Pedido de restauração remota de backup (ver backupService) --
   // fire-and-forget de propósito: se existir um pedido pendente, isso
   // reinicia o app sozinho no final, então não tem "resultado síncrono"

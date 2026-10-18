@@ -5,6 +5,8 @@ import { ProfileManager } from './ProfileManager';
 import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
 import Icon from '../common/Icon';
 import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/modoLeve';
+import { MigracaoPdvMobile } from './MigracaoPdvMobile';
+import { TerminaisPdvMobile } from './TerminaisPdvMobile';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
@@ -696,7 +698,11 @@ export function SettingsScreen() {
 
   async function handleInstallUpdate() {
     if (!confirm('O app vai fechar e reabrir já atualizado. Continuar?')) return;
-    await window.pdv.update.install();
+    const r = await window.pdv.update.install();
+    if (r?.ok === false) {
+      alert(r.error);
+      setUpdateStatus(await window.pdv.update.getStatus());
+    }
   }
 
   function handleToggleSom(checked) {
@@ -972,7 +978,7 @@ export function SettingsScreen() {
           <button className="btn-secondary" onClick={handleCheckUpdate} disabled={updateBusy || updateStatus?.checking}>
             <Icon name="refresh" size={15} /> {updateStatus?.checking ? 'Verificando...' : 'Verificar atualização agora'}
           </button>
-          {updateStatus?.baixado && (
+          {updateStatus?.baixado && !updateStatus.retida && (
             <button className="btn-primary" onClick={handleInstallUpdate}><Icon name="update" size={15} /> Instalar agora (sem esperar)</button>
           )}
         </div>
@@ -984,10 +990,20 @@ export function SettingsScreen() {
             <p className="screen-hint" style={{ margin: '6px 0 0' }}>Baixando automaticamente... {updateStatus.progresso}%</p>
           </div>
         )}
-        {updateStatus?.baixado && (
+        {updateStatus?.baixado && !updateStatus.retida && (
           <p className="io-message">
             Versão {updateStatus.versaoDisponivel} já baixada — vai instalar sozinha no próximo fechamento do
             app, ou clique acima pra instalar imediatamente.
+          </p>
+        )}
+        {updateStatus?.retida && (
+          <p className="io-message-aviso">
+            <Icon name="lock" size={15} />
+            <span>
+              {updateStatus.baixado ? `Versão ${updateStatus.versaoDisponivel} já baixada, mas a` : 'A'} instalação de atualizações
+              está segurada pelo suporte{updateStatus.retencaoMotivo ? ` (${updateStatus.retencaoMotivo})` : ''}. O app continua
+              funcionando normalmente na versão atual; a nova instala sozinha quando for liberada.
+            </span>
           </p>
         )}
         {updateStatus && !updateStatus.checking && !updateStatus.disponivel && !updateStatus.baixando && !updateStatus.baixado && !updateStatus.erro && (
@@ -1849,6 +1865,15 @@ export function SettingsScreen() {
                 onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, imprimirReciboNoComputador: e.target.checked })} />
               Imprimir o recibo na impressora deste computador quando uma venda do celular finalizar
             </label>
+            <label style={{ marginTop: 8, maxWidth: 520 }}>
+              Painel da loja no celular (faturamento do dia, histórico de 7/30 dias, mais vendidos, por operador e formas de pagamento)
+              <select value={pdvMobileForm.metricasLoja || 'gestao'}
+                onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, metricasLoja: e.target.value })}>
+                <option value="gestao">Só no celular de gerente ou administrador</option>
+                <option value="todos">Em todos os celulares PDV móvel (inclusive operador de caixa)</option>
+                <option value="desligado">Desligado</option>
+              </select>
+            </label>
 
             <div style={{ marginTop: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Formas de pagamento no celular</div>
@@ -1916,6 +1941,8 @@ export function SettingsScreen() {
           )}
         </div>
       </section>
+      {['admin', 'suporte'].includes(currentUser?.role) && <MigracaoPdvMobile />}
+      {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <TerminaisPdvMobile podeConfigurar={['admin', 'suporte'].includes(currentUser?.role)} />}
       </>
       )}
 
