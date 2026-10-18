@@ -1036,6 +1036,8 @@
         texto.className = `maquina-online-texto ${online ? 'maquina-online-texto-on' : 'maquina-online-texto-off'}`;
         texto.textContent = online ? 'Online' : 'Offline';
       }
+      const contato = listaClientes.querySelector(`[data-ultimo-contato="${inst.id}"]`);
+      if (contato) contato.textContent = textoUltimoContato(inst, online);
     }
     // Chave 'sem-vinculo' junto no mesmo mapa pra reaproveitar o loop de
     // baixo também no selo do bloco "Sem vínculo" (ele só tem o selo, não
@@ -1070,6 +1072,19 @@
     if (!timestamp) return '—';
     return timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
   }
+
+  /**
+   * "Último contato" = a última vez que a máquina RESPONDEU (o sinal mais
+   * recente entre o ping de presença, a cada 2min, e o contato de dados) --
+   * ou seja, quando offline, o momento em que ela parou de responder. Antes
+   * mostrava só o `ultimoContato`, que é gravado ao abrir o sistema e a cada
+   * 6h, e parecia "a última vez que foi ligado". Online: mostra "agora".
+   */
+  function textoUltimoContato(inst, online) {
+    if (online) return 'agora';
+    return formatarData(ultimoSinalTimestamp(inst));
+  }
+  const DICA_ULTIMO_CONTATO = 'Última vez que a máquina respondeu à Central (quando está offline, é o momento em que ela parou de responder).';
 
   function formatarMoeda(v) {
     return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -3442,7 +3457,7 @@
         <span class="maquina-nome-excluida">${escapeHtml(inst.nomeNegocio || `${inst.id.slice(0, 8)}...`)}</span>
         <span class="status-pill ${status.classe}">${status.texto}</span>
         ${ehPdvMobile(inst) ? `<span class="status-pill status-pdv-mobile">${icon('celular', 12)} PDV mobile</span>` : ''}
-        <span class="maquina-meta">Excluída em ${formatarData(inst.excluidaEm)} · v${inst.versaoApp || '—'} · último contato: ${formatarData(inst.ultimoContato)}</span>
+        <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">Excluída em ${formatarData(inst.excluidaEm)} · v${inst.versaoApp || '—'} · último contato: ${formatarData(ultimoSinalTimestamp(inst))}</span>
         <div class="maquina-acoes">
           <button class="btn-secondary btn-small" data-restaurar="${inst.id}">Restaurar</button>
         </div>
@@ -3462,7 +3477,7 @@
         ${renderSeloMigracao(inst)}
         ${inst.conflitosCodigoBarrasPendentes > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${inst.conflitosCodigoBarrasPendentes} conflito(s)</span>` : ''}
         ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${inst.id}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
-        <span class="maquina-meta">v${inst.versaoApp || '—'} · último contato: ${formatarData(inst.ultimoContato)}</span>
+        <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">v${inst.versaoApp || '—'} · último contato: <span data-ultimo-contato="${inst.id}">${textoUltimoContato(inst, online)}</span></span>
         <div class="maquina-acoes">
           ${renderBotaoModoMobile(inst)}
           ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${inst.id}">Desvincular</button>`

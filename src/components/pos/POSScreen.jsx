@@ -11,6 +11,7 @@ import { ProductSearchBox } from './ProductSearchBox';
 import { OpenCashScreen } from './OpenCashScreen';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { playBeep } from '../../utils/sound';
+import { sugestaoComboLigada, useSugestaoCombo } from '../../utils/sugestaoCombo';
 import { RecentlySoldStrip } from './RecentlySoldStrip';
 import { Clock } from '../layout/Clock';
 import { PosTour } from './PosTour';
@@ -58,6 +59,7 @@ export function POSScreen() {
   const [saleId, setSaleId] = useState(null);
   const [items, setItems] = useState([]);
   const [sugestaoCombo, setSugestaoCombo] = useState(null); // { produto, deQual } | null
+  const [comboLigado, definirComboLigado] = useSugestaoCombo(); // preferência desta máquina
   const [total, setTotal] = useState(0);
   const [feedback, setFeedback] = useState({ message: 'Aponte o leitor para o código de barras do produto...', type: 'info' });
   const [authAction, setAuthAction] = useState(null); // { type: 'item'|'sale', itemId? }
@@ -200,7 +202,10 @@ export function POSScreen() {
     // histórico real de vendas, não uma regra configurada. Só mostra
     // se o produto sugerido ainda não estiver no carrinho (senão não
     // faz sentido sugerir o que já foi adicionado).
+    // Preferência lida na hora (não do estado): addProductToCart é memoizado.
+    if (!sugestaoComboLigada()) { setSugestaoCombo(null); return; }
     window.pdv.products.findAlsoBoughtWith({ productId: product.id }).then((sugestoes) => {
+      if (!sugestaoComboLigada()) return; // desligou enquanto a busca rodava
       if (!Array.isArray(sugestoes) || sugestoes.length === 0) { setSugestaoCombo(null); return; }
       const jaNoCarrinho = new Set(items.map((it) => it.id));
       const primeira = sugestoes.find((s) => !jaNoCarrinho.has(s.id));
@@ -585,7 +590,7 @@ export function POSScreen() {
       <div className="pos-main-scroll">
         <CategoryProductBrowser onSelectProduct={handleSelectProduct} />
 
-        {sugestaoCombo && (
+        {comboLigado && sugestaoCombo && (
           <div className="combo-suggestion">
             <span>
               Quem leva <strong>{sugestaoCombo.deQual}</strong> também costuma levar{' '}
@@ -594,6 +599,7 @@ export function POSScreen() {
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="btn-secondary" onClick={() => addProductToCart(sugestaoCombo.produto)}>+ Adicionar</button>
               <button className="btn-link" onClick={() => setSugestaoCombo(null)}>Dispensar</button>
+              <button className="btn-link" title="Desliga as sugestões neste computador. Para ligar de novo: Configurações → Personalização do PDV." onClick={() => { definirComboLigado(false); setSugestaoCombo(null); }}>Não sugerir mais</button>
             </div>
           </div>
         )}

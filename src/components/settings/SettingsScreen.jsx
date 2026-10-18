@@ -3,6 +3,7 @@ import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { ProfileManager } from './ProfileManager';
 import { isBeepEnabled, setBeepEnabled, playBeep } from '../../utils/sound';
+import { useSugestaoCombo } from '../../utils/sugestaoCombo';
 import Icon from '../common/Icon';
 import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/modoLeve';
 import { MigracaoPdvMobile } from './MigracaoPdvMobile';
@@ -165,6 +166,7 @@ export function SettingsScreen() {
   const [exigirAutorizacaoDesconto, setExigirAutorizacaoDesconto] = useState(true);
   const [posDisplay, setPosDisplay] = useState({ modo_busca: 'lista', modo_vendidos_recentes: 'recente', qtd_vendidos_recentes: 12, tamanho_blocos: 'confortavel' });
   const [posDisplaySaved, setPosDisplaySaved] = useState(false);
+  const [sugestaoComboLigada, definirSugestaoComboLigada] = useSugestaoCombo();
   const [segurancaSaved, setSegurancaSaved] = useState(false);
   const [backupRunning, setBackupRunning] = useState(false);
   const [backupMsg, setBackupMsg] = useState('');
@@ -950,6 +952,11 @@ export function SettingsScreen() {
             <option value="confortavel">Confortável (mais fácil de acertar o dedo/mouse)</option>
             <option value="compacto">Compacto (cabe mais produtos na tela)</option>
           </select>
+        </label>
+
+        <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={sugestaoComboLigada} onChange={(e) => definirSugestaoComboLigada(e.target.checked)} />
+          Sugerir produto na venda ("Quem leva X também costuma levar Y")
         </label>
         {posDisplaySaved && <p className="io-message">Salvo.</p>}
       </section>
