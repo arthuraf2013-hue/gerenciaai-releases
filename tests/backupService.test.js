@@ -63,13 +63,37 @@ test('executarBackupRemotoSeSolicitado não faz nada sem backupSolicitadoEm', as
 
 test('executarBackupRemotoSeSolicitado roda um backup local de verdade quando pedido, e marca como processado', async () => {
   freshTestDb();
-  const antes = backupService.listBackups().length;
+  // Compara por NOME, não por contagem: a pasta .data é reaproveitada entre
+  // execuções e o backup roda a rotação de 30 dias, que apaga sobras antigas
+  // de outras execuções -- contar a pasta inteira falhava na máquina de quem
+  // roda os testes há mais de um mês (no CI a pasta começa vazia).
+  const antes = new Set(backupService.listBackups().map((b) => b.nome));
   await backupService.executarBackupRemotoSeSolicitado({ backupSolicitadoEm: 123456789 });
   const status = backupService.getStatus();
   assert.equal(status.ultimoBackupOk, true);
 
-  const depois = backupService.listBackups().length;
-  assert.equal(depois, antes + 1); // gerou exatamente um backup novo
+  const novos = backupService.listBackups().filter((b) => !antes.has(b.nome));
+  assert.equal(novos.length, 1); // gerou exatamente um backup novo
+});
+
+test('rotação apaga só backup com mais de 30 dias e mantém o recente', async () => {
+  freshTestDb();
+  const dir = path.join(DATA_DIR, 'backups');
+  fs.mkdirSync(dir, { recursive: true });
+  const velho = path.join(dir, `teste-rotacao-velho-${Date.now()}.sqlite3`);
+  const recente = path.join(dir, `teste-rotacao-recente-${Date.now()}.sqlite3`);
+  fs.writeFileSync(velho, 'x');
+  fs.writeFileSync(recente, 'x');
+  const quarentaDiasAtras = new Date(Date.now() - 40 * 24 * 3600e3);
+  fs.utimesSync(velho, quarentaDiasAtras, quarentaDiasAtras);
+  try {
+    await backupService.executarBackupRemotoSeSolicitado({ backupSolicitadoEm: Date.now() });
+    assert.equal(fs.existsSync(velho), false);
+    assert.equal(fs.existsSync(recente), true);
+  } finally {
+    fs.rmSync(velho, { force: true });
+    fs.rmSync(recente, { force: true });
+  }
 });
 
 test('executarBackupRemotoSeSolicitado não roda de novo pro MESMO pedido (idempotente)', async () => {

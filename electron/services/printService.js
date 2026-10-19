@@ -4,6 +4,11 @@ const fiscalService = require('./fiscalService');
 const { formatarChaveAcesso } = require('./nfceQrCodeService');
 
 // 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
+// Todo texto que vai pro HTML impresso passa por aqui: nome de produto
+// vem de importação de planilha, do catálogo do grupo e do celular.
+const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const soImagemDataUrl = (v) => (typeof v === 'string' && /^data:image\/(png|jpeg|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : '');
+
 function getBrowserWindow() {
   return require('electron').BrowserWindow;
 }
@@ -72,7 +77,7 @@ function updateReceiptConfig({ larguraMm, rodapeTexto, imprimirAutomatico, impre
  * padrão nas Configurações. Precisa de uma janela (mesmo invisível)
  * pra perguntar ao sistema operacional. */
 async function listPrinters() {
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
   try {
     const impressoras = await win.webContents.getPrintersAsync();
     return impressoras.map((p) => ({ nome: p.name, padraoDoSistema: !!p.isDefault }));
@@ -107,7 +112,7 @@ function printTestPage() {
     <p>${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao(), () => win.close());
   });
@@ -134,15 +139,15 @@ function buildFiscalHtmlBlock(nfce, qrDataUrl) {
     return `
     <hr>
     <div class="center">
-      ${qrDataUrl ? `<img src="${qrDataUrl}" alt="QR Code NFC-e" style="width:120px;height:120px;" />` : ''}
-      <p style="font-size:9px;word-break:break-all;margin:4px 0;">NFC-e nº ${nfce.numero} série ${nfce.serie}<br>Chave de acesso: ${formatarChaveAcesso(nfce.chave_acesso)}</p>
-      ${nfce.protocolo_autorizacao ? `<p style="font-size:9px;margin:0;">Protocolo de autorização: ${nfce.protocolo_autorizacao}</p>` : ''}
+      ${soImagemDataUrl(qrDataUrl) ? `<img src="${soImagemDataUrl(qrDataUrl)}" alt="QR Code NFC-e" style="width:120px;height:120px;" />` : ''}
+      <p style="font-size:9px;word-break:break-all;margin:4px 0;">NFC-e nº ${escHtml(nfce.numero)} série ${escHtml(nfce.serie)}<br>Chave de acesso: ${escHtml(formatarChaveAcesso(nfce.chave_acesso))}</p>
+      ${nfce.protocolo_autorizacao ? `<p style="font-size:9px;margin:0;">Protocolo de autorização: ${escHtml(nfce.protocolo_autorizacao)}</p>` : ''}
       ${!qrDataUrl ? '<p style="font-size:9px;margin:4px 0 0;">Consulte pela chave de acesso no site da SEFAZ do seu estado.</p>' : ''}
     </div>`;
   }
 
   const aviso = nfce.status === 'rejeitada'
-    ? `NFC-e rejeitada pela SEFAZ${nfce.motivo_rejeicao ? ` (${nfce.motivo_rejeicao})` : ''} — este documento NÃO tem valor fiscal.`
+    ? `NFC-e rejeitada pela SEFAZ${nfce.motivo_rejeicao ? ` (${escHtml(nfce.motivo_rejeicao)})` : ''} — este documento NÃO tem valor fiscal.`
     : 'NFC-e pendente de autorização — este documento NÃO tem valor fiscal ainda.';
   return `
     <hr>
@@ -157,13 +162,13 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
 
   const linhas = items.map((i) => `
     <tr>
-      <td>${i.nome}</td>
-      <td style="text-align:right">${i.quantidade}</td>
+      <td>${escHtml(i.nome)}</td>
+      <td style="text-align:right">${escHtml(i.quantidade)}</td>
       <td style="text-align:right">R$ ${i.preco_unitario.toFixed(2)}</td>
       <td style="text-align:right">R$ ${(i.preco_unitario * i.quantidade).toFixed(2)}</td>
     </tr>`).join('');
 
-  const linhasPagamento = payments.map((p) => `<div>${p.metodo}: R$ ${p.valor.toFixed(2)}</div>`).join('');
+  const linhasPagamento = payments.map((p) => `<div>${escHtml(p.metodo)}: R$ ${p.valor.toFixed(2)}</div>`).join('');
 
   return `<!doctype html>
   <html><head><meta charset="utf-8"><style>
@@ -177,8 +182,8 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     .total { font-size: ${fontSize + 2}px; font-weight: bold; text-align: right; margin-top: 8px; }
   </style></head>
   <body>
-    <h1>${location.nome}</h1>
-    <p class="center">Venda ${sale.id.slice(0, 8)} — ${new Date(sale.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
+    <h1>${escHtml(location.nome)}</h1>
+    <p class="center">Venda ${escHtml(sale.id.slice(0, 8))} — ${new Date(sale.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
     <hr>
     <table>
       <thead><tr><th style="text-align:left">Item</th><th>Qtd</th><th>Unit.</th><th>Total</th></tr></thead>
@@ -194,7 +199,7 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     ${linhasPagamento}
     ${buildFiscalHtmlBlock(nfce, qrDataUrl)}
     <hr>
-    <p class="center">${rodapeTexto || 'Obrigado pela preferência!'}</p>
+    <p class="center">${escHtml(rodapeTexto || 'Obrigado pela preferência!')}</p>
   </body></html>`;
 }
 
@@ -303,7 +308,7 @@ async function printReceipt(saleId) {
   }
 
   const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl);
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
 
   const isTermica = larguraMm === 58 || larguraMm === 80;
   const printOptions = opcoesDeImpressao();
@@ -339,13 +344,13 @@ function printLabel({ nome, preco, codigoBarras, barcodeDataUrl }) {
     .codigo { font-size: 8px; letter-spacing: 1px; margin-top: -2px; }
   </style></head>
   <body>
-    <p class="nome">${nome}</p>
-    <p class="preco">R$ ${preco.toFixed(2)}</p>
-    <img src="${barcodeDataUrl}" alt="${codigoBarras}" />
-    <p class="codigo">${codigoBarras}</p>
+    <p class="nome">${escHtml(nome)}</p>
+    <p class="preco">R$ ${Number(preco || 0).toFixed(2)}</p>
+    <img src="${soImagemDataUrl(barcodeDataUrl)}" alt="${escHtml(codigoBarras)}" />
+    <p class="codigo">${escHtml(codigoBarras)}</p>
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao({ pageSize: { width: 50000, height: 30000 } }), () => win.close());
   });
@@ -395,7 +400,7 @@ function printKitchenTicket(saleId, mesaLabel) {
     ${linhasHtml}
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao({ pageSize: { width: 80000, height: 1000000 } }), () => win.close());
   });
@@ -449,7 +454,7 @@ function printDailyMenu(itens) {
     ${gruposHtml}
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true } });
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
     win.webContents.print(opcoesDeImpressao(), () => win.close());
   });
@@ -457,4 +462,4 @@ function printDailyMenu(itens) {
   return { ok: true };
 }
 
-module.exports = { printReceipt, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink };
+module.exports = { printReceipt, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml };

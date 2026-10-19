@@ -189,7 +189,10 @@ async function extractAttachment(attachmentId) {
 
   let fileBuffer;
   try {
-    fileBuffer = fs.readFileSync(attachment.caminho);
+    // Só lê arquivo de dentro da pasta de anexos (o caminho vem do banco).
+    const seguro = require('./attachmentService').caminhoDeAnexoSeguro(attachment.caminho);
+    if (!seguro) throw new Error('fora da pasta de anexos');
+    fileBuffer = fs.readFileSync(seguro);
   } catch {
     db.prepare(`UPDATE sale_attachments SET extracao_status = 'erro', extracao_json = ? WHERE id = ?`)
       .run(JSON.stringify({ error: 'Arquivo do anexo não foi encontrado no disco.' }), attachmentId);

@@ -153,6 +153,24 @@ uma vez (livro `.../movimentos/{id}` + transação). **Nunca** regravar o
 total absoluto (o antigo `pushEstoqueProduto` apagava os débitos das outras
 máquinas). Venda ABERTA não mexe no contador (débito só na finalização).
 
+## Segurança (auditoria out/2026)
+
+- **`electron/seguranca.js`**: janela nova sempre negada (abre fora só
+  http(s)/mailto/tel/whatsapp), navegação só dentro do app, `<webview>`
+  bloqueado, permissões negadas, `app://` confinado a `dist/` e CSP no HTML
+  empacotado. Todo `shell.openExternal` novo passa por `urlExternaPermitida`.
+- **HTML montado com template string** (Central, `pwa-mobile/`, impressão):
+  todo campo de documento/banco passa por `escapeHtml` (ou `Number()`).
+  `tests/centralEscapeHtml.test.js` falha se não passar. Janela de impressão
+  é `javascript: false`.
+- **Caminho de arquivo vindo do renderer** (foto, anexo): resolver com
+  `caminhoDeFotoSeguro`/`caminhoDeAnexoSeguro` — nunca `fs` direto num
+  caminho do payload.
+- **Admin da Central** = conta e-mail/senha com documento em `admins/{uid}`
+  (`ehAdminAutenticado()` em `firestore.rules`). Conta nova de admin precisa
+  desse documento, criado no Console.
+- Operação financeira numa venda (`saleService`) confere `status = 'aberta'`.
+
 ## SQL: nada de função JS no WHERE
 
 `datetime(NOW_SYNCED(), '-30 days')` dentro de WHERE chama a função JS a

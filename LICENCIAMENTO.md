@@ -60,6 +60,32 @@ seu, embutido em todo instalador, igual pra todo mundo).
 
 ## Passo 3 — Aplicar as regras de segurança
 
+**🔒 Antes de publicar estas regras (obrigatório desde a auditoria de segurança de out/2026)**
+
+As regras agora só tratam como administrador uma conta e-mail/senha que
+esteja **listada** na coleção `admins` — antes, qualquer conta criada no
+seu projeto (inclusive por um estranho, se o cadastro estivesse aberto)
+virava administradora da Central. Se publicar as regras sem fazer isto
+antes, **a própria Central para de abrir pra você**:
+
+1. Firebase Console → **Authentication → Usuários** → copie o **UID** da
+   conta que você usa pra entrar na Central (uma por pessoa que entra).
+2. **Firestore Database → Dados → Iniciar coleção** → ID da coleção
+   `admins` → ID do documento = **o UID copiado** → um campo qualquer
+   (ex.: `nome` = seu nome) → Salvar. Repita para cada administrador.
+3. **Authentication → Configurações → Ações do usuário**: desmarque
+   **"Ativar criação (inscrição)"** (*Enable create (sign-up)*) — assim
+   ninguém cria conta nova pela API pública; contas novas só pelo
+   Console.
+4. Só então publique as regras (Console ou `firebase deploy --only
+   firestore:rules`).
+
+Se a Central mostrar "Esta conta não está autorizada como
+administradora", ela mesma exibe o UID que falta cadastrar no passo 2.
+A coleção `admins` não pode ser listada nem alterada por ninguém pelo
+app — só pelo Console.
+
+
 **Importante**: o bloco abaixo é uma cópia do arquivo `firestore.rules`
 deste repositório — a fonte de verdade de verdade é sempre aquele
 arquivo (é o que já foi testado e publicado em produção nesta sessão).
@@ -85,6 +111,63 @@ em **Firestore Database → Regras**, apague o que estiver lá e cole:
 ```
 rules_version = '2';
 
+// ================================================================
+// Regras do ÚNICO projeto Firebase do GerenciaAI (gerenciaai-licencas)
+// — compartilhado por TODAS as instalações de TODOS os clientes (ver
+// LICENSE_FIREBASE_CONFIG em electron/services/licenseService.js).
+// Não existe "Firebase de cada cliente" -- é sempre este mesmo banco.
+//
+// Antes deste arquivo não existia NENHUMA regra publicada (banco
+// totalmente aberto — a config do Firebase embutida no instalador não
+// é secreta, então isso já era um risco real, independente de
+// qualquer coisa nova). Este arquivo tem duas partes bem diferentes:
+//
+//   PARTE 1 — replica o comportamento de HOJE (leitura/escrita livre)
+//   pra tudo que já existia antes do pareamento de celular, de
+//   propósito, pra não quebrar nada em produção ao publicar isto pela
+//   primeira vez. Não é a solução ideal — é a base seguro pra migrar
+//   depois, com calma, cada coleção pra uma regra de verdade. UMA
+//   migração dessas já foi feita dentro da própria Parte 1: as
+//   coleções que só o admin-panel usa (clientes/cobrança, log de
+//   auditoria, config, contas Google, erros reportados) agora exigem
+//   `ehAdminAutenticado()` -- o login e-mail/senha do admin-panel já
+//   existia (ver LICENCIAMENTO.md Passo 3), mas até esta mudança ele
+//   não protegia dado nenhum de verdade. `installations/` e
+//   `grupos_sincronizacao/` são escritos pelo DESKTOP sem nenhuma
+//   autenticação. Desde a "fase A" (out/2026) a máquina não consegue mais
+//   mudar os campos de licença/controle do próprio documento nem apagá-lo,
+//   e a lista de grupos/cofre ficou só para a Central -- testado no
+//   emulador (tests/firestoreRules.test.js). Fechar a LEITURA exige dar
+//   ao desktop uma identidade autenticada própria (fase B).
+//
+//   PARTE 2 — regras de verdade pro que é novo (pareamento de celular,
+//   pedidos do garçom, status ao vivo), porque aqui quem escreve pode
+//   ser o CELULAR de um funcionário, não mais só as máquinas da
+//   própria loja. App Check (reCAPTCHA Enterprise) já está preparado no
+//   pwa-mobile e no admin-panel (ver comentário em `pareamentos` logo
+//   abaixo e LICENCIAMENTO.md Passo 3.7) -- é a próxima migração
+//   pendente, ainda sem enforcement nas regras de propósito (depende
+//   de um passo manual seu primeiro). NÃO é viável pro app desktop: as
+//   chamadas ao Firestore rodam no processo principal do Electron
+//   (Node puro, sem DOM), e o reCAPTCHA Enterprise exige um contexto de
+//   navegador de verdade -- o desktop continua com o mesmo modelo de
+//   confiança de hoje (sem autenticação nenhuma), sem regressão.
+//
+// COMO TESTAR ANTES DE PUBICAR (recomendado, não fiz isso aqui porque
+// este ambiente não tem rota de rede até o downloads do emulador):
+//   1. `npm install -g firebase-tools`
+//   2. `firebase emulators:start --only firestore` (baixa o emulador
+//      na primeira vez -- precisa de internet só nessa hora)
+//   3. Rodar os testes em tests/firestoreRules.test.js (escritos, mas
+//      não executados neste ambiente -- ver aviso no topo daquele
+//      arquivo) contra o emulador.
+//
+// COMO PUBLICAR: Console do Firebase → projeto gerenciaai-licencas →
+// Firestore Database → aba "Regras" → colar o conteúdo deste arquivo
+// → Publicar. (Ou `firebase deploy --only firestore:rules`, com o
+// firebase.json deste repositório, se preferir a CLI.)
+// ================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -105,14 +188,104 @@ service cloud.firestore {
     // `sign_in_provider` vem no token de qualquer usuário autenticado e
     // diz COMO ele logou; 'password' é exclusivo de
     // signInWithEmailAndPassword, nunca aparece num login anônimo.
+    // Login com e-mail/senha SOZINHO não basta: se o cadastro de usuários
+    // estiver ligado no Firebase Authentication (é o padrão), qualquer um
+    // cria uma conta pela API pública e viraria "admin". Só vale quem está
+    // na lista `admins/{uid}`, criada à mão no Console do Firebase
+    // (ninguém escreve nela pelo app -- ver match /admins abaixo).
     function ehAdminAutenticado() {
-      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password';
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Lista de administradores da Central. Só se cria pelo Console (o
+    // Console ignora as regras); a própria pessoa pode ler o próprio
+    // registro (a Central usa isso pra avisar quando a conta não está na lista).
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    // ---- Licença: campos que SÓ a Central muda ---------------------
+    // A máquina (desktop sem login, celular) continua lendo e gravando o
+    // próprio documento (ping, versão, métricas, status de atualização,
+    // backup), mas NÃO consegue mexer no que decide se ela funciona ou não:
+    // congelamento, bloqueio, vínculo com cliente (módulos pagos), grupo,
+    // modo terminal, override de versão, "segurar atualização", pedido de
+    // restauração. Antes, qualquer um com a config do Firebase (que vai
+    // dentro do instalador) podia gravar `ativo: true` na própria licença.
+    // `diff().affectedKeys()` só conta campo que MUDOU de valor -- reenviar
+    // o mesmo valor (o celular faz isso ao reativar) continua permitido.
+    function camposDeControle() {
+      return ['ativo', 'bloqueioImediato', 'motivoBloqueio', 'mensagemPersonalizada',
+        'clienteId', 'grupoSincronizacaoId', 'servidorDoGrupo',
+        'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalDesde', 'terminalAte',
+        'overrideAtivo', 'versaoMinimaOverride', 'excluidaEm', 'backupFrequenciaHoras',
+        'restaurarBackupSolicitado',
+        'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo',
+        'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm'];
+    }
+    // Celular (PDV mobile autônomo) ativado com código da Central: o código
+    // já foi resgatado POR ESTE aparelho (regra de ativacoes_mobile abaixo)
+    // e diz de qual cliente ele é -- só assim a máquina pode se dizer de um
+    // cliente (o que liga os módulos pagos daquele cliente nela).
+    function ativacaoConfirmaCliente(installId, d) {
+      return d.get('ativadoComCodigo', null) is string
+        && exists(/databases/$(database)/documents/ativacoes_mobile/$(d.ativadoComCodigo))
+        && get(/databases/$(database)/documents/ativacoes_mobile/$(d.ativadoComCodigo)).data.usadoPorInstallId == installId
+        && get(/databases/$(database)/documents/ativacoes_mobile/$(d.ativadoComCodigo)).data.get('clienteId', null) == d.clienteId;
+    }
+    function criacaoDeInstalacaoValida(installId) {
+      let d = request.resource.data;
+      // Id = UUID gerado pela máquina. Sem esse formato, um id com aspas
+      // ou "<" virava HTML injetado na Central (o id aparece em atributos).
+      return installId.matches('^[A-Za-z0-9_-]{8,64}$')
+        && (d.get('clienteId', null) == null || ativacaoConfirmaCliente(installId, d))
+        && !d.keys().hasAny(['grupoSincronizacaoId', 'servidorDoGrupo', 'overrideAtivo', 'versaoMinimaOverride',
+          'excluidaEm', 'restaurarBackupSolicitado', 'atualizacaoSegurada', 'atualizacaoSeguradaVersao',
+          'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte']);
+    }
+    function atualizacaoDeInstalacaoValida(installId) {
+      let mudou = request.resource.data.diff(resource.data).affectedKeys();
+      return !mudou.hasAny(camposDeControle())
+        // Celular reativado com um código novo de outro cliente.
+        || (mudou.hasOnly(['clienteId', 'ativadoComCodigo', 'nomeNegocio', 'versaoApp', 'plataforma', 'prefixoVenda',
+              'backupRetencaoDias', 'tipo', 'criadoEm', 'ultimoContato', 'ultimoPing'])
+            && ativacaoConfirmaCliente(installId, request.resource.data));
     }
 
     match /installations/{installId} {
-      allow read, write: if true;
+      // Leitura e listagem continuam abertas nesta fase: o desktop (sem
+      // login) e o celular consultam instalações por servidorInstallId,
+      // clienteId e grupoSincronizacaoId. Fechar isso exige identidade da
+      // máquina (fase B, ver docs).
+      allow read: if true;
+      allow create: if ehAdminAutenticado() || criacaoDeInstalacaoValida(installId);
+      allow update: if ehAdminAutenticado() || atualizacaoDeInstalacaoValida(installId);
+      // "Excluir" na Central nunca apaga (grava excluidaEm). Apagar abria
+      // um atalho: o desktop recria o documento ATIVO no próximo contato.
+      allow delete: if ehAdminAutenticado();
 
       match /backups/{arquivo} {
+        allow read, write: if true;
+      }
+
+      // PDV mobile autônomo como TERMINAL de um computador (ver
+      // mobile/src/services/terminal.js e electron/services/pdvMobileTerminalService.js).
+      // Mesmo modelo de confiança do documento da instalação (id do
+      // celular é um UUID que só ele, o computador dele e a Central
+      // conhecem): o celular grava os eventos e lê o catálogo/recibos;
+      // o computador lê os eventos e grava catálogo/recibos. O computador
+      // ainda confere, antes de aplicar, se aquele celular foi migrado
+      // pra ele -- o vínculo na Central sozinho não basta.
+      match /terminal_eventos/{eventoId} {
+        allow read, write: if true;
+      }
+      match /terminal_acks/{eventoId} {
+        allow read, write: if true;
+      }
+      match /terminal_catalogo/{parte} {
         allow read, write: if true;
       }
     }
@@ -125,7 +298,11 @@ service cloud.firestore {
     // de verdade do admin-panel -- antes, qualquer um com o projectId
     // conseguia editar cobrança e módulos pagos de qualquer cliente.
     match /clientes/{clienteId} {
-      allow read: if true;
+      // `get` pelo id continua aberto (a máquina escuta o PRÓPRIO cliente).
+      // LISTAR é só da Central: o documento tem nome, CPF/CNPJ e valor da
+      // mensalidade -- antes qualquer um baixava a carteira inteira.
+      allow get: if true;
+      allow list: if ehAdminAutenticado();
       allow write: if ehAdminAutenticado();
 
       // Histórico de pagamentos (ver admin-panel "Ver histórico") --
@@ -146,6 +323,25 @@ service cloud.firestore {
     // Log de auditoria do PRÓPRIO admin-panel (ações feitas ali) --
     // nunca tocado pelo desktop, então fica restrito dos dois lados.
     match /acoes_log/{logId} { allow read, write: if ehAdminAutenticado(); }
+
+    // Códigos de ativação do PDV MOBILE AUTÔNOMO (app GerenciaAI PDV, que
+    // vende no celular sem computador). A Central (admin logado) cria,
+    // lista e cancela. O CELULAR, ainda sem identidade nenhuma, só pode:
+    // (1) ler UM código pelo ID exato (8 caracteres aleatórios -- não dá
+    // pra listar/varrer); (2) resgatá-lo UMA vez, enquanto não venceu,
+    // mudando só os campos de resgate. Quem já usou não "desusa".
+    match /ativacoes_mobile/{codigo} {
+      allow get: if true;
+      allow list, create, delete: if ehAdminAutenticado();
+      allow update: if ehAdminAutenticado()
+        || (resource.data.usado == false
+            && resource.data.expiraEm > request.time
+            && request.resource.data.usado == true
+            && request.resource.data.usadoPorInstallId is string
+            && request.resource.data.usadoPorInstallId.size() >= 16
+            && request.resource.data.usadoEm == request.time
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usado', 'usadoPorInstallId', 'usadoEm']));
+    }
 
     // config/atualizacao e config/mensagem: o DESKTOP escuta os dois em
     // tempo real sem autenticação (ver updateService.js/messageService.js),
@@ -181,14 +377,29 @@ service cloud.firestore {
     // Cofre de senhas — recurso CONGELADO/obsoleto (ver CLAUDE.md).
     // Regra aqui só preserva o comportamento de hoje; não desenvolver
     // nem mexer nisso além do necessário pra essa preservação.
-    match /cofre_acessos/{docId} { allow read, write: if true; }
-    match /cofre_config/{docId} { allow read, write: if true; }
+    // Só a Central (logada) usa: nada no desktop, no celular ou no PWA
+    // lê ou grava aqui. cofre_config guarda a chave privada (cifrada) das
+    // contas Google -- não tinha por que ficar aberto.
+    match /cofre_acessos/{docId} { allow read, write: if ehAdminAutenticado(); }
+    match /cofre_config/{docId} { allow read, write: if ehAdminAutenticado(); }
 
     match /grupos_sincronizacao/{grupoId} {
-      allow read, write: if true;
+      // O documento do grupo (nome) e a LISTA de grupos são coisa da
+      // Central. As máquinas só usam as subcoleções abaixo, sempre pelo id
+      // do grupo (aleatório, 20 caracteres) -- listar todos os grupos dava
+      // o caminho pras vendas de todos os clientes.
+      allow read, write: if ehAdminAutenticado();
       match /produtos/{produtoId} { allow read, write: if true; }
       match /vendas/{vendaId} { allow read, write: if true; }
-      match /estoque/{produtoId} { allow read, write: if true; }
+      match /estoque/{produtoId} {
+        allow read, write: if true;
+        // Livro das variações (stockSyncService): cada movimento é gravado
+        // uma vez e nunca mais muda -- é o que torna o reenvio idempotente.
+        match /movimentos/{movimentoId} {
+          allow read, create: if true;
+          allow update, delete: if ehAdminAutenticado();
+        }
+      }
     }
 
     // --------------------------------------------------------------
@@ -230,10 +441,22 @@ service cloud.firestore {
       return clienteId != null && moduloAtivoParaCliente(clienteId, modulo);
     }
 
-    // 'garcom' → módulo "App do garçom"; qualquer outro tipo (só existe
-    // 'consulta' hoje) → módulo "Consulta remota".
+    // 'garcom' → módulo "App do garçom"; 'pdv' → módulo "PDV móvel";
+    // qualquer outro tipo (só 'consulta') → módulo "Consulta remota".
     function moduloDoTipoDePareamento(tipo) {
-      return tipo == 'garcom' ? 'appGarcom' : 'consultaRemota';
+      return tipo == 'garcom' ? 'appGarcom' : (tipo == 'pdv' ? 'pdvMobile' : 'consultaRemota');
+    }
+
+    // Celular pareado como PDV MÓVEL (ver pdvMobileSyncService.js), ativo,
+    // com o módulo pago "PDV móvel" ainda ativo pro cliente -- usada por
+    // vendas_mobile, consultas_pdv e config_mobile (PARTE 2). Mesmo
+    // espírito de dispositivoConsultaAtiva logo abaixo.
+    function dispositivoPdvAtivo(installId) {
+      let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+      return exists(dRef)
+        && get(dRef).data.tipo == 'pdv'
+        && get(dRef).data.ativo == true
+        && moduloAtivo(installId, 'pdvMobile');
     }
 
     // Dispositivo pareado como "Consulta remota" (nunca "garçom"),
@@ -275,8 +498,23 @@ service cloud.firestore {
       // fecha a porta de alguém varrer códigos sem nem abrir o app; é
       // uma concessão deliberada à simplicidade pedida ("código de
       // sincronização simples") — o código já expira em 10 minutos e só
-      // serve uma vez. Pra fechar essa janela de vez, ativar o Firebase
-      // App Check é a recomendação (não depende de mudar esta regra).
+      // serve uma vez. `request.auth != null` sozinho não impede um
+      // SCRIPT (sem app nenhum, só a lib do Firestore + a mesma config
+      // pública) de logar anônimo e varrer/adivinhar códigos em massa
+      // entre lojas via esta mesma consulta collectionGroup -- só um
+      // humano tentando na hora, sem automação, é bloqueado por hoje já
+      // exigir pelo menos um login anônimo.
+      //
+      // App Check (reCAPTCHA Enterprise) já está preparado no pwa-mobile e no
+      // admin-panel (LICENCIAMENTO.md Passo 3.7) pra fechar essa janela
+      // de vez, mas a ENFORCEMENT aqui na regra (`&& request.app !=
+      // null`) é um passo À PARTE, deliberadamente não feito ainda:
+      // só é seguro depois de (a) preencher a site key nos dois
+      // arquivos, (b) republicar o pwa-mobile e o admin-panel, e (c)
+      // confirmar no Console → App Check que o tráfego real já chega
+      // "Verificado" -- senão qualquer celular ainda rodando a versão
+      // antiga (cache do navegador, PWA instalado sem atualizar) fica
+      // bloqueado na hora. Ver Passo 3.7 pro passo a passo completo.
       allow get, list: if request.auth != null;
     }
 
@@ -333,7 +571,7 @@ service cloud.firestore {
       }
 
       allow create: if request.auth != null && uid == request.auth.uid
-        && request.resource.data.tipo in ['garcom', 'consulta']
+        && request.resource.data.tipo in ['garcom', 'consulta', 'pdv']
         && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo);
 
       // Depois de pareado, o próprio celular só pode tocar no seu
@@ -346,7 +584,7 @@ service cloud.firestore {
       allow update: if
         (request.auth != null && uid == request.auth.uid && (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso', 'nomeDispositivo'])
-          || (request.resource.data.tipo in ['garcom', 'consulta']
+          || (request.resource.data.tipo in ['garcom', 'consulta', 'pdv']
               && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo))
         ))
         || (request.auth == null
@@ -364,20 +602,37 @@ service cloud.firestore {
 
     // Pedidos lançados pelo PWA do garçom -- ver pedidoGarcomSyncService.js.
     match /installations/{installId}/pedidos_garcom/{pedidoId} {
-      // Só um dispositivo pareado como garçom, ATIVO, dessa loja
-      // específica, com o módulo "App do garçom" ainda pago (ver PARTE
-      // 1.5 -- corta o acesso na hora se o cliente parar de pagar, não
-      // só impede pareamento novo), pode criar pedido, e sempre como
-      // 'novo'.
+      // Garçom OU PDV móvel (que embute o mesmo fluxo de mesas), ATIVO,
+      // dessa loja específica, com o módulo pago do SEU tipo ainda ativo
+      // (appGarcom pro garçom, pdvMobile pro PDV móvel -- ver PARTE 1.5).
+      // Se o PDV móvel está com a função "Mesas" desligada é o DESKTOP
+      // que recusa (pedidoGarcomSyncService.buscarUsuarioLocalDoDispositivo)
+      // -- essa configuração mora no SQLite, não aqui.
+      function dispositivoPodeLancarPedido(installId) {
+        let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+        return exists(dRef)
+          && get(dRef).data.tipo in ['garcom', 'pdv']
+          && get(dRef).data.ativo == true
+          && moduloAtivo(installId, moduloDoTipoDePareamento(get(dRef).data.tipo));
+      }
+
       allow create: if request.auth != null
         && request.resource.data.garcomUid == request.auth.uid
-        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.tipo == 'garcom'
-        && get(/databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid)).data.ativo == true
-        && moduloAtivo(installId, 'appGarcom')
+        && dispositivoPodeLancarPedido(installId)
         && request.resource.data.status == 'novo';
 
-      // O garçom só vê os PRÓPRIOS pedidos (pra acompanhar status).
-      allow read: if request.auth != null && resource.data.garcomUid == request.auth.uid;
+      // O celular só vê os PRÓPRIOS pedidos (pra acompanhar status). O
+      // DESKTOP (sem autenticação) precisa ler também -- é ele quem
+      // escuta os pedidos 'novo' pra processar. Antes desta regra não
+      // liberar `request.auth == null`, a escuta do desktop
+      // (pedidoGarcomSyncService.iniciarEscutaPedidosGarcom) era recusada
+      // com permission-denied e nenhum pedido do garçom chegava. Mesmo
+      // nível de confiança do resto de installations/ (ver PARTE 1).
+      // `resource == null`: o celular pode escutar o próprio documento
+      // logo depois de criar (a escuta pode chegar no servidor antes da
+      // escrita) -- ler um documento que não existe não revela nada.
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.garcomUid == request.auth.uid));
 
       // Só o desktop (sem autenticação, mesmo nível de confiança de
       // hoje) atualiza status/erro depois de processar.
@@ -439,9 +694,82 @@ service cloud.firestore {
     // status_ao_vivo já ser tratado como sensível: aqui é histórico
     // financeiro de verdade, ainda mais dado pra vazar sem necessidade
     // pro app do garçom do que o resumo "hoje" que ele nem usa.
-    match /installations/{installId}/historico_vendas/{docId} {
-      allow read: if request.auth != null && dispositivoConsultaAtiva(installId);
+    // PDV móvel com o PAINEL DA LOJA liberado neste computador
+    // (Configurações → Celular → "Painel da loja no celular"): quem decide
+    // é o desktop, que publica a lista de uids liberados em
+    // config_mobile/pdv.metricasLiberadasPara conforme a opção e o papel
+    // atual do usuário vinculado (ver pdvMobileConfigService.dispositivosComMetricas).
+    function dispositivoPdvComMetricas(installId) {
+      let cRef = /databases/$(database)/documents/installations/$(installId)/config_mobile/pdv;
+      return dispositivoPdvAtivo(installId)
+        && exists(cRef)
+        && get(cRef).data.get('metricasLiberadasPara', []).hasAny([request.auth.uid]);
+    }
 
+    match /installations/{installId}/historico_vendas/{docId} {
+      allow read: if request.auth != null && (dispositivoConsultaAtiva(installId) || dispositivoPdvComMetricas(installId));
+
+      allow write: if request.auth == null; // só o desktop publica
+    }
+
+    // --------------------------------------------------------------
+    // PDV MÓVEL -- ver pdvMobileSyncService.js / pdvMobileConsultaService.js
+    // e pwa-mobile/pdv*.js
+    // --------------------------------------------------------------
+
+    // Venda feita no celular. O celular cria UMA vez (status 'novo'),
+    // nunca altera nem apaga; o desktop revalida tudo (preço, estoque,
+    // caixa, desconto) e só ele escreve o resultado. Campos do create
+    // fechados numa lista pra ninguém usar o documento como depósito de
+    // dado arbitrário.
+    match /installations/{installId}/vendas_mobile/{vendaId} {
+      allow create: if request.auth != null
+        && request.resource.data.dispositivoUid == request.auth.uid
+        && request.resource.data.status == 'novo'
+        && request.resource.data.keys().hasOnly([
+             'dispositivoUid', 'status', 'itens', 'pagamentos', 'desconto', 'clienteId', 'clienteNome',
+             'subtotalEsperado', 'totalEsperado', 'observacoes', 'criadoEm', 'appVersao'])
+        && request.resource.data.itens is list && request.resource.data.itens.size() > 0 && request.resource.data.itens.size() <= 300
+        && request.resource.data.pagamentos is list && request.resource.data.pagamentos.size() > 0 && request.resource.data.pagamentos.size() <= 10
+        && dispositivoPdvAtivo(installId);
+
+      // Mesmo raciocínio de pedidos_garcom acima (desktop escuta sem
+      // autenticação; celular só o que é dele; documento inexistente não
+      // revela nada).
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.dispositivoUid == request.auth.uid));
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['status', 'erro', 'codigoErro', 'precosAtuais', 'saleId', 'resumo', 'reciboWhatsappUrl', 'processadoEm']);
+
+      allow delete: if false;
+    }
+
+    // Consulta sob demanda (produto fora do catálogo publicado, código
+    // lido na câmera, cliente, QR do Pix) -- pedido/resposta descartável.
+    match /installations/{installId}/consultas_pdv/{consultaId} {
+      allow create: if request.auth != null
+        && request.resource.data.dispositivoUid == request.auth.uid
+        && request.resource.data.status == 'novo'
+        && request.resource.data.tipo in ['produtos', 'codigo', 'clientes', 'pix']
+        && request.resource.data.keys().hasOnly(['dispositivoUid', 'status', 'tipo', 'termo', 'codigo', 'valor', 'txid', 'criadoEm'])
+        && dispositivoPdvAtivo(installId);
+
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.dispositivoUid == request.auth.uid));
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resultado', 'erro', 'respondidoEm']);
+
+      // Limpeza periódica das consultas antigas -- só o desktop.
+      allow delete: if request.auth == null;
+    }
+
+    // O que o celular pode fazer nesta loja + "sinal de vida" do
+    // servidor (ver pdvMobileConfigService.js).
+    match /installations/{installId}/config_mobile/{docId} {
+      allow read: if request.auth != null && dispositivoPdvAtivo(installId);
       allow write: if request.auth == null; // só o desktop publica
     }
 

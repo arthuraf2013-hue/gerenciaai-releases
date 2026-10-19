@@ -226,3 +226,18 @@ test('NFC-e: desligada por padrão; fora da janela não emite e avisa', async ()
   assert.equal(atrasada.nfce.status, 'nao_emitida');
   assert.match(atrasada.nfce.mensagem, /60 min/);
 });
+
+test('recebimento de fiado maior que a dívida não entra sozinho (evento forjado); com revisão humana entra', () => {
+  const { adminId } = freshTestDb();
+  migracao.importarDump(backup(1), { operadorId: adminId });
+  aplicarTodos(atraso);
+  const ev = comoTerminal.find((e) => e.tipo === 'fiado_pagamento');
+  assert.ok(ev, 'fixture tem um recebimento de fiado');
+  const dados = JSON.parse(ev.dadosJson);
+  const forjado = { ...ev, id: `forjado-${ev.id}`, dadosJson: JSON.stringify({ ...dados, lancamento: { ...dados.lancamento, id: `forjado-${dados.lancamento.id}`, valor_centavos: 99999999 } }) };
+  const r = terminal.aplicarEvento(INSTALL, forjado);
+  assert.equal(r.status, 'erro');
+  assert.match(r.erro, /maior que a dívida/);
+  const revisado = terminal.aplicarEvento(INSTALL, forjado, { forcarRevisado: true });
+  assert.equal(revisado.status, 'aplicado');
+});

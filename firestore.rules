@@ -77,8 +77,23 @@ service cloud.firestore {
     // `sign_in_provider` vem no token de qualquer usuário autenticado e
     // diz COMO ele logou; 'password' é exclusivo de
     // signInWithEmailAndPassword, nunca aparece num login anônimo.
+    // Login com e-mail/senha SOZINHO não basta: se o cadastro de usuários
+    // estiver ligado no Firebase Authentication (é o padrão), qualquer um
+    // cria uma conta pela API pública e viraria "admin". Só vale quem está
+    // na lista `admins/{uid}`, criada à mão no Console do Firebase
+    // (ninguém escreve nela pelo app -- ver match /admins abaixo).
     function ehAdminAutenticado() {
-      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'password';
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Lista de administradores da Central. Só se cria pelo Console (o
+    // Console ignora as regras); a própria pessoa pode ler o próprio
+    // registro (a Central usa isso pra avisar quando a conta não está na lista).
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list, write: if false;
     }
 
     // ---- Licença: campos que SÓ a Central muda ---------------------
@@ -112,7 +127,10 @@ service cloud.firestore {
     }
     function criacaoDeInstalacaoValida(installId) {
       let d = request.resource.data;
-      return (d.get('clienteId', null) == null || ativacaoConfirmaCliente(installId, d))
+      // Id = UUID gerado pela máquina. Sem esse formato, um id com aspas
+      // ou "<" virava HTML injetado na Central (o id aparece em atributos).
+      return installId.matches('^[A-Za-z0-9_-]{8,64}$')
+        && (d.get('clienteId', null) == null || ativacaoConfirmaCliente(installId, d))
         && !d.keys().hasAny(['grupoSincronizacaoId', 'servidorDoGrupo', 'overrideAtivo', 'versaoMinimaOverride',
           'excluidaEm', 'restaurarBackupSolicitado', 'atualizacaoSegurada', 'atualizacaoSeguradaVersao',
           'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte']);
@@ -169,7 +187,11 @@ service cloud.firestore {
     // de verdade do admin-panel -- antes, qualquer um com o projectId
     // conseguia editar cobrança e módulos pagos de qualquer cliente.
     match /clientes/{clienteId} {
-      allow read: if true;
+      // `get` pelo id continua aberto (a máquina escuta o PRÓPRIO cliente).
+      // LISTAR é só da Central: o documento tem nome, CPF/CNPJ e valor da
+      // mensalidade -- antes qualquer um baixava a carteira inteira.
+      allow get: if true;
+      allow list: if ehAdminAutenticado();
       allow write: if ehAdminAutenticado();
 
       // Histórico de pagamentos (ver admin-panel "Ver histórico") --

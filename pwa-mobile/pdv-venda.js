@@ -656,11 +656,11 @@ function mount(container, ctx) {
         ${metodoSelecionado === 'fiado' && !venda.cliente ? '<p class="aviso aviso-alerta">Fiado precisa de cliente — <button id="btn-escolher-cliente" class="btn-link-inline">escolher cliente</button>.</p>' : ''}
         <div class="entrada-valor">
           <span class="prefixo">R$</span>
-          <input id="valor-pagamento" inputmode="decimal" autocomplete="off" value="${c.restante.toFixed(2).replace('.', ',')}" aria-label="Valor do pagamento" />
+          <input id="valor-pagamento" inputmode="decimal" autocomplete="off" value="${Number(c.restante).toFixed(2).replace('.', ',')}" aria-label="Valor do pagamento" />
         </div>
         ${metodoSelecionado === 'dinheiro' ? `
           <div class="atalhos-valor">
-            <button class="chip" data-valor="${c.restante}">Exato</button>
+            <button class="chip" data-valor="${Number(c.restante)}">Exato</button>
             ${notas.map((n) => `<button class="chip" data-valor="${n}">${formatarMoeda(n)}</button>`).join('')}
           </div>
           <p id="preview-troco" class="preview-troco"></p>` : ''}

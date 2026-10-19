@@ -17,9 +17,9 @@ import { db, firestoreFns } from './firebase-config.js';
  * Custo e margem ficam DE FORA de propósito (ver historySyncService.js).
  */
 
-const formatarMoeda = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatarMoeda = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); // Number(): o dado vem do Firestore; uma string passaria direto pro HTML
 const formatarMoedaCurta = (v) => {
-  const n = v || 0;
+  const n = Number(v) || 0;
   if (Math.abs(n) >= 1000) return `R$ ${(n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`;
   return formatarMoeda(n);
 };
@@ -247,7 +247,7 @@ function mount(container, { loja, aoAtualizar = () => {}, introducao = '' }) {
       ${temGrupo() ? `<p class="subtexto" style="margin-bottom:8px;">Somando os ${lojasDoGrupo.length} terminais deste grupo.</p>` : ''}
       <div class="grid-resumo">
         <div class="cartao-metrica"><div class="rotulo-metrica">Faturamento hoje</div><div class="valor-metrica">${formatarMoeda(resumo.faturamentoHoje)}</div></div>
-        <div class="cartao-metrica"><div class="rotulo-metrica">Vendas hoje</div><div class="valor-metrica">${resumo.totalVendasHoje}</div></div>
+        <div class="cartao-metrica"><div class="rotulo-metrica">Vendas hoje</div><div class="valor-metrica">${Number(resumo.totalVendasHoje) || 0}</div></div>
         <div class="cartao-metrica"><div class="rotulo-metrica">Ticket médio</div><div class="valor-metrica">${formatarMoeda(resumo.ticketMedioHoje)}</div></div>
       </div>
 
@@ -256,13 +256,13 @@ function mount(container, { loja, aoAtualizar = () => {}, introducao = '' }) {
         <div class="lista-pedidos-andamento">
           ${lojasDoGrupo.map((l) => {
             const d = resumoGrupo.porLoja.get(l.installId) || { faturamento: 0, vendas: 0 };
-            return `<div class="cartao-pedido"><div>${escapeHtml(l.nomeNegocio)}</div><div class="subtexto">${d.vendas} venda${d.vendas === 1 ? '' : 's'} · ${formatarMoeda(d.faturamento)}</div></div>`;
+            return `<div class="cartao-pedido"><div>${escapeHtml(l.nomeNegocio)}</div><div class="subtexto">${Number(d.vendas) || 0} venda${Number(d.vendas) === 1 ? '' : 's'} · ${formatarMoeda(d.faturamento)}</div></div>`;
           }).join('')}
         </div>` : ''}
 
       <h2 class="titulo-secao">Histórico${temGrupo() ? ' — todos os terminais' : ''}</h2>
       <div class="seletor-periodo">
-        ${Object.entries(PERIODOS).map(([k, p]) => `<button class="btn-periodo ${periodo === k ? 'btn-periodo-ativo' : ''}" data-periodo-painel="${k}">${p.rotulo}</button>`).join('')}
+        ${Object.entries(PERIODOS).map(([k, p]) => `<button class="btn-periodo ${periodo === k ? 'btn-periodo-ativo' : ''}" data-periodo-painel="${escapeHtml(k)}">${escapeHtml(p.rotulo)}</button>`).join('')}
       </div>
       ${renderHistorico(hist, dias, atualizadoHist)}
 
@@ -306,10 +306,10 @@ function mount(container, { loja, aoAtualizar = () => {}, introducao = '' }) {
     const cartoes = dias === 1 ? '' : `
       <div class="grid-resumo grid-resumo-3">
         <div class="cartao-metrica"><div class="rotulo-metrica">Faturado ${dias === 1 ? 'hoje' : 'no período'}</div><div class="valor-metrica">${formatarMoeda(hist.totalFaturado)}</div></div>
-        <div class="cartao-metrica"><div class="rotulo-metrica">Vendas</div><div class="valor-metrica">${hist.totalVendas}</div></div>
+        <div class="cartao-metrica"><div class="rotulo-metrica">Vendas</div><div class="valor-metrica">${Number(hist.totalVendas) || 0}</div></div>
         <div class="cartao-metrica"><div class="rotulo-metrica">Ticket médio</div><div class="valor-metrica">${formatarMoeda(hist.ticketMedio)}</div></div>
         ${dias > 1 && melhorDia?.valor > 0 ? `<div class="cartao-metrica"><div class="rotulo-metrica">Melhor dia</div><div class="valor-metrica valor-metrica-menor">${escapeHtml(melhorDia.rotuloLongo)}</div><div class="subtexto">${formatarMoeda(melhorDia.valor)}</div></div>` : ''}
-        ${hist.devolucoes?.total ? `<div class="cartao-metrica"><div class="rotulo-metrica">Devoluções</div><div class="valor-metrica valor-metrica-menor">${hist.devolucoes.total}</div><div class="subtexto">${formatarMoeda(hist.devolucoes.valor)}</div></div>` : ''}
+        ${hist.devolucoes?.total ? `<div class="cartao-metrica"><div class="rotulo-metrica">Devoluções</div><div class="valor-metrica valor-metrica-menor">${Number(hist.devolucoes.total) || 0}</div><div class="subtexto">${formatarMoeda(hist.devolucoes.valor)}</div></div>` : ''}
       </div>`;
     return `
       ${cartoes}

@@ -233,7 +233,8 @@ function registerIpcHandlers() {
   safeHandle('auth:listAuditLog', (event, payload) => authService.listAuditLog({ ...payload, requestingUserId: usuarioLogado(event) }));
   safeHandle('auth:getSecurityConfig', () => authService.getSecurityConfig());
   safeHandle('auth:updateSecurityConfig', (event, { requestingUserId, ...payload }) => authService.updateSecurityConfig(usuarioLogado(event), payload));
-  safeHandle('auth:changeOwnPin', (_e, { userId, pinAtual, novoPin }) => authService.changeOwnPin(userId, pinAtual, novoPin));
+  // "Próprio" PIN = o de quem está logado nesta janela, nunca um userId do payload.
+  safeHandle('auth:changeOwnPin', (event, { pinAtual, novoPin } = {}) => authService.changeOwnPin(usuarioLogado(event), pinAtual, novoPin));
 
   // --- Produtos ---
   safeHandle('product:findByBarcode', (_e, { codigoBarras }) => productService.findByBarcode(codigoBarras));
@@ -764,6 +765,7 @@ function registerIpcHandlers() {
   safeHandle('print:sendReceiptWhatsapp', (_e, { saleId }) => {
     const result = printService.buildReceiptWhatsappLink(saleId);
     if (!result.ok) return result;
+    if (!require('../seguranca').urlExternaPermitida(result.url)) return { ok: false, error: 'Link inválido.' };
     require('electron').shell.openExternal(result.url);
     return { ok: true, temTelefoneCliente: result.temTelefoneCliente };
   });

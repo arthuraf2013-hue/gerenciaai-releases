@@ -1,7 +1,7 @@
 import { auth, db, firestoreFns } from './firebase-config.js';
 import { icon } from './icons.js';
 
-const formatarMoeda = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatarMoeda = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); // Number(): o dado vem do Firestore; uma string passaria direto pro HTML
 
 /** Tela do garçom: escolher mesa, montar o pedido a partir do catálogo
  * publicado em status_ao_vivo/atual (ver liveStatusSyncService.js) e

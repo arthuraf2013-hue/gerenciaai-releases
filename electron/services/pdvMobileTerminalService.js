@@ -280,6 +280,19 @@ function aplicarFiadoPagamento(db, ctx, d) {
   if (!l?.id) throw new ErroTerminal('Evento de fiado incompleto.');
   if (db.prepare('SELECT 1 FROM customer_credit_movements WHERE id = ?').get(l.id)) return { status: 'ignorado', motivo: 'Lançamento já estava no computador.' };
   const clienteId = resolverCliente(db, ctx, d.cliente || { id: l.cliente_id });
+  // Defesa extra enquanto a máquina não tem identidade no Firestore (fase
+  // B): um "recebimento de fiado" maior do que a dívida que o computador
+  // conhece não entra sozinho -- fica recusado pra alguém conferir e usar
+  // "Tentar de novo". Sem isso, um evento forjado podia zerar a dívida de
+  // um cliente.
+  const valorPago = reais(Math.abs(Number(l.valor_centavos) || 0));
+  if (!(valorPago > 0)) throw new ErroTerminal('Recebimento de fiado sem valor.');
+  const saldo = db.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN tipo = 'divida' THEN valor ELSE -valor END), 0) AS s FROM customer_credit_movements WHERE customer_id = ?`
+  ).get(clienteId).s;
+  if (valorPago > saldo + 0.009 && !ctx.forcarRevisado) {
+    throw new ErroTerminal(`Recebimento de ${valorPago.toFixed(2)} maior que a dívida do cliente aqui (${Math.max(0, saldo).toFixed(2)}). Confira antes de aplicar.`);
+  }
   const quem = garantirUsuario(db, ctx, d.usuario);
   const metodo = { dinheiro: 'dinheiro', credito: 'cartão de crédito', debito: 'cartão de débito', pix: 'Pix' }[l.metodo] || l.metodo || '';
   db.prepare('INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, motivo, operador_id, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -332,7 +345,7 @@ function registrar(db, ev, installId, r) {
  * status: 'aplicado' | 'ignorado' (já estava aqui) | 'erro' | 'aguardando'
  * (depende de outro evento que ainda não chegou -- tenta de novo depois).
  */
-function aplicarEvento(installId, ev) {
+function aplicarEvento(installId, ev, { forcarRevisado = false } = {}) {
   const db = getDb();
   const anterior = db.prepare('SELECT status, erro FROM pdv_terminal_eventos WHERE evento_id = ?').get(ev?.id || '');
   if (anterior && (anterior.status === 'aplicado' || anterior.status === 'ignorado')) {
@@ -347,7 +360,7 @@ function aplicarEvento(installId, ev) {
     try { dados = typeof ev.dadosJson === 'string' ? JSON.parse(ev.dadosJson) : ev.dados; } catch { throw new ErroTerminal('Evento corrompido (dados ilegíveis).'); }
     if (!dados) throw new ErroTerminal('Evento sem dados.');
     r = db.transaction(() => {
-      const ctx = contexto(db, installId);
+      const ctx = { ...contexto(db, installId), forcarRevisado };
       const res = APLICADORES[ev.tipo](db, ctx, dados);
       registrar(db, ev, installId, res);
       return res;
@@ -363,8 +376,8 @@ function aplicarEvento(installId, ev) {
 }
 
 /** Aplica e, se configurado, emite a NFC-e da venda (assíncrono, fora da transação). */
-async function processarEvento(installId, ev, { agoraMs = Date.now() } = {}) {
-  const r = aplicarEvento(installId, ev);
+async function processarEvento(installId, ev, { agoraMs = Date.now(), forcarRevisado = false } = {}) {
+  const r = aplicarEvento(installId, ev, { forcarRevisado });
   if (r.status !== 'aplicado' || ev.tipo !== 'venda' || r.repetido) return r;
   const cfg = getConfig();
   if (!cfg.emitirNfce) return r;
@@ -703,7 +716,9 @@ async function reprocessar(eventoId) {
   const { fs, db } = fsCtx();
   const snap = await fs.getDoc(fs.doc(db, 'installations', row.install_id, 'terminal_eventos', eventoId));
   if (!snap.exists()) return { ok: false, error: 'O evento não está mais na nuvem -- peça pro celular reenviar (Ajustes → Computador → Tentar de novo).' };
-  const r = await enfileirar(() => processarEvento(row.install_id, { id: snap.id, ...snap.data() }));
+  // "Tentar de novo" é uma pessoa (gerente/admin) conferindo: libera as
+  // travas de plausibilidade (ex.: recebimento de fiado maior que a dívida).
+  const r = await enfileirar(() => processarEvento(row.install_id, { id: snap.id, ...snap.data() }, { forcarRevisado: true }));
   if (r.status !== 'aguardando') await enviarRecibo(row.install_id, eventoId, r).catch(() => {});
   if (r.status === 'aplicado') publicarCatalogo(row.install_id).catch(() => {});
   return r.status === 'aplicado' || r.status === 'ignorado' ? { ok: true, resultado: r } : { ok: false, error: r.erro };

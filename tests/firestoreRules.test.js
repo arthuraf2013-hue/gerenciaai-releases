@@ -43,6 +43,10 @@ async function setupTestEnv() {
   // no mesmo emulador falhava (documentos da rodada anterior transformam
   // `create` em `update`).
   await testEnv.clearFirestore();
+  // Contas de administrador usadas nos testes (lista admins/{uid}).
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    for (const uid of ['uid-admin-teste', 'admin-1']) await context.firestore().doc(`admins/${uid}`).set({ nome: 'teste' });
+  });
   return testEnv;
 }
 
@@ -897,4 +901,35 @@ test('estoque do grupo: movimento do livro é gravado uma vez e não muda depois
   await assertSucceeds(db.doc('grupos_sincronizacao/g-9/estoque/p1/movimentos/m1').set({ delta: 3 }));
   await assertFails(db.doc('grupos_sincronizacao/g-9/estoque/p1/movimentos/m1').set({ delta: 300 }));
   await assertFails(db.doc('grupos_sincronizacao/g-9/estoque/p1/movimentos/m1').delete());
+});
+
+test('instalação: id fora do formato de UUID não é criado (evita HTML injetado pelo id na Central)', SK, async () => {
+  await setupTestEnv();
+  await assertFails(semLogin().doc('installations/x" onmouseover="alert(1)').set({ ativo: true }));
+  await assertFails(semLogin().doc('installations/<img src=x>').set({ ativo: true }));
+  await assertSucceeds(semLogin().doc('installations/0b6c1f9e-5d0a-4a8e-9a77-3f1f0c2b9d11').set({ ativo: true, clienteId: null }));
+});
+
+test('clientes: ninguém além da Central lista a carteira (nome, documento, mensalidade); get pelo id continua', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('clientes/cli-lgpd').set({ nome: 'Loja X', documento: '00.000.000/0001-00', valorMensalidade: 99 }));
+  await assertFails(semLogin().collection('clientes').get());
+  await assertFails(testEnv.authenticatedContext('anon-x').firestore().collection('clientes').get());
+  await assertSucceeds(semLogin().doc('clientes/cli-lgpd').get());
+  await assertSucceeds(adminCtx().collection('clientes').get());
+});
+
+
+test('admin: conta de e-mail/senha que NÃO está em admins/{uid} não é administradora (cadastro aberto no Firebase)', SK, async () => {
+  await setupTestEnv();
+  const intruso = testEnv.authenticatedContext('uid-qualquer', { firebase: { sign_in_provider: 'password' } }).firestore();
+  await semRegras((db) => db.doc('installations/pc-alvo').set({ ativo: false, bloqueioImediato: true }));
+  await assertFails(intruso.doc('installations/pc-alvo').update({ ativo: true, bloqueioImediato: false }));
+  await assertFails(intruso.collection('clientes').get());
+  await assertFails(intruso.doc('cofre_config/chave_contas_google').get());
+  await assertFails(intruso.doc('admins/uid-qualquer').set({ nome: 'eu' }));
+  // A lista não é legível nem gravável por ninguém pelo app; a própria conta lê o próprio registro.
+  await assertSucceeds(testEnv.authenticatedContext('admin-1', { firebase: { sign_in_provider: 'password' } }).firestore().doc('admins/admin-1').get());
+  await assertFails(testEnv.authenticatedContext('admin-1', { firebase: { sign_in_provider: 'password' } }).firestore().collection('admins').get());
+  await assertSucceeds(adminCtx().doc('installations/pc-alvo').update({ ativo: true }));
 });

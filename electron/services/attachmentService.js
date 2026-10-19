@@ -13,7 +13,8 @@ function attachmentsDir() {
   // arquivos de teste tentando extrair o binário do Electron ao mesmo
   // tempo — "File exists" no resources.pak).
   const { app } = require('electron');
-  const dir = path.join(app.getPath('userData'), 'anexos');
+  const base = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+  const dir = path.join(base, 'anexos');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -30,11 +31,23 @@ function inferTipo(filePath) {
  * (nunca lê/escreve fora dela) e registra o vínculo com a venda.
  * Puramente opcional — nenhuma venda depende disso para ser concluída.
  */
+// Anexo só existe dentro da pasta de anexos: o saleId vem do renderer e o
+// caminho fica no banco (que pode vir de um backup restaurado).
+function caminhoDeAnexoSeguro(caminho) {
+  if (!caminho) return null;
+  const base = path.resolve(attachmentsDir());
+  const alvo = path.resolve(String(caminho));
+  return alvo.startsWith(base + path.sep) ? alvo : null;
+}
+
 function addAttachment({ saleId, sourceFilePath, operadorId }) {
   const tipo = inferTipo(sourceFilePath);
   if (!tipo) return { ok: false, error: 'Formato não suportado. Envie uma imagem (png/jpg) ou um PDF.' };
 
   const db = getDb();
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(String(saleId)) || !db.prepare('SELECT 1 FROM sales WHERE id = ?').get(saleId)) {
+    return { ok: false, error: 'Venda não encontrada.' };
+  }
   const destDir = path.join(attachmentsDir(), saleId);
   fs.mkdirSync(destDir, { recursive: true });
 
@@ -61,8 +74,9 @@ function removeAttachment(id) {
   if (!row) return { ok: false, error: 'Anexo não encontrado.' };
 
   db.prepare('DELETE FROM sale_attachments WHERE id = ?').run(id);
-  fs.unlink(row.caminho, () => {}); // best-effort — não falha a operação se o arquivo já sumiu
+  const seguro = caminhoDeAnexoSeguro(row.caminho);
+  if (seguro) fs.unlink(seguro, () => {}); // best-effort — não falha a operação se o arquivo já sumiu
   return { ok: true };
 }
 
-module.exports = { addAttachment, listAttachments, removeAttachment };
+module.exports = { addAttachment, listAttachments, removeAttachment, caminhoDeAnexoSeguro };

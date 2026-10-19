@@ -10,7 +10,7 @@
 // Nunca intercepta chamada pro Firestore/Firebase -- só os arquivos
 // deste mesmo diretório.
 
-const CACHE = 'gerenciaai-garcom-v3';
+const CACHE = 'gerenciaai-garcom-v4'; // v4: correções de escape de HTML (auditoria de segurança)
 const ARQUIVOS_SHELL = [
   './', './index.html', './styles.css', './app.js', './firebase-config.js',
   './store.js', './pairing.js', './garcom.js', './consulta.js', './manifest.webmanifest', './icons.js',

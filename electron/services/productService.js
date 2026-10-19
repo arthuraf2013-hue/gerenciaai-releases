@@ -7,7 +7,8 @@ const timeService = require('./timeService');
 function fotosDir() {
   // 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
   const { app } = require('electron');
-  const dir = path.join(app.getPath('userData'), 'fotos-produtos');
+  const base = app ? app.getPath('userData') : path.join(__dirname, '../../.data');
+  const dir = path.join(base, 'fotos-produtos');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -20,8 +21,21 @@ function inferMime(filePath) {
 }
 
 /** Copia a foto escolhida pelo usuário para a pasta de dados do app e associa ao produto. */
+// A foto do produto só pode morar dentro da pasta de fotos do app: o id
+// vem do renderer e o caminho fica no banco (que pode vir de um backup
+// restaurado) -- sem essa checagem dava pra gravar, ler ou apagar arquivo
+// em qualquer lugar do disco ("../../...").
+function caminhoDeFotoSeguro(caminho) {
+  if (!caminho) return null;
+  const base = path.resolve(fotosDir());
+  const alvo = path.resolve(String(caminho));
+  return alvo.startsWith(base + path.sep) ? alvo : null;
+}
+
 function setFoto(productId, sourceFilePath) {
   const db = getDb();
+  if (!db.prepare('SELECT 1 FROM products WHERE id = ?').get(productId)) return { ok: false, error: 'Produto não encontrado.' };
+  if (!/^[A-Za-z0-9_-]{1,80}$/.test(String(productId))) return { ok: false, error: 'Produto inválido.' };
   const ext = path.extname(sourceFilePath).toLowerCase();
   if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
     return { ok: false, error: 'Formato não suportado. Envie PNG, JPG ou WEBP.' };
@@ -37,7 +51,8 @@ function setFoto(productId, sourceFilePath) {
 function removeFoto(productId) {
   const db = getDb();
   const product = db.prepare('SELECT foto_path FROM products WHERE id = ?').get(productId);
-  if (product?.foto_path) fs.unlink(product.foto_path, () => {});
+  const seguro = caminhoDeFotoSeguro(product?.foto_path);
+  if (seguro) fs.unlink(seguro, () => {});
   db.prepare('UPDATE products SET foto_path = NULL WHERE id = ?').run(productId);
   return { ok: true };
 }
@@ -46,10 +61,11 @@ function removeFoto(productId) {
 function getFotoDataUrl(productId) {
   const db = getDb();
   const product = db.prepare('SELECT foto_path FROM products WHERE id = ?').get(productId);
-  if (!product?.foto_path || !fs.existsSync(product.foto_path)) return null;
+  const seguro = caminhoDeFotoSeguro(product?.foto_path);
+  if (!seguro || !['.png', '.jpg', '.jpeg', '.webp'].includes(path.extname(seguro).toLowerCase()) || !fs.existsSync(seguro)) return null;
 
-  const buffer = fs.readFileSync(product.foto_path);
-  const mime = inferMime(product.foto_path);
+  const buffer = fs.readFileSync(seguro);
+  const mime = inferMime(seguro);
   return `data:${mime};base64,${buffer.toString('base64')}`;
 }
 

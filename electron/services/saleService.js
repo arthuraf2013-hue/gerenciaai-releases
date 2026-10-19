@@ -269,6 +269,14 @@ function reexibirNoHistorico({ saleId, operadorId }) {
  * para fiado e fidelidade. */
 function setCustomer(saleId, customerId) {
   const db = getDb();
+  // Venda finalizada já gerou fiado/pontos no nome do cliente dela; trocar
+  // o cliente depois deixava os registros apontando pra pessoas diferentes.
+  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
+  if (customerId && !db.prepare('SELECT 1 FROM customers WHERE id = ?').get(customerId)) {
+    return { ok: false, error: 'Cliente não encontrado.' };
+  }
   db.prepare('UPDATE sales SET customer_id = ? WHERE id = ?').run(customerId || null, saleId);
   return { ok: true };
 }
@@ -280,6 +288,8 @@ function redeemLoyaltyPoints({ saleId, pontos }) {
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  // Resgate em venda finalizada baixava o total registrado depois de pago.
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
   if (!sale.customer_id) return { ok: false, error: 'Vincule um cliente à venda antes de resgatar pontos.' };
 
   const pts = Number(pontos);
@@ -359,6 +369,12 @@ function applyManagerDiscount({ saleId, valor, percentual, motivo, currentOperat
 /** Remove o desconto manual antes de finalizar (ex: operador mudou de ideia). */
 function removeManagerDiscount(saleId) {
   const db = getDb();
+  // Só venda ABERTA: mexer no desconto de venda finalizada alterava o
+  // total já registrado (relatórios, histórico) sem passar pela edição de
+  // histórico (que exige admin e fica na Auditoria).
+  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
   db.prepare(
     `UPDATE sales SET desconto_gerente = 0, desconto_gerente_motivo = NULL, desconto_autorizado_por_id = NULL WHERE id = ?`
   ).run(saleId);
@@ -371,6 +387,9 @@ function setServiceCharge(saleId, percentual) {
   const valor = Number(percentual) || 0;
   if (valor < 0 || valor > 100) return { ok: false, error: 'Percentual inválido — use um valor entre 0 e 100.' };
   const db = getDb();
+  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
   db.prepare('UPDATE sales SET taxa_servico_percentual = ? WHERE id = ?').run(valor, saleId);
   return { ok: true };
 }

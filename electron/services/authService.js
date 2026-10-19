@@ -6,13 +6,17 @@ const timeService = require('./timeService');
 const MAX_TENTATIVAS = 5;
 const BLOQUEIO_MINUTOS = 10;
 
+// Relógio sincronizado (timeService), não o do Windows: adiantar a hora
+// da máquina não pode encurtar o bloqueio por PIN errado.
+const agoraMs = () => timeService.nowMs();
+
 function estaBloqueado(user) {
   if (!user.bloqueado_ate) return false;
-  return new Date(user.bloqueado_ate + 'Z').getTime() > Date.now();
+  return new Date(user.bloqueado_ate + 'Z').getTime() > agoraMs();
 }
 
 function minutosRestantes(user) {
-  const ms = new Date(user.bloqueado_ate + 'Z').getTime() - Date.now();
+  const ms = new Date(user.bloqueado_ate + 'Z').getTime() - agoraMs();
   return Math.max(1, Math.ceil(ms / 60000));
 }
 
@@ -22,7 +26,7 @@ function registrarTentativaFalha(db, userId) {
   const tentativas = (user.tentativas_falhas || 0) + 1;
 
   if (tentativas >= MAX_TENTATIVAS) {
-    const bloqueadoAte = new Date(Date.now() + BLOQUEIO_MINUTOS * 60000).toISOString().slice(0, 19);
+    const bloqueadoAte = new Date(agoraMs() + BLOQUEIO_MINUTOS * 60000).toISOString().slice(0, 19);
     db.prepare('UPDATE users SET tentativas_falhas = 0, bloqueado_ate = ? WHERE id = ?').run(bloqueadoAte, userId);
     return `Muitas tentativas de PIN incorreto. Bloqueado por ${BLOQUEIO_MINUTOS} minutos.`;
   }

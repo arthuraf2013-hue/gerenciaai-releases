@@ -1,6 +1,5 @@
-const { app, BrowserWindow, protocol, net } = require('electron');
+const { app, BrowserWindow, protocol } = require('electron');
 const path = require('path');
-const { pathToFileURL } = require('url');
 const { getDb } = require('./db/database');
 // ipc/handlers (que carrega TODOS os serviços do app) é carregado só
 // depois de pedir a janela -- ver o comentário em app.whenReady.
@@ -14,6 +13,11 @@ const reservationService = require('./services/reservationService');
 const appointmentService = require('./services/appointmentService');
 
 const isDev = !app.isPackaged;
+const seguranca = require('./seguranca');
+// Toda janela/webContents (inclusive as de impressão): sem janela nova do
+// Electron por window.open, sem navegar pra fora do app, sem <webview>,
+// permissões do navegador negadas (só copiar pra área de transferência).
+seguranca.aplicarEmTodoWebContents(app, { isDev });
 
 // Reporta qualquer erro não tratado no processo principal antes de deixar
 // o comportamento padrão do Node acontecer (fechar o processo) — sem
@@ -149,12 +153,9 @@ app.whenReady().then(() => {
   // quit() terminar de verdade.
   if (!temOLock) return;
   if (!isDev) {
-    protocol.handle('app', (request) => {
-      const { pathname } = new URL(request.url);
-      const relativePath = decodeURIComponent(pathname === '/' ? '/index.html' : pathname);
-      const fullPath = path.join(__dirname, '../dist', relativePath);
-      return net.fetch(pathToFileURL(fullPath).toString());
-    });
+    // Só serve arquivo de dentro de dist/ (antes "..%2f" escapava da
+    // pasta) e manda a CSP junto do HTML -- ver electron/seguranca.js.
+    protocol.handle('app', (request) => seguranca.respostaDoProtocoloApp(request, path.join(__dirname, '../dist')));
   }
 
   // Janela PRIMEIRO, no mesmo "tick" síncrono de getDb() e dos

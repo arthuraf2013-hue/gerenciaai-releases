@@ -760,9 +760,22 @@
 
   document.getElementById('sair-btn').addEventListener('click', () => signOut(auth));
 
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     loadingScreen.style.display = 'none';
     if (user) {
+      // Só quem está em admins/{uid} (criado no Console do Firebase) é
+      // administrador -- ver ehAdminAutenticado() em firestore.rules.
+      let ehAdmin = false;
+      try { ehAdmin = (await getDoc(doc(db, 'admins', user.uid))).exists(); } catch { ehAdmin = false; }
+      if (!ehAdmin) {
+        loginScreen.style.display = 'block';
+        appScreen.style.display = 'none';
+        const aviso = document.getElementById('login-error') || loginScreen;
+        aviso.style.display = 'block';
+        aviso.textContent = `Esta conta entrou, mas não está na lista de administradores. No Console do Firebase → Firestore, crie a coleção "admins" com um documento cujo ID é ${user.uid}. Depois entre de novo.`;
+        await signOut(auth);
+        return;
+      }
       loginScreen.style.display = 'none';
       appScreen.style.display = 'block';
       escutarDados();
@@ -956,13 +969,14 @@
     }
   }
 
+  const ehTimestamp = (t) => !!t && typeof t.toDate === 'function' && typeof t.toMillis === 'function';
   function diasAtras(timestamp) {
-    if (!timestamp) return null;
+    if (!ehTimestamp(timestamp)) return null;
     return (Date.now() - timestamp.toDate().getTime()) / 86400000;
   }
 
   function minutosAtras(timestamp) {
-    if (!timestamp) return null;
+    if (!ehTimestamp(timestamp)) return null;
     return (Date.now() - timestamp.toDate().getTime()) / 60000;
   }
 
@@ -977,9 +991,9 @@
    * cálculos de dias-sem-contato resolve essa contradição.
    */
   function ultimoSinalTimestamp(inst) {
-    const ping = inst.ultimoPing;
-    const contato = inst.ultimoContato;
-    if (!ping) return contato || null;
+    const ping = ehTimestamp(inst.ultimoPing) ? inst.ultimoPing : null;
+    const contato = ehTimestamp(inst.ultimoContato) ? inst.ultimoContato : null;
+    if (!ping) return contato;
     if (!contato) return ping;
     return ping.toMillis() >= contato.toMillis() ? ping : contato;
   }
@@ -1027,17 +1041,17 @@
    */
   function atualizarSinaisOnline() {
     for (const inst of instalacoes) {
-      const dot = listaClientes.querySelector(`[data-online-dot="${inst.id}"]`);
+      const dot = listaClientes.querySelector(`[data-online-dot="${escapeHtml(inst.id)}"]`);
       if (!dot) continue;
       const online = estaOnline(inst);
       dot.className = `online-dot ${online ? 'online-dot-on' : 'online-dot-off'}`;
       dot.title = online ? 'Online agora' : 'Offline';
-      const texto = listaClientes.querySelector(`[data-online-texto="${inst.id}"]`);
+      const texto = listaClientes.querySelector(`[data-online-texto="${escapeHtml(inst.id)}"]`);
       if (texto) {
         texto.className = `maquina-online-texto ${online ? 'maquina-online-texto-on' : 'maquina-online-texto-off'}`;
         texto.textContent = online ? 'Online' : 'Offline';
       }
-      const contato = listaClientes.querySelector(`[data-ultimo-contato="${inst.id}"]`);
+      const contato = listaClientes.querySelector(`[data-ultimo-contato="${escapeHtml(inst.id)}"]`);
       if (contato) contato.textContent = textoUltimoContato(inst, online);
     }
     // Chave 'sem-vinculo' junto no mesmo mapa pra reaproveitar o loop de
@@ -1069,9 +1083,13 @@
     }
   }
 
+  // Robusto a dado adulterado: campos de data vêm de documentos que as
+  // próprias máquinas escrevem -- um valor que não é Timestamp não pode
+  // quebrar a tela inteira.
   function formatarData(timestamp) {
-    if (!timestamp) return '—';
-    return timestamp.toDate().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    if (!timestamp || typeof timestamp.toDate !== 'function') return '—';
+    const d = timestamp.toDate();
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
   }
 
   /**
@@ -1101,7 +1119,7 @@
     }
     if (s.implantacaoTotal && s.implantacaoFeitos < s.implantacaoTotal) {
       const falta = Array.isArray(s.implantacaoFaltando) ? s.implantacaoFaltando.map((t) => `• ${t}`).join('\n') : '';
-      partes.push(`<span class="status-pill" title="Falta na implantação:\n${escapeHtml(falta)}">Implantação ${s.implantacaoFeitos}/${s.implantacaoTotal}</span>`);
+      partes.push(`<span class="status-pill" title="Falta na implantação:\n${escapeHtml(falta)}">Implantação ${Number(s.implantacaoFeitos) || 0}/${Number(s.implantacaoTotal) || 0}</span>`);
     }
     return partes.join('');
   }
@@ -1109,7 +1127,7 @@
   const DICA_ULTIMO_CONTATO = 'Última vez que a máquina respondeu à Central (quando está offline, é o momento em que ela parou de responder).';
 
   function formatarMoeda(v) {
-    return (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    return (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
 
   function statusDaInstalacao(inst) {
@@ -1189,14 +1207,14 @@
     return `
       <div class="mensagem-cliente-wrap ativacao-mobile-wrap">
         <span class="cliente-resumo" style="align-self:center;">${icon('celular', 13)} PDV mobile autônomo:</span>
-        <button class="btn-secondary btn-small" data-gerar-ativacao="${cliente.id}">Gerar código de ativação</button>
+        <button class="btn-secondary btn-small" data-gerar-ativacao="${escapeHtml(cliente.id)}">Gerar código de ativação</button>
         ${pendentes.map((a) => {
           const expira = a.expiraEm?.toMillis?.() || 0;
           const vencido = expira && expira < agora;
           return `<span class="codigo-ativacao ${vencido ? 'vencido' : ''}" title="${vencido ? 'Expirado' : 'Ainda não usado'}">
             <code>${formatarCodigoAtivacao(a.id)}</code>
             <small>${vencido ? 'expirou' : `até ${formatarData(a.expiraEm)}`}</small>
-            <button class="btn-link-pequeno" data-cancelar-ativacao="${a.id}" aria-label="Cancelar código">✕</button>
+            <button class="btn-link-pequeno" data-cancelar-ativacao="${escapeHtml(a.id)}" aria-label="Cancelar código">✕</button>
           </span>`;
         }).join('')}
       </div>`;
@@ -1339,7 +1357,7 @@
   function abrirVincular(instalacaoId) {
     instalacaoParaVincular = instalacaoId;
     const select = document.getElementById('vincular-select-cliente');
-    select.innerHTML = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+    select.innerHTML = clientes.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('');
     vincularModal.style.display = 'flex';
   }
 
@@ -1568,7 +1586,7 @@
         <span>${new Date(p.data + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
         <span class="maquina-meta">${p.valor != null ? formatarMoeda(p.valor) : 'valor não informado'}</span>
         <div class="maquina-acoes">
-          <button class="btn-danger btn-small" data-excluir-pagamento="${p.id}" data-excluir-pagamento-cliente="${clienteId}">Excluir</button>
+          <button class="btn-danger btn-small" data-excluir-pagamento="${escapeHtml(p.id)}" data-excluir-pagamento-cliente="${clienteId}">Excluir</button>
         </div>
       </div>
     `).join('');
@@ -1716,13 +1734,15 @@
 
   function renderMetricas() {
     const div = document.getElementById('metricas-conteudo');
-    const totalVendas = instalacoes.reduce((acc, i) => acc + (i.totalVendasHistorico || 0), 0);
-    const vendas30Dias = instalacoes.reduce((acc, i) => acc + (i.vendasUltimos30Dias || 0), 0);
+    // Number(): esses campos são escritos pelas próprias máquinas -- uma
+    // string ali viraria concatenação (e HTML) em vez de soma.
+    const totalVendas = instalacoes.reduce((acc, i) => acc + (Number(i.totalVendasHistorico) || 0), 0);
+    const vendas30Dias = instalacoes.reduce((acc, i) => acc + (Number(i.vendasUltimos30Dias) || 0), 0);
     const cobranca = calcularResumoCobranca();
 
     const porPerfil = {};
     for (const i of instalacoes) {
-      const perfil = i.perfilAtivo || 'não informado';
+      const perfil = typeof i.perfilAtivo === 'string' && i.perfilAtivo ? i.perfilAtivo : 'não informado';
       porPerfil[perfil] = (porPerfil[perfil] || 0) + 1;
     }
     const perfilMaisComum = Object.entries(porPerfil).sort((a, b) => b[1] - a[1])[0];
@@ -1732,7 +1752,7 @@
     const vendasPorCliente = new Map();
     for (const i of instalacoes) {
       if (!i.clienteId) continue;
-      vendasPorCliente.set(i.clienteId, (vendasPorCliente.get(i.clienteId) || 0) + (i.vendasUltimos30Dias || 0));
+      vendasPorCliente.set(i.clienteId, (vendasPorCliente.get(i.clienteId) || 0) + (Number(i.vendasUltimos30Dias) || 0));
     }
     const topClientes = [...vendasPorCliente.entries()]
       .map(([clienteId, vendas]) => ({ nome: clientes.find((c) => c.id === clienteId)?.nome || clienteId, vendas }))
@@ -1764,7 +1784,7 @@
           ${topClientes.map((c, idx) => `
             <div class="maquina-row" style="margin-bottom: 6px;">
               <span>${idx + 1}. ${escapeHtml(c.nome)}</span>
-              <span class="maquina-meta" style="margin-left: auto;">${c.vendas} venda(s)</span>
+              <span class="maquina-meta" style="margin-left: auto;">${Number(c.vendas) || 0} venda(s)</span>
             </div>
           `).join('')}
         </div>
@@ -1801,7 +1821,7 @@
         <div class="erro-meta">
           ${escapeHtml(nomeDoCliente(e.installationId))} · v${escapeHtml(e.versaoApp || '—')} ·
           ${escapeHtml(e.contexto || '')} · ${formatarData(e.criadoEm)}
-          <button class="btn-secondary btn-small" data-apagar-erro="${e.id}" style="float:right;">Apagar</button>
+          <button class="btn-secondary btn-small" data-apagar-erro="${escapeHtml(e.id)}" style="float:right;">Apagar</button>
         </div>
         <div class="erro-mensagem">${escapeHtml(e.mensagem || '(sem mensagem)')}</div>
         ${e.stack ? `<div class="erro-stack">${escapeHtml(e.stack)}</div>` : ''}
@@ -1973,7 +1993,7 @@
               <div class="cliente-resumo">${maquinasDoGrupo.length} máquina(s) sincronizando juntas</div>
             </div>
             <div class="cliente-acoes">
-              <button class="btn-secondary btn-small" data-apagar-grupo="${grupo.id}">Apagar grupo</button>
+              <button class="btn-secondary btn-small" data-apagar-grupo="${escapeHtml(grupo.id)}">Apagar grupo</button>
             </div>
           </div>
           <div class="maquinas-lista aberto">
@@ -1981,18 +2001,18 @@
               <div class="maquina-row">
                 <span>${escapeHtml(nomeDaInstalacaoComCliente(m))}</span>
                 <label style="display:flex; align-items:center; gap:4px; font-size:12px; margin-left:auto;">
-                  <input type="checkbox" data-servidor-toggle="${m.id}" ${m.servidorDoGrupo ? 'checked' : ''} style="width:auto;">
+                  <input type="checkbox" data-servidor-toggle="${escapeHtml(m.id)}" ${m.servidorDoGrupo ? 'checked' : ''} style="width:auto;">
                   Servidor
                 </label>
                 <div class="maquina-acoes">
-                  <button class="btn-secondary btn-small" data-desvincular-grupo="${m.id}">Remover do grupo</button>
+                  <button class="btn-secondary btn-small" data-desvincular-grupo="${escapeHtml(m.id)}">Remover do grupo</button>
                 </div>
               </div>
             `).join('')}
             <div class="mensagem-cliente-wrap">
-              <select data-adicionar-select="${grupo.id}">
+              <select data-adicionar-select="${escapeHtml(grupo.id)}">
                 <option value="">Adicionar máquina ao grupo...</option>
-                ${maquinasForaDoGrupo.map((m) => `<option value="${m.id}">${escapeHtml(nomeDaInstalacaoComCliente(m))}</option>`).join('')}
+                ${maquinasForaDoGrupo.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(nomeDaInstalacaoComCliente(m))}</option>`).join('')}
               </select>
             </div>
           </div>
@@ -2027,7 +2047,7 @@
   function popularSelectBackups() {
     const select = document.getElementById('backups-select-maquina');
     const atual = select.value;
-    select.innerHTML = instalacoes.map((i) => `<option value="${i.id}">${escapeHtml(nomeDaInstalacaoComCliente(i))}</option>`).join('');
+    select.innerHTML = instalacoes.map((i) => `<option value="${escapeHtml(i.id)}">${escapeHtml(nomeDaInstalacaoComCliente(i))}</option>`).join('');
     if (atual && instalacoes.some((i) => i.id === atual)) select.value = atual;
   }
 
@@ -2070,7 +2090,7 @@
   const FREQUENCIAS_BACKUP_MOBILE = [1, 2, 3, 4, 6, 8, 12, 24];
   function renderConfigBackupMobile(div, inst) {
     const freq = inst.backupFrequenciaHoras || 1;
-    const ret = inst.backupRetencaoDias || 30;
+    const ret = Math.min(30, Math.max(1, Math.round(Number(inst.backupRetencaoDias) || 30)));
     const ultimo = inst.ultimoBackupNuvemEm ? formatarData(inst.ultimoBackupNuvemEm) : 'nenhum ainda';
     div.innerHTML = `
       <div class="backup-mobile-config">
@@ -2105,7 +2125,8 @@
     });
   }
 
-  function formatarTamanho(bytes) {
+  function formatarTamanho(valor) {
+    const bytes = Number(valor) || 0;
     if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
@@ -2575,7 +2596,7 @@
   }
 
   function popularSelectClientesCofre() {
-    const opcoesClientes = clientes.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+    const opcoesClientes = clientes.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('');
 
     const filtroSelect = document.getElementById('cofre-filtro-cliente');
     const filtroAtual = filtroSelect.value;
@@ -2628,8 +2649,8 @@
             </div>
             <div class="cliente-acoes">
               ${e.link ? `<button class="btn-primary btn-small" data-cofre-abrir-link="${escapeHtml(e.link)}">🔗 Abrir acesso remoto</button>` : ''}
-              <button class="btn-secondary btn-small" data-cofre-editar="${e.id}">Editar</button>
-              <button class="btn-danger btn-small" data-cofre-apagar="${e.id}">Apagar</button>
+              <button class="btn-secondary btn-small" data-cofre-editar="${escapeHtml(e.id)}">Editar</button>
+              <button class="btn-danger btn-small" data-cofre-apagar="${escapeHtml(e.id)}">Apagar</button>
             </div>
           </div>
           <div class="maquinas-lista aberto">
@@ -2972,44 +2993,44 @@
       || (cliente.vencimento ? new Date(cliente.vencimento + 'T00:00:00').getDate() : '');
 
     return `
-      <div class="card cliente-card" data-cliente-card="${cliente.id}">
-        <div class="cliente-header ${aberto ? 'aberto' : ''}" data-toggle-cliente="${cliente.id}">
+      <div class="card cliente-card" data-cliente-card="${escapeHtml(cliente.id)}">
+        <div class="cliente-header ${aberto ? 'aberto' : ''}" data-toggle-cliente="${escapeHtml(cliente.id)}">
           <span class="chevron">▶</span>
           <div class="cliente-info">
             <span class="cliente-nome">${escapeHtml(cliente.nome)}</span>
             ${cliente.documento ? `<span class="cliente-doc">${escapeHtml(cliente.documento)}</span>` : ''}
             ${venc ? `<span class="status-pill ${venc.classe}" style="margin-left:8px;">${venc.texto}</span>` : ''}
-            ${badgeOnline ? `<span class="status-pill ${badgeOnline.classe}" style="margin-left:8px;" data-badge-online-cliente="${cliente.id}">${badgeOnline.texto}</span>` : ''}
-            <div class="cliente-resumo" data-resumo-cliente="${cliente.id}">${resumoStatus}</div>
+            ${badgeOnline ? `<span class="status-pill ${badgeOnline.classe}" style="margin-left:8px;" data-badge-online-cliente="${escapeHtml(cliente.id)}">${badgeOnline.texto}</span>` : ''}
+            <div class="cliente-resumo" data-resumo-cliente="${escapeHtml(cliente.id)}">${resumoStatus}</div>
           </div>
           <div class="cliente-acoes">
             ${maquinas.length > 0 ? `
-              <button class="btn-danger-strong btn-small" data-bloquear-cliente="${cliente.id}">Bloquear tudo</button>
-              <button class="btn-secondary btn-small" data-reativar-cliente="${cliente.id}">Reativar tudo</button>
+              <button class="btn-danger-strong btn-small" data-bloquear-cliente="${escapeHtml(cliente.id)}">Bloquear tudo</button>
+              <button class="btn-secondary btn-small" data-reativar-cliente="${escapeHtml(cliente.id)}">Reativar tudo</button>
             ` : ''}
           </div>
         </div>
-        <div class="maquinas-lista ${aberto ? 'aberto' : ''}" data-maquinas-de="${cliente.id}">
+        <div class="maquinas-lista ${aberto ? 'aberto' : ''}" data-maquinas-de="${escapeHtml(cliente.id)}">
           <div class="mensagem-cliente-wrap">
-            <input type="text" class="mensagem-cliente-input" data-mensagem-cliente="${cliente.id}"
+            <input type="text" class="mensagem-cliente-input" data-mensagem-cliente="${escapeHtml(cliente.id)}"
               value="${escapeHtml(maquinas[0]?.mensagemPersonalizada || '')}"
               placeholder="Mensagem só pra esse cliente (ex: Pendência de pagamento — entre em contato)">
-            <button class="btn-secondary btn-small" data-salvar-mensagem-cliente="${cliente.id}">Salvar mensagem</button>
-            <button class="btn-secondary btn-small" data-limpar-mensagem-cliente="${cliente.id}">Limpar</button>
+            <button class="btn-secondary btn-small" data-salvar-mensagem-cliente="${escapeHtml(cliente.id)}">Salvar mensagem</button>
+            <button class="btn-secondary btn-small" data-limpar-mensagem-cliente="${escapeHtml(cliente.id)}">Limpar</button>
           </div>
           <div class="mensagem-cliente-wrap">
-            <label class="cliente-resumo" style="align-self:center;" for="dia-vencimento-${cliente.id}">Cobra todo dia:</label>
-            <input type="number" id="dia-vencimento-${cliente.id}" min="1" max="31" step="1" style="max-width:80px;"
-              data-dia-vencimento-cliente="${cliente.id}" value="${diaVencimentoSugerido}" placeholder="dia">
-            <label class="cliente-resumo" style="align-self:center;" for="valor-mensalidade-${cliente.id}">Valor:</label>
-            <input type="number" id="valor-mensalidade-${cliente.id}" min="0" step="0.01" style="max-width:110px;"
-              data-valor-mensalidade-cliente="${cliente.id}" value="${cliente.valorMensalidade ?? ''}" placeholder="R$">
-            <button class="btn-secondary btn-small" data-marcar-pago="${cliente.id}">Marcar pago hoje</button>
+            <label class="cliente-resumo" style="align-self:center;" for="dia-vencimento-${escapeHtml(cliente.id)}">Cobra todo dia:</label>
+            <input type="number" id="dia-vencimento-${escapeHtml(cliente.id)}" min="1" max="31" step="1" style="max-width:80px;"
+              data-dia-vencimento-cliente="${escapeHtml(cliente.id)}" value="${diaVencimentoSugerido}" placeholder="dia">
+            <label class="cliente-resumo" style="align-self:center;" for="valor-mensalidade-${escapeHtml(cliente.id)}">Valor:</label>
+            <input type="number" id="valor-mensalidade-${escapeHtml(cliente.id)}" min="0" step="0.01" style="max-width:110px;"
+              data-valor-mensalidade-cliente="${escapeHtml(cliente.id)}" value="${cliente.valorMensalidade != null ? Number(cliente.valorMensalidade) : ''}" placeholder="R$">
+            <button class="btn-secondary btn-small" data-marcar-pago="${escapeHtml(cliente.id)}">Marcar pago hoje</button>
             ${cliente.ultimoPagamentoEm ? `<span class="cliente-resumo">último pagamento: ${new Date(cliente.ultimoPagamentoEm + 'T00:00:00').toLocaleDateString('pt-BR')}</span>` : ''}
           </div>
           <div class="mensagem-cliente-wrap">
-            <button class="btn-secondary btn-small" data-registrar-pagamento-data="${cliente.id}">Registrar pagamento com data</button>
-            <button class="btn-secondary btn-small" data-ver-historico="${cliente.id}">${historicosAbertos.has(cliente.id) ? 'Ocultar histórico' : 'Ver histórico'}</button>
+            <button class="btn-secondary btn-small" data-registrar-pagamento-data="${escapeHtml(cliente.id)}">Registrar pagamento com data</button>
+            <button class="btn-secondary btn-small" data-ver-historico="${escapeHtml(cliente.id)}">${historicosAbertos.has(cliente.id) ? 'Ocultar histórico' : 'Ver histórico'}</button>
           </div>
           ${historicosAbertos.has(cliente.id) ? `
             <div style="margin:2px 0 8px;">
@@ -3019,17 +3040,17 @@
           <div class="mensagem-cliente-wrap">
             <span class="cliente-resumo" style="align-self:center;">Módulos pagos:</span>
             <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
-              <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="consultaRemota"
+              <input type="checkbox" data-modulo-toggle="${escapeHtml(cliente.id)}" data-modulo-nome="consultaRemota"
                 ${cliente.modulosAtivos?.consultaRemota ? 'checked' : ''} style="width:auto;">
               Consulta remota
             </label>
             <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
-              <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="appGarcom"
+              <input type="checkbox" data-modulo-toggle="${escapeHtml(cliente.id)}" data-modulo-nome="appGarcom"
                 ${cliente.modulosAtivos?.appGarcom ? 'checked' : ''} style="width:auto;">
               App do garçom
             </label>
             <label style="display:flex; align-items:center; gap:4px; font-size:12px;">
-              <input type="checkbox" data-modulo-toggle="${cliente.id}" data-modulo-nome="pdvMobile"
+              <input type="checkbox" data-modulo-toggle="${escapeHtml(cliente.id)}" data-modulo-nome="pdvMobile"
                 ${cliente.modulosAtivos?.pdvMobile ? 'checked' : ''} style="width:auto;">
               PDV móvel
             </label>
@@ -3095,8 +3116,8 @@
   function renderBotaoModoMobile(inst) {
     if (!ehPdvMobile(inst) || !inst.migradoPara) return '';
     return ehTerminal(inst)
-      ? `<button class="btn-secondary btn-small" data-autonomo="${inst.id}" title="O celular volta a cuidar dos próprios produtos e para de mandar vendas pro computador">Voltar a autônomo</button>`
-      : `<button class="btn-secondary btn-small" data-usar-terminal="${inst.id}" title="O celular continua vendendo (offline também) e manda as vendas pro computador ${escapeHtml(nomeDoComputador(inst))}">Usar como terminal</button>`;
+      ? `<button class="btn-secondary btn-small" data-autonomo="${escapeHtml(inst.id)}" title="O celular volta a cuidar dos próprios produtos e para de mandar vendas pro computador">Voltar a autônomo</button>`
+      : `<button class="btn-secondary btn-small" data-usar-terminal="${escapeHtml(inst.id)}" title="O celular continua vendendo (offline também) e manda as vendas pro computador ${escapeHtml(nomeDoComputador(inst))}">Usar como terminal</button>`;
   }
 
   async function usarComoTerminal(id) {
@@ -3195,8 +3216,8 @@
     const versao = escapeHtml(inst.atualizacaoVersaoAlvo || '');
     const quando = inst.atualizacaoBaixadaEm ? ` em ${formatarData(inst.atualizacaoBaixadaEm)}` : '';
     const motivo = inst.atualizacaoSeguradaMotivo ? ` · <em>${escapeHtml(inst.atualizacaoSeguradaMotivo)}</em>` : '';
-    const btnSegurar = `<button class="btn-secondary btn-small" data-segurar-atualizacao="${inst.id}">${icon('pause', 13)} Segurar instalação</button>`;
-    const btnLiberar = `<button class="btn-primary btn-small" data-liberar-atualizacao="${inst.id}">Liberar instalação</button>`;
+    const btnSegurar = `<button class="btn-secondary btn-small" data-segurar-atualizacao="${escapeHtml(inst.id)}">${icon('pause', 13)} Segurar instalação</button>`;
+    const btnLiberar = `<button class="btn-primary btn-small" data-liberar-atualizacao="${escapeHtml(inst.id)}">Liberar instalação</button>`;
     const atual = inst.versaoApp ? `v${escapeHtml(inst.versaoApp)} → ` : '';
     if (sit === 'baixada') {
       return `<div class="atualiz-pendente">${icon('download', 15)}
@@ -3218,12 +3239,12 @@
     if (sit === 'ignorada') {
       return `<div class="atualiz-pendente aviso">${icon('warning', 15)}
         <span><strong>v${versao}</strong>: o pedido de segurar está sendo ignorado — a máquina está sob atualização obrigatória (que exige essa versão). Desative a obrigatória ou isente a máquina em "Testar versão".</span>
-        <span class="atualiz-acoes"><button class="btn-secondary btn-small" data-liberar-atualizacao="${inst.id}">Remover pedido</button></span></div>`;
+        <span class="atualiz-acoes"><button class="btn-secondary btn-small" data-liberar-atualizacao="${escapeHtml(inst.id)}">Remover pedido</button></span></div>`;
     }
     if (sit === 'baixada_pedido_antigo') {
       return `<div class="atualiz-pendente">${icon('download', 15)}
         <span>${atual}<strong>v${versao}</strong> baixada${quando} — instala quando o app fechar. (O pedido de segurar era só pra v${escapeHtml(inst.atualizacaoSeguradaVersao)}.)</span>
-        <span class="atualiz-acoes">${btnSegurar}<button class="btn-secondary btn-small" data-liberar-atualizacao="${inst.id}">Remover pedido antigo</button></span></div>`;
+        <span class="atualiz-acoes">${btnSegurar}<button class="btn-secondary btn-small" data-liberar-atualizacao="${escapeHtml(inst.id)}">Remover pedido antigo</button></span></div>`;
     }
     return `<div class="atualiz-pendente segurada">${icon('pause', 15)}
       <span>Segurando a <strong>v${escapeHtml(inst.atualizacaoSeguradaVersao)}</strong>${motivo} — essa versão não está baixada nesta máquina.</span>
@@ -3447,10 +3468,10 @@
                   pedido_sem_download: `<span class="status-pill status-segurada">${icon('pause', 12)} Segurada</span>`,
                 }[sit] || '—';
                 const acao = i.atualizacaoSegurada
-                  ? `<button class="btn-secondary btn-small" data-liberar-atualizacao="${i.id}">Liberar</button>`
-                  : `<button class="btn-secondary btn-small" data-segurar-atualizacao="${i.id}">Segurar</button>`;
+                  ? `<button class="btn-secondary btn-small" data-liberar-atualizacao="${escapeHtml(i.id)}">Liberar</button>`
+                  : `<button class="btn-secondary btn-small" data-segurar-atualizacao="${escapeHtml(i.id)}">Segurar</button>`;
                 return `<tr>
-                  <td><span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" style="display:inline-block;width:9px;height:9px;margin-right:6px;" title="${online ? 'Online agora' : 'Offline'}"></span><strong>${escapeHtml(i.nomeNegocio || `${i.id.slice(0, 8)}...`)}</strong></td>
+                  <td><span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" style="display:inline-block;width:9px;height:9px;margin-right:6px;" title="${online ? 'Online agora' : 'Offline'}"></span><strong>${escapeHtml(i.nomeNegocio || `${escapeHtml(i.id.slice(0, 8))}...`)}</strong></td>
                   <td>v${escapeHtml(i.versaoApp || '—')}</td>
                   <td>${i.atualizacaoBaixado ? formatarData(i.atualizacaoBaixadaEm) : '—'}</td>
                   <td>${textoSit}</td>
@@ -3476,12 +3497,12 @@
           <span class="online-dot online-dot-off" title="Offline"></span>
           <span class="maquina-online-texto maquina-online-texto-off">Offline</span>
         </span>
-        <span class="maquina-nome-excluida">${escapeHtml(inst.nomeNegocio || `${inst.id.slice(0, 8)}...`)}</span>
+        <span class="maquina-nome-excluida">${escapeHtml(inst.nomeNegocio || `${escapeHtml(inst.id.slice(0, 8))}...`)}</span>
         <span class="status-pill ${status.classe}">${status.texto}</span>
         ${ehPdvMobile(inst) ? `<span class="status-pill status-pdv-mobile">${icon('celular', 12)} PDV mobile</span>` : ''}
-        <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">Excluída em ${formatarData(inst.excluidaEm)} · v${inst.versaoApp || '—'} · último contato: ${formatarData(ultimoSinalTimestamp(inst))}</span>
+        <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">Excluída em ${formatarData(inst.excluidaEm)} · v${escapeHtml(inst.versaoApp || '—')} · último contato: ${formatarData(ultimoSinalTimestamp(inst))}</span>
         <div class="maquina-acoes">
-          <button class="btn-secondary btn-small" data-restaurar="${inst.id}">Restaurar</button>
+          <button class="btn-secondary btn-small" data-restaurar="${escapeHtml(inst.id)}">Restaurar</button>
         </div>
       </div>
     `;
@@ -3489,42 +3510,42 @@
     return `
       <div class="maquina-row">
         <span class="maquina-online-status">
-          <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}" data-online-dot="${inst.id}"></span>
-          <span class="maquina-online-texto ${online ? 'maquina-online-texto-on' : 'maquina-online-texto-off'}" data-online-texto="${inst.id}">${online ? 'Online' : 'Offline'}</span>
+          <span class="online-dot ${online ? 'online-dot-on' : 'online-dot-off'}" title="${online ? 'Online agora' : 'Offline'}" data-online-dot="${escapeHtml(inst.id)}"></span>
+          <span class="maquina-online-texto ${online ? 'maquina-online-texto-on' : 'maquina-online-texto-off'}" data-online-texto="${escapeHtml(inst.id)}">${online ? 'Online' : 'Offline'}</span>
         </span>
         <input class="maquina-nome-input" value="${escapeHtml(inst.nomeNegocio || '')}"
-          placeholder="${inst.id.slice(0, 8)}..." data-nome-negocio="${inst.id}">
+          placeholder="${escapeHtml(inst.id.slice(0, 8))}..." data-nome-negocio="${escapeHtml(inst.id)}">
         <span class="status-pill ${status.classe}">${status.texto}</span>
         ${renderSeloModoMobile(inst)}
         ${renderSeloMigracao(inst)}
-        ${inst.conflitosCodigoBarrasPendentes > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${inst.conflitosCodigoBarrasPendentes} conflito(s)</span>` : ''}
-        ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${inst.id}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
+        ${Number(inst.conflitosCodigoBarrasPendentes) > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${Number(inst.conflitosCodigoBarrasPendentes)} conflito(s)</span>` : ''}
+        ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${escapeHtml(inst.id)}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
         ${renderSaude(inst)}
-        <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">v${inst.versaoApp || '—'} · último contato: <span data-ultimo-contato="${inst.id}">${textoUltimoContato(inst, online)}</span></span>
+        <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">v${escapeHtml(inst.versaoApp || '—')} · último contato: <span data-ultimo-contato="${escapeHtml(inst.id)}">${textoUltimoContato(inst, online)}</span></span>
         <div class="maquina-acoes">
           ${renderBotaoModoMobile(inst)}
-          ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${inst.id}">Desvincular</button>`
-                        : `<button class="btn-secondary btn-small" data-vincular="${inst.id}">Vincular a cliente</button>`}
-          <button class="btn-secondary btn-small" data-congelar="${inst.id}" data-ativo="${inst.ativo}">
+          ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${escapeHtml(inst.id)}">Desvincular</button>`
+                        : `<button class="btn-secondary btn-small" data-vincular="${escapeHtml(inst.id)}">Vincular a cliente</button>`}
+          <button class="btn-secondary btn-small" data-congelar="${escapeHtml(inst.id)}" data-ativo="${!!inst.ativo}">
             ${inst.ativo ? 'Congelar' : 'Reativar'}
           </button>
           <button class="${inst.bloqueioImediato ? 'btn-secondary' : 'btn-danger'} btn-small"
-            data-bloquear="${inst.id}" data-bloqueado="${!!inst.bloqueioImediato}">
+            data-bloquear="${escapeHtml(inst.id)}" data-bloqueado="${!!inst.bloqueioImediato}">
             ${inst.bloqueioImediato ? 'Desbloquear' : 'Bloquear agora'}
           </button>
-          <button class="btn-secondary btn-small" data-override="${inst.id}" data-override-ativo="${!!inst.overrideAtivo}"
+          <button class="btn-secondary btn-small" data-override="${escapeHtml(inst.id)}" data-override-ativo="${!!inst.overrideAtivo}"
             title="Exigir/isentar uma versão de atualização só nessa máquina">
-            ${inst.overrideAtivo ? `Override: ${inst.versaoMinimaOverride || 'isenta'}` : 'Testar versão'}
+            ${inst.overrideAtivo ? `Override: ${escapeHtml(inst.versaoMinimaOverride || 'isenta')}` : 'Testar versão'}
           </button>
-          <button class="btn-excluir btn-small" data-excluir="${inst.id}"
+          <button class="btn-excluir btn-small" data-excluir="${escapeHtml(inst.id)}"
             title="${online ? 'Online agora — congele ou bloqueie em vez de excluir' : 'Tirar essa máquina do painel (o congelamento/bloqueio continua valendo)'}">
             Excluir
           </button>
         </div>
         ${inst.atualizacaoBaixando ? `
           <div class="maquina-progress-wrap">
-            <div class="maquina-progress-bar"><div class="maquina-progress-fill" style="width:${inst.atualizacaoProgresso || 0}%"></div></div>
-            <div class="maquina-progress-texto">Baixando a versão ${inst.atualizacaoVersaoAlvo || '—'}... ${inst.atualizacaoProgresso || 0}%${pedidoDeSegurarCobre(inst) ? ' — instalação segurada, não instala ao terminar' : ''}</div>
+            <div class="maquina-progress-bar"><div class="maquina-progress-fill" style="width:${Math.min(100, Math.max(0, Number(inst.atualizacaoProgresso) || 0))}%"></div></div>
+            <div class="maquina-progress-texto">Baixando a versão ${escapeHtml(inst.atualizacaoVersaoAlvo || '—')}... ${Math.min(100, Math.max(0, Number(inst.atualizacaoProgresso) || 0))}%${pedidoDeSegurarCobre(inst) ? ' — instalação segurada, não instala ao terminar' : ''}</div>
           </div>
         ` : ''}
         ${renderBlocoAtualizacao(inst)}

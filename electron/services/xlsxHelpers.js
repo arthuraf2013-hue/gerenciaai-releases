@@ -14,7 +14,16 @@ const path = require('path');
  * conversão "esperta" que interpretaria "15,35" (formato brasileiro)
  * como 1535.
  */
+// Planilha de cadastro de loja pequena tem poucos MB; acima disso é erro
+// de arquivo (ou um .xlsx "bomba" que expande pra GBs na memória e trava
+// o processo principal -- e com ele o caixa).
+const TAMANHO_MAXIMO_PLANILHA = 30 * 1024 * 1024;
+
 async function readSheetAsRows(filePath, preferSheetName) {
+  const tamanho = require('fs').statSync(filePath).size;
+  if (tamanho > TAMANHO_MAXIMO_PLANILHA) {
+    throw new Error(`Planilha grande demais (${Math.round(tamanho / 1048576)} MB). O limite é ${TAMANHO_MAXIMO_PLANILHA / 1048576} MB.`);
+  }
   const ExcelJS = require('exceljs');
   const workbook = new ExcelJS.Workbook();
   const ext = path.extname(filePath).toLowerCase();

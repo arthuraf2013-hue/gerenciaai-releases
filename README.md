@@ -5780,3 +5780,41 @@ Rodada guiada pela análise "GerenciaAI — Análise de aperfeiçoamento e plano
 - Pendências (`saudeService`) no fechamento de caixa, no resumo diário do
   WhatsApp e na Central; "Primeiros passos" em Configurações e na Central.
 - Resultado das campanhas automáticas (quem voltou e quanto comprou).
+
+## Auditoria de segurança (out/2026)
+
+Revisão guiada por OWASP ASVS/Top 10 e CWE, com teste para cada correção.
+
+- **Central / regras do Firestore**: administrador agora é só conta
+  e-mail/senha listada em `admins/{uid}` (antes qualquer conta e-mail/senha
+  do projeto bastava). A Central confere isso no login e mostra o UID que
+  falta cadastrar. `clientes` não pode mais ser listado por quem não é admin;
+  ID de instalação precisa ter formato válido. Passo a passo em
+  LICENCIAMENTO.md, Passo 3 — **criar `admins/{uid}` antes de publicar**.
+- **XSS armazenado**: campos gravados pelas máquinas/celulares
+  (`versaoApp`, progresso de atualização, IDs, totais...) entravam no
+  `innerHTML` da Central e do `pwa-mobile/` sem escapar. Tudo passa por
+  `escapeHtml`/`Number()`; `tests/centralEscapeHtml.test.js` lê o código
+  (AST) e falha se um campo de documento voltar a entrar cru.
+- **Electron** (`electron/seguranca.js`): `window.open`/`target=_blank`
+  nunca abre janela do Electron (ela herdaria o preload); navegação
+  restrita ao app; `<webview>` bloqueado; permissões do navegador negadas;
+  `app://` recusa caminho fora de `dist/` (`..%2f`); CSP na interface
+  empacotada; `openExternal` só para http(s)/mailto/tel/whatsapp.
+- **Impressão**: janelas de impressão sem JavaScript e com HTML escapado
+  (nome de produto/cliente não executa mais código no recibo).
+- **Arquivos**: foto de produto e anexo de venda só leem/apagam dentro da
+  própria pasta e só para produto/venda existente.
+- **Regras de negócio**: desconto, taxa de serviço, resgate de pontos e
+  troca de cliente só em venda aberta; pagamento de fiado vindo de terminal
+  acima da dívida vai para revisão; bloqueio de PIN usa o relógio
+  sincronizado; troca do próprio PIN usa o usuário da sessão; planilha
+  importada limitada a 30 MB.
+- **Dependências**: `npm audit fix --omit=dev` (só correções de versão no
+  lockfile, sem mudar o `package.json`): 11 → 5 avisos; os restantes não têm
+  correção sem trocar de versão principal (ver relatório).
+
+Ficou para a próxima fase: fechar leitura/escrita das coleções que o desktop
+grava sem login (`terminal_eventos`, `backups`, `grupos_sincronizacao`),
+regras do Storage versionadas no repositório, App Check obrigatório,
+assinatura de código e fuses do Electron.
