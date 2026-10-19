@@ -167,6 +167,9 @@
   .erro-meta { color: var(--text-muted); font-size: 11px; margin-bottom: 4px; }
   .erro-mensagem { font-weight: 600; margin-bottom: 4px; }
   .erro-stack { color: var(--text-muted); font-size: 11px; white-space: pre-wrap; font-family: monospace; max-height: 100px; overflow-y: auto; }
+  .acao-detalhes { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; margin-top: 2px; }
+  .acao-detalhe { color: var(--text); }
+  .acao-detalhe-rotulo { color: var(--text-muted); margin-right: 4px; }
 
   #novo-cliente-modal, #vincular-modal, #cofre-acesso-modal, #segurar-atualizacao-modal {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -1835,39 +1838,132 @@
   // --- Auditoria (registro de ações destrutivas) ---
 
   const ROTULOS_ACAO = {
-    congelar: 'Congelou instalação',
-    reativar: 'Reativou instalação',
-    bloquear: 'Bloqueou instalação (imediato)',
-    desbloquear: 'Desbloqueou instalação',
-    bloquear_cliente_inteiro: 'Bloqueou TODAS as máquinas de um cliente',
-    reativar_cliente_inteiro: 'Reativou TODAS as máquinas de um cliente',
-    restaurar_backup_remoto: 'Pediu restauração remota de backup',
+    congelar: 'Congelou a máquina',
+    reativar: 'Reativou a máquina',
+    bloquear: 'Bloqueou a máquina na hora',
+    desbloquear: 'Desbloqueou a máquina',
+    bloquear_cliente_inteiro: 'Bloqueou todas as máquinas do cliente',
+    reativar_cliente_inteiro: 'Reativou todas as máquinas do cliente',
+    excluir_do_painel: 'Tirou a máquina do painel',
+    restaurar_no_painel: 'Trouxe a máquina de volta ao painel',
+    restaurar_backup_remoto: 'Pediu para restaurar um backup na máquina',
+    backup_mobile_config: 'Mudou o backup do celular',
     publicar_atualizacao_obrigatoria: 'Publicou atualização obrigatória',
-    desativar_atualizacao_obrigatoria: 'Desativou atualização obrigatória',
+    desativar_atualizacao_obrigatoria: 'Desligou a atualização obrigatória',
+    segurar_instalacao_atualizacao: 'Segurou a instalação da atualização',
+    liberar_instalacao_atualizacao: 'Liberou a instalação da atualização',
+    alterar_dia_vencimento_cliente: 'Mudou o dia de vencimento',
+    registrar_pagamento_cliente: 'Registrou pagamento',
+    excluir_pagamento_cliente: 'Apagou um pagamento',
+    gerar_ativacao_mobile: 'Gerou código de ativação do celular',
+    cancelar_ativacao_mobile: 'Cancelou código de ativação do celular',
+    pdv_mobile_usar_como_terminal: 'Passou o celular a vender pelo computador',
+    pdv_mobile_voltar_autonomo: 'Voltou o celular a vender sozinho',
   };
+
+  const NOMES_MODULO = { consultaRemota: 'Consulta remota', appGarcom: 'App do garçom', pdvMobile: 'PDV móvel' };
+  const ORIGENS_PAGAMENTO = { manual: 'manual', um_clique: 'botão "Marcar pago hoje"', com_data: 'com data informada' };
+
+  function tituloDaAcao(a) {
+    const d = a.detalhes || {};
+    if (a.acao === 'alterar_modulo_pago_cliente') {
+      const modulo = NOMES_MODULO[d.modulo] || 'módulo pago';
+      return `${d.ativo ? 'Ligou' : 'Desligou'} ${modulo}`;
+    }
+    if (ROTULOS_ACAO[a.acao]) return ROTULOS_ACAO[a.acao];
+    // Ação nova sem rótulo ainda: "alguma_acao_nova" -> "Alguma acao nova".
+    const texto = String(a.acao || 'Ação').replace(/_/g, ' ');
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+  }
+
+  // Máquina pelo nome (inclusive as já tiradas do painel); se não existir
+  // mais, mostra só o começo do código pra dar pra procurar.
+  function nomeDaMaquinaParaLog(id) {
+    if (!id) return '';
+    const inst = todasInstalacoes.find((i) => i.id === id);
+    if (inst) return nomeDaInstalacaoComCliente(inst) + (estaExcluidaDoPainel(inst) ? ' — fora do painel' : '');
+    return `máquina não encontrada (${String(id).slice(0, 8)})`;
+  }
+  function nomeDoClienteParaLog(id) {
+    if (!id) return '';
+    return clientes.find((c) => c.id === id)?.nome || `cliente não encontrado (${String(id).slice(0, 8)})`;
+  }
+  function dataIsoParaBr(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : String(v);
+  }
+  function rotuloDeCampo(chave) {
+    const texto = String(chave).replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ').toLowerCase();
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+  }
+  function valorDeCampo(v) {
+    if (typeof v === 'boolean') return v ? 'sim' : 'não';
+    if (Array.isArray(v)) return v.join(', ');
+    if (v && typeof v === 'object') return ehTimestamp(v) ? formatarData(v) : JSON.stringify(v);
+    return String(v);
+  }
+
+  // [rótulo, valor] de cada detalhe, já em português. Campo interno (id de
+  // pagamento) não aparece; o módulo e o "ativo" já estão no título.
+  function detalhesDaAcao(a) {
+    const d = a.detalhes;
+    if (!d || typeof d !== 'object') return [];
+    const ordem = ['clienteId', 'installationId', 'installationIds', 'servidorInstallId'];
+    const chaves = Object.keys(d).sort((x, y) => {
+      const ix = ordem.indexOf(x); const iy = ordem.indexOf(y);
+      return (ix === -1 ? 99 : ix) - (iy === -1 ? 99 : iy) || x.localeCompare(y);
+    });
+    const linhas = [];
+    for (const k of chaves) {
+      const v = d[k];
+      if (v === null || v === undefined || v === '') continue;
+      switch (k) {
+        case 'pagamentoId': break;
+        case 'modulo': case 'ativo':
+          if (a.acao !== 'alterar_modulo_pago_cliente') linhas.push([rotuloDeCampo(k), k === 'modulo' ? (NOMES_MODULO[v] || String(v)) : valorDeCampo(v)]);
+          break;
+        case 'clienteId': linhas.push(['Cliente', nomeDoClienteParaLog(v)]); break;
+        case 'installationId': linhas.push(['Máquina', nomeDaMaquinaParaLog(v)]); break;
+        case 'installationIds': {
+          const ids = Array.isArray(v) ? v : [v];
+          const nomes = ids.slice(0, 3).map(nomeDaMaquinaParaLog);
+          if (ids.length > 3) nomes.push(`e mais ${ids.length - 3}`);
+          linhas.push([ids.length === 1 ? 'Máquina' : `Máquinas (${ids.length})`, nomes.join('; ')]);
+          break;
+        }
+        case 'servidorInstallId': linhas.push(['Computador', nomeDaMaquinaParaLog(v)]); break;
+        case 'estado': linhas.push(['Situação na hora', String(v)]); break;
+        case 'motivoBloqueio': case 'motivo': linhas.push(['Motivo', String(v)]); break;
+        case 'dia': linhas.push(['Novo dia de vencimento', `dia ${Number(v) || v}`]); break;
+        case 'data': linhas.push(['Data do pagamento', dataIsoParaBr(v)]); break;
+        case 'valor': linhas.push(['Valor', formatarMoeda(v)]); break;
+        case 'origem': linhas.push(['Como', ORIGENS_PAGAMENTO[v] || String(v)]); break;
+        case 'codigo': linhas.push(['Código', String(v)]); break;
+        case 'qtdMaquinas': linhas.push(['Máquinas afetadas', String(Number(v) || 0)]); break;
+        case 'backupFrequenciaHoras': linhas.push(['Backup a cada', `${Number(v) || v} h`]); break;
+        case 'backupRetencaoDias': linhas.push(['Guardar por', `${Number(v) || v} dias`]); break;
+        case 'nomeArquivo': linhas.push(['Arquivo', String(v)]); break;
+        case 'versao': linhas.push(['Versão', String(v)]); break;
+        default: linhas.push([rotuloDeCampo(k), valorDeCampo(v)]);
+      }
+    }
+    return linhas;
+  }
 
   function renderAuditoria() {
     const div = document.getElementById('auditoria-conteudo');
+    if (!div) return;
     if (acoesLog.length === 0) {
       div.innerHTML = '<p class="cliente-resumo">Nenhuma ação registrada ainda.</p>';
       return;
     }
     div.innerHTML = acoesLog.map((a) => {
-      const detalhesTexto = a.detalhes
-        ? Object.entries(a.detalhes)
-          .filter(([, v]) => v !== null && v !== undefined && v !== '')
-          .map(([k, v]) => {
-            if (k === 'installationId') return nomeDoCliente(v);
-            if (k === 'clienteId') return clientes.find((c) => c.id === v)?.nome || v;
-            return `${k}: ${v}`;
-          })
-          .join(' · ')
-        : '';
+      const detalhes = detalhesDaAcao(a);
       return `
         <div class="erro-row" style="border-left-color: var(--primary);">
           <div class="erro-meta">${formatarData(a.criadoEm)} ${a.autorEmail ? `· ${escapeHtml(a.autorEmail)}` : ''}</div>
-          <div class="erro-mensagem">${escapeHtml(ROTULOS_ACAO[a.acao] || a.acao)}</div>
-          ${detalhesTexto ? `<div class="erro-stack" style="font-family:inherit;">${escapeHtml(detalhesTexto)}</div>` : ''}
+          <div class="erro-mensagem">${escapeHtml(tituloDaAcao(a))}</div>
+          ${detalhes.length ? `<div class="acao-detalhes">${detalhes.map(([rotulo, valor]) => `<span class="acao-detalhe"><span class="acao-detalhe-rotulo">${escapeHtml(rotulo)}:</span>${escapeHtml(valor)}</span>`).join('')}</div>` : ''}
         </div>
       `;
     }).join('');
@@ -2883,6 +2979,9 @@
       popularSelectClientesCofre();
       renderListaCofre();
     }
+    // Os nomes de máquina/cliente do registro dependem dessas listas, que
+    // costumam chegar depois do próprio registro.
+    if (TELA_ATUAL === 'auditoria') renderAuditoria();
     const filtro = buscaInput.value.trim().toLowerCase();
     const somenteOnline = filtroSomenteOnlineInput.checked;
 
