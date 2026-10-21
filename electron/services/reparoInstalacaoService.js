@@ -16,16 +16,25 @@ const path = require('path');
  *   %LOCALAPPDATA%\GerenciaAI-reparo\
  *     reparar.ps1                       o script (reescrito a cada abertura)
  *     GerenciaAI-instalador-reparo.exe  cópia do último instalador baixado
- *     instalador.json                   versão dessa cópia
+ *     instalador.json                   versão e sha512 dessa cópia
+ *     elevacao.txt                      último pedido de administrador (instalação por máquina)
  *     atualizando.json                  "uma atualização começou a instalar"
  *     relatos.jsonl                     o que o script fez (o app manda pra Central)
  *     reparo.log                        histórico legível
  *
  * Ele roda (1) a cada login no Windows (chave Run do usuário) e (2) logo
  * depois que o app fecha para instalar uma atualização (vigia: espera o
- * instalador terminar e confere). Se o .exe sumiu, reinstala em silêncio
- * por cima, na mesma pasta -- os dados ficam em %APPDATA%, não são tocados.
+ * instalador terminar e confere). NÃO roda quando alguém clica no atalho
+ * quebrado -- com o .exe apagado não há nada nosso pra executar ali.
+ * Se o .exe sumiu, reinstala em silêncio por cima, na mesma pasta -- os
+ * dados ficam em %APPDATA%, não são tocados. Não abre o app depois.
  * Se o GerenciaAI foi desinstalado de propósito, o script se remove sozinho.
+ *
+ * Antes de executar a cópia guardada, o script confere o sha512 dela contra
+ * o registrado em instalador.json (o do latest.yml da release). Isso pega
+ * cópia corrompida/truncada e troca casual do arquivo; quem já roda código
+ * como o usuário consegue trocar os dois -- proteção de verdade contra isso
+ * só com assinatura de código (Authenticode) conferida aqui.
  */
 
 const NOME_PASTA = 'GerenciaAI-reparo';
@@ -100,6 +109,7 @@ $Marcador       = ${textoPs(c.marcador)}
 $Relatos        = ${textoPs(c.relatos)}
 $Log            = ${textoPs(path.join(pasta, 'reparo.log'))}
 $Trava          = ${textoPs(path.join(pasta, 'reparo.trava'))}
+$Elevacao       = ${textoPs(path.join(pasta, 'elevacao.txt'))}
 $PorMaquina     = ${porMaquina ? '$true' : '$false'}
 $DiasMarcador   = ${Number(diasMarcador) || 7}
 $ChavesRegistro = @(${chavesDeRegistro(guid).map(textoPs).join(', ')})
@@ -160,11 +170,34 @@ function VersaoDoInstalador {
   try { return [string]((Get-Content -LiteralPath $InfoInstalador -Raw | ConvertFrom-Json).versao) } catch { return '' }
 }
 
+function ShaEsperado {
+  try { return [string]((Get-Content -LiteralPath $InfoInstalador -Raw | ConvertFrom-Json).sha512) } catch { return '' }
+}
+
+# sha512 em base64, mesmo formato do latest.yml do electron-builder.
+function ShaDoArquivo([string]$Arquivo) {
+  $sha = [System.Security.Cryptography.SHA512]::Create()
+  $fluxo = [System.IO.File]::OpenRead($Arquivo)
+  try { return [Convert]::ToBase64String($sha.ComputeHash($fluxo)) } finally { $fluxo.Dispose(); $sha.Dispose() }
+}
+
+# Instalacao por maquina pede administrador (UAC). No login, no maximo um
+# pedido a cada 24 h -- senao quem recusa veria o UAC a cada login.
+function PodePedirAdministrador {
+  if (-not $PorMaquina -or $Modo -ne 'Logon') { return $true }
+  try {
+    if ((Test-Path -LiteralPath $Elevacao) -and ((Get-Item -LiteralPath $Elevacao).LastWriteTime -gt (Get-Date).AddHours(-24))) { return $false }
+    Set-Content -LiteralPath $Elevacao -Value ((Get-Date).ToString('o'))
+  } catch { }
+  return $true
+}
+
 function ApagarMarcador {
   try { if (Test-Path -LiteralPath $Marcador) { Remove-Item -LiteralPath $Marcador -Force } } catch { }
 }
 
-# Devolve: 'ok', 'reparado', 'falhou', 'sem_instalador', 'ocupado' ou 'desinstalado'
+# Devolve: 'ok', 'reparado', 'falhou', 'sem_instalador', 'instalador_invalido',
+# 'aguardando_admin', 'ocupado' ou 'desinstalado'
 function Executar {
   if ($Modo -eq 'Vigiar') {
     # O instalador da atualizacao sobe logo depois que o app fecha.
@@ -195,6 +228,25 @@ function Executar {
     return 'sem_instalador'
   }
 
+  $esperado = ShaEsperado
+  $atual = ''
+  try { $atual = ShaDoArquivo $Instalador } catch { Registrar ('nao consegui ler o instalador guardado: ' + $_.Exception.Message) }
+  if (-not $esperado -or $atual -ne $esperado) {
+    if ($esperado) {
+      Registrar 'instalador guardado NAO confere com o sha512 registrado; apagado, o app baixa de novo na proxima abertura'
+      try { Remove-Item -LiteralPath $Instalador -Force } catch { }
+    } else {
+      Registrar 'instalador guardado sem sha512 registrado; nao executo (o app confere e registra na proxima abertura)'
+    }
+    Relatar @{ resultado = 'instalador_invalido'; motivo = $motivo; versao = $versao }
+    return 'instalador_invalido'
+  }
+
+  if (-not (PodePedirAdministrador)) {
+    Registrar 'reparo precisa de administrador e ja pedi nas ultimas 24 h; tento de novo depois'
+    return 'aguardando_admin'
+  }
+
   if ($PorMaquina) { $escopo = '/allusers' } else { $escopo = '/currentuser' }
   # /D= tem que ser o ultimo e sem aspas (regra do NSIS).
   $argumentos = '/S ' + $escopo + ' /D=' + $PastaApp
@@ -220,9 +272,6 @@ function Executar {
     ApagarMarcador
     Registrar 'reparado'
     Relatar @{ resultado = 'ok'; motivo = $motivo; versao = $versao; codigo = $codigo }
-    if ($Modo -eq 'Logon') {
-      try { Start-Process -FilePath $Exe } catch { Registrar ('reparado, mas nao abriu: ' + $_.Exception.Message) }
-    }
     return 'reparado'
   }
   Registrar ('reparo falhou (codigo ' + $codigo + ')')
@@ -254,7 +303,7 @@ if ($resultado -eq 'desinstalado') {
   try { Remove-Item -LiteralPath $Pasta -Recurse -Force } catch { }
   exit 0
 }
-if ($resultado -eq 'falhou' -or $resultado -eq 'sem_instalador') { exit 1 }
+if ($resultado -eq 'falhou' -or $resultado -eq 'sem_instalador' -or $resultado -eq 'instalador_invalido') { exit 1 }
 exit 0
 `;
 }
@@ -310,7 +359,9 @@ function prepararReparo({ exe = process.execPath, env = process.env, executar = 
     pasta,
     porMaquina: ehInstalacaoPorMaquina(pastaApp, env),
   });
-  gravarSeMudou(c.script, script);
+  if (gravarSeMudou(c.script, script)) {
+    registrarNoLog(`script de reparo atualizado; programa em ${pastaApp} (${ehInstalacaoPorMaquina(pastaApp, env) ? 'todos os usuarios, pede administrador' : 'so este usuario'})`, env);
+  }
   return new Promise((resolve) => {
     executar('reg.exe', ['add', CHAVE_RUN, '/v', NOME_RUN, '/t', 'REG_SZ', '/d', comandoDoLogin(c.script, env), '/f'], { windowsHide: true }, (err) => {
       if (err) console.error('[reparo] não consegui registrar a verificação no login:', err.message);
@@ -319,22 +370,49 @@ function prepararReparo({ exe = process.execPath, env = process.env, executar = 
   });
 }
 
-/** Guarda uma cópia do instalador baixado (fora da pasta do app). */
-async function guardarInstalador(origem, versao, env = process.env) {
+/** sha512 (base64, formato do latest.yml) de um arquivo. */
+async function sha512DoArquivo(arquivo) {
+  const hash = require('crypto').createHash('sha512');
+  const { pipeline } = require('stream/promises');
+  await pipeline(fs.createReadStream(arquivo), async function* (fonte) {
+    for await (const pedaco of fonte) hash.update(pedaco);
+  });
+  return hash.digest('base64');
+}
+
+/**
+ * Guarda uma cópia do instalador baixado (fora da pasta do app), com o
+ * sha512 que o script confere antes de executar. `shaEsperado` (o do
+ * latest.yml, que o electron-updater já conferiu no download) é obrigatório:
+ * sem ele não há contra o que conferir depois.
+ */
+async function guardarInstalador(origem, versao, env = process.env, shaEsperado = '') {
   const pasta = pastaReparo(env);
-  if (!pasta || !origem || !versao) return false;
+  if (!pasta || !origem || !versao || !shaEsperado) return false;
+  const c = caminhos(pasta);
+  const tmp = `${c.instalador}.tmp`;
   try {
     await fs.promises.mkdir(pasta, { recursive: true });
-    const c = caminhos(pasta);
-    const tmp = `${c.instalador}.tmp`;
     await fs.promises.copyFile(origem, tmp);
+    if ((await sha512DoArquivo(tmp)) !== shaEsperado) {
+      await fs.promises.rm(tmp, { force: true });
+      console.error('[reparo] instalador baixado não confere com o sha512 da atualização; não guardei');
+      return false;
+    }
     await fs.promises.rename(tmp, c.instalador);
-    await fs.promises.writeFile(c.infoInstalador, JSON.stringify({ versao: String(versao), guardadoEm: new Date().toISOString() }));
+    await fs.promises.writeFile(c.infoInstalador, JSON.stringify({ versao: String(versao), sha512: shaEsperado, guardadoEm: new Date().toISOString() }));
     return true;
   } catch (err) {
+    await fs.promises.rm(tmp, { force: true }).catch(() => {});
     console.error('[reparo] não consegui guardar o instalador:', err.message);
     return false;
   }
+}
+
+/** sha512 do .exe numa UpdateInfo do electron-updater. */
+function sha512DaAtualizacao(info) {
+  const arquivo = (info?.files || []).find((f) => /\.exe$/i.test(String(f?.url || '')));
+  return arquivo?.sha512 || info?.sha512 || '';
 }
 
 /** Antes do instalador da atualização rodar: "se o .exe sumir, foi isso". */
@@ -439,14 +517,24 @@ async function garantirInstaladorDaVersaoAtual({ versaoAtual, publish, env = pro
   if (!pasta || !versaoAtual || !publish?.owner || !publish?.repo) return 'sem_config';
   const c = caminhos(pasta);
   const info = lerInfoInstalador(pasta);
-  if (info?.versao && !versaoMenor(info.versao, versaoAtual) && fs.existsSync(c.instalador)) return 'ja_tem';
+  // Sobra de um download cortado (app fechado no meio): até ~100 MB parados.
+  await fs.promises.rm(`${c.instalador}.baixando`, { force: true }).catch(() => {});
+  const temCopia = Boolean(info?.versao) && !versaoMenor(info.versao, versaoAtual) && fs.existsSync(c.instalador);
+  if (temCopia && info.sha512) return 'ja_tem';
   const f = buscar || require('electron').net?.fetch?.bind(require('electron').net) || fetch;
   const base = `https://github.com/${publish.owner}/${publish.repo}/releases/download/v${versaoAtual}`;
-  const respYml = await f(`${base}/latest.yml`);
+  // Rede travada não pode deixar o download pendurado pra sempre.
+  const respYml = await f(`${base}/latest.yml`, { signal: AbortSignal.timeout(60 * 1000) });
   if (!respYml.ok) return 'sem_release';
   const yml = lerLatestYml(await respYml.text());
   if (yml.versao !== String(versaoAtual) || !yml.arquivo || !yml.sha512 || /[\\/]/.test(yml.arquivo)) return 'latest_invalido';
-  const resp = await f(`${base}/${encodeURIComponent(yml.arquivo)}`);
+  // Cópia guardada antes do sha512 existir (primeira versão do reparo): se
+  // for idêntica à da release, só registra o sha512; senão baixa de novo.
+  if (temCopia && info.versao === String(versaoAtual) && (await sha512DoArquivo(c.instalador)) === yml.sha512) {
+    await fs.promises.writeFile(c.infoInstalador, JSON.stringify({ ...info, sha512: yml.sha512 }));
+    return 'conferido';
+  }
+  const resp = await f(`${base}/${encodeURIComponent(yml.arquivo)}`, { signal: AbortSignal.timeout(20 * 60 * 1000) });
   if (!resp.ok || !resp.body) return 'sem_instalador';
   await fs.promises.mkdir(pasta, { recursive: true });
   const tmp = `${c.instalador}.baixando`;
@@ -464,7 +552,7 @@ async function garantirInstaladorDaVersaoAtual({ versaoAtual, publish, env = pro
       return 'sha_diferente';
     }
     await fs.promises.rename(tmp, c.instalador);
-    await fs.promises.writeFile(c.infoInstalador, JSON.stringify({ versao: String(versaoAtual), guardadoEm: new Date().toISOString(), origem: 'release' }));
+    await fs.promises.writeFile(c.infoInstalador, JSON.stringify({ versao: String(versaoAtual), sha512: yml.sha512, guardadoEm: new Date().toISOString(), origem: 'release' }));
     return 'baixado';
   } catch (err) {
     await fs.promises.rm(tmp, { force: true }).catch(() => {});
@@ -472,10 +560,63 @@ async function garantirInstaladorDaVersaoAtual({ versaoAtual, publish, env = pro
   }
 }
 
+/** Mesmo arquivo e formato que o script usa (reparo.log), pra tudo ficar num lugar só. */
+function registrarNoLog(texto, env = process.env) {
+  const pasta = pastaReparo(env);
+  if (!pasta) return;
+  try {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    const quando = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+    fs.mkdirSync(pasta, { recursive: true });
+    fs.appendFileSync(path.join(pasta, 'reparo.log'), `${quando}  [App] ${texto}\r\n`, 'utf-8');
+  } catch { /* log é ajuda, não pode quebrar nada */ }
+}
+
+const RESULTADOS_COM_COPIA = new Set(['ja_tem', 'baixado', 'conferido']);
+
+/**
+ * Garante a cópia do instalador da versão em uso e NÃO desiste em silêncio:
+ * cada tentativa vai pro reparo.log; se não conseguir, relata pra Central
+ * (uma vez por abertura) e tenta de novo a cada `intervaloMs`. Sem essa
+ * cópia o script de reparo não tem com o que reinstalar.
+ */
+function manterCopiaDoInstalador({
+  versaoAtual, publish, env = process.env, buscar, reportar = () => {},
+  agendar = (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; },
+  intervaloMs = 30 * 60 * 1000,
+} = {}) {
+  let relatou = false;
+  const tentar = async () => {
+    let resultado;
+    let erro = null;
+    try {
+      resultado = await garantirInstaladorDaVersaoAtual({ versaoAtual, publish, env, buscar });
+    } catch (err) {
+      resultado = 'erro';
+      erro = err;
+    }
+    if (resultado === 'ja_tem') return resultado; // a cada abertura: não enche o log
+    const detalhe = erro ? `: ${erro.message || erro}` : '';
+    registrarNoLog(`copia do instalador v${versaoAtual}: ${resultado}${detalhe}`, env);
+    if (RESULTADOS_COM_COPIA.has(resultado)) return resultado;
+    if (!relatou) {
+      relatou = true;
+      try {
+        reportar(`Reparo automático sem cópia do instalador da v${versaoAtual} (${resultado}${detalhe}). Se o GerenciaAI.exe sumir agora, não há com o que reinstalar; tento de novo a cada ${Math.round(intervaloMs / 60000)} min.`);
+      } catch { /* relato é best-effort */ }
+    }
+    if (resultado !== 'sem_config') agendar(tentar, intervaloMs);
+    return resultado;
+  };
+  return tentar();
+}
+
 function textoDoRelato(r) {
   const motivo = r.motivo === 'atualizacao_interrompida' ? 'atualização interrompida no meio' : 'arquivos do programa faltando';
   const quando = r.quando ? ` em ${r.quando}` : '';
   if (r.resultado === 'ok') return `Reparo automático: GerenciaAI.exe tinha sumido (${motivo}) e foi reinstalado sozinho${r.versao ? ` na v${r.versao}` : ''}${quando}.`;
+  if (r.resultado === 'instalador_invalido') return `Reparo automático não executou: GerenciaAI.exe sumiu (${motivo}) e a cópia guardada do instalador não conferiu com o sha512 registrado${quando}.`;
   if (r.resultado === 'sem_instalador') return `Reparo automático não conseguiu agir: GerenciaAI.exe sumiu (${motivo}) e não havia instalador guardado${quando}.`;
   return `Reparo automático falhou: GerenciaAI.exe sumiu (${motivo}) e a reinstalação não deu certo${r.codigo !== undefined && r.codigo !== null ? ` (código ${r.codigo})` : ''}${quando}.`;
 }
@@ -483,6 +624,6 @@ function textoDoRelato(r) {
 module.exports = {
   NOME_RUN, NOME_INSTALADOR, GUID_INSTALACAO, pastaReparo, ehInstalacaoPorMaquina, textoPs, chavesDeRegistro,
   gerarScript, comandoDoLogin, argumentosPowerShell, caminhoPowerShell, prepararReparo, guardarInstalador,
-  marcarAtualizacaoInstalando, iniciarVigia, aoAbrir, textoDoRelato, versaoMenor,
-  garantirInstaladorDaVersaoAtual, lerLatestYml, lerPublishDoApp,
+  marcarAtualizacaoInstalando, iniciarVigia, aoAbrir, textoDoRelato, versaoMenor, sha512DoArquivo, sha512DaAtualizacao,
+  garantirInstaladorDaVersaoAtual, manterCopiaDoInstalador, registrarNoLog, lerLatestYml, lerPublishDoApp,
 };

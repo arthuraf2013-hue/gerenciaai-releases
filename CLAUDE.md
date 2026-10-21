@@ -274,7 +274,18 @@ o atalho apontando pra um `GerenciaAI.exe` inexistente. Por isso:
   dono/repo vem do `resources/app-update.yml` -- o electron-builder tira o
   `build` do package.json empacotado;
 - o que o script fez vai pra Central na abertura seguinte (aba Erros,
-  contexto `reparo_instalacao`).
+  contexto `reparo_instalacao`);
+- ele NÃO roda ao clicar no atalho quebrado: só no login e na vigia. Teste
+  manual = apagar o `.exe` e sair/entrar no Windows;
+- antes de executar a cópia, confere o sha512 registrado em `instalador.json`
+  (sem sha512 ou diferente: não executa, relata `instalador_invalido`).
+  `guardarInstalador` exige o sha512 da UpdateInfo (`sha512DaAtualizacao`);
+- instalação por máquina: no login, no máximo um UAC a cada 24 h
+  (`elevacao.txt`). Depois de reparar, não abre o app;
+- a cópia é garantida por `manterCopiaDoInstalador` (etapa 3 do boot): cada
+  resultado vai pro `reparo.log` (`[App] ...`); sem cópia, relata pra
+  Central uma vez por abertura e tenta de novo a cada 30 min. No primeiro
+  teste em loja a cópia faltava e ninguém via (só ia pro console).
 `tests/reparoInstalacao.test.js` roda o script num PowerShell de verdade
 quando há um (`GERENCIAAI_PWSH=/caminho/pwsh`).
 

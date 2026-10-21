@@ -86,8 +86,9 @@ function setupAutoUpdater() {
     // Cópia do instalador fora da pasta do app: é com ela que o reparo
     // automático reinstala se a atualização for interrompida no meio.
     if (process.platform === 'win32') {
+      const reparo = require('./reparoInstalacaoService');
       const origem = info?.downloadedFile || caminhoDoInstaladorBaixado();
-      require('./reparoInstalacaoService').guardarInstalador(origem, info?.version).catch(() => {});
+      reparo.guardarInstalador(origem, info?.version, process.env, reparo.sha512DaAtualizacao(info)).catch(() => {});
     }
   });
   autoUpdater.on('error', (err) => {

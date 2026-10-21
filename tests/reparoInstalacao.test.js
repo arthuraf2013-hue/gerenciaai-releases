@@ -91,14 +91,34 @@ test('aoAbrir mantém instalador da mesma versão ou mais nova', () => {
   assert.equal(fs.existsSync(path.join(pasta, reparo.NOME_INSTALADOR)), true);
 });
 
-test('guardarInstalador copia o instalador baixado e grava a versão', async () => {
+const sha512 = (conteudo) => require('crypto').createHash('sha512').update(conteudo).digest('base64');
+
+test('guardarInstalador copia o instalador baixado e grava versão e sha512', async () => {
   const pasta = pastaTemp('reparo-guardar');
   const origem = path.join(pastaTemp('reparo-origem'), 'GerenciaAI-Setup-1.0.4.exe');
   fs.writeFileSync(origem, 'instalador');
-  assert.equal(await reparo.guardarInstalador(origem, '1.0.4', { GERENCIAAI_REPARO_DIR: path.join(pasta, 'sub') }), true);
+  assert.equal(await reparo.guardarInstalador(origem, '1.0.4', { GERENCIAAI_REPARO_DIR: path.join(pasta, 'sub') }, sha512('instalador')), true);
   assert.equal(fs.readFileSync(path.join(pasta, 'sub', reparo.NOME_INSTALADOR), 'utf-8'), 'instalador');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(pasta, 'sub', 'instalador.json'), 'utf-8')).versao, '1.0.4');
-  assert.equal(await reparo.guardarInstalador(path.join(pasta, 'nao-existe.exe'), '1.0.5', { GERENCIAAI_REPARO_DIR: pasta }), false);
+  const info = JSON.parse(fs.readFileSync(path.join(pasta, 'sub', 'instalador.json'), 'utf-8'));
+  assert.equal(info.versao, '1.0.4');
+  assert.equal(info.sha512, sha512('instalador'));
+  assert.equal(await reparo.guardarInstalador(path.join(pasta, 'nao-existe.exe'), '1.0.5', { GERENCIAAI_REPARO_DIR: pasta }, sha512('x')), false);
+});
+
+test('guardarInstalador recusa cópia que não bate com o sha512 da atualização, ou sem sha512', async () => {
+  const pasta = pastaTemp('reparo-guardar-sha');
+  const origem = path.join(pastaTemp('reparo-origem2'), 'GerenciaAI-Setup-1.0.4.exe');
+  fs.writeFileSync(origem, 'instalador corrompido');
+  const env = { GERENCIAAI_REPARO_DIR: pasta };
+  assert.equal(await reparo.guardarInstalador(origem, '1.0.4', env, sha512('instalador')), false);
+  assert.equal(await reparo.guardarInstalador(origem, '1.0.4', env, ''), false);
+  assert.deepEqual(fs.readdirSync(pasta), []);
+});
+
+test('sha512DaAtualizacao pega o do .exe na UpdateInfo do electron-updater', () => {
+  assert.equal(reparo.sha512DaAtualizacao({ files: [{ url: 'x.blockmap', sha512: 'b' }, { url: 'GerenciaAI-Setup-1.0.5.exe', sha512: 'a' }], sha512: 'velho' }), 'a');
+  assert.equal(reparo.sha512DaAtualizacao({ sha512: 'velho' }), 'velho');
+  assert.equal(reparo.sha512DaAtualizacao(undefined), '');
 });
 
 test('prepararReparo grava o script com BOM e registra a chave Run do usuário', async () => {
@@ -118,6 +138,12 @@ test('prepararReparo grava o script com BOM e registra a chave Run do usuário',
   assert.equal(chamadas[0][0], 'reg.exe');
   assert.deepEqual(chamadas[0][1].slice(0, 6), ['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', 'GerenciaAI-Reparo', '/t', 'REG_SZ']);
   assert.match(chamadas[0][1][7], /-File ".*reparar\.ps1" -Modo Logon$|-File .*reparar\.ps1 -Modo Logon$/);
+  // O log diz onde o programa está e se precisa de administrador; só quando o script muda.
+  const log = () => fs.readFileSync(path.join(pasta, 'reparo.log'), 'utf-8');
+  assert.match(log(), /\[App\] script de reparo atualizado; programa em .* \(so este usuario\)/);
+  const linhas = log().split('\n').length;
+  await reparo.prepararReparo({ exe: path.join(app, 'GerenciaAI.exe'), env: { GERENCIAAI_REPARO_DIR: pasta, SystemRoot: 'C:\\Windows' }, executar: (_c, _a, _o, cb) => cb(null) });
+  assert.equal(log().split('\n').length, linhas);
 });
 
 test('updateService: Windows desligando não instala a atualização no fechamento', () => {
@@ -134,7 +160,7 @@ test('updateService: Windows desligando não instala a atualização no fechamen
 // então "ainda instalado" só vale pelo marcador de atualização.
 // ---------------------------------------------------------------------
 
-function montarCenario({ comExe = false, comMarcador = false, comInstalador = true, instaladorFunciona = true } = {}) {
+function montarCenario({ comExe = false, comMarcador = false, comInstalador = true, instaladorFunciona = true, shaRegistrado, porMaquina = false } = {}) {
   const raiz = pastaTemp('reparo-cenario');
   const pastaApp = path.join(raiz, 'Programs', 'GerenciaAI');
   const pasta = path.join(raiz, 'GerenciaAI-reparo');
@@ -150,17 +176,21 @@ function montarCenario({ comExe = false, comMarcador = false, comInstalador = tr
   const rodou = path.join(raiz, 'instalador-rodou.txt');
   if (comInstalador) {
     const inst = path.join(pasta, reparo.NOME_INSTALADOR);
+    // O "GerenciaAI.exe" que o instalador falso cria anota se foi aberto.
+    const abriu = path.join(raiz, 'app-abriu.txt');
     const corpo = instaladorFunciona
       ? `dir=""; for a in "$@"; do case "$a" in /D=*) dir="\${a#/D=}";; esac; done
-mkdir -p "$dir/resources" && : > "$dir/GerenciaAI.exe" && : > "$dir/resources/app.asar"`
+mkdir -p "$dir/resources" && printf '#!/bin/sh\\n: > "%s"\\n' '${abriu}' > "$dir/GerenciaAI.exe" && chmod +x "$dir/GerenciaAI.exe" && : > "$dir/resources/app.asar"`
       : 'exit 2';
-    fs.writeFileSync(inst, `#!/bin/sh\necho "$@" > '${rodou}'\n${corpo}\n`);
+    const conteudo = `#!/bin/sh\necho "$@" > '${rodou}'\n${corpo}\n`;
+    fs.writeFileSync(inst, conteudo);
     fs.chmodSync(inst, 0o755);
-    fs.writeFileSync(path.join(pasta, 'instalador.json'), '{"versao":"1.0.4"}');
+    const sha = shaRegistrado === undefined ? sha512(conteudo) : shaRegistrado;
+    fs.writeFileSync(path.join(pasta, 'instalador.json'), JSON.stringify(sha ? { versao: '1.0.4', sha512: sha } : { versao: '1.0.4' }));
   }
   const script = path.join(pasta, 'reparar.ps1');
-  fs.writeFileSync(script, '\uFEFF' + reparo.gerarScript({ exe, asar, pastaApp, pasta, porMaquina: false }));
-  return { raiz, pastaApp, pasta, exe, asar, rodou, script };
+  fs.writeFileSync(script, '\uFEFF' + reparo.gerarScript({ exe, asar, pastaApp, pasta, porMaquina }));
+  return { raiz, pastaApp, pasta, exe, asar, rodou, script, abriu: path.join(raiz, 'app-abriu.txt'), instalador: path.join(pasta, reparo.NOME_INSTALADOR) };
 }
 
 function rodarScript(c, modo = 'Logon', extras = []) {
@@ -182,7 +212,7 @@ test('script: instalação inteira -> não faz nada e apaga marcador antigo', { 
   assert.equal(fs.existsSync(path.join(c.pasta, 'atualizando.json')), false);
 });
 
-test('script: .exe sumiu depois de atualização interrompida -> reinstala na mesma pasta e relata', { skip: SEM_PWSH_POSIX }, () => {
+test('script: .exe sumiu depois de atualização interrompida -> reinstala na mesma pasta e relata', { skip: SEM_PWSH_POSIX }, async () => {
   const c = montarCenario({ comMarcador: true });
   const r = rodarScript(c);
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -194,6 +224,44 @@ test('script: .exe sumiu depois de atualização interrompida -> reinstala na me
   assert.equal(relato.motivo, 'atualizacao_interrompida');
   assert.equal(relato.versao, '1.0.4');
   assert.equal(relato.modo, 'Logon');
+  // Reparar não abre o app sozinho (o operador pode estar fazendo outra coisa).
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(fs.existsSync(c.abriu), false);
+});
+
+test('script: cópia do instalador alterada (sha512 não confere) -> não executa, apaga e relata', { skip: SEM_PWSH_POSIX }, () => {
+  const c = montarCenario({ comMarcador: true });
+  fs.appendFileSync(c.instalador, '# trocado\n');
+  const r = rodarScript(c);
+  assert.equal(r.status, 1, r.stderr + r.stdout);
+  assert.equal(fs.existsSync(c.rodou), false);
+  assert.equal(fs.existsSync(c.instalador), false);
+  assert.equal(lerRelatos(c)[0].resultado, 'instalador_invalido');
+  assert.equal(fs.existsSync(path.join(c.pasta, 'atualizando.json')), true);
+});
+
+test('script: cópia sem sha512 registrado -> não executa nem apaga (o app registra na abertura)', { skip: SEM_PWSH_POSIX }, () => {
+  const c = montarCenario({ comMarcador: true, shaRegistrado: '' });
+  const r = rodarScript(c);
+  assert.equal(r.status, 1, r.stderr + r.stdout);
+  assert.equal(fs.existsSync(c.rodou), false);
+  assert.equal(fs.existsSync(c.instalador), true);
+  assert.equal(lerRelatos(c)[0].resultado, 'instalador_invalido');
+});
+
+test('script: instalação por máquina no login -> no máximo um pedido de administrador a cada 24 h', { skip: SEM_PWSH_POSIX }, () => {
+  const c = montarCenario({ comMarcador: true, porMaquina: true });
+  fs.writeFileSync(path.join(c.pasta, 'elevacao.txt'), 'agora');
+  const r = rodarScript(c);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.equal(fs.existsSync(c.rodou), false);
+  assert.equal(fs.existsSync(path.join(c.pasta, 'atualizando.json')), true);
+  assert.match(fs.readFileSync(path.join(c.pasta, 'reparo.log'), 'utf-8'), /administrador/);
+  // Pedido velho (mais de 24 h): pede de novo e registra a hora do pedido.
+  const ontem = new Date(Date.now() - 25 * 3600 * 1000);
+  fs.utimesSync(path.join(c.pasta, 'elevacao.txt'), ontem, ontem);
+  rodarScript(c);
+  assert.ok(fs.statSync(path.join(c.pasta, 'elevacao.txt')).mtimeMs > Date.now() - 5 * 60 * 1000);
 });
 
 test('script: só o app.asar sumiu -> também conta como instalação quebrada', { skip: SEM_PWSH_POSIX }, () => {
@@ -299,7 +367,9 @@ test('baixa o instalador da release da versão em uso e confere o sha512', async
   assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar }), 'baixado');
   assert.equal(pedidos[0], 'https://github.com/arthuraf2013-hue/gerenciaai-releases/releases/download/v1.0.4/latest.yml');
   assert.equal(fs.readFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'utf-8'), 'instalador de verdade');
-  assert.equal(JSON.parse(fs.readFileSync(path.join(pasta, 'instalador.json'), 'utf-8')).versao, '1.0.4');
+  const info = JSON.parse(fs.readFileSync(path.join(pasta, 'instalador.json'), 'utf-8'));
+  assert.equal(info.versao, '1.0.4');
+  assert.equal(info.sha512, sha512('instalador de verdade'));
   // Já tem: não baixa de novo.
   assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar }), 'ja_tem');
   assert.equal(pedidos.length, 2);
@@ -321,6 +391,22 @@ test('latest.yml de outra versão ou release inexistente: não guarda nada', asy
   assert.equal(fs.existsSync(path.join(pasta, reparo.NOME_INSTALADOR)), false);
 });
 
+test('cópia guardada sem sha512 (primeira versão do reparo): confere com a release e só registra', async () => {
+  const pasta = pastaTemp('reparo-release-semsha');
+  const env = { GERENCIAAI_REPARO_DIR: pasta };
+  fs.writeFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'instalador de verdade');
+  fs.writeFileSync(path.join(pasta, 'instalador.json'), JSON.stringify({ versao: '1.0.4' }));
+  const { buscar, pedidos } = releaseFalsa();
+  assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar }), 'conferido');
+  assert.equal(pedidos.length, 1); // só o latest.yml, sem baixar 100 MB de novo
+  assert.equal(JSON.parse(fs.readFileSync(path.join(pasta, 'instalador.json'), 'utf-8')).sha512, sha512('instalador de verdade'));
+  // Cópia diferente da release: baixa a certa.
+  fs.writeFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'outra coisa');
+  fs.writeFileSync(path.join(pasta, 'instalador.json'), JSON.stringify({ versao: '1.0.4' }));
+  assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar: releaseFalsa().buscar }), 'baixado');
+  assert.equal(fs.readFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'utf-8'), 'instalador de verdade');
+});
+
 test('instalador guardado mais velho que a versão em uso é trocado pelo da release', async () => {
   const pasta = pastaTemp('reparo-release-velho');
   const env = { GERENCIAAI_REPARO_DIR: pasta };
@@ -328,4 +414,79 @@ test('instalador guardado mais velho que a versão em uso é trocado pelo da rel
   fs.writeFileSync(path.join(pasta, 'instalador.json'), JSON.stringify({ versao: '1.0.3' }));
   assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar: releaseFalsa().buscar }), 'baixado');
   assert.equal(fs.readFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'utf-8'), 'instalador de verdade');
+});
+
+// ---------------------------------------------------------------------
+// Sem cópia do instalador o reparo não tem com o que reinstalar: a falha
+// não pode ficar só no console (foi assim que passou despercebida no
+// primeiro teste em loja).
+// ---------------------------------------------------------------------
+
+test('manterCopiaDoInstalador: falhou -> reparo.log, relata uma vez e tenta de novo até conseguir', async () => {
+  const pasta = pastaTemp('reparo-manter');
+  const env = { GERENCIAAI_REPARO_DIR: pasta };
+  const relatos = [];
+  const agendados = [];
+  let releaseNoAr = false;
+  const boa = releaseFalsa().buscar;
+  const buscar = async (url) => (releaseNoAr ? boa(url) : new Response('', { status: 404 }));
+  const r1 = await reparo.manterCopiaDoInstalador({
+    versaoAtual: '1.0.4', publish: PUBLISH, env, buscar,
+    reportar: (m) => relatos.push(m), agendar: (fn, ms) => agendados.push({ fn, ms }), intervaloMs: 1000,
+  });
+  assert.equal(r1, 'sem_release');
+  assert.equal(relatos.length, 1);
+  assert.match(relatos[0], /sem cópia do instalador da v1\.0\.4 \(sem_release\)/);
+  assert.equal(agendados.length, 1);
+  assert.match(fs.readFileSync(path.join(pasta, 'reparo.log'), 'utf-8'), /\[App\] copia do instalador v1\.0\.4: sem_release/);
+
+  // Segunda falha: tenta de novo, mas não relata outra vez.
+  assert.equal(await agendados[0].fn(), 'sem_release');
+  assert.equal(relatos.length, 1);
+  assert.equal(agendados.length, 2);
+
+  // Release no ar: guarda e para de agendar.
+  releaseNoAr = true;
+  assert.equal(await agendados[1].fn(), 'baixado');
+  assert.equal(agendados.length, 2);
+  assert.equal(fs.readFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'utf-8'), 'instalador de verdade');
+  assert.match(fs.readFileSync(path.join(pasta, 'reparo.log'), 'utf-8'), /copia do instalador v1\.0\.4: baixado/);
+});
+
+test('manterCopiaDoInstalador: erro de rede também vai pro log e é retentado', async () => {
+  const pasta = pastaTemp('reparo-manter-erro');
+  const agendados = [];
+  const relatos = [];
+  const r = await reparo.manterCopiaDoInstalador({
+    versaoAtual: '1.0.4', publish: PUBLISH, env: { GERENCIAAI_REPARO_DIR: pasta },
+    buscar: async () => { throw new Error('getaddrinfo ENOTFOUND github.com'); },
+    reportar: (m) => relatos.push(m), agendar: (fn) => agendados.push(fn),
+  });
+  assert.equal(r, 'erro');
+  assert.match(relatos[0], /ENOTFOUND/);
+  assert.equal(agendados.length, 1);
+  assert.match(fs.readFileSync(path.join(pasta, 'reparo.log'), 'utf-8'), /erro: getaddrinfo ENOTFOUND/);
+});
+
+test('manterCopiaDoInstalador: já tem a cópia -> nada no log, nada relatado, nada agendado', async () => {
+  const pasta = pastaTemp('reparo-manter-ok');
+  fs.writeFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'x');
+  fs.writeFileSync(path.join(pasta, 'instalador.json'), JSON.stringify({ versao: '1.0.4', sha512: sha512('x') }));
+  const agendados = [];
+  const relatos = [];
+  const r = await reparo.manterCopiaDoInstalador({
+    versaoAtual: '1.0.4', publish: PUBLISH, env: { GERENCIAAI_REPARO_DIR: pasta },
+    buscar: async () => { throw new Error('não devia buscar'); }, reportar: (m) => relatos.push(m), agendar: (fn) => agendados.push(fn),
+  });
+  assert.equal(r, 'ja_tem');
+  assert.deepEqual([relatos.length, agendados.length, fs.existsSync(path.join(pasta, 'reparo.log'))], [0, 0, false]);
+});
+
+test('download cortado (app fechado no meio): a sobra .baixando é apagada na próxima tentativa', async () => {
+  const pasta = pastaTemp('reparo-sobra');
+  fs.writeFileSync(path.join(pasta, `${reparo.NOME_INSTALADOR}.baixando`), 'metade');
+  const env = { GERENCIAAI_REPARO_DIR: pasta };
+  // Mesmo sem rede/sem release na tentativa seguinte.
+  assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar: async () => new Response('', { status: 404 }) }), 'sem_release');
+  assert.equal(fs.existsSync(path.join(pasta, `${reparo.NOME_INSTALADOR}.baixando`)), false);
 });

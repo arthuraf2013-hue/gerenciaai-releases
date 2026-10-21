@@ -5834,10 +5834,30 @@ sem o programa.
   (`%LOCALAPPDATA%\GerenciaAI-reparo`) roda a cada login e logo depois do
   fechamento com atualização. Se o `.exe` sumiu, reinstala em silêncio na
   mesma pasta com a cópia guardada do instalador (dados ficam em `%APPDATA%`,
-  não são tocados) e abre o app. Desinstalado de propósito: o script se
-  remove.
+  não são tocados). Desinstalado de propósito: o script se remove.
 - **Cópia do instalador:** do download da atualização, ou da release desta
   versão no GitHub com sha512 conferido.
 - **Central:** cada reparo aparece na aba Erros (`reparo_instalacao`).
 
 Detalhes em `electron/services/reparoInstalacaoService.js` e no CLAUDE.md.
+
+**Ajustes depois do primeiro teste (out/2026):**
+- O reparo **não** roda ao clicar no atalho quebrado (com o `.exe` apagado
+  não há nada do GerenciaAI pra executar). Teste certo: apagar o `.exe` e
+  sair/entrar no Windows (ou rodar `reparar.ps1 -Modo Logon` na mão).
+- O script confere o sha512 da cópia do instalador (registrado em
+  `instalador.json`, vindo do `latest.yml`) antes de executá-la; cópia que
+  não confere é apagada e relatada (`instalador_invalido`). Cópias guardadas
+  pela primeira versão do reparo, sem sha512, são conferidas contra a
+  release na abertura do app e só então registradas.
+- Instalação por máquina (Arquivos de Programas): no login, no máximo um
+  pedido de administrador (UAC) a cada 24 h.
+- Depois de reparar, o script não abre mais o app sozinho.
+- Download da cópia pela release com tempo limite (1 min o `latest.yml`,
+  20 min o instalador).
+- Primeiro teste em loja: a pasta do reparo tinha só o `reparar.ps1`, sem a
+  cópia do instalador, e nada dizia por quê (o resultado do download só ia
+  pro console). Agora todo resultado vai pro `reparo.log` (linhas `[App]`),
+  a falta da cópia é relatada pra Central (aba Erros, `reparo_instalacao`)
+  e o download é tentado de novo a cada 30 min com o app aberto. A sobra de
+  um download cortado (`.baixando`) é apagada na tentativa seguinte.

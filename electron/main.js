@@ -273,12 +273,15 @@ app.whenReady().then(() => {
   function iniciarEtapa3() {
     // Reparo automático: sem cópia do instalador desta versão (primeira
     // abertura com o reparo, ou versão instalada à mão), baixa a da release
-    // e confere o sha512. Uma vez por versão.
+    // e confere o sha512. Resultado no reparo.log; falhou -> Central e nova
+    // tentativa a cada 30 min.
     if (process.platform === 'win32' && app.isPackaged) {
       const reparo = require('./services/reparoInstalacaoService');
-      reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: app.getVersion(), publish: reparo.lerPublishDoApp() })
-        .then((r) => { if (r === 'baixado') console.log('[reparo] instalador da versão atual guardado'); })
-        .catch((err) => console.error('[reparo] não consegui baixar o instalador da versão atual:', err.message));
+      reparo.manterCopiaDoInstalador({
+        versaoAtual: app.getVersion(),
+        publish: reparo.lerPublishDoApp(),
+        reportar: (mensagem) => errorReportService.reportarErro({ mensagem, stack: null, contexto: 'reparo_instalacao' }).catch(() => {}),
+      }).catch((err) => console.error('[reparo]', err));
     }
     // Backup automático (uma vez por dia). Verifica de novo
     // periodicamente porque muita farmácia deixa o app aberto o dia
