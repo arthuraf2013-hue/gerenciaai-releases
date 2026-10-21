@@ -5818,3 +5818,26 @@ Ficou para a próxima fase: fechar leitura/escrita das coleções que o desktop
 grava sem login (`terminal_eventos`, `backups`, `grupos_sincronizacao`),
 regras do Storage versionadas no repositório, App Check obrigatório,
 assinatura de código e fuses do Electron.
+
+## Reparo automático quando a atualização apaga o GerenciaAI.exe (out/2026)
+
+Sintoma em loja: "O item 'GerenciaAI.exe' a que este atalho se refere foi
+alterado ou movido", resolvido só reinstalando por cima. Causa: o instalador
+NSIS da atualização roda em silêncio quando o app fecha e apaga a versão
+antiga antes de copiar a nova; se for interrompido no meio (Windows
+desligando logo depois de fechar o app, antivírus, energia), sobra o atalho
+sem o programa.
+
+- **Evitar:** com o Windows desligando/reiniciando com o app aberto, a
+  atualização não instala nesse fechamento (fica para o próximo normal).
+- **Corrigir sozinho:** um script fora da pasta do programa
+  (`%LOCALAPPDATA%\GerenciaAI-reparo`) roda a cada login e logo depois do
+  fechamento com atualização. Se o `.exe` sumiu, reinstala em silêncio na
+  mesma pasta com a cópia guardada do instalador (dados ficam em `%APPDATA%`,
+  não são tocados) e abre o app. Desinstalado de propósito: o script se
+  remove.
+- **Cópia do instalador:** do download da atualização, ou da release desta
+  versão no GitHub com sha512 conferido.
+- **Central:** cada reparo aparece na aba Erros (`reparo_instalacao`).
+
+Detalhes em `electron/services/reparoInstalacaoService.js` e no CLAUDE.md.

@@ -31,6 +31,17 @@ let status = {
   retencaoMotivo: null,
 };
 let autoUpdaterPronto = false;
+// Windows desligando/reiniciando/saindo da sessão: não instala a
+// atualização nesse fechamento. O Windows mata o instalador no meio
+// (ele já apagou a versão antiga e ainda não copiou a nova) e sobra o
+// atalho apontando pra um GerenciaAI.exe que não existe. A atualização
+// continua baixada e instala no próximo fechamento normal.
+let windowsEncerrando = false;
+let vigiaIniciada = false;
+
+function instalarAoFecharPermitido(retida = status.retida) {
+  return !retida && !windowsEncerrando;
+}
 
 function setupAutoUpdater() {
   // Baixa sozinho assim que acha uma versão nova (checkForUpdates já
@@ -72,6 +83,12 @@ function setupAutoUpdater() {
     // reportada como "atualização que falhou".
     reavaliarRetencao({ semRelato: true }); // o relato vai logo abaixo, já com a data do download
     reportarProgressoNoFirestore({ baixadaAgora: true }).catch(() => {});
+    // Cópia do instalador fora da pasta do app: é com ela que o reparo
+    // automático reinstala se a atualização for interrompida no meio.
+    if (process.platform === 'win32') {
+      const origem = info?.downloadedFile || caminhoDoInstaladorBaixado();
+      require('./reparoInstalacaoService').guardarInstalador(origem, info?.version).catch(() => {});
+    }
   });
   autoUpdater.on('error', (err) => {
     // Erro mais comum aqui: o publish do package.json ainda não foi
@@ -108,8 +125,45 @@ function quitAndInstall() {
       error: `A instalação da versão ${status.versaoDisponivel} foi segurada pela Central${status.retencaoMotivo ? ` (${status.retencaoMotivo})` : ''}. Ela fica baixada e instala sozinha quando o suporte liberar.`,
     };
   }
+  prepararVigiaDaInstalacao();
   obterAutoUpdater().quitAndInstall();
   return { ok: true };
+}
+
+function caminhoDoInstaladorBaixado() {
+  try { return obterAutoUpdater().installerPath || null; } catch { return null; }
+}
+
+/**
+ * Logo antes do instalador da atualização rodar (app fechando com
+ * atualização baixada, ou "Instalar agora"): marca que uma atualização
+ * começou e solta a vigia que confere o resultado depois que o app já
+ * fechou (ver reparoInstalacaoService). Só no Windows instalado.
+ */
+function prepararVigiaDaInstalacao() {
+  if (vigiaIniciada || process.platform !== 'win32') return false;
+  const { app } = require('electron');
+  if (!app?.isPackaged) return false;
+  vigiaIniciada = true;
+  const reparo = require('./reparoInstalacaoService');
+  reparo.marcarAtualizacaoInstalando(status.versaoDisponivel);
+  const instalador = caminhoDoInstaladorBaixado();
+  return reparo.iniciarVigia({ nomeInstalador: instalador ? path.parse(instalador).name : '' });
+}
+
+/** app 'before-quit': a atualização vai instalar agora? Então vigia. */
+function antesDeFechar() {
+  if (!status.baixado || !autoUpdaterPronto || !instalarAoFecharPermitido()) return false;
+  return prepararVigiaDaInstalacao();
+}
+
+/** Janela recebeu query-session-end/session-end (Windows desligando). */
+function windowsEstaEncerrando() {
+  if (windowsEncerrando) return;
+  windowsEncerrando = true;
+  if (autoUpdaterPronto) {
+    try { obterAutoUpdater().autoInstallOnAppQuit = false; } catch { /* sem updater */ }
+  }
 }
 
 function getStatus() {
@@ -127,13 +181,9 @@ function getStatus() {
 // da pasta do app.
 //
 // Importante: isso só ajuda quando o app CONSEGUE abrir de novo (fica
-// preso na versão antiga, por exemplo). Se a pasta de instalação
-// inteira sumir, não sobra processo nenhum pra rodar essa checagem —
-// pra esse caso mais extremo (o que o Arthur descreveu) só um
-// mecanismo fora do processo do app (ex: um atalho/launcher próprio,
-// ou uma tarefa agendada do Windows) consegue detectar e reparar
-// sozinho, e isso precisa de teste numa máquina Windows de verdade
-// antes de valer a pena arriscar em produção.
+// preso na versão antiga, por exemplo). Se o GerenciaAI.exe sumir, quem
+// detecta e reinstala é o reparo automático, que roda fora do app (ver
+// reparoInstalacaoService.js).
 // ============================================================
 
 function caminhoMarcadorAtualizacao() {
@@ -411,7 +461,7 @@ function reavaliarRetencao({ forcarRelato = false, semRelato = false } = {}) {
   try { obrigatoriaBloqueando = !!verificarAtualizacaoObrigatoria().bloqueado; } catch { /* fora do Electron (testes) */ }
   const r = decidirRetencao({ alvo: status.versaoDisponivel, controle, obrigatoriaBloqueando });
   if (autoUpdaterPronto) {
-    try { obterAutoUpdater().autoInstallOnAppQuit = !r.retida; } catch (err) { console.error('[updateService] não consegui ajustar a instalação automática:', err.message); }
+    try { obterAutoUpdater().autoInstallOnAppQuit = instalarAoFecharPermitido(r.retida); } catch (err) { console.error('[updateService] não consegui ajustar a instalação automática:', err.message); }
   }
   const mudou = r.retida !== status.retida || r.ignoradaPorObrigatoria !== status.retencaoIgnoradaPorObrigatoria;
   status = {
@@ -439,4 +489,5 @@ module.exports = {
   reportarProgressoNoFirestore, aplicarOverrideDaInstalacao,
   aplicarControleDaInstalacao, decidirRetencao, reavaliarRetencao, lerControleAtualizacao, TODAS_AS_VERSOES,
   marcarAtualizacaoPendente, verificarAtualizacaoFoiAplicada, caminhoMarcadorAtualizacao,
+  antesDeFechar, windowsEstaEncerrando, instalarAoFecharPermitido,
 };

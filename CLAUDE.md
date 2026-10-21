@@ -255,6 +255,29 @@ uma venda. A única exceção é a tela de atualização OBRIGATÓRIA
 já bloqueia 100% do uso, instala assim que termina de baixar, sem
 esperar reinício natural (não tem nada pra interromper).
 
+**Reparo automático da instalação (Windows)** — `reparoInstalacaoService.js`.
+O instalador NSIS da atualização apaga a versão antiga antes de copiar a
+nova; interrompido no meio (Windows desligando, antivírus, energia), sobra
+o atalho apontando pra um `GerenciaAI.exe` inexistente. Por isso:
+- com o Windows encerrando a sessão (`query-session-end`/`session-end` da
+  janela), `updateService.windowsEstaEncerrando()` desliga a instalação ao
+  fechar -- ela fica pro próximo fechamento normal;
+- `%LOCALAPPDATA%\GerenciaAI-reparo\reparar.ps1` (reescrito a cada abertura)
+  roda no login (chave Run do usuário) e logo depois de fechar com
+  atualização baixada (vigia). Se o `.exe`/`app.asar` sumiu e havia
+  atualização em andamento (`atualizando.json`) ou a instalação ainda está
+  registrada no Windows, reinstala em silêncio com a cópia guardada do
+  instalador (`/S /currentuser|/allusers /D=<mesma pasta>`). Sem nenhum dos
+  dois, foi desinstalado de propósito: o script se remove;
+- a cópia do instalador vem do download da atualização ou, se faltar, da
+  release desta versão no GitHub (sha512 do `latest.yml` conferido). O
+  dono/repo vem do `resources/app-update.yml` -- o electron-builder tira o
+  `build` do package.json empacotado;
+- o que o script fez vai pra Central na abertura seguinte (aba Erros,
+  contexto `reparo_instalacao`).
+`tests/reparoInstalacao.test.js` roda o script num PowerShell de verdade
+quando há um (`GERENCIAAI_PWSH=/caminho/pwsh`).
+
 O `build.files` do `package.json` tem uma lista de exclusão
 deliberada (partes do Firebase não usadas, `exceljs/dist`,
 `better-sqlite3/deps`+`src`) — todas testadas empacotando de verdade

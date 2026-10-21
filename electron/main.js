@@ -96,6 +96,11 @@ function createWindow() {
   // 'closed' dispara.
   const webContentsId = win.webContents.id;
   win.on('closed', () => sessionService.encerrarSessao(webContentsId));
+  // Windows desligando/reiniciando com o app aberto: não instala a
+  // atualização nesse fechamento -- o Windows mataria o instalador no meio
+  // e o GerenciaAI.exe sumiria (ver updateService.windowsEstaEncerrando).
+  win.on('query-session-end', () => updateService.windowsEstaEncerrando());
+  win.on('session-end', () => updateService.windowsEstaEncerrando());
 
   if (isDev) {
     win.loadURL('http://localhost:5173');
@@ -245,6 +250,7 @@ app.whenReady().then(() => {
   }
 
   function iniciarEtapa2() {
+    prepararReparoDaInstalacao();
     require('./services/productSyncService').iniciarEscutaProdutos();
     // Status ao vivo pro celular de quem já estiver pareado — ver
     // liveStatusSyncService.js (só publica se houver celular pareado).
@@ -265,6 +271,15 @@ app.whenReady().then(() => {
   }
 
   function iniciarEtapa3() {
+    // Reparo automático: sem cópia do instalador desta versão (primeira
+    // abertura com o reparo, ou versão instalada à mão), baixa a da release
+    // e confere o sha512. Uma vez por versão.
+    if (process.platform === 'win32' && app.isPackaged) {
+      const reparo = require('./services/reparoInstalacaoService');
+      reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: app.getVersion(), publish: reparo.lerPublishDoApp() })
+        .then((r) => { if (r === 'baixado') console.log('[reparo] instalador da versão atual guardado'); })
+        .catch((err) => console.error('[reparo] não consegui baixar o instalador da versão atual:', err.message));
+    }
     // Backup automático (uma vez por dia). Verifica de novo
     // periodicamente porque muita farmácia deixa o app aberto o dia
     // inteiro sem reiniciar.
@@ -468,6 +483,33 @@ async function reenviarPendentesEContingencia() {
     }
   }
 }
+
+/**
+ * Reparo automático da instalação (Windows, app instalado): mantém o
+ * script de reparo e a verificação no login em dia, e manda pra Central
+ * (aba Erros) o que ele fez desde a última abertura.
+ */
+function prepararReparoDaInstalacao() {
+  if (process.platform !== 'win32' || !app.isPackaged) return;
+  const reparo = require('./services/reparoInstalacaoService');
+  try {
+    for (const r of reparo.aoAbrir({ versaoAtual: app.getVersion() })) {
+      errorReportService.reportarErro({ mensagem: reparo.textoDoRelato(r), stack: null, contexto: 'reparo_instalacao' })
+        .catch(() => {});
+    }
+  } catch (err) {
+    console.error('[reparo]', err);
+  }
+  Promise.resolve()
+    .then(() => reparo.prepararReparo())
+    .catch((err) => console.error('[reparo] não consegui preparar o reparo automático:', err));
+}
+
+// Fechando com atualização baixada: o instalador roda logo depois que o
+// app sair. A vigia (fora do app) confere se ele terminou inteiro.
+app.on('before-quit', () => {
+  try { updateService.antesDeFechar(); } catch (err) { console.error('[reparo]', err); }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
