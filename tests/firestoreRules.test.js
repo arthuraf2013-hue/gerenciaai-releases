@@ -802,6 +802,8 @@ test('instalação: desktop atualiza ping, versão, métricas e status de atuali
   const db = semLogin();
   await assertSucceeds(db.doc('installations/pc-ok').set({ ultimoPing: new Date(), versaoApp: '1.0.3', vendasUltimos30Dias: 9 }, { merge: true }));
   await assertSucceeds(db.doc('installations/pc-ok').set({ atualizacaoBaixado: true, atualizacaoVersaoAlvo: '1.0.4', atualizacaoRetida: true }, { merge: true }));
+  // Prontidão do reparo automático (licenseService.enviarPing).
+  await assertSucceeds(db.doc('installations/pc-ok').set({ ultimoPing: new Date(), reparo: { pronto: false, problema: 'sem_copia', copiaVersao: null, ultimoReparo: null, atualizadoEm: new Date() } }, { merge: true }));
   // Reenviar o MESMO valor de um campo de controle não é mudança.
   await assertSucceeds(db.doc('installations/pc-ok').set({ ativo: true, clienteId: 'cli-1' }, { merge: true }));
 });

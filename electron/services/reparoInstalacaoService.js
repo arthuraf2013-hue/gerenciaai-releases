@@ -59,6 +59,7 @@ const caminhos = (pasta) => ({
   infoInstalador: path.join(pasta, 'instalador.json'),
   marcador: path.join(pasta, 'atualizando.json'),
   relatos: path.join(pasta, 'relatos.jsonl'),
+  ultimoReparo: path.join(pasta, 'ultimo-reparo.json'),
 });
 
 /** Instalação "para todos os usuários" (Arquivos de Programas) precisa de administrador. */
@@ -475,6 +476,17 @@ function aoAbrir({ versaoAtual, env = process.env } = {}) {
       .map((l) => { try { return JSON.parse(l); } catch { return null; } })
       .filter(Boolean);
   } catch { /* nada relatado */ }
+  // O último fica guardado: a Central mostra "último reparo" em toda
+  // abertura, não só na seguinte ao reparo.
+  const ultimo = relatos[relatos.length - 1];
+  if (ultimo) {
+    try {
+      fs.writeFileSync(c.ultimoReparo, JSON.stringify({
+        resultado: String(ultimo.resultado || ''), motivo: ultimo.motivo ? String(ultimo.motivo) : null,
+        versao: ultimo.versao ? String(ultimo.versao) : null, quando: ultimo.quando ? String(ultimo.quando) : null,
+      }));
+    } catch { /* best-effort */ }
+  }
   return relatos;
 }
 
@@ -596,8 +608,9 @@ function manterCopiaDoInstalador({
       resultado = 'erro';
       erro = err;
     }
-    if (resultado === 'ja_tem') return resultado; // a cada abertura: não enche o log
     const detalhe = erro ? `: ${erro.message || erro}` : '';
+    await atualizarProntidao({ versaoAtual, env, ultimaTentativaCopia: `${resultado}${detalhe}` });
+    if (resultado === 'ja_tem') return resultado; // a cada abertura: não enche o log
     registrarNoLog(`copia do instalador v${versaoAtual}: ${resultado}${detalhe}`, env);
     if (RESULTADOS_COM_COPIA.has(resultado)) return resultado;
     if (!relatou) {
@@ -610,6 +623,82 @@ function manterCopiaDoInstalador({
     return resultado;
   };
   return tentar();
+}
+
+// ---------------------------------------------------------------------
+// Prontidão do reparo, pra Central ver em cada instalação se ele está
+// em condições de agir AGORA (sem precisar de acesso à máquina).
+// ---------------------------------------------------------------------
+
+const hashConferido = new Map(); // "tamanho:mtime:sha" -> confere? (o hash de ~100 MB só uma vez por cópia)
+
+function lerUltimoReparo(pasta) {
+  try {
+    const r = JSON.parse(fs.readFileSync(caminhos(pasta).ultimoReparo, 'utf-8'));
+    return r && typeof r === 'object' ? r : null;
+  } catch { return null; }
+}
+
+/**
+ * Pronto = tudo que o script precisa pra reinstalar existe e confere:
+ * script gravado, execução no login registrada, cópia do instalador da
+ * versão em uso (ou mais nova) com sha512 registrado e batendo.
+ * `problema` é o PRIMEIRO item que falta, nessa ordem.
+ */
+async function avaliarProntidao({ versaoAtual, env = process.env, exe = process.execPath, inicioComWindows = null, ultimaTentativaCopia = null } = {}) {
+  const pasta = pastaReparo(env);
+  const c = pasta ? caminhos(pasta) : null;
+  const info = pasta ? lerInfoInstalador(pasta) : null;
+  const temScript = Boolean(c) && fs.existsSync(c.script);
+  const temCopia = Boolean(c) && Boolean(info?.versao) && fs.existsSync(c.instalador);
+  let copiaConfere = null;
+  if (temCopia && info.sha512) {
+    const st = fs.statSync(c.instalador);
+    const chave = `${st.size}:${st.mtimeMs}:${info.sha512}`;
+    if (!hashConferido.has(chave)) hashConferido.set(chave, (await sha512DoArquivo(c.instalador)) === info.sha512);
+    copiaConfere = hashConferido.get(chave);
+  }
+  let problema = null;
+  if (!temScript) problema = 'sem_script';
+  else if (inicioComWindows === false) problema = 'sem_inicio_com_windows';
+  else if (!temCopia) problema = 'sem_copia';
+  else if (versaoAtual && versaoMenor(info.versao, versaoAtual)) problema = 'copia_desatualizada';
+  else if (!info.sha512) problema = 'copia_nao_conferida';
+  else if (!copiaConfere) problema = 'copia_invalida';
+  return {
+    pronto: !problema,
+    problema,
+    porMaquina: ehInstalacaoPorMaquina(path.win32.dirname(exe), env), // reparo só existe no Windows
+    inicioComWindows: inicioComWindows === null ? null : Boolean(inicioComWindows),
+    copiaVersao: temCopia ? String(info.versao) : null,
+    ultimaTentativaCopia: ultimaTentativaCopia ? String(ultimaTentativaCopia).slice(0, 200) : null,
+    ultimoReparo: pasta ? lerUltimoReparo(pasta) : null,
+  };
+}
+
+// Estado desta abertura do app (só no Windows instalado: quem liga é o main.js).
+const contextoProntidao = { ativo: false, versaoAtual: null, env: process.env, inicioComWindows: null, ultimaTentativaCopia: null };
+let resumoProntidao = null;
+let filaProntidao = Promise.resolve();
+
+/** Junta o que mudou e reavalia (em fila: duas avaliações nunca se cruzam). */
+function atualizarProntidao(parcial = {}) {
+  filaProntidao = filaProntidao.then(async () => {
+    if (!parcial.ativar && !contextoProntidao.ativo) return;
+    const { ativar, ...resto } = parcial;
+    Object.assign(contextoProntidao, resto, { ativo: true });
+    try {
+      resumoProntidao = await avaliarProntidao(contextoProntidao);
+    } catch (err) {
+      resumoProntidao = { pronto: false, problema: 'erro_verificacao', erro: String(err?.message || err).slice(0, 200) };
+    }
+  });
+  return filaProntidao;
+}
+
+/** O que vai pra installations/{id}.reparo (null = nada a mandar). */
+function resumoParaCentral() {
+  return resumoProntidao ? { ...resumoProntidao } : null;
 }
 
 function textoDoRelato(r) {
@@ -626,4 +715,5 @@ module.exports = {
   gerarScript, comandoDoLogin, argumentosPowerShell, caminhoPowerShell, prepararReparo, guardarInstalador,
   marcarAtualizacaoInstalando, iniciarVigia, aoAbrir, textoDoRelato, versaoMenor, sha512DoArquivo, sha512DaAtualizacao,
   garantirInstaladorDaVersaoAtual, manterCopiaDoInstalador, registrarNoLog, lerLatestYml, lerPublishDoApp,
+  avaliarProntidao, atualizarProntidao, resumoParaCentral,
 };

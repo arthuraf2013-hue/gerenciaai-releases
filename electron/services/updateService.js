@@ -88,7 +88,9 @@ function setupAutoUpdater() {
     if (process.platform === 'win32') {
       const reparo = require('./reparoInstalacaoService');
       const origem = info?.downloadedFile || caminhoDoInstaladorBaixado();
-      reparo.guardarInstalador(origem, info?.version, process.env, reparo.sha512DaAtualizacao(info)).catch(() => {});
+      reparo.guardarInstalador(origem, info?.version, process.env, reparo.sha512DaAtualizacao(info))
+        .then(() => reparo.atualizarProntidao())
+        .catch(() => {});
     }
   });
   autoUpdater.on('error', (err) => {

@@ -503,9 +503,15 @@ function prepararReparoDaInstalacao() {
   } catch (err) {
     console.error('[reparo]', err);
   }
+  // Prontidão (vai pra Central no ping, em installations/{id}.reparo).
+  reparo.atualizarProntidao({ ativar: true, versaoAtual: app.getVersion() }).catch(() => {});
   Promise.resolve()
     .then(() => reparo.prepararReparo())
-    .catch((err) => console.error('[reparo] não consegui preparar o reparo automático:', err));
+    .then((r) => reparo.atualizarProntidao({ inicioComWindows: Boolean(r?.ok) }))
+    .catch((err) => {
+      console.error('[reparo] não consegui preparar o reparo automático:', err);
+      reparo.atualizarProntidao({ inicioComWindows: false }).catch(() => {});
+    });
 }
 
 // Fechando com atualização baixada: o instalador roda logo depois que o

@@ -59,6 +59,8 @@
   .setor-link:hover { border-color: var(--primary); }
   .setor-link.ativo { background: var(--primary); color: white; border-color: var(--primary); }
   .status-pill { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .status-reparo { display: inline-flex; align-items: center; gap: 4px; cursor: help; }
+  .status-reparo-sem-info { background: rgba(140,150,160,0.16); color: var(--text-muted, #9aa3ad); cursor: help; }
   .badge-warning { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; background: #453a1f; color: #f6c453; }
   .status-ativa { background: rgba(55,171,153,0.2); color: var(--primary); }
   .status-inativa { background: rgba(224,112,93,0.2); color: var(--danger); }
@@ -804,7 +806,7 @@
     'grupoSincronizacaoId', 'servidorDoGrupo', 'conflitosCodigoBarrasPendentes', 'excluidaEm', 'migradoPara', 'migradoEm',
     'migradoParaNome', 'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalPendentes', 'terminalErros',
     'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo', 'atualizacaoRetida', 'atualizacaoRetencaoIgnorada', 'atualizacaoBaixadaEm',
-    'saude',
+    'saude', 'reparo',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -1125,6 +1127,66 @@
       partes.push(`<span class="status-pill" title="Falta na implantação:\n${escapeHtml(falta)}">Implantação ${Number(s.implantacaoFeitos) || 0}/${Number(s.implantacaoTotal) || 0}</span>`);
     }
     return partes.join('');
+  }
+
+  // Reparo automático da instalação (Windows): a máquina publica em
+  // installations/{id}.reparo se ele está em condições de reinstalar o
+  // GerenciaAI.exe AGORA, caso a atualização o apague (ver
+  // electron/services/reparoInstalacaoService.js, avaliarProntidao).
+  const PROBLEMAS_REPARO = {
+    sem_script: 'script não instalado',
+    sem_inicio_com_windows: 'não roda ao ligar o Windows',
+    sem_copia: 'sem cópia do instalador',
+    copia_desatualizada: 'cópia do instalador desatualizada',
+    copia_nao_conferida: 'cópia ainda não conferida',
+    copia_invalida: 'cópia do instalador não confere',
+    erro_verificacao: 'erro ao verificar',
+  };
+  const RESULTADOS_REPARO = {
+    ok: 'reinstalou sozinho',
+    falhou: 'tentou e falhou',
+    sem_instalador: 'não tinha cópia do instalador',
+    instalador_invalido: 'cópia do instalador não conferiu',
+  };
+  const TENTATIVAS_COPIA = {
+    baixado: 'baixada da release', conferido: 'conferida com a release', ja_tem: 'já guardada',
+    sem_release: 'release desta versão não encontrada no GitHub', latest_invalido: 'latest.yml da release inválido',
+    sha_diferente: 'download não conferiu (sha512)', sem_instalador: 'instalador não encontrado na release',
+    sem_config: 'app sem configuração de publicação',
+  };
+  function dataIsoParaTexto(iso) {
+    const d = iso ? new Date(iso) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  }
+  function textoTentativaCopia(t) {
+    if (!t) return null;
+    const [codigo, ...resto] = String(t).split(':');
+    const detalhe = resto.join(':').trim();
+    return (TENTATIVAS_COPIA[codigo] || (codigo === 'erro' ? 'erro' : codigo)) + (detalhe ? ` (${detalhe})` : '');
+  }
+  function renderReparo(inst) {
+    if (ehPdvMobile(inst)) return ''; // reparo é do instalador do Windows
+    const r = inst.reparo;
+    if (!r || typeof r !== 'object') {
+      return `<span class="status-pill status-reparo-sem-info" title="Esta máquina ainda não informou o estado do reparo automático: versão antiga do app (sem o reparo), app fora do Windows, ou ainda não abriu nesta versão.">Reparo: sem informação</span>`;
+    }
+    const linhas = [];
+    linhas.push(`Cópia do instalador: ${r.copiaVersao ? `v${r.copiaVersao}` : 'nenhuma'}`);
+    if (r.inicioComWindows !== null && r.inicioComWindows !== undefined) linhas.push(`Roda ao ligar o Windows: ${r.inicioComWindows ? 'sim' : 'NÃO'}`);
+    linhas.push(`Instalado para: ${r.porMaquina ? 'todos os usuários (o reparo pede administrador)' : 'só este usuário'}`);
+    const tentativa = textoTentativaCopia(r.ultimaTentativaCopia);
+    if (tentativa && !r.pronto) linhas.push(`Última tentativa de guardar a cópia: ${tentativa}`);
+    if (r.problema === 'erro_verificacao' && r.erro) linhas.push(`Erro: ${r.erro}`);
+    if (r.ultimoReparo && typeof r.ultimoReparo === 'object') {
+      linhas.push(`Último reparo: ${RESULTADOS_REPARO[r.ultimoReparo.resultado] || r.ultimoReparo.resultado || '—'} em ${dataIsoParaTexto(r.ultimoReparo.quando)}${r.ultimoReparo.versao ? ` (v${r.ultimoReparo.versao})` : ''}`);
+    }
+    linhas.push(`Verificado em: ${formatarData(r.atualizadoEm)}`);
+    const dica = linhas.join('\n');
+    if (r.pronto) {
+      return `<span class="status-pill status-ativa status-reparo" title="${escapeHtml(`Reparo automático em condições de agir.\n${dica}`)}">${icon('check', 12)} Reparo pronto</span>`;
+    }
+    const problema = PROBLEMAS_REPARO[r.problema] || r.problema || 'não está pronto';
+    return `<span class="badge-warning status-reparo" title="${escapeHtml(`Se a atualização apagar o GerenciaAI.exe agora, a máquina NÃO se conserta sozinha.\n${dica}`)}">${icon('warning', 12)} Reparo: ${escapeHtml(problema)}</span>`;
   }
 
   const DICA_ULTIMO_CONTATO = 'Última vez que a máquina respondeu à Central (quando está offline, é o momento em que ela parou de responder).';
@@ -3620,6 +3682,7 @@
         ${Number(inst.conflitosCodigoBarrasPendentes) > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${Number(inst.conflitosCodigoBarrasPendentes)} conflito(s)</span>` : ''}
         ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${escapeHtml(inst.id)}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
         ${renderSaude(inst)}
+        ${renderReparo(inst)}
         <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">v${escapeHtml(inst.versaoApp || '—')} · último contato: <span data-ultimo-contato="${escapeHtml(inst.id)}">${textoUltimoContato(inst, online)}</span></span>
         <div class="maquina-acoes">
           ${renderBotaoModoMobile(inst)}

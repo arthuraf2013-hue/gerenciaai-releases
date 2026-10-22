@@ -5861,3 +5861,11 @@ Detalhes em `electron/services/reparoInstalacaoService.js` e no CLAUDE.md.
   a falta da cópia é relatada pra Central (aba Erros, `reparo_instalacao`)
   e o download é tentado de novo a cada 30 min com o app aberto. A sobra de
   um download cortado (`.baixando`) é apagada na tentativa seguinte.
+- **Prontidão do reparo na Central:** cada máquina Windows informa se o
+  reparo está em condições de agir agora (script, execução no login, cópia
+  do instalador da versão em uso conferida pelo sha512). Na linha da máquina
+  aparece "Reparo pronto", "Reparo: <o que falta>" (passar o mouse mostra o
+  detalhe: versão da cópia, se pede administrador, última tentativa de
+  baixar a cópia, último reparo feito) ou "Reparo: sem informação" (versão
+  antiga do app, ou ainda não abriu na versão nova). Vai no ping de presença,
+  só quando muda (`installations/{id}.reparo`).

@@ -270,6 +270,7 @@ function iniciarEscutaTempoReal() {
  * "offline" depois de alguns minutos sem ping novo — não instantâneo.
  */
 let ultimaSaudeEnviada = null;
+let ultimoReparoEnviado = null;
 async function enviarPing() {
   try {
     const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
@@ -285,8 +286,18 @@ async function enviarPing() {
       assinatura = JSON.stringify(saude);
       if (assinatura !== ultimaSaudeEnviada) extra.saude = { ...saude, atualizadoEm: serverTimestamp() };
     } catch { /* banco ainda abrindo */ }
+    // Prontidão do reparo automático (Windows): mesmo esquema, só quando muda.
+    let assinaturaReparo = null;
+    try {
+      const reparo = require('./reparoInstalacaoService').resumoParaCentral();
+      if (reparo) {
+        assinaturaReparo = JSON.stringify(reparo);
+        if (assinaturaReparo !== ultimoReparoEnviado) extra.reparo = { ...reparo, atualizadoEm: serverTimestamp() };
+      }
+    } catch { /* reparo é extra, nunca atrapalha o ping */ }
     await setDoc(ref, { ultimoPing: serverTimestamp(), ...extra }, { merge: true });
     if (extra.saude) ultimaSaudeEnviada = assinatura; // só depois de gravar de verdade
+    if (extra.reparo) ultimoReparoEnviado = assinaturaReparo;
     // Esse ping já é a chamada de rede mais frequente e mais leve que a
     // instalação faz o tempo todo — aproveita pra alimentar o sinal
     // genérico de "estamos online?" usado pelo indicador do PDV (ver
@@ -340,6 +351,6 @@ function computeAccessStatus() {
 }
 
 module.exports = {
-  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, getLicenseFirestore, getLicenseApp,
+  checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, enviarPing, getLicenseFirestore, getLicenseApp,
   GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS, INTERVALO_PING_MS,
 };

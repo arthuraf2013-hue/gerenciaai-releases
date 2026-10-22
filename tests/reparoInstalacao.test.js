@@ -490,3 +490,80 @@ test('download cortado (app fechado no meio): a sobra .baixando é apagada na pr
   assert.equal(await reparo.garantirInstaladorDaVersaoAtual({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar: async () => new Response('', { status: 404 }) }), 'sem_release');
   assert.equal(fs.existsSync(path.join(pasta, `${reparo.NOME_INSTALADOR}.baixando`)), false);
 });
+
+// ---------------------------------------------------------------------
+// Prontidão (installations/{id}.reparo na Central)
+// ---------------------------------------------------------------------
+
+function pastaPronta({ versao = '1.0.4', conteudo = 'instalador', sha } = {}) {
+  const pasta = pastaTemp('reparo-pronto');
+  fs.writeFileSync(path.join(pasta, 'reparar.ps1'), 'script');
+  fs.writeFileSync(path.join(pasta, reparo.NOME_INSTALADOR), conteudo);
+  const info = { versao };
+  if (sha !== null) info.sha512 = sha === undefined ? sha512(conteudo) : sha;
+  fs.writeFileSync(path.join(pasta, 'instalador.json'), JSON.stringify(info));
+  return pasta;
+}
+const EXE_USUARIO = 'C:\\Users\\Ana\\AppData\\Local\\Programs\\GerenciaAI\\GerenciaAI.exe';
+
+test('prontidão: tudo no lugar -> pronto', async () => {
+  const env = { GERENCIAAI_REPARO_DIR: pastaPronta(), ProgramFiles: 'C:\\Program Files' };
+  const r = await reparo.avaliarProntidao({ versaoAtual: '1.0.4', env, exe: EXE_USUARIO, inicioComWindows: true });
+  assert.deepEqual(r, {
+    pronto: true, problema: null, porMaquina: false, inicioComWindows: true, copiaVersao: '1.0.4',
+    ultimaTentativaCopia: null, ultimoReparo: null,
+  });
+  // Cópia de versão mais nova (atualização baixada, ainda não instalada) também serve.
+  assert.equal((await reparo.avaliarProntidao({ versaoAtual: '1.0.3', env, exe: EXE_USUARIO, inicioComWindows: true })).pronto, true);
+});
+
+test('prontidão: cada coisa que falta vira o problema certo, na ordem', async () => {
+  const caso = async (pasta, extra = {}) => (await reparo.avaliarProntidao({ versaoAtual: '1.0.4', env: { GERENCIAAI_REPARO_DIR: pasta }, exe: EXE_USUARIO, inicioComWindows: true, ...extra })).problema;
+
+  const semScript = pastaPronta(); fs.rmSync(path.join(semScript, 'reparar.ps1'));
+  assert.equal(await caso(semScript), 'sem_script');
+  assert.equal(await caso(pastaPronta(), { inicioComWindows: false }), 'sem_inicio_com_windows');
+  const semCopia = pastaPronta(); fs.rmSync(path.join(semCopia, reparo.NOME_INSTALADOR));
+  assert.equal(await caso(semCopia), 'sem_copia');
+  assert.equal(await caso(pastaPronta({ versao: '1.0.3' })), 'copia_desatualizada');
+  assert.equal(await caso(pastaPronta({ sha: null })), 'copia_nao_conferida');
+  assert.equal(await caso(pastaPronta({ sha: sha512('outro') })), 'copia_invalida');
+  assert.equal(await caso(path.join(pastaTemp('reparo-vazio'), 'nao-existe')), 'sem_script');
+});
+
+test('prontidão: cópia alterada depois de conferida é pega (o cache do hash depende do arquivo)', async () => {
+  const pasta = pastaPronta();
+  const env = { GERENCIAAI_REPARO_DIR: pasta };
+  assert.equal((await reparo.avaliarProntidao({ versaoAtual: '1.0.4', env, exe: EXE_USUARIO })).pronto, true);
+  fs.writeFileSync(path.join(pasta, reparo.NOME_INSTALADOR), 'trocado!!!');
+  assert.equal((await reparo.avaliarProntidao({ versaoAtual: '1.0.4', env, exe: EXE_USUARIO })).problema, 'copia_invalida');
+});
+
+test('prontidão: instalação por máquina e último reparo aparecem; último reparo sobrevive às aberturas', async () => {
+  const pasta = pastaPronta();
+  const env = { GERENCIAAI_REPARO_DIR: pasta, ProgramFiles: 'C:\\Program Files' };
+  fs.writeFileSync(path.join(pasta, 'relatos.jsonl'), '{"resultado":"ok","motivo":"atualizacao_interrompida","versao":"1.0.4","quando":"2026-10-21T08:00:00-03:00","modo":"Logon"}\n');
+  reparo.aoAbrir({ versaoAtual: '1.0.4', env });
+  reparo.aoAbrir({ versaoAtual: '1.0.4', env }); // segunda abertura: relatos já vazio
+  const r = await reparo.avaliarProntidao({ versaoAtual: '1.0.4', env, exe: 'C:\\Program Files\\GerenciaAI\\GerenciaAI.exe' });
+  assert.equal(r.porMaquina, true);
+  assert.deepEqual(r.ultimoReparo, { resultado: 'ok', motivo: 'atualizacao_interrompida', versao: '1.0.4', quando: '2026-10-21T08:00:00-03:00' });
+});
+
+test('resumoParaCentral: nada antes de ativar; depois reflete início com o Windows e tentativa da cópia', async () => {
+  const pasta = pastaTemp('reparo-resumo');
+  fs.writeFileSync(path.join(pasta, 'reparar.ps1'), 'script');
+  const env = { GERENCIAAI_REPARO_DIR: pasta };
+  await reparo.atualizarProntidao({ versaoAtual: '1.0.4', env }); // sem ativar: ignora
+  // (outros testes deste arquivo podem ter ativado; o que vale é o depois)
+  await reparo.atualizarProntidao({ ativar: true, versaoAtual: '1.0.4', env, inicioComWindows: true, ultimaTentativaCopia: null });
+  assert.equal(reparo.resumoParaCentral().problema, 'sem_copia');
+  await reparo.manterCopiaDoInstalador({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar: async () => new Response('', { status: 404 }), agendar: () => {} });
+  assert.equal(reparo.resumoParaCentral().ultimaTentativaCopia, 'sem_release');
+  await reparo.manterCopiaDoInstalador({ versaoAtual: '1.0.4', publish: PUBLISH, env, buscar: releaseFalsa().buscar, agendar: () => {} });
+  const r = reparo.resumoParaCentral();
+  assert.equal(r.pronto, true);
+  assert.equal(r.ultimaTentativaCopia, 'baixado');
+  await reparo.atualizarProntidao({ inicioComWindows: false });
+  assert.equal(reparo.resumoParaCentral().problema, 'sem_inicio_com_windows');
+});

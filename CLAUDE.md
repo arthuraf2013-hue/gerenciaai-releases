@@ -285,7 +285,16 @@ o atalho apontando pra um `GerenciaAI.exe` inexistente. Por isso:
 - a cópia é garantida por `manterCopiaDoInstalador` (etapa 3 do boot): cada
   resultado vai pro `reparo.log` (`[App] ...`); sem cópia, relata pra
   Central uma vez por abertura e tenta de novo a cada 30 min. No primeiro
-  teste em loja a cópia faltava e ninguém via (só ia pro console).
+  teste em loja a cópia faltava e ninguém via (só ia pro console);
+- **prontidão na Central**: `avaliarProntidao` (script gravado, Run
+  registrado, cópia da versão em uso ou mais nova com sha512 batendo) vira
+  `installations/{id}.reparo` (`pronto`, `problema`, `copiaVersao`,
+  `porMaquina`, `ultimoReparo`...), enviado no ping de presença de
+  `licenseService` só quando muda. A Central mostra o selo "Reparo pronto" /
+  "Reparo: <problema>" / "sem informação" em cada máquina (`renderReparo`).
+  O hash da cópia (~100 MB) é calculado uma vez por arquivo (cache por
+  tamanho+mtime). Campo escrito pela máquina, então NÃO vai em
+  `camposDeControle()`.
 `tests/reparoInstalacao.test.js` roda o script num PowerShell de verdade
 quando há um (`GERENCIAAI_PWSH=/caminho/pwsh`).
 
