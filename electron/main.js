@@ -176,9 +176,6 @@ app.whenReady().then(() => {
   getDb(); // garante schema criado e seed aplicado antes de atender a janela
   timeService.startAutoSync(); // sincroniza com a internet assim que possível, e a cada 15 min
   require('./ipc/handlers').registerIpcHandlers();
-  // Ponte IPC da janela oculta de WebRTC do suporte remoto (usa ipcMain.on,
-  // por isso fica aqui no bloco síncrono e não dentro de registerIpcHandlers).
-  require('./services/suporteRemotoService').registrarBridgePeer();
 
   // Tem que existir antes da PRIMEIRA mensagem da janela -- a tela de
   // atualização obrigatória (UpdateGate) pode disparar uma checagem de
@@ -239,9 +236,6 @@ app.whenReady().then(() => {
     // venda do PDV móvel) -- logo no começo: alguém pode estar esperando
     // do outro lado.
     require('./services/pairingService').iniciarEscutaPareamentos();
-    // Suporte remoto: escuta a sinalização (um técnico pode estar pedindo
-    // conexão agora, inclusive no modo não supervisionado).
-    require('./services/suporteRemotoService').iniciarEscutaSuporte();
     require('./services/pedidoGarcomSyncService').iniciarEscutaPedidosGarcom();
     // PDV móvel -- vendas feitas no celular (pareado com tipo 'pdv')
     // viram venda de verdade aqui, consultas sob demanda (produto fora do

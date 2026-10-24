@@ -482,18 +482,4 @@ contextBridge.exposeInMainWorld('pdv', {
     pendencias: invoke('saude:pendencias'),
     implantacao: invoke('saude:implantacao'),
   },
-  suporteRemoto: {
-    getStatus: invoke('suporteRemoto:getStatus'),
-    getConfig: invoke('suporteRemoto:getConfig'),
-    gerarCodigo: invoke('suporteRemoto:gerarCodigo'),
-    salvarConfig: invoke('suporteRemoto:salvarConfig'),
-    permitir: invoke('suporteRemoto:permitir'),
-    encerrar: invoke('suporteRemoto:encerrar'),
-    // Evento do processo principal (mudança de estado da sessão) -> faixa/tela.
-    onMudou: (cb) => {
-      const h = (_e, status) => cb(status);
-      ipcRenderer.on('suporteRemoto:mudou', h);
-      return () => ipcRenderer.removeListener('suporteRemoto:mudou', h);
-    },
-  },
 });

@@ -1727,32 +1727,3 @@ CREATE TABLE IF NOT EXISTS atualizacao_controle (
   motivo        TEXT,
   atualizado_em TEXT
 );
-
--- ------------------------------------------------------------------
--- Suporte remoto (acesso remoto de manutenção da Vetta).
--- Ver electron/services/suporteRemotoService.js.
--- ------------------------------------------------------------------
-
--- Config do acesso remoto (uma linha, id = 1). `nao_supervisionado = 1`
--- libera o técnico a conectar sem o código de 6 dígitos a cada vez,
--- conferindo um segredo forte (só o hash fica aqui -- nunca o valor em
--- claro). Desligar apaga o segredo.
-CREATE TABLE IF NOT EXISTS suporte_remoto_config (
-  id                 INTEGER PRIMARY KEY CHECK (id = 1),
-  nao_supervisionado INTEGER NOT NULL DEFAULT 0,
-  segredo_sal        TEXT,
-  segredo_hash       TEXT,
-  atualizado_em      TEXT
-);
-
--- Histórico das sessões de suporte (quem acessou, quando, como terminou).
--- O rastro detalhado de CADA ação (shell, correção, arquivo) fica em
--- audit_log; esta tabela é o resumo por sessão.
-CREATE TABLE IF NOT EXISTS suporte_remoto_sessoes (
-  id                 TEXT PRIMARY KEY,
-  estado             TEXT NOT NULL,
-  nao_supervisionado INTEGER NOT NULL DEFAULT 0,
-  motivo_fim         TEXT,
-  criado_em          TEXT NOT NULL DEFAULT (NOW_SYNCED()),
-  atualizado_em      TEXT
-);

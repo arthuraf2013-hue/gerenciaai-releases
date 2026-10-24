@@ -213,16 +213,6 @@ máquinas). Venda ABERTA não mexe no contador (débito só na finalização).
   desse documento, criado no Console.
 - Operação financeira numa venda (`saleService`) confere `status = 'aberta'`.
 
-## Suporte remoto (out/2026)
-
-Acesso de suporte estilo TeamViewer, dentro do app. Cliente: Configurações → **Suporte** (gera código de 6 dígitos, 10 min; ou liga o **não supervisionado**). Técnico: botão **Acessar** na linha da máquina na Central (tela ao vivo, shell, correções rápidas, arquivos, área de transferência).
-
-- **Arquivos**: `electron/services/suporteRemotoProtocolo.js` (lógica pura, testada em `tests/suporteRemoto.test.js`), `suporteRemotoService.js` (estado, sinalização, shell, correções), `electron/suporte-remoto/peer.*` (janela OCULTA que captura a tela e faz o WebRTC — o renderer não tem Firebase), `SuporteRemotoBanner.jsx` (faixa fixa enquanto há sessão), `SuporteRemotoConfig.jsx`; na Central, bloco `SUPORTE REMOTO` no fim do `admin-panel/index.html`.
-- **Firestore** (`installations/{id}/suporte_remoto/`): `sessao` = só sinalização (SDP/ICE/estado), leitura aberta; `convite` = código vivo + não supervisionado (+ segredo), **só admin lê** — é o que faz o código aparecer na Central (selo na linha + preenchimento automático). Campos do técnico (`pedidoConectar`, `centralSdp`, `centralIce`, `encerradoPeloTecnico`) só o admin grava. Tela/shell/arquivos/texto vão SÓ pelo canal P2P cifrado (DTLS). O código/segredo é conferido pelo computador, dentro do canal, contra o hash local — gravar no Firestore não dá acesso.
-- **Armadilha (já mordeu, v1.0.9)**: o computador não consegue apagar o `pedidoConectar`, então um pedido de sessão anterior SEMPRE pode estar no doc. Na 1ª versão a memória do "pedido já tratado" morava em `sessao` (que vira `null` ao encerrar) → com o não supervisionado ligado, o mesmo pedido era aceito de novo a cada snapshot (aceita → abre captura → falha → grava → snapshot → aceita…) e a tela piscava. Regra: o nonce tratado fica num `Set` de MÓDULO, o pedido passa por `pedidoConectarValido` (nonce, janela de 5 min, posterior ao código), resposta/ICE/encerramento só valem com o nonce da sessão atual (a Central grava `encerradoPeloTecnico: <nonce>`), e negociação que não autentica em 60 s desiste. `disconnected` do WebRTC é transitório — só `failed`/`closed` encerram.
-- Mudou regra do `suporte_remoto`? `firebase deploy --only firestore:rules --project gerenciaai-licencas` (a Central usa `collectionGroup('suporte_remoto')`, que depende da regra `/{caminho=**}/suporte_remoto/{docId}`).
-- Só STUN configurado (`iceServers()` nos dois lados). Loja atrás de CGNAT/NAT simétrico pode precisar de TURN.
-
 ## SQL: nada de função JS no WHERE
 
 `datetime(NOW_SYNCED(), '-30 days')` dentro de WHERE chama a função JS a

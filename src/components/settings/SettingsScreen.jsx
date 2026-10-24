@@ -12,7 +12,6 @@ import { VitrineOnline } from './VitrineOnline';
 import { PixAutomaticoConfig } from './PixAutomaticoConfig';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
-import { SuporteRemotoConfig } from './SuporteRemotoConfig';
 
 const UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'];
 
@@ -751,14 +750,7 @@ export function SettingsScreen() {
         <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}><Icon name="scale" size={15} /> Balança</button>
         <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}><Icon name="chat" size={15} /> WhatsApp</button>
         <button className={aba === 'pareamento' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('pareamento')}><Icon name="link" size={15} /> Celular</button>
-        <button className={aba === 'suporte' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('suporte')}><Icon name="globe" size={15} /> Suporte</button>
       </div>
-
-      {aba === 'suporte' && (
-        <section className="settings-section">
-          <SuporteRemotoConfig />
-        </section>
-      )}
 
       {aba === 'geral' && (
       <>
