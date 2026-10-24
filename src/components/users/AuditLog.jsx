@@ -29,6 +29,11 @@ const TIPO_LABEL = {
   pix_automatico_alterado: 'Pix automático alterado',
   pix_recebido_sem_venda: 'Pix recebido sem venda',
   pix_confirmado_manual: 'Pix automático confirmado na mão',
+  suporte_remoto_sessao: 'Suporte remoto — sessão',
+  suporte_remoto_shell: 'Suporte remoto — comando no shell',
+  suporte_remoto_correcao: 'Suporte remoto — correção aplicada',
+  suporte_remoto_arquivo: 'Suporte remoto — arquivo transferido',
+  suporte_remoto_config: 'Suporte remoto — configuração',
 };
 
 export function AuditLog() {

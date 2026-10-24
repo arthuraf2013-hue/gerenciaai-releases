@@ -53,6 +53,7 @@ const reservationService = require('../services/reservationService');
 const whatsappAutomationService = require('../services/whatsappAutomationService');
 const kitchenService = require('../services/kitchenService');
 const saudeService = require('../services/saudeService');
+const suporteRemotoService = require('../services/suporteRemotoService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -149,6 +150,11 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
   'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora',
   'pixAuto:saveConfig', 'pixAuto:testar', 'pixAuto:listarSemVenda',
+  // Suporte remoto: gerar código e ligar/desligar o acesso não
+  // supervisionado são ações de gestão. Ver/permitir/encerrar uma sessão
+  // qualquer usuário logado pode (o operador do caixa precisa autorizar e
+  // conseguir encerrar) -- esses ficam fora desta lista, só exigindo sessão.
+  'suporteRemoto:gerarCodigo', 'suporteRemoto:salvarConfig',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
@@ -993,6 +999,17 @@ function registerIpcHandlers() {
   safeHandle('saude:implantacao', () => saudeService.progressoImplantacao());
   safeHandle('dashboard:explicarVariacao', (_e, payload) => dashboardService.explicarVariacao(payload));
   safeHandle('whatsappAutomation:resultadoCampanhas', (_e, payload) => whatsappAutomationService.resultadoCampanhas(payload || {}));
+
+  // --- Suporte remoto (acesso remoto de manutenção) ---
+  // getStatus/getConfig/permitir/encerrar: qualquer usuário logado (o
+  // operador do caixa autoriza/encerra e vê a faixa). gerarCodigo e
+  // salvarConfig são gestão (ver PAPEL_POR_CANAL).
+  safeHandle('suporteRemoto:getStatus', () => suporteRemotoService.getStatus());
+  safeHandle('suporteRemoto:getConfig', () => suporteRemotoService.getConfig());
+  safeHandle('suporteRemoto:gerarCodigo', (event) => suporteRemotoService.gerarCodigo({ operadorId: usuarioLogado(event) }));
+  safeHandle('suporteRemoto:salvarConfig', (event, payload) => suporteRemotoService.salvarConfig(payload || {}, { operadorId: usuarioLogado(event) }));
+  safeHandle('suporteRemoto:permitir', (event) => suporteRemotoService.aceitarConexao({ operadorId: usuarioLogado(event) }));
+  safeHandle('suporteRemoto:encerrar', (event) => suporteRemotoService.encerrarSessao({ operadorId: usuarioLogado(event), motivo: 'encerrada_pelo_cliente' }));
 }
 
 module.exports = { registerIpcHandlers };

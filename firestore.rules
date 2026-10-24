@@ -753,5 +753,33 @@ service cloud.firestore {
     match /dispositivos_pareados/{uid} {
       allow read, write: if request.auth != null && uid == request.auth.uid;
     }
+
+    // Suporte remoto (acesso remoto de manutenção da Vetta) -- APENAS
+    // sinalização do WebRTC (SDP/ICE) e estado da sessão. Tela, shell,
+    // arquivos e área de transferência NUNCA passam por aqui: trafegam pelo
+    // canal P2P do WebRTC, cifrado ponta a ponta (DTLS/SRTP). A garantia
+    // forte de acesso é a conferência do código de 6 dígitos (ou do segredo
+    // não supervisionado) feita DENTRO desse canal pelo computador do
+    // cliente -- como a senha do TeamViewer é conferida pelo aparelho, não
+    // pelo servidor de sinalização. Ver electron/services/suporteRemotoService.js.
+    //
+    // O técnico (Central) é sempre admin autenticado; o computador do cliente
+    // escreve sem login. Os campos DE CONTROLE DO TÉCNICO -- pedir conexão,
+    // resposta/ICE do técnico, encerrar pelo técnico -- só o admin grava; o
+    // computador só grava os campos dele (estado e a própria oferta/ICE).
+    // Assim, ninguém com o projectId consegue disparar uma sessão nem se
+    // passar pela Central (e, mesmo que tentasse, não passaria do código).
+    match /installations/{installId}/suporte_remoto/{docId} {
+      function soCamposDoCliente() {
+        return !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['pedidoConectar', 'centralSdp', 'centralIce', 'encerradoPeloTecnico']);
+      }
+      allow read: if true;
+      allow create: if ehAdminAutenticado()
+        || (request.auth == null
+            && !request.resource.data.keys().hasAny(['pedidoConectar', 'centralSdp', 'centralIce', 'encerradoPeloTecnico']));
+      allow update: if ehAdminAutenticado() || (request.auth == null && soCamposDoCliente());
+      allow delete: if ehAdminAutenticado();
+    }
   }
 }

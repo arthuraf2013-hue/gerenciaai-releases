@@ -7,6 +7,7 @@ import { FloatingTutor } from './components/layout/FloatingTutor';
 import { LicenseGate } from './components/layout/LicenseGate';
 import { UpdateGate } from './components/layout/UpdateGate';
 import { ErrorBoundary } from './components/layout/ErrorBoundary';
+import { SuporteRemotoBanner } from './components/suporte/SuporteRemotoBanner';
 import './styles/theme.css';
 
 function LoginScreen() {
@@ -63,6 +64,7 @@ function Gate() {
   if (currentUser.pinTemporario) return <ChangePinScreen onChanged={clearPinTemporario} />;
   return (
     <>
+      <SuporteRemotoBanner />
       <AppShell />
       <FloatingTutor />
     </>
