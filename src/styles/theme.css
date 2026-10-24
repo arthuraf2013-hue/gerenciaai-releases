@@ -898,3 +898,9 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .vitrine-link-url { font-weight: 700; color: var(--color-primary); word-break: break-all; }
 .vitrine-link .btn-secondary { display: inline-flex; align-items: center; gap: 6px; }
 .vitrine-link a.btn-secondary { padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--color-text); }
+
+/* Pix automático (PaymentPanel.jsx) */
+.pix-aguardando { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; color: var(--color-primary); }
+.pix-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--color-border); border-top-color: var(--color-primary); animation: pix-girar .8s linear infinite; }
+@keyframes pix-girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pix-spinner { animation: none; } }

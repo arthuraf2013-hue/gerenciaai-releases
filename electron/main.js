@@ -302,6 +302,10 @@ app.whenReady().then(() => {
     // Vitrine online: publica o catálogo a cada 5 min, só se mudou e só se
     // a Central criou o endereço (ver vitrineService.js).
     require('./services/vitrineService').iniciarPublicacaoContinua();
+
+    // Pix automático: confere em segundo plano as cobranças pendentes (o
+    // caixa também consulta enquanto o QR está na tela).
+    require('./services/pixAutomaticoService').iniciarConferencia();
   }
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);

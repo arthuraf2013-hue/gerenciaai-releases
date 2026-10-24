@@ -26,6 +26,9 @@ const TIPO_LABEL = {
   produto_cadastrado_celular: 'Produto cadastrado pelo celular',
   migracao_sistema_anterior: 'Migração do sistema anterior',
   vitrine_alterada: 'Vitrine online alterada',
+  pix_automatico_alterado: 'Pix automático alterado',
+  pix_recebido_sem_venda: 'Pix recebido sem venda',
+  pix_confirmado_manual: 'Pix automático confirmado na mão',
 };
 
 export function AuditLog() {

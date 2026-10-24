@@ -30,8 +30,9 @@ test('catálogo público: preço de venda e faixa de disponibilidade; nunca cust
   assert.equal(porNome.Entrega.disponibilidade, 'disponivel'); // serviço não tem estoque
   assert.equal(porNome['Sabão'], undefined); // sem estoque: escondido (padrão)
   assert.equal(porNome.Brinde, undefined); // preço zero não vai pra vitrine
-  const texto = JSON.stringify(itens);
-  assert.ok(!/custo|estoque|"21"|50/.test(texto), texto);
+  // Sem os ids (UUID aleatório pode conter "50" e deixava o teste instável).
+  const texto = JSON.stringify(itens.map(({ id, ...resto }) => resto));
+  assert.ok(!/custo|estoque|\b21\b|\b50\b/.test(texto), texto);
   assert.deepEqual(Object.keys(porNome['Arroz 5 kg']).sort(), ['categoria', 'disponibilidade', 'id', 'nome', 'preco', 'unidade']);
 });
 

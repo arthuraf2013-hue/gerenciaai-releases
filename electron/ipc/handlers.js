@@ -148,6 +148,7 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'saude:implantacao', 'whatsappAutomation:resultadoCampanhas', 'dashboard:explicarVariacao',
   'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
   'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora',
+  'pixAuto:saveConfig', 'pixAuto:testar', 'pixAuto:listarSemVenda',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
@@ -576,6 +577,22 @@ function registerIpcHandlers() {
     return resultado;
   });
   safeHandle('payment:buildPixPayload', (_e, payload) => pixService.buildPixPayload(payload));
+  // Pix automático (pixAutomaticoService.js). Configurar/testar/listar é de
+  // gestão (PAPEL_POR_CANAL); gerar/consultar/cancelar é do caixa, igual ao
+  // QR fixo. O token nunca sai do processo principal.
+  safeHandle('pixAuto:getConfig', () => require('../services/pixAutomaticoService').getConfig());
+  safeHandle('pixAuto:saveConfig', (_e, payload) => require('../services/pixAutomaticoService').saveConfig(payload || {}));
+  safeHandle('pixAuto:testar', (_e, payload) => require('../services/pixAutomaticoService').testarConexao(payload || {}));
+  safeHandle('pixAuto:listarSemVenda', () => require('../services/pixAutomaticoService').listarRecebidosSemVenda());
+  // Quem gerou/confirmou vem da sessão, nunca do payload.
+  safeHandle('pixAuto:criar', (event, payload) => require('../services/pixAutomaticoService').criarCobranca({
+    saleId: payload?.saleId, valor: payload?.valor, operadorId: usuarioLogado(event),
+  }));
+  safeHandle('pixAuto:consultar', (_e, payload) => require('../services/pixAutomaticoService').consultarCobranca({ id: payload?.id }));
+  safeHandle('pixAuto:confirmarManual', (event, payload) => require('../services/pixAutomaticoService').confirmarManual({
+    id: payload?.id, operadorId: usuarioLogado(event),
+  }));
+  safeHandle('pixAuto:cancelar', (_e, payload) => require('../services/pixAutomaticoService').cancelarCobranca({ id: payload?.id }));
 
   // --- Relógio sincronizado (Brasília) ---
   safeHandle('time:getStatus', () => timeService.getStatus());

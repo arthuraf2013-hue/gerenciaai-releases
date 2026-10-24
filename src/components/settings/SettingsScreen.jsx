@@ -9,6 +9,7 @@ import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/m
 import { MigracaoPdvMobile } from './MigracaoPdvMobile';
 import { TerminaisPdvMobile } from './TerminaisPdvMobile';
 import { VitrineOnline } from './VitrineOnline';
+import { PixAutomaticoConfig } from './PixAutomaticoConfig';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
 
@@ -1244,8 +1245,9 @@ export function SettingsScreen() {
       <section className="settings-section">
         <h2><Icon name="card" size={16} /> Pagamento (Pix)</h2>
         <p className="screen-hint">
-          Cadastre sua chave Pix para gerar o QR Code de cobrança direto no PDV. Não há
-          integração bancária — o recebimento é conferido manualmente pelo operador.
+          Cadastre sua chave Pix para gerar o QR Code de cobrança direto no PDV. Por esta
+          chave o recebimento é conferido manualmente pelo operador (sem tarifa). Para a
+          venda se confirmar sozinha, ligue o Pix automático logo abaixo.
         </p>
         <form className="inline-form" onSubmit={handlePixSave}>
           <label>Tipo de chave
@@ -1272,6 +1274,8 @@ export function SettingsScreen() {
         </form>
         {pixSaved && <p className="io-message">Chave Pix salva.</p>}
       </section>
+
+      {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <PixAutomaticoConfig />}
 
       <section className="settings-section">
         <h2><Icon name="star" size={16} /> Programa de fidelidade</h2>

@@ -59,8 +59,53 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
 
   // Estado específico do fluxo Pix: gera o QR, espera confirmação manual
   // do operador (não existe integração bancária automática).
-  const [pix, setPix] = useState(null); // { valor, payload, qrDataUrl } | null
+  const [pix, setPix] = useState(null); // { valor, payload, qrDataUrl, automatico?, cobrancaId? } | null
   const [pixGerando, setPixGerando] = useState(false);
+  // Pix automático (Configurações → Pagamento): o QR vem do provedor e o
+  // pagamento entra sozinho quando o cliente paga (pixAutomaticoService.js).
+  const [pixAutoAtivo, setPixAutoAtivo] = useState(false);
+  const [avisoPix, setAvisoPix] = useState('');
+
+  useEffect(() => {
+    let ativo = true;
+    window.pdv.pixAuto?.getConfig?.().then((c) => { if (ativo) setPixAutoAtivo(!!c?.ativo); }).catch(() => {});
+    return () => { ativo = false; };
+  }, []);
+
+  async function recarregarPagamentos() {
+    try {
+      const r = await window.pdv.sale.getPaymentState({ saleId });
+      if (r?.ok) setPagamentos(r.pagamentos);
+    } catch { /* a próxima ação recarrega */ }
+  }
+
+  // Enquanto o QR automático está na tela, pergunta a cada 3 s se já pagou.
+  useEffect(() => {
+    if (!pix?.automatico || !pix.cobrancaId) return;
+    let ativo = true;
+    const conferir = async () => {
+      let r = null;
+      try { r = await window.pdv.pixAuto.consultar({ id: pix.cobrancaId }); } catch { r = null; }
+      if (!ativo || !r?.ok) return;
+      const status = r.cobranca?.status;
+      if (status === 'pago') {
+        if (r.pagamento) registrarPagamentoLocal(r.pagamento.id, 'pix', r.pagamento.valor);
+        else await recarregarPagamentos();
+        setPix(null);
+        setValor('');
+        setAvisoPix('Pix recebido e confirmado pelo Mercado Pago.');
+      } else if (status === 'pago_sem_venda') {
+        setPix(null);
+        setError('O Pix foi pago, mas a venda já estava quitada. Ficou registrado em Configurações → Pagamento para devolver ou lançar.');
+      } else if (['cancelado', 'expirado', 'falhou', 'erro'].includes(status)) {
+        setPix(null);
+        setError(status === 'expirado' ? 'O Pix venceu sem pagamento. Gere outro.' : 'O Pix não foi concluído. Gere outro ou use outra forma de pagamento.');
+      }
+    };
+    const t = setInterval(conferir, 3000);
+    return () => { ativo = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pix?.cobrancaId]);
 
   // Fonte da verdade é o banco: este painel é um modal e desmonta ao
   // fechar/voltar ao carrinho, então o estado local começa zerado mesmo
@@ -294,7 +339,24 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
     // Nunca gera QR acima do que falta -- limita em vez de mostrar erro.
     const numeric = Math.min(digitado, Number(restante.toFixed(2)));
     setError('');
+    setAvisoPix('');
     setPixGerando(true);
+
+    if (pixAutoAtivo) {
+      const auto = await window.pdv.pixAuto.criar({ saleId, valor: numeric, operadorId: currentUser.id });
+      if (auto?.ok) {
+        const c = auto.cobranca;
+        setPix({ valor: c.valor, payload: c.copiaECola, qrDataUrl: c.qrDataUrl, automatico: true, cobrancaId: c.id });
+        setPixGerando(false);
+        return;
+      }
+      if (!auto?.usarQrFixo) {
+        setPixGerando(false);
+        return setError(auto?.error || 'Não consegui gerar o Pix.');
+      }
+      // Provedor fora do ar / sem internet: segue com o QR fixo da chave.
+      setAvisoPix(`Pix automático indisponível (${auto.error}). Usando o QR da chave Pix — confira o recebimento no banco.`);
+    }
 
     const result = await window.pdv.payment.buildPixPayload({ valor: numeric, txid: saleId.replace(/-/g, '').slice(0, 20) });
     if (!result.ok) {
@@ -335,6 +397,24 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
 
   function copiarCodigoPix() {
     navigator.clipboard?.writeText(pix.payload);
+  }
+
+  async function cancelarPix() {
+    if (pix?.automatico) await window.pdv.pixAuto.cancelar({ id: pix.cobrancaId }).catch(() => {});
+    setPix(null);
+    setError('');
+  }
+
+  // Provedor demorando: o operador confere no app do banco e confirma. Se o
+  // provedor confirmar depois, não lança de novo.
+  async function confirmarPixAutomaticoManual() {
+    if (!confirm('Confirmar que o Pix já caiu na conta? Confira no aplicativo do banco ou do Mercado Pago antes.')) return;
+    const r = await window.pdv.pixAuto.confirmarManual({ id: pix.cobrancaId, operadorId: currentUser.id });
+    if (!r?.ok) return setError(r?.error || 'Não consegui confirmar.');
+    if (r.pagamento) registrarPagamentoLocal(r.pagamento.id, 'pix', r.pagamento.valor);
+    else await recarregarPagamentos();
+    setPix(null);
+    setValor('');
   }
 
   /** Mesmo passo final de sempre (marcar como finalizada + imprimir
@@ -675,19 +755,31 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
           <img src={pix.qrDataUrl} alt="QR Code Pix" width={200} height={200} />
           <p className="pix-valor">R$ {pix.valor.toFixed(2)}</p>
           <button className="btn-link" onClick={copiarCodigoPix}>Copiar código Pix (copia e cola)</button>
-          <p className="screen-hint" style={{ margin: 0 }}>
-            Peça para o cliente escanear ou colar o código. Confira o recebimento no seu banco antes de confirmar.
-          </p>
+          {pix.automatico ? (
+            <p className="pix-aguardando"><span className="pix-spinner" aria-hidden="true" /> Aguardando o pagamento — o sistema confirma sozinho.</p>
+          ) : (
+            <p className="screen-hint" style={{ margin: 0 }}>
+              Peça para o cliente escanear ou colar o código. Confira o recebimento no seu banco antes de confirmar.
+            </p>
+          )}
           <div className="modal-actions">
-            <button className="btn-secondary" onClick={() => { setPix(null); setError(''); }}>
+            <button className="btn-secondary" onClick={cancelarPix}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
             </button>
-            <button className="btn-primary" onClick={confirmarRecebimentoPix}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Confirmar recebimento</span>
-            </button>
+            {pix.automatico ? (
+              <button className="btn-secondary" onClick={confirmarPixAutomaticoManual} title="Use só se o pagamento já aparece no banco e o sistema ainda não confirmou">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Já caiu, confirmar</span>
+              </button>
+            ) : (
+              <button className="btn-primary" onClick={confirmarRecebimentoPix}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Confirmar recebimento</span>
+              </button>
+            )}
           </div>
         </div>
       )}
+
+      {avisoPix && <p className="io-message" style={{ margin: '8px 0' }}>{avisoPix}</p>}
 
       {pagamentos.length > 0 && (
         <ul className="payment-list">

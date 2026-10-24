@@ -6068,3 +6068,40 @@ Publicar: `firebase deploy --only firestore:rules,hosting:garcom` e
 republicar a Central.
 
 Testes: `tests/vitrine.test.js` (6) e regras (+2, emulador 81/81).
+
+## Pix automático (Mercado Pago) — a venda se confirma sozinha
+
+Opcional, ao lado do Pix pela chave (que continua sem tarifa). Configurações →
+"Pix automático (Mercado Pago)" (só gerente/admin/suporte): Access Token, e-mail
+do pagador (a API exige um) e validade do QR (30–240 min; o Mercado Pago exige
+no mínimo 30). No caixa, "Gerar QR Code" cria a cobrança no Mercado Pago e o
+painel consulta a cada 3 s; quando paga, o pagamento entra na venda sozinho.
+Se o Mercado Pago falhar (sem internet, token errado), cai no QR fixo com aviso.
+
+Peças:
+- `electron/services/provedoresPix/mercadoPago.js` — adaptador (POST/GET/PUT
+  `/v1/payments`, `/users/me` para testar). Todo provedor devolve o mesmo
+  formato; outro banco (Inter, Efí, Asaas) é só mais um arquivo aqui.
+- `electron/services/pixAutomaticoService.js` — regras:
+  - token cifrado (`secretsService`), nunca volta pro renderer (só "final XXXX"
+    e se é de TESTE); não vai pra Auditoria;
+  - cada cobrança vira **no máximo um** pagamento (`pix_cobrancas.payment_id`,
+    gravado na mesma transação). Tela, conferência em segundo plano (20 s) e
+    "Já caiu, confirmar" podem chegar juntas sem duplicar;
+  - gerar de novo na mesma venda cancela a anterior no provedor; cancelamento
+    que falhou continua sendo conferido até 10 min depois de vencer;
+  - pago com a venda fechada ou já quitada → `pago_sem_venda` + Auditoria
+    `pix_recebido_sem_venda` + lista em Configurações (devolver pelo Mercado
+    Pago ou lançar à mão). Venda que diminuiu depois do QR: lança o que falta,
+    guarda `valorRecebido` e registra a diferença;
+  - confirmação manual registra `pix_confirmado_manual` com o operador da sessão;
+  - consulta no máximo a cada 2,5 s por cobrança.
+- Tabelas `pix_automatico_config` e `pix_cobrancas` (`payment_id` sem FK de
+  propósito: remover pagamento não pode travar).
+- IPC `pixAuto:*`; configurar/testar/listar em `PAPEL_POR_CANAL`; quem gera e
+  quem confirma vem da sessão, nunca do payload.
+
+Testes: `tests/pixAutomatico.test.js` (provedor e `fetch` falsos, sem rede).
+**Não testado contra a API real do Mercado Pago** nesta sessão (sem rota de rede):
+na loja, comece com um token `TEST-` e uma venda de R$ 1,00. O PDV do celular
+continua com o QR fixo.

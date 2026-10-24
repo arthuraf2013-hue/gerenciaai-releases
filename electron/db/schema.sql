@@ -1543,6 +1543,46 @@ CREATE TABLE IF NOT EXISTS mobile_gestao_pedidos (
 );
 CREATE INDEX IF NOT EXISTS idx_mobile_gestao_pedidos_criado ON mobile_gestao_pedidos(criado_em);
 
+-- Pix automático (pixAutomaticoService.js): provedor, token CIFRADO
+-- (secretsService) e o e-mail que o provedor exige como pagador.
+CREATE TABLE IF NOT EXISTS pix_automatico_config (
+  id                 TEXT PRIMARY KEY DEFAULT 'default',
+  ativo              INTEGER NOT NULL DEFAULT 0,
+  provedor           TEXT NOT NULL DEFAULT 'mercadopago',
+  token_enc          TEXT,
+  email_pagador      TEXT,
+  validade_min       INTEGER NOT NULL DEFAULT 30,
+  atualizado_por_id  TEXT REFERENCES users(id),
+  atualizado_em      TEXT
+);
+
+-- Cada QR de Pix automático gerado no caixa. payment_id = o pagamento que
+-- ele virou (no máximo um; gravado na mesma transação do pagamento).
+-- 'pago_sem_venda': o cliente pagou depois que a venda fechou -- dinheiro
+-- recebido sem venda, aparece em Configurações → Pagamento.
+CREATE TABLE IF NOT EXISTS pix_cobrancas (
+  id                  TEXT PRIMARY KEY,
+  sale_id             TEXT NOT NULL REFERENCES sales(id),
+  provedor            TEXT NOT NULL,
+  provedor_id         TEXT,
+  valor               REAL NOT NULL,
+  status              TEXT NOT NULL CHECK (status IN ('criando','pendente','pago','cancelado','expirado','falhou','estornado','pago_sem_venda','erro')),
+  copia_e_cola        TEXT,
+  expira_em           TEXT NOT NULL,
+  -- Sem REFERENCES de propósito: remover o pagamento (gerente, com
+  -- autorização) não pode travar por causa deste registro.
+  payment_id          TEXT,
+  confirmado_manual   INTEGER NOT NULL DEFAULT 0,
+  cancelamento_pedido INTEGER NOT NULL DEFAULT 0,
+  ultima_consulta_ms  INTEGER,
+  erro                TEXT,
+  criado_por_id       TEXT REFERENCES users(id),
+  criado_em           TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  atualizado_em       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pix_cobrancas_status ON pix_cobrancas(status, expira_em);
+CREATE INDEX IF NOT EXISTS idx_pix_cobrancas_sale ON pix_cobrancas(sale_id);
+
 -- Vitrine online (vitrineService.js): o que a loja escolheu mostrar e o
 -- endereço criado na Central (slug, vem de installations/{id}.vitrineSlug).
 -- ultimo_hash evita republicar o catálogo quando nada mudou.

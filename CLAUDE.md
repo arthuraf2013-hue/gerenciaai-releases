@@ -121,6 +121,15 @@ atual.
 máquina. Página pública: `pwa-mobile/loja.html` + `loja.js` (só lê) +
 `loja-util.js` (contas, testadas).
 
+## Pix automático
+
+`pixAutomaticoService.js` + `provedoresPix/<banco>.js` (hoje só Mercado Pago).
+Não quebrar: token só no processo principal (cifrado, nunca no renderer nem na
+Auditoria); uma cobrança = no máximo um pagamento (`payment_id` na mesma
+transação); Pix pago com venda fechada/quitada vira `pago_sem_venda`, nunca some;
+operador vem da sessão. O QR fixo (chave) continua sendo o caminho sem tarifa e
+o fallback quando o provedor falha.
+
 ## Migração do sistema antigo
 
 `migracaoService.js` (+ `MigracaoModal.jsx`): importa produtos e clientes de

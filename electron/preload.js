@@ -184,6 +184,16 @@ contextBridge.exposeInMainWorld('pdv', {
     reativarDispositivo: invoke('pairing:reativarDispositivo'),
     excluirDispositivo: invoke('pairing:excluirDispositivo'),
   },
+  pixAuto: {
+    getConfig: invoke('pixAuto:getConfig'),
+    saveConfig: invoke('pixAuto:saveConfig'),
+    testar: invoke('pixAuto:testar'),
+    listarSemVenda: invoke('pixAuto:listarSemVenda'),
+    criar: invoke('pixAuto:criar'),
+    consultar: invoke('pixAuto:consultar'),
+    confirmarManual: invoke('pixAuto:confirmarManual'),
+    cancelar: invoke('pixAuto:cancelar'),
+  },
   vitrine: {
     getConfig: invoke('vitrine:getConfig'),
     saveConfig: invoke('vitrine:saveConfig'),
