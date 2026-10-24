@@ -98,6 +98,39 @@ atual.
   um usuário `suporte`, mesma regra que já existia pra `admin`
   (`userService.js`).
 
+## Teste grátis e Central "Crescimento"
+
+- Instalação nova nasce com `teste: { dias: 14 }`; fim = `criadoEm` (servidor) +
+  dias, ou `testeAte` (Central). Com `clienteId`, sem prazo. Documento sem
+  `teste` = instalação antiga, nunca entra em teste. Regra igual nos dois lados:
+  `testeGratisService.fimDoTeste` (app) e `crescFimDoTeste` (Central) — mudou
+  um, mude o outro.
+- `teste`/`testeAte` estão em `camposDeControle()`. Bloqueio por fim de teste:
+  `computeAccessStatus` → `motivo: 'teste_expirado'` (relógio `timeService.nowMs`).
+- Contas da tela Crescimento ficam entre `// <crescimento-logica>` no
+  `admin-panel/index.html`, sem DOM nem Firestore — o teste executa esse trecho.
+- Telefone de cliente da Central fica em `crm/contatos` (só admin), nunca em
+  `clientes/{id}` (que tem `get` aberto).
+- Comparação por segmento só com 5+ lojas (`CRESC_MIN_LOJAS_SEGMENTO`).
+
+## Vitrine online
+
+`vitrineService.js` publica `installations/{id}/vitrine/{catalogo,config}`
+(nunca custo nem estoque exato). O WhatsApp que recebe os pedidos mora SÓ em
+`vitrines/{endereço}` (só a Central grava) — não mover para documento da
+máquina. Página pública: `pwa-mobile/loja.html` + `loja.js` (só lê) +
+`loja-util.js` (contas, testadas).
+
+## Migração do sistema antigo
+
+`migracaoService.js` (+ `MigracaoModal.jsx`): importa produtos e clientes de
+qualquer exportação .xlsx/.csv, com mapeamento de colunas por sinônimo ou IA.
+Regras que não podem ser quebradas: o caminho do arquivo fica no processo
+principal (token); exemplos de CLIENTES mandados à IA vão mascarados
+(`mascarar`); estoque inicial e saldo de fiado só em cadastro novo; reimportar
+não duplica (ver ordem de casamento no README); `sku`/`codigo_barras` são UNIQUE
+inclusive em produto excluído.
+
 ## A armadilha de fuso horário — já mordeu várias vezes
 
 Datas de calendário (validade, próxima vacina, "hoje" pra qualquer
@@ -398,6 +431,17 @@ móvel e a Consulta remota usam o mesmo componente (`pwa-mobile/painel-loja.js`)
 quem vê no PDV é decidido aqui (`pdv_mobile_config.metricas_loja` →
 `config_mobile/pdv.metricasLiberadasPara`, que a regra de `historico_vendas`
 confere).
+**Gestão de produtos pelo PDV móvel** (aba Produtos, `pwa-mobile/pdv-gestao.js`):
+celular vinculado a gerente/admin/suporte vê custo/margem/estoque, altera preço,
+faz entrada/perda/contagem e cadastra produto. Pedido/resposta em `gestao_pdv`
+(`pdvMobileGestaoService.js`): o computador confere o papel ATUAL do usuário
+vinculado e a opção `pdv_mobile_config.gestao_produtos`, aplica por
+`productService.upsert`/`stockService.adjustStock` (upsert regrava a linha
+inteira: sempre partir da linha do banco, `paraUpsert`), registra na Auditoria
+e grava o resultado em `mobile_gestao_pedidos` na MESMA transação (reentrega não
+aplica duas vezes). Pedido com mais de 10 min é descartado (o celular avisa a
+pessoa nesse prazo). A regra do Firestore confere
+`config_mobile/pdv.gestaoLiberadaPara`. Operador nunca.
 
 **PDV mobile autônomo** (`mobile/`, app Android com Capacitor + SQLite
 nativo, `tipo = 'pdv_mobile_autonomo'`): vende sozinho, sem computador,

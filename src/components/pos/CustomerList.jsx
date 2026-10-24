@@ -4,6 +4,7 @@ import { useProfile } from '../../context/ProfileContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { LapsedCustomersModal } from './LapsedCustomersModal';
+import { MigracaoModal } from '../inventory/MigracaoModal';
 import { PetsModal } from './PetsModal';
 import { EyewearModal } from './EyewearModal';
 import { PetReminderModal } from './PetReminderModal';
@@ -27,6 +28,10 @@ export function CustomerList() {
   const [showPetReminders, setShowPetReminders] = useState(false);
   const [petsDoCliente, setPetsDoCliente] = useState(null); // customer com modal de pets aberto
   const [eyewearDoCliente, setEyewearDoCliente] = useState(null); // customer com modal de receita óptica aberto
+  const [showMigracao, setShowMigracao] = useState(false);
+  // Migração mexe em cadastro e fiado de todo mundo: só gestão (o canal
+  // migracao:* também exige -- ver PAPEL_POR_CANAL em ipc/handlers.js).
+  const podeMigrar = ['gerente', 'admin', 'suporte'].includes(currentUser?.role);
 
   useEffect(() => {
     let ignore = false;
@@ -98,6 +103,9 @@ export function CustomerList() {
       <div className="screen-header">
         <h1>Clientes</h1>
         <div className="screen-actions">
+          {podeMigrar && (
+            <button className="btn-secondary" onClick={() => setShowMigracao(true)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="import" size={15} /> Migrar do sistema antigo</span></button>
+          )}
           <button className="btn-secondary" onClick={() => setShowLapsed(true)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={15} /> Clientes que sumiram</span></button>
           {profile?.id === 'petshop' && (
             <button className="btn-secondary" onClick={() => setShowPetReminders(true)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="paw" size={15} /> Lembretes de vacina/vermífugo</span></button>
@@ -194,7 +202,7 @@ export function CustomerList() {
             <ul className="payment-list" style={{ marginTop: 16, maxHeight: 220, overflowY: 'auto' }}>
               {history.map((h) => (
                 <li key={h.id}>
-                  {new Date(h.criado_em + 'Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} — {h.tipo === 'divida' ? 'Compra' : 'Pagamento'}: R$ {h.valor.toFixed(2)}
+                  {new Date(h.criado_em + 'Z').toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} — {h.tipo === 'divida' ? (h.sale_id ? 'Compra' : (h.motivo || 'Compra')) : 'Pagamento'}: R$ {h.valor.toFixed(2)}
                 </li>
               ))}
               {history.length === 0 && <li>Nenhum movimento ainda.</li>}
@@ -206,6 +214,7 @@ export function CustomerList() {
       )}
 
       {showLapsed && <LapsedCustomersModal onFechar={() => setShowLapsed(false)} />}
+      {showMigracao && <MigracaoModal tipoInicial="clientes" onClose={() => setShowMigracao(false)} onImportado={reload} />}
       {showPetReminders && <PetReminderModal onFechar={() => setShowPetReminders(false)} />}
       {petsDoCliente && <PetsModal customer={petsDoCliente} onFechar={() => setPetsDoCliente(null)} />}
       {eyewearDoCliente && <EyewearModal customer={eyewearDoCliente} onFechar={() => setEyewearDoCliente(null)} />}

@@ -5,6 +5,7 @@ import {
 } from './pdv-util.js';
 import * as telaVenda from './pdv-venda.js';
 import * as telaHistorico from './pdv-historico.js';
+import * as telaGestao from './pdv-gestao.js';
 import * as garcom from './garcom.js';
 import * as painelLoja from './painel-loja.js';
 import { auth } from './firebase-config.js';
@@ -18,6 +19,9 @@ import { auth } from './firebase-config.js';
  *   Painel  -- números da LOJA toda (o mesmo da "Consulta remota",
  *              painel-loja.js), só se o computador liberou este celular
  *              (Configurações → Celular → "Painel da loja no celular")
+ *   Produtos -- preço, custo, margem, estoque e cadastro (pdv-gestao.js),
+ *              só no celular de gerente/administrador que o computador
+ *              liberou (Configurações → Celular → "Mexer em produtos")
  *   Ajustes -- preferências deste celular + o que a loja liberou
  * Quais abas aparecem quem decide é a loja (config_mobile/pdv, publicada
  * pelo computador); a tela inicial e a aparência, o próprio operador.
@@ -33,6 +37,7 @@ const ABAS = {
   mesas: { rotulo: 'Mesas', icone: 'mesa' },
   vendas: { rotulo: 'Vendas', icone: 'recibo' },
   painel: { rotulo: 'Painel', icone: 'grafico' },
+  produtos: { rotulo: 'Produtos', icone: 'etiqueta' },
   ajustes: { rotulo: 'Ajustes', icone: 'ajustes' },
 };
 
@@ -49,6 +54,26 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     estado: () => estado,
     prefs: () => prefs,
     assinar: (fn) => { assinantes.add(fn); return () => assinantes.delete(fn); },
+    gestaoLiberada: () => S.gestaoLiberada(estado.config),
+    /** Reflete na hora (Vender, Produtos) um produto que este celular
+     * acabou de mudar -- o catálogo publicado pelo computador chega com o
+     * mesmo valor em até ~25 s e substitui isto. */
+    aplicarProdutoNoCatalogo: (p) => {
+      if (!p?.id) return;
+      const st = estado.statusLoja || {};
+      const lista = Array.isArray(st.catalogoProdutos) ? st.catalogoProdutos : [];
+      const idx = lista.findIndex((x) => x.id === p.id);
+      const item = {
+        id: p.id, nome: p.nome, categoria: p.categoria || null, preco: p.precoVenda, codigoBarras: p.codigoBarras || null,
+        unidade: p.unidade || 'un', tipo: p.tipo || 'produto', estoque: p.estoque ?? null,
+      };
+      // Serviço: o preço do catálogo inclui o material cobrado junto
+      // (liveStatusSyncService) -- esse valor só o computador calcula.
+      if (item.tipo === 'servico' && idx >= 0) item.preco = lista[idx].preco;
+      const nova = idx >= 0 ? lista.map((x, i) => (i === idx ? { ...x, ...item } : x)) : [...lista, item];
+      estado.statusLoja = { ...st, catalogoProdutos: nova };
+      notificar('catalogo');
+    },
   };
 
   root.innerHTML = `
@@ -79,6 +104,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     if (c?.permitirMesas) lista.push('mesas');
     if (!c || c.permitirVenda) lista.push('vendas');
     if (painelLiberado()) lista.push('painel');
+    if (S.gestaoLiberada(c)) lista.push('produtos');
     lista.push('ajustes');
     return lista;
   }
@@ -108,6 +134,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     conteudo.scrollTop = 0;
     if (aba === 'vender') desmontarAba = telaVenda.mount(conteudo, ctx) || (() => {});
     else if (aba === 'vendas') desmontarAba = telaHistorico.mount(conteudo, ctx) || (() => {});
+    else if (aba === 'produtos') desmontarAba = telaGestao.mount(conteudo, ctx) || (() => {});
     else if (aba === 'mesas') desmontarAba = garcom.mount(conteudo, { loja, lojas, embutido: true }) || (() => {});
     else if (aba === 'painel') {
       desmontarAba = painelLoja.mount(conteudo, {
@@ -194,6 +221,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
             <div><span>Cliente na venda</span><strong>${c.permitirCliente ? 'Sim' : 'Não'}</strong></div>
             <div><span>Pagamentos</span><strong>${escapeHtml(metodos.join(', ') || '—')}</strong></div>
             <div><span>Desconto máximo</span><strong>${c.exigeAutorizacaoDesconto ? `${escapeHtml(String(c.descontoMaximoPercentual || 0))}%` : 'Livre (com registro)'}</strong></div>
+            <div><span>Mexer em produtos</span><strong>${S.gestaoLiberada(c) ? 'Liberado para este celular' : (c.gestaoProdutos === 'desligado' ? 'Desligado' : 'Só no celular de gerente/administrador')}</strong></div>
             <div><span>Painel da loja</span><strong>${painelLiberado() ? 'Liberado para este celular' : (c.metricasLoja === 'desligado' ? 'Desligado' : c.metricasLoja === 'todos' ? 'Aguardando o computador liberar' : 'Só no celular de gerente/administrador')}</strong></div>
           </div>
           <p class="subtexto">Quem muda isso é o gerente, no computador: Configurações → Celular.</p>`

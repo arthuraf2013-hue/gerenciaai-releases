@@ -43,22 +43,28 @@ function getLocalState() {
   const db = getDb();
   let row = db.prepare('SELECT * FROM license_state WHERE id = 1').get();
   if (!row) {
-    db.prepare(`INSERT INTO license_state (id, status_atual) VALUES (1, 'ativa')`).run();
+    // Só instalação NOVA cria esta linha agora -- as antigas já têm a linha
+    // (sem primeira_execucao) e nunca caem na regra de "nunca falou com o
+    // servidor" de computeAccessStatus.
+    db.prepare(`INSERT INTO license_state (id, status_atual, primeira_execucao) VALUES (1, 'ativa', ?)`).run(new Date().toISOString());
     row = db.prepare('SELECT * FROM license_state WHERE id = 1').get();
   }
   return row;
 }
 
-function saveLocalState({ ultimoContatoOk, congeladaDesde, bloqueioImediato, statusAtual }) {
+function saveLocalState({ ultimoContatoOk, congeladaDesde, bloqueioImediato, statusAtual, testeFim, contatoComercial }) {
   const db = getDb();
   const atual = getLocalState();
   db.prepare(
-    `UPDATE license_state SET ultimo_contato_ok = ?, congelada_desde = ?, bloqueio_imediato = ?, status_atual = ? WHERE id = 1`
+    `UPDATE license_state SET ultimo_contato_ok = ?, congelada_desde = ?, bloqueio_imediato = ?, status_atual = ?,
+       teste_fim = ?, contato_comercial = ? WHERE id = 1`
   ).run(
     ultimoContatoOk !== undefined ? ultimoContatoOk : atual.ultimo_contato_ok,
     congeladaDesde !== undefined ? congeladaDesde : atual.congelada_desde,
     bloqueioImediato !== undefined ? (bloqueioImediato ? 1 : 0) : atual.bloqueio_imediato,
     statusAtual !== undefined ? statusAtual : atual.status_atual,
+    testeFim !== undefined ? testeFim : atual.teste_fim,
+    contatoComercial !== undefined ? contatoComercial : atual.contato_comercial,
   );
 }
 
@@ -70,6 +76,14 @@ function aplicarDadosDoServidor(dados) {
   const bloqueioImediato = dados.bloqueioImediato === true;
   const agora = new Date().toISOString();
   const estadoAnterior = getLocalState();
+
+  // Teste grátis (instalação nova sem cliente): guarda o fim localmente
+  // pra valer offline. Documento parcial (sem criadoEm ainda) não apaga um
+  // fim já conhecido -- só cliente vinculado ou teste removido apagam.
+  const testeService = require('./testeGratisService');
+  const fim = testeService.fimDoTeste(dados);
+  if (fim != null) saveLocalState({ testeFim: new Date(fim).toISOString() });
+  else if (dados.clienteId || (dados.criadoEm && !dados.teste && !dados.testeAte)) saveLocalState({ testeFim: null });
 
   if (bloqueioImediato) {
     // Bloqueio direto — sem carência nenhuma, diferente do congelamento.
@@ -107,6 +121,13 @@ function aplicarDadosDoServidor(dados) {
     require('./modulosPagosService').aplicarClienteIdDaInstalacao(dados);
   } catch (err) {
     console.error('[licenseService] aplicarClienteIdDaInstalacao (módulos pagos) falhou:', err);
+  }
+
+  // Endereço da vitrine online criado na Central -- mesmo documento.
+  try {
+    require('./vitrineService').aplicarDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarDaInstalacao (vitrine) falhou:', err);
   }
 
   // Override de versão mínima por instalação (rollout gradual/exceção
@@ -164,26 +185,31 @@ async function checkLicense() {
     const ref = doc(firestore, 'installations', installId);
     const snap = await getDoc(ref);
 
+    const maquinaHash = await require('./testeGratisService').maquinaHash();
     if (snap.exists()) {
       const metricas = require('./metricsService').getMetricasAgregadas();
       await setDoc(ref, {
+        ...(maquinaHash ? { maquinaHash } : {}),
         ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion(),
-        totalVendasHistorico: metricas.totalVendasHistorico,
-        vendasUltimos30Dias: metricas.vendasUltimos30Dias,
-        perfilAtivo: metricas.perfilAtivo,
-        conflitosCodigoBarrasPendentes: metricas.conflitosCodigoBarrasPendentes,
+        ...metricas,
         // Pendências e primeiros passos (saudeService) -- a Central mostra
         // na linha da máquina, sem precisar acessar o computador.
         saude: (() => { try { return { ...require('./saudeService').resumoParaCentral(), atualizadoEm: serverTimestamp() }; } catch { return null; } })(),
       }, { merge: true });
       aplicarDadosDoServidor(snap.data());
+      if (getLocalState().teste_fim) await atualizarContatoComercial(firestore);
     } else {
       // Primeira vez que essa instalação fala com o servidor — se
       // registra sozinha, sempre começando ativa (o congelamento ou
       // bloqueio é sempre uma ação manual sua depois, pelo painel).
+      // Instalação nova começa em teste grátis (ver testeGratisService):
+      // o prazo conta do criadoEm (hora do servidor). A Central converte
+      // vinculando a um cliente, ou estende.
       await setDoc(ref, {
         ativo: true, bloqueioImediato: false, clienteId: null, nomeNegocio: null,
         totalVendasHistorico: 0, vendasUltimos30Dias: 0, perfilAtivo: null,
+        teste: { dias: require('./testeGratisService').DIAS_TESTE },
+        ...(maquinaHash ? { maquinaHash } : {}),
         criadoEm: serverTimestamp(), ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion(),
       });
       aplicarDadosDoServidor({ ativo: true, bloqueioImediato: false });
@@ -214,6 +240,38 @@ async function checkLicense() {
     console.error('[licenseService] computeAccessStatus falhou:', err);
     return { status: 'ok' }; // na dúvida, nunca bloqueia o app por causa de erro interno daqui
   }
+}
+
+/** WhatsApp/mensagem comercial publicados pela Central
+ * (config_publica/comercial) -- só buscado enquanto a instalação está em
+ * teste, pra tela de fim de teste saber com quem falar mesmo offline. */
+async function atualizarContatoComercial(firestore) {
+  try {
+    const { doc, getDoc } = require('firebase/firestore');
+    const snap = await getDoc(doc(firestore, 'config_publica', 'comercial'));
+    if (!snap.exists()) return;
+    const d = snap.data();
+    saveLocalState({
+      contatoComercial: JSON.stringify({
+        whatsapp: typeof d.whatsapp === 'string' ? d.whatsapp.slice(0, 20) : null,
+        mensagem: typeof d.mensagemFimTeste === 'string' ? d.mensagemFimTeste.slice(0, 300) : null,
+        empresa: typeof d.empresa === 'string' ? d.empresa.slice(0, 80) : null,
+      }),
+    });
+  } catch { /* opcional: sem contato, a tela usa o texto padrão */ }
+}
+
+/** Mensagem pronta do botão de WhatsApp do teste, com o código curto da
+ * instalação (o mesmo que a Central mostra na lista de testes) -- é como
+ * você sabe de qual teste é a conversa. */
+function mensagemDoTeste() {
+  let codigo = '';
+  try { codigo = pdvRegistryService.getOrCreateDeviceUid().replace(/-/g, '').slice(0, 8).toUpperCase(); } catch { codigo = ''; }
+  return `Olá! Estou testando o GerenciaAI e quero continuar usando.${codigo ? ` Meu código: ${codigo}` : ''}`;
+}
+
+function contatoComercialLocal() {
+  try { return JSON.parse(getLocalState().contato_comercial || 'null'); } catch { return null; }
 }
 
 let pararEscuta = null;
@@ -346,11 +404,32 @@ function computeAccessStatus() {
   // conseguiu falar com o servidor desde sempre), deixa passar — não
   // trava alguém só porque a rede caiu bem na primeira execução, ou
   // porque o projeto de licenciamento ainda não foi configurado.
+  // Exceção: instalação nova que passou do prazo do teste sem NUNCA
+  // conseguir falar com o servidor (internet bloqueada de propósito).
+  if (!state.ultimo_contato_ok && state.primeira_execucao) {
+    const dias = (agora - new Date(state.primeira_execucao).getTime()) / 86400000;
+    if (dias >= require('./testeGratisService').DIAS_TESTE) return { status: 'bloqueado', motivo: 'sem_internet' };
+  }
+
+  // Teste grátis -- relógio sincronizado (timeService), não o do Windows.
+  if (state.teste_fim) {
+    const testeService = require('./testeGratisService');
+    const t = testeService.situacao(new Date(state.teste_fim).getTime(), require('./timeService').nowMs());
+    if (t) {
+      const contato = contatoComercialLocal();
+      const extra = {
+        contato: contato ? { ...contato, link: testeService.linkWhatsapp(contato.whatsapp, mensagemDoTeste()) } : null,
+      };
+      if (t.expirado) return { status: 'bloqueado', motivo: 'teste_expirado', teste: t, ...extra };
+      return { status: 'ok', teste: t, ...extra };
+    }
+  }
 
   return { status: 'ok' };
 }
 
 module.exports = {
   checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, enviarPing, getLicenseFirestore, getLicenseApp,
+  aplicarDadosDoServidor, // exportada pra teste (não toca rede)
   GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS, INTERVALO_PING_MS,
 };

@@ -4,6 +4,7 @@ import { ProductThumbnail } from '../pos/ProductThumbnail';
 import { StockAdjustModal } from './StockAdjustModal';
 import { DuplicateProductsModal } from './DuplicateProductsModal';
 import { BarcodeRelinkModal } from './BarcodeRelinkModal';
+import { MigracaoModal } from './MigracaoModal';
 import { useSession } from '../../context/SessionContext';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useEscToClose } from '../../hooks/useEscToClose';
@@ -18,6 +19,7 @@ export function ProductList() {
   const [soConflitos, setSoConflitos] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [showRelinkCodigos, setShowRelinkCodigos] = useState(false);
+  const [showMigracao, setShowMigracao] = useState(false);
   const [duplicatasCount, setDuplicatasCount] = useState(0);
   const [estoquePorProduto, setEstoquePorProduto] = useState({});
   const [query, setQuery] = useState('');
@@ -233,6 +235,9 @@ export function ProductList() {
         <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="tag" size={20} /> Produtos {totalProdutos !== null && <span className="screen-hint" style={{ fontWeight: 400, fontSize: 15 }}>({totalProdutos} no total)</span>}</h1>
         <div className="screen-actions">
           <DropdownMenu label={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="wrench" size={15} /> Ferramentas</span>}>
+            <DropdownMenuItem onClick={() => setShowMigracao(true)}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="sparkle" size={15} /> Migrar do sistema antigo</span>
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={handleImport} disabled={ioBusy}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="import" size={15} /> Importar planilha</span>
             </DropdownMenuItem>
@@ -388,6 +393,10 @@ export function ProductList() {
           onFechar={() => setShowRelinkCodigos(false)}
           onAplicado={() => reloadRef.current()}
         />
+      )}
+
+      {showMigracao && (
+        <MigracaoModal onClose={() => setShowMigracao(false)} onImportado={() => reloadRef.current()} />
       )}
     </div>
   );

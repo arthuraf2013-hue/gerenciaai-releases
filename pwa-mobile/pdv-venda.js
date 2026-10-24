@@ -6,6 +6,7 @@ import {
 import * as S from './pdv-servidor.js';
 import { cameraDisponivel, abrirScanner, pedirCodigoDigitado } from './pdv-scanner.js';
 import { mostrarRecibo } from './pdv-recibo.js';
+import { abrirCadastro } from './pdv-gestao.js';
 
 /**
  * Aba "Vender" do PDV móvel: catálogo (busca, categorias, câmera/leitor),
@@ -207,6 +208,13 @@ function mount(container, ctx) {
       const r = await S.consultar(loja.installId, 'codigo', { codigo });
       if (!r || r.naoEncontrado) {
         if (prefs().bipe) bipe('erro');
+        // Celular de gerente/administrador: cadastra ali mesmo e já põe
+        // no carrinho. Etiqueta de balança (código de balança sem produto)
+        // não entra aqui -- código de balança se cadastra no computador.
+        if (ctx.gestaoLiberada() && r && !r.etiquetaBalanca) {
+          oferecerCadastro(codigo);
+          return;
+        }
         mostrarToast(r?.mensagem || `Código não encontrado: ${codigo}`, 'erro');
         return;
       }
@@ -217,6 +225,27 @@ function mount(container, ctx) {
       if (prefs().bipe) bipe('erro');
       mostrarToast(err.message, 'erro');
     }
+  }
+
+  function oferecerCadastro(codigo) {
+    if (fecharScanner) { fecharScanner(); fecharScanner = null; }
+    const { el, fechar } = abrirSheet(`
+      <h2>Código não cadastrado</h2>
+      <p class="subtexto">Nenhum produto da loja tem o código <strong>${escapeHtml(codigo)}</strong>.</p>
+      <button id="btn-cadastrar-codigo" class="btn-primario">Cadastrar este produto</button>
+      <button id="btn-cancelar-codigo-novo" class="btn-secundario">Agora não</button>
+    `);
+    el.querySelector('#btn-cadastrar-codigo').addEventListener('click', () => {
+      fechar();
+      abrirCadastro(ctx, {
+        codigoBarras: codigo,
+        onCriado: (p) => tocarProduto({
+          id: p.id, nome: p.nome, preco: p.precoVenda, unidade: p.unidade, tipo: p.tipo, estoque: p.estoque ?? null,
+          codigoBarras: p.codigoBarras, categoria: p.categoria,
+        }),
+      });
+    });
+    el.querySelector('#btn-cancelar-codigo-novo').addEventListener('click', fechar);
   }
 
   async function abrirLeitor() {

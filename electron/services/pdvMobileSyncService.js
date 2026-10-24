@@ -539,6 +539,7 @@ function iniciarPdvMobile() {
   }
 
   require('./pdvMobileConsultaService').iniciarEscutaConsultas();
+  require('./pdvMobileGestaoService').iniciarEscutaGestao();
 
   if (intervaloReconciliacao) clearInterval(intervaloReconciliacao);
   intervaloReconciliacao = setInterval(() => { reconciliar().catch(() => {}); }, 15 * 1000);

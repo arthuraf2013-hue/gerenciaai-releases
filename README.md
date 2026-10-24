@@ -5869,3 +5869,202 @@ Detalhes em `electron/services/reparoInstalacaoService.js` e no CLAUDE.md.
   baixar a cópia, último reparo feito) ou "Reparo: sem informação" (versão
   antiga do app, ou ainda não abriu na versão nova). Vai no ping de presença,
   só quando muda (`installations/{id}.reparo`).
+
+## PDV móvel: gerente e administrador mexem em produtos pelo celular
+
+Nova aba **Produtos** no app do PDV móvel (`pwa-mobile/pdv-gestao.js`), que só
+aparece no celular vinculado a **gerente, administrador ou suporte** — o mesmo
+grupo que no computador mexe em Produtos e em estoque. Operador de caixa nunca
+vê nem consegue pedir.
+
+- **Ver** preço de venda, custo, margem, estoque (com o mínimo) e a última
+  mudança de preço. Custo e margem só saem por pedido individual; o catálogo
+  publicado (`status_ao_vivo`), que todo celular lê, continua sem custo.
+- **Alterar preço**, com prévia da variação e da margem nova, aviso de preço
+  abaixo do custo e de mudança acima de 50%. Se o preço mudou no computador
+  enquanto a pessoa editava, o pedido é recusado com o valor novo (não passa
+  por cima).
+- **Ajustar estoque**: entrada, perda ou "contei" (a diferença é calculada no
+  computador com o estoque do momento em que o pedido chega). Motivo
+  obrigatório pelo celular (no computador continua opcional).
+- **Cadastrar produto**: nome, preço, custo, código (câmera), unidade, estoque
+  inicial e categoria. Na aba Vender, código bipado que não existe vira
+  "Cadastrar este produto" e já entra no carrinho. Etiqueta de balança sem
+  produto continua só com aviso (código de balança se cadastra no computador).
+
+**Como funciona por baixo** (`electron/services/pdvMobileGestaoService.js`):
+pedido/resposta em `installations/{id}/gestao_pdv`, igual às consultas. O
+computador confere o papel ATUAL do usuário vinculado (rebaixou a operador ou
+desativou: recusa na hora) e a opção da loja, aplica pelos mesmos caminhos da
+tela (`productService.upsert` a partir da linha inteira do banco,
+`stockService.adjustStock` com o uid do celular como `device_id`), registra na
+Auditoria (`preco_alterado_celular`, `estoque_ajustado_celular`,
+`produto_cadastrado_celular`) e grava o resultado em `mobile_gestao_pedidos`
+na mesma transação, então a reentrega do mesmo pedido nunca aplica duas vezes.
+Pedido com mais de 10 min é descartado; o celular, se não tiver resposta em
+20 s, avisa que a alteração ainda pode valer nesse prazo e mostra o resultado
+quando chegar.
+
+Configurações → Celular → PDV móvel → "Mexer em produtos pelo celular": só no
+celular de gerente/administrador (padrão) ou desligado. A lista de celulares
+liberados vai em `config_mobile/pdv.gestaoLiberadaPara` e a regra do Firestore
+de `gestao_pdv` confere a mesma lista (segunda trava; a primeira é o computador).
+
+Publicar: `firebase deploy --only firestore:rules` (regra nova de `gestao_pdv`)
+e republicar o `pwa-mobile/` (cache do service worker foi para `v5`).
+
+Testes: `tests/pdvMobileGestao.test.js` (18) e 4 testes novos de regra em
+`tests/firestoreRules.test.js` (emulador: 76/76).
+
+## Migrar do sistema antigo (qualquer planilha ou CSV)
+
+Produtos → Ferramentas → **Migrar do sistema antigo** (e em Clientes, só para
+gerente/administrador). Diferente de "Importar planilha", não exige o nosso
+modelo: aceita a exportação do sistema que a loja usava, do jeito que ela vem
+(`electron/services/migracaoService.js`, tela `MigracaoModal.jsx`).
+
+- **Leitura**: `.xlsx` (primeira aba com dado) e `.csv`/`.txt` com separador
+  detectado (`;` `,` tab `|`), aspas e acentuação em UTF-8 ou Windows-1252.
+  Linhas de título antes do cabeçalho são puladas (pega a linha que mais parece
+  cabeçalho). `.xls` antigo recebe instrução de "Salvar como".
+- **Colunas**: sugeridas pelo nome (lista de sinônimos por campo; "Código" com
+  valores de 8/12/13/14 dígitos vira código de barras). Botão **Sugerir colunas
+  com IA** (Gemini, se configurado) manda só os nomes das colunas e 3 exemplos
+  de cada; **em clientes os exemplos vão mascarados** (dígito → 9, letra → x),
+  então a IA vê o formato de um CPF, nunca o CPF. A resposta é filtrada (campo
+  conhecido, coluna existente, sem repetir) e a pessoa confere tudo.
+- **Valores**: "1.234,56", "R$ 12,90" e "12.90" viram número; ponto sozinho é
+  decimal ("1.250" kg = 1,25). Código de barras guarda zeros à esquerda e é
+  recusado em notação científica ("7,89E+12", estrago do Excel) com a
+  instrução de exportar como texto. Unidades comuns (UND, PC, KG, LT, CX...)
+  são traduzidas.
+- **Prévia** antes de gravar: novos, já cadastrados, erros (com o motivo por
+  linha), estoque inicial e total de fiado migrado.
+- **Sem duplicar ao reimportar**: produto casa por código de barras (inclusive
+  de produto excluído, que é reativado — `sku`/`codigo_barras` são UNIQUE na
+  tabela inteira), depois código interno (só se o nome começar igual: código
+  de outro sistema pode coincidir por acaso), depois nome igual. Cliente casa
+  por CPF/CNPJ, depois telefone (sem DDI/zero; com DDD dos dois lados só número
+  igual; e o primeiro nome precisa bater, porque telefone de casa é da
+  família), depois nome igual.
+- **O que muda em quem já existe**: produto tem nome/preço/custo/estoque mínimo
+  atualizados pelo que veio preenchido (coluna vazia não apaga nada; mudança de
+  preço vai para o histórico); estoque dele **não** muda. Cliente só tem
+  campos vazios completados; o fiado dele não muda. Estoque inicial e saldo de
+  fiado (como dívida "Saldo migrado do sistema anterior") só entram em
+  cadastro novo. Saldo negativo (crédito do cliente) não é migrado.
+- Tudo numa transação; linha com problema fica de fora e aparece no relatório.
+  Registrado na Auditoria (`migracao_sistema_anterior`).
+
+O caminho do arquivo nunca vem do renderer: `migracao:abrirArquivo` abre o
+diálogo no processo principal e guarda o conteúdo em memória com um token
+(1 h). Canais `migracao:*` exigem gerente/admin/suporte (`PAPEL_POR_CANAL`).
+
+Testes: `tests/migracao.test.js` (21).
+
+## Teste grátis automático e tela "Crescimento" na Central
+
+### Teste grátis (`testeGratisService.js`, `licenseService.js`, `LicenseGate.jsx`)
+
+- Instalação **nova** (documento criado a partir desta versão) nasce com
+  `teste: { dias: 14 }`. O prazo conta do `criadoEm` do documento (hora do
+  servidor). Instalação antiga (sem `teste`) nunca entra em teste.
+- A Central estende (`testeAte`) ou converte vinculando a um cliente (com
+  `clienteId` não existe prazo). `teste`/`testeAte` estão em `camposDeControle()`:
+  a máquina só diz "começo em teste" ao criar o documento (no máximo 30 dias).
+- No app: faixa "Teste grátis: faltam X dias" com botão de WhatsApp (mensagem
+  com o código curto da instalação, o mesmo que a Central mostra). No fim, tela
+  "Seu teste grátis terminou" (dados continuam salvos). Prazo conferido com o
+  relógio sincronizado (`timeService.nowMs`); o fim fica em `license_state.teste_fim`
+  pra valer offline.
+- Contato da tela de fim (`config_publica/comercial`: WhatsApp, empresa,
+  mensagem) é configurado na Central e guardado localmente enquanto em teste.
+- Brecha fechada junto: instalação nova que **nunca** conseguiu falar com o
+  servidor era liberada para sempre (`ultimo_contato_ok` nulo). Agora, depois
+  de 14 dias desde a primeira execução (`license_state.primeira_execucao`, só
+  gravada em instalação nova), bloqueia como `sem_internet`.
+- `maquinaHash` (SHA-256 do MachineGuid do Windows, nunca o GUID) vai no
+  documento; a Central avisa "este computador já usou um teste antes".
+
+### Métricas novas enviadas pela máquina (`metricsService.js`, a cada 6 h)
+
+`produtosCadastrados`, `vendas7Dias`, `vendasAnteriores30Dias`,
+`faturamento30Dias`, `faturamentoAnterior30Dias`, `ticketMedio30Dias`,
+`diasComVenda30`, `primeiraVendaEm` e `relatorioMensal` (mês fechado, fuso de
+Brasília: vendas, faturamento, ticket, vendas com cliente, retorno das campanhas
+em 15 dias, fiado recebido, devoluções, perdas, vendas pelo celular). Só totais
+— nenhum nome de cliente, produto ou venda. "Perda evitada com desconto por
+validade" não entra: a venda em promoção não fica marcada, seria chute.
+**Faturamento passa a ir para a Central: inclua isso no contrato/termo de uso
+(ver nota no fim).**
+
+### Central → Crescimento (`admin-panel/index.html`)
+
+Contas puras entre os marcadores `<crescimento-logica>` (testadas por
+`tests/centralCrescimento.test.js`, que executa aquele trecho do HTML).
+
+- **Teste grátis**: funil dos testes dos últimos 90 dias (instalou →
+  cadastrou produtos → 1ª venda → usou depois de 7 dias → virou cliente) e
+  lista dos testes em andamento com onde parou, "esfriou" (2+ dias sem abrir),
+  computador repetido e botões Vincular / +7 dias / Encerrar.
+- **Ligar hoje**: nota 0–100 por cliente — sem sinal 3+ dias (25) ou 7+ (40),
+  vendas caíram mais de 50% (25), abre mas não vendeu em 7 dias (20),
+  mensalidade vencida (20), pendência grave (10), 3+ erros na semana (10),
+  implantação abaixo da metade depois de 14 dias (10). WhatsApp do responsável
+  fica em `crm/contatos` (só a Central lê/grava — fora de `clientes/{id}`, que
+  tem `get` aberto).
+- **Relatório do mês**: soma das máquinas do cliente no mês mais recente;
+  página para imprimir/salvar PDF (Blob sem script) e texto pronto para WhatsApp.
+- **Comparação por segmento**: loja = cliente (máquinas somadas), por perfil;
+  mediana e faixa (p25–p75) de ticket, vendas/dia e faturamento/dia **só com 5
+  lojas ou mais**; testes ficam de fora. O cliente vê só a própria posição
+  contra a mediana.
+
+Publicar: `firebase deploy --only firestore:rules` (teste/testeAte, `crm`) e
+republicar a Central.
+
+**Nota contratual**: o contrato/termo deveria dizer que o sistema envia à
+Vetta totais agregados de uso e faturamento para suporte, relatórios ao
+próprio cliente e estatística anônima por segmento (mínimo de 5 lojas, sem
+identificação). Validar o texto com um advogado.
+
+Testes: `tests/testeGratis.test.js` (8), `tests/metricsService.test.js` (+4),
+`tests/centralCrescimento.test.js` (7), regras (+3, emulador 79/79).
+
+## Vitrine online com pedido pelo WhatsApp
+
+Página pública da loja (`pwa-mobile/loja.html?s=<endereço>`, no mesmo Hosting
+do app do celular): produtos, preços, busca, categorias, carrinho e botão
+"Enviar pedido pelo WhatsApp" com a mensagem pronta (itens, total, nome,
+retirada ou entrega com endereço, pagamento com troco, observação). **O público
+não grava nada no Firebase** — só lê.
+
+- **Endereço e WhatsApp dos pedidos**: criados na Central (bloco do cliente →
+  "Vitrine online": endereço, WhatsApp, máquina que publica). Ficam em
+  `vitrines/{endereço}`, que só a Central grava. Assim ninguém consegue desviar
+  os pedidos trocando o número, mesmo gravando nos documentos da máquina (que
+  aceitam escrita sem login até a Fase B). A Central também grava
+  `installations/{id}.vitrineSlug` (campo de controle).
+- **Catálogo**: o computador publica em `installations/{id}/vitrine/{catalogo,config}`
+  a cada 5 min, só se mudou (hash) e só se a Central criou o endereço
+  (`vitrineService.js`). Vai nome, categoria, preço de venda (promoção por
+  validade com o preço "de"), unidade e uma faixa: disponível / poucas
+  unidades / esgotado. **Nunca custo nem quantidade exata.** Até 1.500 itens
+  num documento só.
+- **Na loja**: Configurações → Celular → "Vitrine online" (gerente/admin):
+  liga/desliga, esconder sem estoque, limite de "poucas unidades", retirada e/ou
+  entrega, pedido mínimo, recado. Mostra o link e o QR Code para imprimir no
+  balcão. Auditoria: `vitrine_alterada`.
+- **Página**: carrinho salvo no navegador do cliente; kg/l/m em passos de
+  0,1 (começa em 0,5); tudo que vem do Firestore passa por `escapeHtml`/`Number`
+  e por uma lista de campos esperados. Contas e texto do pedido em
+  `pwa-mobile/loja-util.js` (testado).
+
+Limite honesto: como o catálogo ainda é gravável sem login (Fase B), alguém
+poderia mexer nos preços exibidos; o pedido continua indo para o WhatsApp
+certo e a mensagem avisa que a loja confirma valores.
+
+Publicar: `firebase deploy --only firestore:rules,hosting:garcom` e
+republicar a Central.
+
+Testes: `tests/vitrine.test.js` (6) e regras (+2, emulador 81/81).

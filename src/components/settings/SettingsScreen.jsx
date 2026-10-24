@@ -8,6 +8,7 @@ import Icon from '../common/Icon';
 import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/modoLeve';
 import { MigracaoPdvMobile } from './MigracaoPdvMobile';
 import { TerminaisPdvMobile } from './TerminaisPdvMobile';
+import { VitrineOnline } from './VitrineOnline';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
 
@@ -1885,6 +1886,18 @@ export function SettingsScreen() {
                 <option value="desligado">Desligado</option>
               </select>
             </label>
+            <label style={{ marginTop: 8, maxWidth: 520 }}>
+              Mexer em produtos pelo celular (alterar preço, ajustar estoque, cadastrar produto, ver custo e margem)
+              <select value={pdvMobileForm.gestaoProdutos || 'gestao'}
+                onChange={(e) => setPdvMobileForm({ ...pdvMobileForm, gestaoProdutos: e.target.value })}>
+                <option value="gestao">Só no celular de gerente ou administrador</option>
+                <option value="desligado">Desligado</option>
+              </select>
+            </label>
+            <p className="screen-hint" style={{ maxWidth: 520 }}>
+              Operador de caixa nunca mexe em produto pelo celular. Cada alteração é conferida aqui, em nome do usuário
+              vinculado ao celular, e fica na Auditoria.
+            </p>
 
             <div style={{ marginTop: 12 }}>
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Formas de pagamento no celular</div>
@@ -1952,6 +1965,7 @@ export function SettingsScreen() {
           )}
         </div>
       </section>
+      {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <VitrineOnline />}
       {['admin', 'suporte'].includes(currentUser?.role) && <MigracaoPdvMobile />}
       {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <TerminaisPdvMobile podeConfigurar={['admin', 'suporte'].includes(currentUser?.role)} />}
       </>

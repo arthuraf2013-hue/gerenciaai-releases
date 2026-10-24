@@ -298,6 +298,10 @@ app.whenReady().then(() => {
     const pushGrupo = () => executarSeNaoEstiverRodando('grupoVendas', () => require('./services/salesSyncService').pushPeriodico());
     pushGrupo();
     setInterval(pushGrupo, 15 * 60 * 1000);
+
+    // Vitrine online: publica o catálogo a cada 5 min, só se mudou e só se
+    // a Central criou o endereço (ver vitrineService.js).
+    require('./services/vitrineService').iniciarPublicacaoContinua();
   }
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);

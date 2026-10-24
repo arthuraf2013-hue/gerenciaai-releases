@@ -146,6 +146,8 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'backup:runNow', 'backup:chooseSecondaryFolder', 'backup:salvarContaGoogle', 'backup:abrirCriacaoContaGoogle', 'backup:openFolder',
   'pairing:gerarCodigo', 'pairing:revogarDispositivo', 'pairing:reativarDispositivo', 'pairing:excluirDispositivo',
   'saude:implantacao', 'whatsappAutomation:resultadoCampanhas', 'dashboard:explicarVariacao',
+  'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
+  'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
@@ -420,6 +422,10 @@ function registerIpcHandlers() {
   // PDV móvel (celular vendendo) -- ver pdvMobileConfigService/pdvMobileSyncService.
   safeHandle('pdvMobile:getConfig', () => require('../services/pdvMobileConfigService').getConfig());
   safeHandle('pdvMobile:saveConfig', (event, payload) => guardRole(event, PAPEIS_GESTAO) || require('../services/pdvMobileConfigService').saveConfig(payload));
+  // Vitrine online (ver vitrineService.js) -- só gestão (PAPEL_POR_CANAL).
+  safeHandle('vitrine:getConfig', () => require('../services/vitrineService').getConfigComQr());
+  safeHandle('vitrine:saveConfig', (_e, payload) => require('../services/vitrineService').saveConfig(payload || {}));
+  safeHandle('vitrine:publicarAgora', () => require('../services/vitrineService').publicarSeMudou());
   safeHandle('pdvMobile:listarVendasRecentes', (_e, payload) => require('../services/pdvMobileSyncService').listarVendasRecentes(payload || {}));
 
   // Migração de um PDV mobile AUTÔNOMO (celular que vendia sem computador)
@@ -474,6 +480,23 @@ function registerIpcHandlers() {
   });
   safeHandle('io:aplicarRevinculacaoCodigosBarras', (_e, casadosAceitos) => importExportService.aplicarRevinculacaoDeCodigosBarras(casadosAceitos));
   safeHandle('productSync:prepararRevinculacaoViaGrupo', () => productSyncService.prepararRevinculacaoViaGrupo());
+
+  // --- Migração do sistema antigo (planilha de qualquer formato) ---
+  // O caminho do arquivo fica no processo principal (token em memória);
+  // o renderer só manda o token e o mapeamento de colunas.
+  safeHandle('migracao:abrirArquivo', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Arquivo exportado do sistema antigo',
+      properties: ['openFile'],
+      filters: [{ name: 'Planilha ou CSV', extensions: ['xlsx', 'csv', 'txt', 'xls'] }],
+    });
+    if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
+    return require('../services/migracaoService').abrir(filePaths[0]);
+  });
+  safeHandle('migracao:sugerirComIA', (_e, payload) => require('../services/migracaoService').sugerirComIA(payload || {}));
+  safeHandle('migracao:previa', (_e, payload) => require('../services/migracaoService').previa(payload || {}));
+  safeHandle('migracao:importar', (_e, payload) => require('../services/migracaoService').importar(payload || {}));
 
   // --- Anexos da venda (imagem/PDF de receita, comprovante, etc. — opcional) ---
   safeHandle('attachment:add', async (_e, { saleId, operadorId }) => {

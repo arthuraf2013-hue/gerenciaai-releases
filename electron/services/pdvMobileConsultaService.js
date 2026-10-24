@@ -62,7 +62,7 @@ function resolverCodigo(codigo) {
   const etiqueta = require('./weightBarcodeService').parseWeightBarcode(c);
   if (etiqueta) {
     const produto = productService.findByBalancaCode(etiqueta.codigoBalanca);
-    if (!produto) return { naoEncontrado: true, mensagem: `Etiqueta de balança lida, mas nenhum produto tem o código de balança ${etiqueta.codigoBalanca}.` };
+    if (!produto) return { naoEncontrado: true, etiquetaBalanca: true, mensagem: `Etiqueta de balança lida, mas nenhum produto tem o código de balança ${etiqueta.codigoBalanca}.` };
     const preco = productService.precoEfetivo(produto);
     const quantidade = etiqueta.pesoKg !== null ? etiqueta.pesoKg : (preco > 0 ? etiqueta.precoTotal / preco : null);
     // Peso com 3 casas (gramas) -- mesmo arredondamento implícito da

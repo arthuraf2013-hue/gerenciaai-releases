@@ -76,6 +76,82 @@ function consultar(installId, tipo, parametros = {}, { timeoutMs = 15000 } = {})
   });
 }
 
+// Mesmo prazo de pdvMobileGestaoService.VALIDADE_PEDIDO_MS no computador:
+// pedido mais velho que isto é descartado lá, então aqui dá pra dizer com
+// certeza "não foi aplicado".
+const VALIDADE_PEDIDO_GESTAO_MS = 10 * 60 * 1000;
+
+/**
+ * Pedido de gestão de produto (gestao_pdv): detalhe, preço, estoque,
+ * cadastro. Diferente de `consultar`, aqui MUDA dado -- então, se o
+ * computador demorar, não dá pra dizer "falhou": a resposta ainda pode
+ * chegar. Rejeita com `err.semResposta = true` depois de `timeoutMs` e
+ * continua escutando até o prazo do computador acabar; o resultado tardio
+ * vai pra `aoResponderDepois({ resultado } | { erro })`.
+ */
+function pedirGestao(installId, tipo, parametros = {}, { timeoutMs = 20000, aoResponderDepois } = {}) {
+  const ref = F.doc(F.collection(db, ...caminhoLoja(installId, 'gestao_pdv')));
+  return new Promise((resolve, reject) => {
+    let respondeu = false;
+    let atrasado = false;
+    let parar = () => {};
+    const encerrar = () => { clearTimeout(timer); clearTimeout(prazo); parar(); };
+    const timer = setTimeout(() => {
+      if (respondeu) return;
+      atrasado = true;
+      const err = new Error(tipo === 'detalhe'
+        ? 'O computador da loja não respondeu a tempo. Confira se o GerenciaAI está aberto e com internet.'
+        : 'O computador da loja ainda não confirmou. Se ele responder nos próximos minutos, a alteração vale; depois de 10 minutos ela é descartada. Confira o produto antes de repetir.');
+      err.semResposta = true;
+      if (tipo === 'detalhe') { encerrar(); reject(err); return; }
+      reject(err);
+    }, timeoutMs);
+    const prazo = setTimeout(() => {
+      if (respondeu) return;
+      encerrar();
+      if (atrasado) aoResponderDepois?.({ erro: 'O computador não respondeu em 10 minutos: a alteração foi descartada.' });
+    }, VALIDADE_PEDIDO_GESTAO_MS + 60000);
+
+    const responder = (saida) => {
+      if (respondeu) return;
+      respondeu = true;
+      encerrar();
+      if (atrasado) { aoResponderDepois?.(saida); return; }
+      if (saida.erro) reject(new Error(saida.erro));
+      else resolve(saida.resultado);
+    };
+    parar = F.onSnapshot(ref, (snap) => {
+      const d = snap.data();
+      if (d?.status === 'respondida') responder({ resultado: d.resultado });
+      else if (d?.status === 'erro') responder({ erro: d.erro || 'O computador recusou a alteração.' });
+    }, (err) => {
+      if (respondeu) return;
+      respondeu = true;
+      encerrar();
+      if (!atrasado) reject(traduzirErro(err));
+      else aoResponderDepois?.({ erro: `Perdi o acompanhamento da alteração (${traduzirErro(err).message}). Confira o produto antes de repetir.` });
+    });
+
+    F.setDoc(ref, {
+      dispositivoUid: auth.currentUser.uid, status: 'novo', tipo, ...parametros, criadoEm: F.serverTimestamp(),
+    }).catch((err) => {
+      // Gravação recusada = o pedido nunca chegou ao computador.
+      if (respondeu) return;
+      respondeu = true;
+      encerrar();
+      if (!atrasado) reject(traduzirErro(err));
+      else aoResponderDepois?.({ erro: `A alteração não foi enviada: ${traduzirErro(err).message}` });
+    });
+  });
+}
+
+/** Este celular pode mexer em produtos? Decide o computador (lista em
+ * config_mobile/pdv, a mesma que a regra do Firestore confere). */
+function gestaoLiberada(config) {
+  const uid = auth.currentUser?.uid;
+  return !!(uid && config?.gestaoProdutos === 'gestao' && Array.isArray(config?.gestaoLiberadaPara) && config.gestaoLiberadaPara.includes(uid));
+}
+
 function traduzirErro(err) {
   if (err?.code === 'permission-denied') {
     return new Error('Este celular não tem mais acesso a esta loja (desconectado pelo gerente ou módulo PDV móvel inativo).');
@@ -154,6 +230,6 @@ function renomearDispositivo(installId, nome) {
 }
 
 export {
-  observarConfig, servidorRespondendo, idadeDoServidorMs, consultar, novoIdVenda, enviarVenda, observarVenda,
+  observarConfig, servidorRespondendo, idadeDoServidorMs, consultar, pedirGestao, gestaoLiberada, novoIdVenda, enviarVenda, observarVenda,
   observarMinhasVendas, observarStatusAoVivo, registrarSinalDeVida, renomearDispositivo, traduzirErro,
 };

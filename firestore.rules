@@ -113,7 +113,12 @@ service cloud.firestore {
         'overrideAtivo', 'versaoMinimaOverride', 'excluidaEm', 'backupFrequenciaHoras',
         'restaurarBackupSolicitado',
         'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo',
-        'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm'];
+        'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm',
+        // Teste grátis: a máquina diz que começa em teste só ao CRIAR o
+        // documento; depois disso, prazo e extensão são da Central.
+        'teste', 'testeAte',
+        // Vitrine online: endereço criado pela Central (vitrineService.js).
+        'vitrineSlug'];
     }
     // Celular (PDV mobile autônomo) ativado com código da Central: o código
     // já foi resgatado POR ESTE aparelho (regra de ativacoes_mobile abaixo)
@@ -133,7 +138,10 @@ service cloud.firestore {
         && (d.get('clienteId', null) == null || ativacaoConfirmaCliente(installId, d))
         && !d.keys().hasAny(['grupoSincronizacaoId', 'servidorDoGrupo', 'overrideAtivo', 'versaoMinimaOverride',
           'excluidaEm', 'restaurarBackupSolicitado', 'atualizacaoSegurada', 'atualizacaoSeguradaVersao',
-          'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte']);
+          'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte', 'testeAte'])
+        // Teste grátis (testeGratisService.js): no máximo 30 dias, só o campo `dias`.
+        && (!d.keys().hasAny(['teste'])
+            || (d.teste is map && d.teste.keys().hasOnly(['dias']) && d.teste.dias is int && d.teste.dias >= 1 && d.teste.dias <= 30));
     }
     function atualizacaoDeInstalacaoValida(installId) {
       let mudou = request.resource.data.diff(resource.data).affectedKeys();
@@ -247,6 +255,22 @@ service cloud.firestore {
     // DESKTOP continua aberta; só gerar o par (admin-panel) passa a
     // exigir sessão.
     match /config_publica/{docId} {
+      allow read: if true;
+      allow write: if ehAdminAutenticado();
+    }
+
+    // Anotações comerciais da Central (telefone/WhatsApp do responsável de
+    // cada cliente, usado em "Ligar hoje" e no envio do relatório mensal).
+    // Fica FORA de clientes/{id}, que tem `get` aberto pras máquinas.
+    match /crm/{docId} {
+      allow read, write: if ehAdminAutenticado();
+    }
+
+    // Vitrine online: endereço público -> cliente, máquina que publica e o
+    // WhatsApp que RECEBE os pedidos. Só a Central grava: é isso que impede
+    // alguém de desviar os pedidos de uma loja trocando o número (a máquina
+    // grava o catálogo sem login, ver installations/{id}/vitrine abaixo).
+    match /vitrines/{slug} {
       allow read: if true;
       allow write: if ehAdminAutenticado();
     }
@@ -655,11 +679,72 @@ service cloud.firestore {
       allow delete: if request.auth == null;
     }
 
+    // Gestão de produtos pelo PDV móvel (preço, estoque, cadastro, custo
+    // e margem) -- pedido/resposta como consultas_pdv, mas só celular que
+    // o computador liberou (config_mobile/pdv.gestaoLiberadaPara: vinculado
+    // a gerente/admin/suporte). O computador confere o papel de novo antes
+    // de mudar qualquer coisa (pdvMobileGestaoService.js).
+    function dispositivoPdvComGestao(installId) {
+      let cRef = /databases/$(database)/documents/installations/$(installId)/config_mobile/pdv;
+      return dispositivoPdvAtivo(installId)
+        && exists(cRef)
+        && get(cRef).data.get('gestaoLiberadaPara', []).hasAny([request.auth.uid]);
+    }
+
+    function textoCurto(dados, campo, max) {
+      return !dados.keys().hasAny([campo]) || dados[campo] == null
+        || (dados[campo] is string && dados[campo].size() <= max);
+    }
+
+    function numeroOpcional(dados, campo) {
+      return !dados.keys().hasAny([campo]) || dados[campo] == null || dados[campo] is number;
+    }
+
+    match /installations/{installId}/gestao_pdv/{pedidoId} {
+      allow create: if request.auth != null
+        && request.resource.data.dispositivoUid == request.auth.uid
+        && request.resource.data.status == 'novo'
+        && request.resource.data.tipo in ['detalhe', 'preco', 'estoque', 'produto_novo']
+        && request.resource.data.keys().hasOnly([
+             'dispositivoUid', 'status', 'tipo', 'produtoId', 'preco', 'precoAnterior', 'custo', 'movimento',
+             'quantidade', 'motivo', 'nome', 'codigoBarras', 'categoria', 'unidade', 'estoqueInicial', 'criadoEm'])
+        && textoCurto(request.resource.data, 'produtoId', 80)
+        && textoCurto(request.resource.data, 'movimento', 20)
+        && textoCurto(request.resource.data, 'motivo', 120)
+        && textoCurto(request.resource.data, 'nome', 120)
+        && textoCurto(request.resource.data, 'codigoBarras', 60)
+        && textoCurto(request.resource.data, 'categoria', 60)
+        && textoCurto(request.resource.data, 'unidade', 10)
+        && numeroOpcional(request.resource.data, 'preco')
+        && numeroOpcional(request.resource.data, 'precoAnterior')
+        && numeroOpcional(request.resource.data, 'custo')
+        && numeroOpcional(request.resource.data, 'quantidade')
+        && numeroOpcional(request.resource.data, 'estoqueInicial')
+        && dispositivoPdvComGestao(installId);
+
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.dispositivoUid == request.auth.uid));
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resultado', 'erro', 'respondidoEm']);
+
+      allow delete: if request.auth == null;
+    }
+
     // O que o celular pode fazer nesta loja + "sinal de vida" do
     // servidor (ver pdvMobileConfigService.js).
     match /installations/{installId}/config_mobile/{docId} {
       allow read: if request.auth != null && dispositivoPdvAtivo(installId);
       allow write: if request.auth == null; // só o desktop publica
+    }
+
+    // Vitrine online: catálogo público (nome, categoria, preço, faixa de
+    // disponibilidade -- nunca custo nem estoque exato). Leitura aberta (é
+    // uma página pública); só o desktop publica, mesmo nível de confiança
+    // de status_ao_vivo. O número que recebe os pedidos NÃO mora aqui.
+    match /installations/{installId}/vitrine/{docId} {
+      allow read: if true;
+      allow write: if request.auth == null && docId in ['catalogo', 'config'];
     }
 
     // Lista pessoal de lojas às quais um celular de CONSULTA está

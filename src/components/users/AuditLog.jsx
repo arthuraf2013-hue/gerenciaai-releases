@@ -21,6 +21,11 @@ const TIPO_LABEL = {
   produtos_importados: 'Produtos importados de planilha',
   desconto_pdv_movel: 'Desconto no PDV móvel (celular)',
   cancelamento_venda_automatico_sistema: 'Venda do celular desfeita pelo sistema',
+  preco_alterado_celular: 'Preço alterado pelo celular',
+  estoque_ajustado_celular: 'Estoque ajustado pelo celular',
+  produto_cadastrado_celular: 'Produto cadastrado pelo celular',
+  migracao_sistema_anterior: 'Migração do sistema anterior',
+  vitrine_alterada: 'Vitrine online alterada',
 };
 
 export function AuditLog() {

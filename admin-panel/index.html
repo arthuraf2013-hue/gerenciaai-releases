@@ -159,6 +159,33 @@
   .mensagem-cliente-wrap { display: flex; gap: 8px; margin-bottom: 12px; }
   .mensagem-cliente-wrap input { flex: 1; font-size: 13px; }
   .metricas-grid { display: flex; gap: 16px; flex-wrap: wrap; }
+  /* Tela Crescimento */
+  .cresc-card { margin-bottom: 20px; }
+  .cresc-sub { font-size: 14px; margin: 18px 0 8px; }
+  .cresc-config { margin-bottom: 14px; }
+  .cresc-config summary { cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 600; }
+  .funil-linha { display: grid; grid-template-columns: 170px 1fr 90px; gap: 10px; align-items: center; margin-bottom: 6px; font-size: 13px; }
+  .funil-barra { height: 14px; background: var(--bg); border-radius: 7px; overflow: hidden; border: 1px solid var(--border); }
+  .funil-barra span { display: block; height: 100%; background: var(--primary); border-radius: 7px; }
+  .funil-valor { text-align: right; font-weight: 700; } .funil-valor small { color: var(--text-muted); font-weight: 400; }
+  .teste-row, .risco-row { align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+  .teste-info { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: 6px; }
+  .teste-acoes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .etapas { display: flex; gap: 6px; flex-wrap: wrap; }
+  .etapa { font-size: 11px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--border); color: var(--text-muted); }
+  .etapa-ok { border-color: transparent; background: rgba(55,171,153,0.2); color: var(--primary); }
+  .risco-nota { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; flex-shrink: 0; background: var(--bg); border: 2px solid var(--border); }
+  .risco-alto .risco-nota { border-color: var(--danger); color: var(--danger); }
+  .risco-medio .risco-nota { border-color: var(--warning); color: var(--warning); }
+  .risco-motivos { margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 13px; }
+  .tel-cliente { width: 150px; padding: 6px 10px; font-size: 12px; }
+  .link-botao { text-decoration: none; display: inline-block; border-radius: 8px; padding: 5px 10px; font-size: 12px; font-weight: 600; }
+  .relatorio-tabela { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .relatorio-tabela td, .relatorio-tabela th { padding: 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  .relatorio-tabela th { color: var(--text-muted); font-size: 12px; }
+  .relatorio-previa .relatorio-tabela td:last-child { text-align: right; font-weight: 600; }
+  .segmento-tabela small { color: var(--text-muted); }
+  .vitrine-wrap a { align-self: center; color: var(--primary); }
   .metrica-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 20px; min-width: 140px; }
   .metrica-valor { font-size: 26px; font-weight: 700; color: var(--primary); }
   .metrica-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
@@ -211,6 +238,7 @@
 
     <nav class="setores-nav">
       <a href="?tela=painel" data-tela="painel" class="setor-link"><svg width="15" height="15" viewBox="0 0 24 24" style="flex-shrink:0;vertical-align:middle" aria-hidden="true"><path d="M4 11.5L12 4l8 7.5" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10.5V20h12v-9.5" fill="currentColor" opacity="0.5"/><rect x="10" y="14" width="4" height="6" fill="currentColor"/></svg> Painel</a>
+      <a href="?tela=crescimento" data-tela="crescimento" class="setor-link"><svg width="15" height="15" viewBox="0 0 24 24" style="flex-shrink:0;vertical-align:middle" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="currentColor" opacity="0.24"/><path d="M5.5 16l4.5-4.5 3 3L18.5 9" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 9h4v4" stroke="currentColor" stroke-width="2.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg> Crescimento</a>
       <a href="?tela=metricas" data-tela="metricas" class="setor-link"><svg width="15" height="15" viewBox="0 0 24 24" style="flex-shrink:0;vertical-align:middle" aria-hidden="true"><circle cx="12" cy="12" r="9.5" fill="currentColor" opacity="0.24"/><path d="M6 18V13M12 18V9M18 18v-5" stroke="currentColor" stroke-width="2.9" stroke-linecap="round"/></svg> Métricas</a>
       <a href="?tela=erros" data-tela="erros" class="setor-link"><svg width="15" height="15" viewBox="0 0 24 24" style="flex-shrink:0;vertical-align:middle" aria-hidden="true"><path d="M12 4.2L21 19H3L12 4.2z" fill="currentColor" opacity="0.5"/><path d="M12 10v4" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="16.6" r="1" fill="currentColor"/></svg> Erros</a>
       <a href="?tela=mensagem" data-tela="mensagem" class="setor-link"><svg width="15" height="15" viewBox="0 0 24 24" style="flex-shrink:0;vertical-align:middle" aria-hidden="true"><path d="M4 5.5h16a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 3.7V16.5H4A1.5 1.5 0 0 1 2.5 15V7A1.5 1.5 0 0 1 4 5.5z" fill="currentColor" opacity="0.5"/><path d="M7 9.5h10M7 12.5h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg> Mensagem</a>
@@ -250,6 +278,57 @@
 
       <div id="lista-clientes"></div>
       <div id="vazio" class="empty" style="display:none">Nenhuma instalação encontrada.</div>
+    </div>
+
+    <div id="secao-crescimento" style="display:none;">
+      <div class="card cresc-card">
+        <h2>Teste grátis</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Instalação nova começa sozinha com 14 dias (contados pela hora do servidor). Quem tem cliente vinculado não tem prazo,
+          e máquina antiga nunca entra em teste. O funil mostra até onde cada teste chegou — ligue para quem parou no meio.
+        </p>
+        <details class="cresc-config">
+          <summary>Contato que aparece no fim do teste</summary>
+          <div class="modal-form" style="max-width: 560px; margin-top: 10px;">
+            <input type="tel" id="comercial-whatsapp" maxlength="16" placeholder="WhatsApp de vendas com DDD (ex: 81999991234)">
+            <input type="text" id="comercial-empresa" maxlength="80" placeholder="Nome que aparece no botão (ex: Vetta Sistemas)">
+            <textarea id="comercial-mensagem" maxlength="300" rows="2" placeholder="Mensagem da tela de fim de teste (opcional)"></textarea>
+            <div class="modal-actions" style="justify-content:flex-start;">
+              <button class="btn-primary btn-small" id="comercial-salvar">Salvar contato</button>
+              <span class="maquina-meta" id="comercial-salvo"></span>
+            </div>
+          </div>
+        </details>
+        <div id="teste-conteudo"></div>
+      </div>
+
+      <div class="card cresc-card">
+        <h2>Ligar hoje</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Nota de risco de cancelamento de 0 a 100, só com o que a Central já recebe: dias sem sinal, queda de vendas,
+          mensalidade vencida, pendências graves, erros da semana e implantação pela metade. O WhatsApp do cliente fica
+          só aqui na Central (não vai para as máquinas).
+        </p>
+        <div id="risco-conteudo"></div>
+      </div>
+
+      <div class="card cresc-card">
+        <h2>Relatório do mês para o cliente</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          "Quanto o GerenciaAI te rendeu": cada máquina manda o resumo do mês fechado. Só entra o que o sistema mede de
+          verdade (vendas, campanhas que trouxeram cliente de volta, fiado recebido...). Mande por WhatsApp ou em PDF.
+        </p>
+        <div id="relatorio-conteudo"></div>
+      </div>
+
+      <div class="card cresc-card">
+        <h2>Comparação por segmento</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Mediana das lojas de cada tipo de negócio, sem identificar ninguém, e só com 5 lojas ou mais. É o número que
+          aparece no relatório do cliente ("seu ticket médio está 12% acima da mediana").
+        </p>
+        <div id="segmento-conteudo"></div>
+      </div>
     </div>
 
     <div id="secao-sincronizacao" style="display:none;">
@@ -679,7 +758,7 @@
   // sessão do Firebase Auth fica salva no navegador); Ctrl+clique/
   // clique do meio abre numa aba nova, com o comportamento nativo do
   // navegador, sem eu precisar simular nada com window.open.
-  const SETORES_VALIDOS = ['painel', 'metricas', 'erros', 'mensagem', 'atualizacao', 'sincronizacao', 'backups', 'cofre', 'auditoria'];
+  const SETORES_VALIDOS = ['painel', 'crescimento', 'metricas', 'erros', 'mensagem', 'atualizacao', 'sincronizacao', 'backups', 'cofre', 'auditoria'];
   // Telas que não precisam de 'installations'/'clientes' pra nada — evita
   // abrir esses dois listeners (e baixar as coleções inteiras) em telas
   // que não usam essa informação. Como cada tela já é uma página própria
@@ -807,6 +886,8 @@
     'migradoParaNome', 'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalPendentes', 'terminalErros',
     'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo', 'atualizacaoRetida', 'atualizacaoRetencaoIgnorada', 'atualizacaoBaixadaEm',
     'saude', 'reparo',
+    // Tela Crescimento (teste grátis, funil, relatório mensal).
+    'teste', 'testeAte', 'maquinaHash', 'produtosCadastrados', 'totalVendasHistorico', 'relatorioMensal',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -872,7 +953,18 @@
         },
         (err) => console.warn('[ativacoes_mobile] sem acesso (regras do Firestore publicadas?)', err)
       );
+      if (TELA_ATUAL === 'painel') {
+        onSnapshot(
+          collection(db, 'vitrines'),
+          (snap) => {
+            vitrines = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+            render();
+          },
+          (err) => console.warn('[vitrines] sem acesso (regras do Firestore publicadas?)', err)
+        );
+      }
     }
+    if (TELA_ATUAL === 'crescimento') escutarCrescimento();
     if (TELA_ATUAL === 'atualizacao') {
       escutarPendentesDeInstalacao();
       onSnapshot(
@@ -1263,6 +1355,79 @@
     return codigo;
   }
   const formatarCodigoAtivacao = (c) => `${c.slice(0, 4)}-${c.slice(4)}`;
+
+  // --- Vitrine online (ver electron/services/vitrineService.js) ---
+  // vitrines/{endereço} = { clienteId, installId, whatsapp, ativa }: só a
+  // Central grava, então o WhatsApp que recebe os pedidos não pode ser
+  // trocado por quem grava nos documentos da máquina.
+  let vitrines = [];
+  const SLUG_VITRINE = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/;
+  const URL_VITRINE = 'https://gerenciaai-garcom.web.app/loja.html?s=';
+
+  function sugerirSlug(nome) {
+    return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/g, '');
+  }
+
+  function renderVitrineDoCliente(cliente, maquinas) {
+    const v = vitrines.find((x) => x.clienteId === cliente.id);
+    const desktops = maquinas.filter((m) => !ehPdvMobile(m));
+    if (!desktops.length && !v) return '';
+    const id = escapeHtml(cliente.id);
+    return `
+      <div class="mensagem-cliente-wrap vitrine-wrap">
+        <span class="cliente-resumo" style="align-self:center;">Vitrine online:</span>
+        <input type="text" data-vitrine-campo data-vitrine-slug="${id}" value="${escapeHtml(v?.id || sugerirSlug(cliente.nome))}"
+          placeholder="endereco-da-loja" maxlength="40" style="max-width:180px;" title="Só letras minúsculas, números e hífen">
+        <input type="tel" data-vitrine-campo data-vitrine-whatsapp="${id}" value="${escapeHtml(v?.whatsapp || '')}"
+          placeholder="WhatsApp dos pedidos (DDD)" maxlength="16" style="max-width:190px;">
+        <select data-vitrine-campo data-vitrine-maquina="${id}" style="max-width:200px;" title="Máquina que publica o catálogo">
+          ${desktops.map((m) => `<option value="${escapeHtml(m.id)}" ${v?.installId === m.id ? 'selected' : ''}>${escapeHtml(m.nomeNegocio || m.id.slice(0, 8))}</option>`).join('')}
+        </select>
+        <button class="btn-secondary btn-small" data-vitrine-salvar="${id}">${v ? 'Salvar vitrine' : 'Criar vitrine'}</button>
+        ${v ? `
+          <button class="btn-secondary btn-small" data-vitrine-desativar="${id}">${v.ativa === false ? 'Reativar' : 'Desativar'}</button>
+          <a class="cliente-resumo" href="${escapeHtml(URL_VITRINE + encodeURIComponent(v.id))}" target="_blank" rel="noopener">${v.ativa === false ? 'desativada' : 'abrir página'}</a>` : ''}
+      </div>`;
+  }
+
+  async function salvarVitrineDoCliente(clienteId) {
+    const campo = (attr) => listaClientes.querySelector(`[data-vitrine-${attr}="${CSS.escape(clienteId)}"]`);
+    const slug = (campo('slug')?.value || '').trim().toLowerCase();
+    const whatsapp = (campo('whatsapp')?.value || '').replace(/\D/g, '');
+    const installId = campo('maquina')?.value || '';
+    if (!SLUG_VITRINE.test(slug)) { alert('Endereço: de 3 a 40 letras minúsculas, números ou hífen (ex: padaria-pao-quente).'); return; }
+    if (whatsapp.length < 10 || whatsapp.length > 13) { alert('WhatsApp dos pedidos com DDD (ex: 81999991234).'); return; }
+    if (!installId) { alert('Escolha a máquina que publica o catálogo.'); return; }
+    const anterior = vitrines.find((x) => x.clienteId === clienteId);
+    try {
+      const existente = await getDoc(doc(db, 'vitrines', slug));
+      if (existente.exists() && existente.data().clienteId !== clienteId) { alert('Esse endereço já é de outra loja. Escolha outro.'); return; }
+      const lote = writeBatch(db);
+      lote.set(doc(db, 'vitrines', slug), { clienteId, installId, whatsapp, ativa: anterior ? anterior.ativa !== false : true, atualizadoEm: serverTimestamp() });
+      lote.update(doc(db, 'installations', installId), { vitrineSlug: slug });
+      // Mudou o endereço ou a máquina: o antigo deixa de existir.
+      if (anterior && anterior.id !== slug) lote.delete(doc(db, 'vitrines', anterior.id));
+      if (anterior && anterior.installId && anterior.installId !== installId) lote.update(doc(db, 'installations', anterior.installId), { vitrineSlug: null });
+      await lote.commit();
+      registrarAcao('vitrine_salva', { clienteId, endereco: slug, instalacaoId: installId });
+    } catch (err) {
+      mostrarErro(err, 'salvar a vitrine');
+    }
+  }
+
+  async function desativarVitrine(clienteId) {
+    const v = vitrines.find((x) => x.clienteId === clienteId);
+    if (!v) return;
+    const ativar = v.ativa === false;
+    if (!ativar && !confirm('Desativar a vitrine? Quem abrir o link vê "vitrine fechada". Dá para reativar depois.')) return;
+    try {
+      await updateDoc(doc(db, 'vitrines', v.id), { ativa: ativar, atualizadoEm: serverTimestamp() });
+      registrarAcao(ativar ? 'vitrine_reativada' : 'vitrine_desativada', { clienteId, endereco: v.id });
+    } catch (err) {
+      mostrarErro(err, 'mudar a vitrine');
+    }
+  }
 
   function renderAtivacoesDoCliente(cliente) {
     const agora = Date.now();
@@ -3010,6 +3175,8 @@
     }
   });
 
+  document.getElementById('comercial-salvar')?.addEventListener('click', salvarConfigComercial);
+
   document.getElementById('vincular-cancelar').addEventListener('click', () => {
     vincularModal.style.display = 'none';
     instalacaoParaVincular = null;
@@ -3028,11 +3195,579 @@
     }
   });
 
+  // <crescimento-logica>
+  // Contas da tela "Crescimento" (teste grátis, risco de cancelamento,
+  // relatório mensal, comparação por segmento). Só funções puras -- sem
+  // DOM nem Firestore -- pra tests/centralCrescimento.test.js rodar este
+  // trecho direto (ele lê o que está entre os marcadores <crescimento-logica>).
+  const CRESC_DIA_MS = 86400000;
+  const CRESC_MIN_LOJAS_SEGMENTO = 5;
+  const crescMs = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : null);
+  const crescNum = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+  /** Sinal mais recente (ping ou contato) em ms, ou null. */
+  function crescUltimoSinalMs(inst) {
+    const a = crescMs(inst.ultimoPing);
+    const b = crescMs(inst.ultimoContato);
+    return a == null ? b : (b == null ? a : Math.max(a, b));
+  }
+
+  /** Fim do teste em ms (mesma regra de testeGratisService.fimDoTeste no app). */
+  function crescFimDoTeste(inst) {
+    if (!inst || inst.clienteId) return null;
+    const ate = crescMs(inst.testeAte);
+    if (ate != null) return ate;
+    const dias = Number(inst.teste?.dias);
+    const criado = crescMs(inst.criadoEm);
+    if (!Number.isInteger(dias) || dias <= 0 || criado == null) return null;
+    return criado + dias * CRESC_DIA_MS;
+  }
+
+  const CRESC_ETAPAS = [
+    ['instalou', 'Instalou'],
+    ['produtos', 'Cadastrou produtos'],
+    ['primeiraVenda', 'Fez a 1ª venda'],
+    ['voltou7', 'Usou depois de 7 dias'],
+    ['cliente', 'Virou cliente'],
+  ];
+
+  /** Em que pé está uma instalação que começou em teste. */
+  function crescEtapasDoTeste(inst, agoraMs) {
+    const criado = crescMs(inst.criadoEm);
+    const sinal = crescUltimoSinalMs(inst);
+    const faltando = Array.isArray(inst.saude?.implantacaoFaltando) ? inst.saude.implantacaoFaltando : null;
+    const etapas = {
+      instalou: true,
+      produtos: crescNum(inst.produtosCadastrados) >= 5 || (faltando != null && !faltando.includes('Cadastrar os produtos')),
+      primeiraVenda: crescNum(inst.totalVendasHistorico) > 0,
+      voltou7: criado != null && sinal != null && sinal - criado >= 7 * CRESC_DIA_MS,
+      cliente: !!inst.clienteId,
+    };
+    const parouEm = CRESC_ETAPAS.find(([id]) => !etapas[id] && id !== 'cliente');
+    const fim = crescFimDoTeste(inst);
+    return {
+      etapas,
+      parouEm: parouEm ? parouEm[1] : null,
+      fimMs: fim,
+      diasRestantes: fim == null ? null : Math.ceil((fim - agoraMs) / CRESC_DIA_MS),
+      expirado: fim != null && fim <= agoraMs,
+      diasSemSinal: sinal == null ? null : Math.floor((agoraMs - sinal) / CRESC_DIA_MS),
+      diasDesdeInicio: criado == null ? null : Math.floor((agoraMs - criado) / CRESC_DIA_MS),
+    };
+  }
+
+  /** Funil dos testes iniciados nos últimos `dias`: quantos chegaram em cada etapa. */
+  function crescFunilDoTeste(insts, agoraMs, { dias = 90 } = {}) {
+    const desde = agoraMs - dias * CRESC_DIA_MS;
+    const doPeriodo = insts.filter((i) => i.teste && crescMs(i.criadoEm) != null && crescMs(i.criadoEm) >= desde);
+    const contagem = Object.fromEntries(CRESC_ETAPAS.map(([id]) => [id, 0]));
+    for (const inst of doPeriodo) {
+      const { etapas } = crescEtapasDoTeste(inst, agoraMs);
+      for (const [id] of CRESC_ETAPAS) if (etapas[id]) contagem[id] += 1;
+    }
+    return {
+      total: doPeriodo.length,
+      etapas: CRESC_ETAPAS.map(([id, rotulo]) => ({
+        id, rotulo, quantidade: contagem[id], percentual: doPeriodo.length ? Math.round((contagem[id] / doPeriodo.length) * 100) : 0,
+      })),
+    };
+  }
+
+  /** Mesma máquina (maquinaHash) que já teve outro teste antes desta. */
+  function crescTesteRepetido(inst, todas) {
+    if (!inst.maquinaHash) return null;
+    const criado = crescMs(inst.criadoEm) ?? Infinity;
+    const anteriores = todas.filter((o) => o.id !== inst.id && o.maquinaHash === inst.maquinaHash && (crescMs(o.criadoEm) ?? Infinity) < criado);
+    if (!anteriores.length) return null;
+    return anteriores.sort((a, b) => crescMs(a.criadoEm) - crescMs(b.criadoEm))[0];
+  }
+
+  /**
+   * Nota de risco de cancelamento de um cliente (0-100) e o porquê. Só
+   * sinais que a Central já recebe; cada motivo vale pontos fixos.
+   */
+  function crescNotaDeRisco(maquinas, { agoraMs, mensalidadeVencida = false, errosUltimos7Dias = 0 } = {}) {
+    const motivos = [];
+    let pontos = 0;
+    const somar = (p, texto) => { pontos += p; motivos.push(texto); };
+    if (!maquinas.length) return { pontos: 0, nivel: 'baixo', motivos };
+
+    const sinais = maquinas.map(crescUltimoSinalMs).filter((v) => v != null);
+    const diasSemSinal = sinais.length ? Math.floor((agoraMs - Math.max(...sinais)) / CRESC_DIA_MS) : null;
+    if (diasSemSinal != null && diasSemSinal >= 7) somar(40, `Nenhuma máquina dá sinal há ${diasSemSinal} dias`);
+    else if (diasSemSinal != null && diasSemSinal >= 3) somar(25, `Sem sinal há ${diasSemSinal} dias`);
+
+    const vendas30 = maquinas.reduce((s, m) => s + crescNum(m.vendasUltimos30Dias), 0);
+    const anteriores = maquinas.reduce((s, m) => s + crescNum(m.vendasAnteriores30Dias), 0);
+    if (anteriores >= 20 && vendas30 < anteriores * 0.5) {
+      somar(25, `Vendas caíram ${Math.round((1 - vendas30 / anteriores) * 100)}% (30 dias contra os 30 anteriores)`);
+    }
+    const informaram7 = maquinas.some((m) => m.vendas7Dias !== undefined);
+    const vendas7 = maquinas.reduce((s, m) => s + crescNum(m.vendas7Dias), 0);
+    if (informaram7 && vendas7 === 0 && vendas30 > 0 && (diasSemSinal == null || diasSemSinal < 3)) {
+      somar(20, 'Abre o sistema, mas não vendeu nada nos últimos 7 dias');
+    }
+    if (mensalidadeVencida) somar(20, 'Mensalidade vencida');
+    const graves = maquinas.reduce((s, m) => s + crescNum(m.saude?.pendenciasAltas), 0);
+    if (graves > 0) somar(10, `${graves} pendência(s) grave(s) no sistema`);
+    if (errosUltimos7Dias >= 3) somar(10, `${errosUltimos7Dias} erros reportados nos últimos 7 dias`);
+    const criados = maquinas.map((m) => crescMs(m.criadoEm)).filter((v) => v != null);
+    const maisAntiga = criados.length ? Math.min(...criados) : null;
+    const feitos = maquinas.reduce((s, m) => Math.max(s, crescNum(m.saude?.implantacaoFeitos)), 0);
+    const total = maquinas.reduce((s, m) => Math.max(s, crescNum(m.saude?.implantacaoTotal)), 0);
+    if (total > 0 && feitos / total < 0.5 && maisAntiga != null && agoraMs - maisAntiga > 14 * CRESC_DIA_MS) {
+      somar(10, `Implantação pela metade (${feitos} de ${total} passos)`);
+    }
+    pontos = Math.min(100, pontos);
+    return { pontos, nivel: pontos >= 50 ? 'alto' : (pontos >= 25 ? 'medio' : 'baixo'), motivos };
+  }
+
+  const CRESC_CAMPOS_RELATORIO = [
+    'vendas', 'faturamento', 'vendasComCliente', 'clientesAtendidos', 'campanhasEnviadas', 'campanhasVoltaram',
+    'campanhasReceita', 'fiadoRecebido', 'devolucoes', 'devolucoesValor', 'perdasRegistradas', 'vendasPeloCelular',
+  ];
+
+  /** Soma o relatorioMensal das máquinas de um cliente no mês mais recente
+   * que elas informaram. null se nenhuma informou. */
+  function crescRelatorioDoCliente(maquinas) {
+    const relatorios = maquinas.map((m) => m.relatorioMensal).filter((r) => r && /^\d{4}-\d{2}$/.test(String(r.mes)));
+    if (!relatorios.length) return null;
+    const mes = relatorios.map((r) => r.mes).sort().at(-1);
+    const doMes = relatorios.filter((r) => r.mes === mes);
+    const soma = { mes, maquinas: doMes.length };
+    for (const campo of CRESC_CAMPOS_RELATORIO) soma[campo] = Math.round(doMes.reduce((s, r) => s + crescNum(r[campo]), 0) * 100) / 100;
+    soma.ticketMedio = soma.vendas ? Math.round((soma.faturamento / soma.vendas) * 100) / 100 : 0;
+    return soma;
+  }
+
+  function crescMediana(lista) {
+    const v = [...lista].sort((a, b) => a - b);
+    if (!v.length) return null;
+    const meio = Math.floor(v.length / 2);
+    return v.length % 2 ? v[meio] : (v[meio - 1] + v[meio]) / 2;
+  }
+
+  function crescQuartil(lista, q) {
+    const v = [...lista].sort((a, b) => a - b);
+    if (!v.length) return null;
+    const pos = (v.length - 1) * q;
+    const base = Math.floor(pos);
+    return v[base] + (v[Math.min(base + 1, v.length - 1)] - v[base]) * (pos - base);
+  }
+
+  /**
+   * Lojas por segmento (perfil de negócio). Loja = cliente (somando as
+   * máquinas dele) -- instalação sem cliente (teste) fica de fora. Só
+   * devolve números de um segmento com pelo menos 5 lojas com venda: com
+   * menos que isso daria pra adivinhar quem é quem.
+   */
+  function crescComparacaoPorSegmento(insts) {
+    const porCliente = new Map();
+    for (const i of insts) {
+      if (!i.clienteId || i.excluidaEm) continue;
+      if (!porCliente.has(i.clienteId)) porCliente.set(i.clienteId, []);
+      porCliente.get(i.clienteId).push(i);
+    }
+    const lojas = [];
+    for (const [clienteId, maquinas] of porCliente) {
+      const perfis = maquinas.map((m) => (typeof m.perfilAtivo === 'string' && m.perfilAtivo ? m.perfilAtivo : null)).filter(Boolean);
+      if (!perfis.length) continue;
+      const contagem = perfis.reduce((acc, p) => acc.set(p, (acc.get(p) || 0) + 1), new Map());
+      const perfil = [...contagem.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const vendas = maquinas.reduce((s, m) => s + crescNum(m.vendasUltimos30Dias), 0);
+      const faturamento = maquinas.reduce((s, m) => s + crescNum(m.faturamento30Dias), 0);
+      if (vendas <= 0 || faturamento <= 0) continue;
+      lojas.push({ clienteId, perfil, ticketMedio: faturamento / vendas, vendasPorDia: vendas / 30, faturamentoPorDia: faturamento / 30 });
+    }
+    const segmentos = new Map();
+    for (const l of lojas) {
+      if (!segmentos.has(l.perfil)) segmentos.set(l.perfil, []);
+      segmentos.get(l.perfil).push(l);
+    }
+    return [...segmentos.entries()].map(([perfil, doSegmento]) => {
+      const suficiente = doSegmento.length >= CRESC_MIN_LOJAS_SEGMENTO;
+      const estat = (campo) => {
+        const valores = doSegmento.map((l) => l[campo]);
+        return { p25: crescQuartil(valores, 0.25), mediana: crescMediana(valores), p75: crescQuartil(valores, 0.75) };
+      };
+      return {
+        perfil,
+        lojas: doSegmento.length,
+        suficiente,
+        ticketMedio: suficiente ? estat('ticketMedio') : null,
+        vendasPorDia: suficiente ? estat('vendasPorDia') : null,
+        faturamentoPorDia: suficiente ? estat('faturamentoPorDia') : null,
+        // Só pra posicionar UM cliente dentro do próprio segmento.
+        _valores: suficiente ? Object.fromEntries(doSegmento.map((l) => [l.clienteId, l])) : {},
+      };
+    }).sort((a, b) => b.lojas - a.lojas);
+  }
+
+  /** "está 12% acima da mediana" / "está na média do segmento". */
+  function crescFrasePosicao(pos) {
+    return pos === 'na média' ? 'está na média do segmento' : `está ${pos} da mediana`;
+  }
+
+  /** "12% acima" / "8% abaixo" / "na média" da mediana. */
+  function crescPosicao(valor, mediana) {
+    if (!mediana || !Number.isFinite(valor)) return null;
+    const diferenca = Math.round(((valor - mediana) / mediana) * 100);
+    if (Math.abs(diferenca) < 3) return 'na média';
+    return `${Math.abs(diferenca)}% ${diferenca > 0 ? 'acima' : 'abaixo'}`;
+  }
+  // </crescimento-logica>
+
+  // --- Tela "Crescimento": teste grátis, ligar hoje, relatório mensal,
+  // comparação por segmento. Contas em <crescimento-logica> acima. ---
+
+  let comercialConfig = null; // config_publica/comercial
+  let crmContatos = {}; // crm/contatos: { [clienteId]: telefone }
+  let errosPorInstalacao7d = new Map();
+  let crescMostrarRiscoBaixo = false;
+  let crescClienteRelatorio = '';
+
+  const PERFIS_ROTULO = {
+    farmacia: 'Farmácia', petshop: 'Pet shop', armazem: 'Armazém / mercearia', salao_beleza: 'Salão de beleza',
+    padaria: 'Padaria', papelaria: 'Papelaria', vestuario: 'Loja de roupas', otica: 'Ótica',
+    material_construcao: 'Material de construção', restaurante: 'Restaurante', generico: 'Outros comércios',
+  };
+  const rotuloPerfil = (p) => PERFIS_ROTULO[p] || p || 'não informado';
+  const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const rotuloMes = (anoMes) => {
+    const [a, m] = String(anoMes).split('-').map(Number);
+    return MESES[m - 1] ? `${MESES[m - 1]} de ${a}` : String(anoMes);
+  };
+  const codigoCurto = (id) => String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase();
+  const linkWhats = (numero, texto) => {
+    const d = String(numero || '').replace(/\D/g, '');
+    if (d.length < 10 || d.length > 13) return null;
+    return `https://wa.me/${d.length <= 11 ? `55${d}` : d}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`;
+  };
+
+  function escutarCrescimento() {
+    onSnapshot(doc(db, 'config_publica', 'comercial'), (snap) => {
+      comercialConfig = snap.exists() ? snap.data() : null;
+      preencherConfigComercial();
+    }, (err) => mostrarErro(err, 'carregar o contato comercial'));
+    onSnapshot(doc(db, 'crm', 'contatos'), (snap) => {
+      crmContatos = snap.exists() ? (snap.data().telefones || {}) : {};
+      renderCrescimento();
+    }, (err) => console.warn('[crm] sem acesso (regras do Firestore publicadas?)', err));
+    // Erros da última semana, uma vez ao abrir a tela (pesa na nota de risco).
+    getDocs(query(collection(db, 'erros_reportados'), where('criadoEm', '>=', new Date(Date.now() - 7 * 86400000)), limit(500)))
+      .then((snap) => {
+        errosPorInstalacao7d = new Map();
+        snap.docs.forEach((d) => {
+          const id = d.data().installationId;
+          if (id) errosPorInstalacao7d.set(id, (errosPorInstalacao7d.get(id) || 0) + 1);
+        });
+        renderCrescimento();
+      })
+      .catch((err) => console.warn('[crescimento] erros da semana indisponíveis', err));
+  }
+
+  function preencherConfigComercial() {
+    const c = comercialConfig || {};
+    const campo = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ''; };
+    campo('comercial-whatsapp', c.whatsapp);
+    campo('comercial-empresa', c.empresa);
+    campo('comercial-mensagem', c.mensagemFimTeste);
+  }
+
+  async function salvarConfigComercial() {
+    const whatsapp = document.getElementById('comercial-whatsapp').value.replace(/\D/g, '').slice(0, 13);
+    const empresa = document.getElementById('comercial-empresa').value.trim().slice(0, 80);
+    const mensagemFimTeste = document.getElementById('comercial-mensagem').value.trim().slice(0, 300);
+    if (whatsapp && (whatsapp.length < 10)) { alert('WhatsApp com DDD, ex: 81999991234.'); return; }
+    try {
+      await setDoc(doc(db, 'config_publica', 'comercial'), { whatsapp, empresa, mensagemFimTeste, atualizadoEm: serverTimestamp() });
+      registrarAcao('contato_comercial_salvo', { whatsapp: whatsapp ? `•••${whatsapp.slice(-4)}` : '' });
+      const ok = document.getElementById('comercial-salvo');
+      ok.textContent = 'Salvo. As máquinas em teste recebem na próxima conferência (até 6 h).';
+    } catch (err) { mostrarErro(err, 'salvar o contato comercial'); }
+  }
+
+  async function estenderTeste(id, dias) {
+    const inst = todasInstalacoes.find((i) => i.id === id);
+    if (!inst) return;
+    const base = Math.max(Date.now(), crescFimDoTeste(inst) || 0);
+    const ate = Timestamp.fromMillis(base + dias * 86400000);
+    try {
+      await updateDoc(doc(db, 'installations', id), { testeAte: ate });
+      registrarAcao('teste_estendido', { instalacaoId: id, ate: ate.toDate().toISOString().slice(0, 10) });
+    } catch (err) { mostrarErro(err, 'estender o teste'); }
+  }
+
+  async function encerrarTeste(id) {
+    if (!confirm('Encerrar o teste agora? O sistema dessa máquina mostra a tela de "teste terminou" na próxima conferência (os dados continuam lá).')) return;
+    try {
+      await updateDoc(doc(db, 'installations', id), { testeAte: Timestamp.now() });
+      registrarAcao('teste_encerrado', { instalacaoId: id });
+    } catch (err) { mostrarErro(err, 'encerrar o teste'); }
+  }
+
+  async function salvarTelefoneCliente(clienteId, telefone) {
+    const d = String(telefone || '').replace(/\D/g, '').slice(0, 13);
+    if (d && d.length < 10) { alert('Telefone com DDD, ex: 81999991234.'); return; }
+    try {
+      await setDoc(doc(db, 'crm', 'contatos'), { telefones: { [clienteId]: d || null }, atualizadoEm: serverTimestamp() }, { merge: true });
+    } catch (err) { mostrarErro(err, 'salvar o telefone do cliente'); }
+  }
+
+  function chipEtapas(etapas) {
+    return CRESC_ETAPAS.filter(([id]) => id !== 'cliente').map(([id, rotulo]) =>
+      `<span class="etapa ${etapas[id] ? 'etapa-ok' : ''}" title="${escapeHtml(rotulo)}">${etapas[id] ? '✓' : '·'} ${escapeHtml(rotulo)}</span>`).join('');
+  }
+
+  function renderTesteGratis(agora) {
+    const div = document.getElementById('teste-conteudo');
+    if (!div) return;
+    const funil = crescFunilDoTeste(todasInstalacoes, agora, { dias: 90 });
+    const emTeste = instalacoes
+      .filter((i) => i.teste && !i.clienteId)
+      .map((i) => ({ inst: i, info: crescEtapasDoTeste(i, agora), repetido: crescTesteRepetido(i, todasInstalacoes) }))
+      // Teste que acabou há mais de 30 dias e ninguém converteu sai da lista
+      // (continua contando no funil).
+      .filter(({ info }) => info.diasRestantes == null || info.diasRestantes > -30)
+      .sort((a, b) => (a.info.diasRestantes ?? 99) - (b.info.diasRestantes ?? 99));
+    const maxFunil = Math.max(1, funil.total);
+
+    div.innerHTML = `
+      <div class="funil">
+        <div class="metrica-label" style="margin-bottom:8px;">Testes iniciados nos últimos 90 dias: <strong>${Number(funil.total)}</strong></div>
+        ${funil.etapas.map((e) => `
+          <div class="funil-linha">
+            <span class="funil-rotulo">${escapeHtml(e.rotulo)}</span>
+            <span class="funil-barra"><span style="width:${Math.round((Number(e.quantidade) / maxFunil) * 100)}%"></span></span>
+            <span class="funil-valor">${Number(e.quantidade)} <small>(${Number(e.percentual)}%)</small></span>
+          </div>`).join('')}
+      </div>
+      <h3 class="cresc-sub">Em teste agora (${emTeste.length})</h3>
+      ${emTeste.length === 0 ? '<div class="empty" style="padding:16px;">Nenhuma máquina em teste. Instalação nova (desta versão em diante) começa sozinha com 14 dias.</div>' : ''}
+      ${emTeste.map(({ inst, info, repetido }) => {
+        const prazo = info.fimMs == null ? 'aguardando o primeiro contato'
+          : (info.expirado ? `terminou há ${Math.max(0, -Number(info.diasRestantes))} dia(s)` : `faltam ${Number(info.diasRestantes)} dia(s)`);
+        const esfriou = info.diasSemSinal != null && info.diasSemSinal >= 2 && !info.expirado;
+        return `
+          <div class="maquina-row teste-row">
+            <div class="teste-info">
+              <div><strong>${escapeHtml(inst.nomeNegocio || 'Sem nome ainda')}</strong>
+                <span class="maquina-meta">· código ${escapeHtml(codigoCurto(inst.id))} · ${escapeHtml(rotuloPerfil(inst.perfilAtivo))} · começou há ${Number(info.diasDesdeInicio ?? 0)} dia(s)</span></div>
+              <div class="etapas">${chipEtapas(info.etapas)}</div>
+              <div class="maquina-meta">
+                <span class="status-pill ${info.expirado ? 'status-inativa' : (info.diasRestantes <= 3 ? 'status-atraso' : 'status-ativa')}">${escapeHtml(prazo)}</span>
+                ${info.parouEm ? ` Parou em: <strong>${escapeHtml(info.parouEm)}</strong>.` : ''}
+                ${esfriou ? ` <span class="badge-warning">Esfriou: ${Number(info.diasSemSinal)} dia(s) sem abrir</span>` : ''}
+                ${repetido ? ` <span class="badge-warning" title="Mesmo computador (maquinaHash) já teve o teste ${escapeHtml(codigoCurto(repetido.id))}">Este computador já usou um teste antes</span>` : ''}
+              </div>
+            </div>
+            <div class="teste-acoes">
+              <button class="btn-primary btn-small" data-teste-vincular="${escapeHtml(inst.id)}">Virou cliente: vincular</button>
+              <button class="btn-secondary btn-small" data-teste-estender="${escapeHtml(inst.id)}">+7 dias</button>
+              <button class="btn-secondary btn-small" data-teste-encerrar="${escapeHtml(inst.id)}">Encerrar</button>
+            </div>
+          </div>`;
+      }).join('')}
+    `;
+    div.querySelectorAll('[data-teste-vincular]').forEach((b) => b.addEventListener('click', () => abrirVincular(b.dataset.testeVincular)));
+    div.querySelectorAll('[data-teste-estender]').forEach((b) => b.addEventListener('click', () => estenderTeste(b.dataset.testeEstender, 7)));
+    div.querySelectorAll('[data-teste-encerrar]').forEach((b) => b.addEventListener('click', () => encerrarTeste(b.dataset.testeEncerrar)));
+  }
+
+  function maquinasDoCliente(clienteId) {
+    return instalacoes.filter((i) => i.clienteId === clienteId);
+  }
+
+  function renderRisco(agora) {
+    const div = document.getElementById('risco-conteudo');
+    if (!div) return;
+    const linhas = clientes.map((c) => {
+      const maquinas = maquinasDoCliente(c.id);
+      const venc = statusVencimento(c);
+      const erros = maquinas.reduce((s, m) => s + (errosPorInstalacao7d.get(m.id) || 0), 0);
+      const nota = crescNotaDeRisco(maquinas, { agoraMs: agora, mensalidadeVencida: !!venc && venc.texto.startsWith('Vencido'), errosUltimos7Dias: erros });
+      return { cliente: c, maquinas, nota };
+    }).filter((l) => l.maquinas.length > 0)
+      .sort((a, b) => b.nota.pontos - a.nota.pontos);
+    const visiveis = linhas.filter((l) => crescMostrarRiscoBaixo || l.nota.nivel !== 'baixo');
+    const altos = linhas.filter((l) => l.nota.nivel === 'alto').length;
+
+    div.innerHTML = `
+      <div class="metricas-grid" style="margin-bottom:12px;">
+        <div class="metrica-box"><div class="metrica-valor" style="${altos ? 'color: var(--danger);' : ''}">${altos}</div><div class="metrica-label">Risco alto</div></div>
+        <div class="metrica-box"><div class="metrica-valor">${linhas.filter((l) => l.nota.nivel === 'medio').length}</div><div class="metrica-label">Risco médio</div></div>
+        <div class="metrica-box"><div class="metrica-valor">${linhas.filter((l) => l.nota.nivel === 'baixo').length}</div><div class="metrica-label">Tranquilos</div></div>
+      </div>
+      <label class="toolbar-check" style="margin-bottom:10px;"><input type="checkbox" id="risco-mostrar-baixo" ${crescMostrarRiscoBaixo ? 'checked' : ''}> Mostrar também os tranquilos</label>
+      ${visiveis.length === 0 ? '<div class="empty" style="padding:16px;">Ninguém com sinal de risco agora.</div>' : ''}
+      ${visiveis.map(({ cliente, nota }) => {
+        const tel = crmContatos[cliente.id] || '';
+        const link = linkWhats(tel, `Olá! Aqui é da Vetta Sistemas, tudo bem com o GerenciaAI por aí?`);
+        return `
+          <div class="maquina-row risco-row risco-${nota.nivel}">
+            <div class="risco-nota" title="Nota de risco (0 a 100)">${Number(nota.pontos)}</div>
+            <div class="teste-info">
+              <strong>${escapeHtml(cliente.nome)}</strong>
+              <ul class="risco-motivos">${nota.motivos.map((m) => `<li>${escapeHtml(m)}</li>`).join('') || '<li>Sem sinal de risco.</li>'}</ul>
+            </div>
+            <div class="teste-acoes">
+              <input type="tel" class="tel-cliente" data-tel-cliente="${escapeHtml(cliente.id)}" value="${escapeHtml(tel)}" placeholder="WhatsApp (DDD)" maxlength="16">
+              ${link ? `<a class="btn-primary btn-small link-botao" href="${escapeHtml(link)}" target="_blank" rel="noopener">WhatsApp</a>` : ''}
+            </div>
+          </div>`;
+      }).join('')}
+    `;
+    document.getElementById('risco-mostrar-baixo').addEventListener('change', (e) => { crescMostrarRiscoBaixo = e.target.checked; renderRisco(Date.now()); });
+    div.querySelectorAll('[data-tel-cliente]').forEach((inp) => inp.addEventListener('change', () => salvarTelefoneCliente(inp.dataset.telCliente, inp.value)));
+  }
+
+  function linhasDoRelatorio(r) {
+    const l = [
+      ['Vendas no mês', `${Number(r.vendas)}`],
+      ['Faturamento', formatarMoeda(r.faturamento)],
+      ['Ticket médio', formatarMoeda(r.ticketMedio)],
+    ];
+    if (r.vendasComCliente) l.push(['Vendas com cliente identificado', `${Number(r.vendasComCliente)} (${Number(r.clientesAtendidos)} cliente(s) diferentes)`]);
+    if (r.campanhasEnviadas) l.push(['Mensagens automáticas de reconquista/aniversário', `${Number(r.campanhasEnviadas)} enviadas · ${Number(r.campanhasVoltaram)} cliente(s) voltaram e compraram ${formatarMoeda(r.campanhasReceita)}`]);
+    if (r.fiadoRecebido) l.push(['Fiado recebido', formatarMoeda(r.fiadoRecebido)]);
+    if (r.vendasPeloCelular) l.push(['Vendas feitas pelo celular', `${Number(r.vendasPeloCelular)}`]);
+    if (r.devolucoes) l.push(['Devoluções registradas', `${Number(r.devolucoes)} (${formatarMoeda(r.devolucoesValor)})`]);
+    if (r.perdasRegistradas) l.push(['Perdas registradas', `${Number(r.perdasRegistradas)}`]);
+    return l;
+  }
+
+  function comparacaoDoCliente(clienteId, segmentos) {
+    for (const s of segmentos) {
+      const loja = s._valores[clienteId];
+      if (loja) {
+        return {
+          perfil: s.perfil, lojas: s.lojas,
+          ticket: crescPosicao(loja.ticketMedio, s.ticketMedio.mediana), ticketMediana: s.ticketMedio.mediana,
+          vendas: crescPosicao(loja.vendasPorDia, s.vendasPorDia.mediana),
+        };
+      }
+    }
+    return null;
+  }
+
+  function textoRelatorioWhatsapp(cliente, r, comp) {
+    const partes = [`*${cliente.nome} — seu ${rotuloMes(r.mes)} com o GerenciaAI*`, ''];
+    for (const [rotulo, valor] of linhasDoRelatorio(r)) partes.push(`• ${rotulo}: ${valor}`);
+    if (comp) {
+      partes.push('', `Comparando com ${comp.lojas} lojas do mesmo segmento (${rotuloPerfil(comp.perfil)}), sem identificar ninguém:`);
+      if (comp.ticket) partes.push(`• Seu ticket médio ${crescFrasePosicao(comp.ticket)} (${formatarMoeda(comp.ticketMediana)}).`);
+      if (comp.vendas) partes.push(`• Seu número de vendas por dia ${crescFrasePosicao(comp.vendas)}.`);
+    }
+    partes.push('', 'Qualquer dúvida, é só chamar por aqui.');
+    return partes.join('\n');
+  }
+
+  function htmlRelatorioImpressao(cliente, r, comp) {
+    return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(cliente.nome)} — ${escapeHtml(rotuloMes(r.mes))}</title>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; color: #1c2b30; margin: 0; padding: 40px; }
+  .topo { border-bottom: 3px solid #0f6e63; padding-bottom: 12px; margin-bottom: 20px; }
+  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color: #5c6b70; margin: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; }
+  td { padding: 10px 8px; border-bottom: 1px solid #e1e6e8; font-size: 15px; } td:last-child { text-align: right; font-weight: 600; }
+  .comp { background: #eef7f5; border-radius: 10px; padding: 14px 16px; } .comp p { margin: 6px 0; }
+  .rodape { margin-top: 28px; color: #5c6b70; font-size: 12px; }
+  @media print { body { padding: 16mm; } }
+</style></head><body>
+<div class="topo"><h1>${escapeHtml(cliente.nome)}</h1><p class="sub">Seu ${escapeHtml(rotuloMes(r.mes))} com o GerenciaAI</p></div>
+<table>${linhasDoRelatorio(r).map(([a, b]) => `<tr><td>${escapeHtml(a)}</td><td>${escapeHtml(b)}</td></tr>`).join('')}</table>
+${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas do mesmo segmento (${escapeHtml(rotuloPerfil(comp.perfil))})</strong>
+  <p>Números de outras lojas entram só como mediana — ninguém é identificado.</p>
+  ${comp.ticket ? `<p>Seu ticket médio <strong>${escapeHtml(crescFrasePosicao(comp.ticket))}</strong> (mediana: ${escapeHtml(formatarMoeda(comp.ticketMediana))}).</p>` : ''}
+  ${comp.vendas ? `<p>Seu número de vendas por dia <strong>${escapeHtml(crescFrasePosicao(comp.vendas))}</strong>.</p>` : ''}</div>` : ''}
+<p class="rodape">Números calculados pelo próprio sistema da loja. Gerado em ${escapeHtml(new Date().toLocaleDateString('pt-BR'))}.</p>
+</body></html>`;
+  }
+
+  function renderRelatorio(segmentos) {
+    const div = document.getElementById('relatorio-conteudo');
+    if (!div) return;
+    const comRelatorio = clientes
+      .map((c) => ({ cliente: c, r: crescRelatorioDoCliente(maquinasDoCliente(c.id)) }))
+      .filter((x) => x.r);
+    if (!comRelatorio.some((x) => x.cliente.id === crescClienteRelatorio)) crescClienteRelatorio = comRelatorio[0]?.cliente.id || '';
+    const atual = comRelatorio.find((x) => x.cliente.id === crescClienteRelatorio);
+    const comp = atual ? comparacaoDoCliente(atual.cliente.id, segmentos) : null;
+
+    div.innerHTML = comRelatorio.length === 0
+      ? '<div class="empty" style="padding:16px;">Nenhum cliente mandou o resumo do mês ainda (chega com a versão nova, na conferência de 6 em 6 h).</div>'
+      : `
+        <div class="modal-form" style="flex-direction:row; align-items:center; max-width:640px; margin-bottom:12px;">
+          <select id="relatorio-cliente" style="flex:1;">
+            ${comRelatorio.map(({ cliente, r }) => `<option value="${escapeHtml(cliente.id)}" ${cliente.id === crescClienteRelatorio ? 'selected' : ''}>${escapeHtml(cliente.nome)} — ${escapeHtml(rotuloMes(r.mes))}</option>`).join('')}
+          </select>
+        </div>
+        ${atual ? `
+          <div class="relatorio-previa">
+            <table class="relatorio-tabela">${linhasDoRelatorio(atual.r).map(([a, b]) => `<tr><td>${escapeHtml(a)}</td><td>${escapeHtml(b)}</td></tr>`).join('')}</table>
+            ${comp ? `<p class="maquina-meta">Segmento ${escapeHtml(rotuloPerfil(comp.perfil))} (${Number(comp.lojas)} lojas): ticket médio ${escapeHtml(comp.ticket ? crescFrasePosicao(comp.ticket) : '—')}; vendas por dia ${escapeHtml(comp.vendas ? crescFrasePosicao(comp.vendas) : '—')}.</p>`
+              : '<p class="maquina-meta">Comparação com o segmento aparece quando houver 5 lojas ou mais do mesmo perfil.</p>'}
+          </div>
+          <div class="modal-actions" style="justify-content:flex-start; margin-top:12px;">
+            <button class="btn-primary btn-small" id="relatorio-imprimir">Abrir para imprimir / salvar PDF</button>
+            <button class="btn-secondary btn-small" id="relatorio-copiar">Copiar texto para WhatsApp</button>
+            ${linkWhats(crmContatos[atual.cliente.id]) ? `<a class="btn-secondary btn-small link-botao" target="_blank" rel="noopener"
+              href="${escapeHtml(linkWhats(crmContatos[atual.cliente.id], textoRelatorioWhatsapp(atual.cliente, atual.r, comp)))}">Enviar no WhatsApp</a>`
+              : '<span class="maquina-meta">Salve o WhatsApp do cliente em "Ligar hoje" para enviar direto.</span>'}
+          </div>` : ''}
+      `;
+    document.getElementById('relatorio-cliente')?.addEventListener('change', (e) => { crescClienteRelatorio = e.target.value; renderRelatorio(segmentos); });
+    document.getElementById('relatorio-imprimir')?.addEventListener('click', () => {
+      // Página separada, sem script: só o resumo, pronto pra imprimir.
+      const url = URL.createObjectURL(new Blob([htmlRelatorioImpressao(atual.cliente, atual.r, comp)], { type: 'text/html' }));
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    });
+    document.getElementById('relatorio-copiar')?.addEventListener('click', async (e) => {
+      try {
+        await navigator.clipboard.writeText(textoRelatorioWhatsapp(atual.cliente, atual.r, comp));
+        e.target.textContent = 'Copiado!';
+      } catch { alert('Não consegui copiar automaticamente neste navegador.'); }
+    });
+  }
+
+  function renderSegmentos(segmentos) {
+    const div = document.getElementById('segmento-conteudo');
+    if (!div) return;
+    div.innerHTML = segmentos.length === 0
+      ? '<div class="empty" style="padding:16px;">Ainda sem lojas com faturamento informado (chega com a versão nova).</div>'
+      : `<table class="relatorio-tabela segmento-tabela">
+          <thead><tr><th>Segmento</th><th>Lojas</th><th>Ticket médio (mediana)</th><th>Vendas por dia (mediana)</th><th>Faturamento por dia (mediana)</th></tr></thead>
+          <tbody>${segmentos.map((s) => `
+            <tr>
+              <td>${escapeHtml(rotuloPerfil(s.perfil))}</td>
+              <td>${Number(s.lojas)}</td>
+              ${s.suficiente
+                ? `<td>${formatarMoeda(s.ticketMedio.mediana)} <small>(${formatarMoeda(s.ticketMedio.p25)} a ${formatarMoeda(s.ticketMedio.p75)})</small></td>
+                   <td>${Number(s.vendasPorDia.mediana).toFixed(1).replace('.', ',')}</td>
+                   <td>${formatarMoeda(s.faturamentoPorDia.mediana)}</td>`
+                : `<td colspan="3" class="maquina-meta">Faltam ${CRESC_MIN_LOJAS_SEGMENTO - Number(s.lojas)} loja(s) para mostrar (com menos de ${CRESC_MIN_LOJAS_SEGMENTO}, daria para adivinhar quem é quem).</td>`}
+            </tr>`).join('')}</tbody>
+        </table>
+        <p class="maquina-meta" style="margin-top:8px;">Últimos 30 dias, somando as máquinas de cada cliente. Entre parênteses: metade das lojas fica nessa faixa.</p>`;
+  }
+
+  function renderCrescimento() {
+    if (TELA_ATUAL !== 'crescimento') return;
+    const agora = Date.now();
+    renderTesteGratis(agora);
+    renderRisco(agora);
+    const segmentos = crescComparacaoPorSegmento(instalacoes);
+    renderRelatorio(segmentos);
+    renderSegmentos(segmentos);
+  }
+
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
   function render() {
+    renderCrescimento();
     renderMetricas();
     renderAlertaSumidas();
     renderGrupos();
@@ -3216,6 +3951,7 @@
               PDV móvel
             </label>
           </div>
+          ${renderVitrineDoCliente(cliente, maquinas)}
           ${renderAtivacoesDoCliente(cliente)}
           ${maquinas.map((m) => renderMaquinaRow(m, true)).join('')}
         </div>
@@ -3851,6 +4587,13 @@
         salvarModuloCliente(input.dataset.moduloToggle, input.dataset.moduloNome, input.checked);
       });
     });
+    listaClientes.querySelectorAll('[data-vitrine-salvar]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); salvarVitrineDoCliente(btn.dataset.vitrineSalvar); });
+    });
+    listaClientes.querySelectorAll('[data-vitrine-desativar]').forEach((btn) => {
+      btn.addEventListener('click', (e) => { e.stopPropagation(); desativarVitrine(btn.dataset.vitrineDesativar); });
+    });
+    listaClientes.querySelectorAll('[data-vitrine-campo]').forEach((el) => el.addEventListener('click', (e) => e.stopPropagation()));
   }
 
   buscaInput.addEventListener('input', render);

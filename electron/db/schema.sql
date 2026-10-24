@@ -305,7 +305,18 @@ CREATE TABLE IF NOT EXISTS license_state (
   ultimo_contato_ok  TEXT,    -- última vez que confirmou com o servidor com sucesso, seja ativa ou não
   congelada_desde    TEXT,    -- quando o servidor disse pela primeira vez "inativa" (NULL enquanto ativa) — tem 2 dias de carência
   bloqueio_imediato  INTEGER NOT NULL DEFAULT 0, -- bloqueio direto, sem carência nenhuma — diferente do congelamento (que avisa e dá 2 dias)
-  status_atual       TEXT NOT NULL DEFAULT 'ativa' -- cache do último status conhecido: ativa | inativa
+  status_atual       TEXT NOT NULL DEFAULT 'ativa', -- cache do último status conhecido: ativa | inativa
+  -- Teste grátis (ver testeGratisService.js): fim do prazo (ISO) conforme
+  -- o servidor; NULL = não está em teste (cliente vinculado ou instalação
+  -- antiga). Em banco antigo, colunas vêm de migrateColumnsIfNeeded.
+  teste_fim          TEXT,
+  -- JSON {whatsapp, mensagem, empresa} de config_publica/comercial, pra a
+  -- tela de fim de teste funcionar offline.
+  contato_comercial  TEXT,
+  -- Primeira vez que esta instalação abriu (relógio local). Instalação
+  -- que NUNCA conseguiu falar com o servidor é bloqueada depois de 14 dias
+  -- (sem isso, bloquear a internet no firewall dava teste infinito).
+  primeira_execucao  TEXT
 );
 
 -- ============================================================
@@ -1478,6 +1489,11 @@ CREATE TABLE IF NOT EXISTS pdv_mobile_config (
   -- 'gestao' (só celular vinculado a gerente/admin/suporte) | 'todos'.
   -- Em banco antigo a coluna vem de migrateColumnsIfNeeded.
   metricas_loja                 TEXT NOT NULL DEFAULT 'gestao',
+  -- Gestão de produtos pelo PDV móvel (alterar preço, ajustar estoque,
+  -- cadastrar produto, ver custo e margem) -- ver pdvMobileGestaoService.js.
+  -- 'gestao' (só celular vinculado a gerente/admin/suporte) | 'desligado'.
+  -- Operador nunca. Em banco antigo a coluna vem de migrateColumnsIfNeeded.
+  gestao_produtos               TEXT NOT NULL DEFAULT 'gestao',
   atualizado_por_id             TEXT REFERENCES users(id),
   atualizado_em                 TEXT
 );
@@ -1508,6 +1524,45 @@ CREATE TABLE IF NOT EXISTS mobile_sales (
 );
 CREATE INDEX IF NOT EXISTS idx_mobile_sales_status ON mobile_sales(status);
 CREATE INDEX IF NOT EXISTS idx_mobile_sales_sale ON mobile_sales(sale_id);
+
+-- Alterações de produto feitas pelo PDV móvel de gestão (preço, estoque,
+-- cadastro) -- id = id do documento em gestao_pdv. Gravada na MESMA
+-- transação da alteração: é o que impede aplicar duas vezes o mesmo pedido
+-- (reentrega do listener, resposta que não chegou no celular). Ver
+-- pdvMobileGestaoService.js. O registro "oficial" continua sendo a
+-- Auditoria (audit_log) e product_price_history/stock_movements.
+CREATE TABLE IF NOT EXISTS mobile_gestao_pedidos (
+  id          TEXT PRIMARY KEY,
+  device_id   TEXT NOT NULL,
+  usuario_id  TEXT REFERENCES users(id),
+  tipo        TEXT NOT NULL CHECK (tipo IN ('preco','estoque','produto_novo')),
+  ok          INTEGER NOT NULL,
+  resultado   TEXT,
+  erro        TEXT,
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_mobile_gestao_pedidos_criado ON mobile_gestao_pedidos(criado_em);
+
+-- Vitrine online (vitrineService.js): o que a loja escolheu mostrar e o
+-- endereço criado na Central (slug, vem de installations/{id}.vitrineSlug).
+-- ultimo_hash evita republicar o catálogo quando nada mudou.
+CREATE TABLE IF NOT EXISTS vitrine_config (
+  id                    TEXT PRIMARY KEY DEFAULT 'default',
+  ativa                 INTEGER NOT NULL DEFAULT 0,
+  ocultar_sem_estoque   INTEGER NOT NULL DEFAULT 1,
+  -- Mostra "poucas unidades" com estoque até este número (0 = não mostra).
+  -- A quantidade exata nunca vai pro público.
+  aviso_poucas_unidades INTEGER NOT NULL DEFAULT 3,
+  mensagem              TEXT,
+  modos                 TEXT NOT NULL DEFAULT '["retirada"]',
+  pedido_minimo         REAL NOT NULL DEFAULT 0,
+  slug                  TEXT,
+  ultimo_hash           TEXT,
+  ultima_publicacao     TEXT,
+  itens_publicados      INTEGER,
+  atualizado_por_id     TEXT REFERENCES users(id),
+  atualizado_em         TEXT
+);
 
 -- ============================================================
 -- DESEMPENHO (v1.0) -- tabelas/triggers de apoio a caches e

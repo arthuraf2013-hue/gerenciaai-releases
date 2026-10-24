@@ -10,12 +10,12 @@
 // Nunca intercepta chamada pro Firestore/Firebase -- só os arquivos
 // deste mesmo diretório.
 
-const CACHE = 'gerenciaai-garcom-v4'; // v4: correções de escape de HTML (auditoria de segurança)
+const CACHE = 'gerenciaai-garcom-v5'; // v5: aba Produtos do PDV móvel (pdv-gestao.js)
 const ARQUIVOS_SHELL = [
   './', './index.html', './styles.css', './app.js', './firebase-config.js',
   './store.js', './pairing.js', './garcom.js', './consulta.js', './manifest.webmanifest', './icons.js',
   './pdv.js', './pdv-venda.js', './pdv-historico.js', './pdv-servidor.js', './pdv-scanner.js',
-  './pdv-recibo.js', './pdv-util.js', './painel-loja.js',
+  './pdv-recibo.js', './pdv-util.js', './painel-loja.js', './pdv-gestao.js',
 ];
 
 self.addEventListener('install', (event) => {

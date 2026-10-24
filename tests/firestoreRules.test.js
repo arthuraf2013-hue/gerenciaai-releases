@@ -744,6 +744,83 @@ test('config_mobile: só PDV móvel ativo lê; só o desktop escreve', { skip: !
 });
 
 // ---------------------------------------------------------------------
+// gestao_pdv: mexer em produto pelo celular -- só celular que o
+// computador liberou (config_mobile/pdv.gestaoLiberadaPara, ver
+// pdvMobileConfigService.dispositivosComGestao).
+// ---------------------------------------------------------------------
+
+async function setupGestao(installId, { pdvMobile = true, liberados = ['uid-pdv-gerente'] } = {}) {
+  await setupModulos(installId, { pdvMobile });
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await db.doc(`installations/${installId}/dispositivos/uid-pdv-gerente`).set({ tipo: 'pdv', ativo: true, vinculoUserId: 'user-gerente-1' });
+    await db.doc(`installations/${installId}/dispositivos/uid-pdv-operador`).set({ tipo: 'pdv', ativo: true, vinculoUserId: 'user-operador-1' });
+    await db.doc(`installations/${installId}/config_mobile/pdv`).set({ gestaoProdutos: 'gestao', gestaoLiberadaPara: liberados });
+  });
+}
+
+function pedidoPreco(uid, extra = {}) {
+  return { dispositivoUid: uid, status: 'novo', tipo: 'preco', produtoId: 'p1', preco: 12.5, precoAnterior: 10, ...extra };
+}
+
+test('gestao_pdv: celular liberado cria pedido; celular de operador (fora da lista) não', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupGestao('install-GP1');
+  const gerente = testEnv.authenticatedContext('uid-pdv-gerente').firestore();
+  await assertSucceeds(gerente.doc('installations/install-GP1/gestao_pdv/g1').set(pedidoPreco('uid-pdv-gerente')));
+  await assertSucceeds(gerente.doc('installations/install-GP1/gestao_pdv/g2').set({
+    dispositivoUid: 'uid-pdv-gerente', status: 'novo', tipo: 'produto_novo', nome: 'Água', preco: 3, custo: null,
+    unidade: 'un', estoqueInicial: 10, codigoBarras: '789', categoria: null,
+  }));
+  const operador = testEnv.authenticatedContext('uid-pdv-operador').firestore();
+  await assertFails(operador.doc('installations/install-GP1/gestao_pdv/g3').set(pedidoPreco('uid-pdv-operador')));
+});
+
+test('gestao_pdv: tipo, campo ou formato fora do combinado é recusado', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupGestao('install-GP2');
+  const gerente = testEnv.authenticatedContext('uid-pdv-gerente').firestore();
+  const base = 'installations/install-GP2/gestao_pdv';
+  await assertFails(gerente.doc(`${base}/a`).set(pedidoPreco('uid-pdv-gerente', { tipo: 'excluir_produto' })));
+  await assertFails(gerente.doc(`${base}/b`).set(pedidoPreco('uid-pdv-gerente', { custoSecreto: 1 })));
+  await assertFails(gerente.doc(`${base}/c`).set(pedidoPreco('uid-pdv-gerente', { preco: '12,50' })));
+  await assertFails(gerente.doc(`${base}/d`).set(pedidoPreco('uid-pdv-gerente', { motivo: 'x'.repeat(121) })));
+  await assertFails(gerente.doc(`${base}/e`).set(pedidoPreco('uid-pdv-gerente', { status: 'respondida' })));
+  await assertFails(gerente.doc(`${base}/f`).set(pedidoPreco('uid-outro')));
+});
+
+test('gestao_pdv: módulo desligado ou celular revogado não cria, mesmo na lista', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupGestao('install-GP3', { pdvMobile: false });
+  await assertFails(testEnv.authenticatedContext('uid-pdv-gerente').firestore()
+    .doc('installations/install-GP3/gestao_pdv/x').set(pedidoPreco('uid-pdv-gerente')));
+
+  await setupGestao('install-GP4');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-GP4/dispositivos/uid-pdv-gerente').update({ ativo: false });
+  });
+  await assertFails(testEnv.authenticatedContext('uid-pdv-gerente').firestore()
+    .doc('installations/install-GP4/gestao_pdv/x').set(pedidoPreco('uid-pdv-gerente')));
+});
+
+test('gestao_pdv: só o dono lê a resposta; só o desktop responde e apaga; celular não muda o pedido', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await setupGestao('install-GP5', { liberados: ['uid-pdv-gerente', 'uid-pdv-operador'] });
+  const gerente = testEnv.authenticatedContext('uid-pdv-gerente').firestore();
+  const ref = 'installations/install-GP5/gestao_pdv/g1';
+  await assertSucceeds(gerente.doc(ref).set(pedidoPreco('uid-pdv-gerente')));
+  await assertSucceeds(gerente.doc(ref).get());
+  await assertFails(testEnv.authenticatedContext('uid-pdv-operador').firestore().doc(ref).get());
+  await assertFails(gerente.doc(ref).update({ status: 'respondida', resultado: { mensagem: 'forjado' } }));
+  await assertFails(gerente.doc(ref).delete());
+
+  const desktop = testEnv.unauthenticatedContext().firestore();
+  await assertFails(desktop.doc(ref).update({ preco: 1 }));
+  await assertSucceeds(desktop.doc(ref).update({ status: 'respondida', resultado: { mensagem: 'ok' } }));
+  await assertSucceeds(desktop.doc(ref).delete());
+});
+
+// ---------------------------------------------------------------------
 // historico_vendas pelo PDV móvel: só celular que o computador liberou
 // (config_mobile/pdv.metricasLiberadasPara -- ver
 // pdvMobileConfigService.dispositivosComMetricas).
@@ -934,4 +1011,62 @@ test('admin: conta de e-mail/senha que NÃO está em admins/{uid} não é admini
   await assertSucceeds(testEnv.authenticatedContext('admin-1', { firebase: { sign_in_provider: 'password' } }).firestore().doc('admins/admin-1').get());
   await assertFails(testEnv.authenticatedContext('admin-1', { firebase: { sign_in_provider: 'password' } }).firestore().collection('admins').get());
   await assertSucceeds(adminCtx().doc('installations/pc-alvo').update({ ativo: true }));
+});
+
+// ---------------------------------------------------------------------
+// Teste grátis (testeGratisService.js) e tela Crescimento da Central.
+// ---------------------------------------------------------------------
+
+test('teste grátis: desktop cria a instalação em teste de até 30 dias; não define prazo próprio', SK, async () => {
+  await setupTestEnv();
+  const db = semLogin();
+  const base = { ativo: true, bloqueioImediato: false, clienteId: null, versaoApp: '1.0.5', maquinaHash: 'abc' };
+  await assertSucceeds(db.doc('installations/teste-pc-1').set({ ...base, teste: { dias: 14 } }));
+  await assertFails(db.doc('installations/teste-pc-2').set({ ...base, teste: { dias: 365 } }));
+  await assertFails(db.doc('installations/teste-pc-3').set({ ...base, teste: { dias: 14, extra: true } }));
+  await assertFails(db.doc('installations/teste-pc-4').set({ ...base, teste: { dias: 14 }, testeAte: new Date(2099, 0, 1) }));
+});
+
+test('teste grátis: depois de criada, a máquina não mexe no teste; a Central estende', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/teste-pc-5').set({ ativo: true, teste: { dias: 14 }, clienteId: null }));
+  const db = semLogin();
+  await assertFails(db.doc('installations/teste-pc-5').set({ teste: { dias: 30 } }, { merge: true }));
+  await assertFails(db.doc('installations/teste-pc-5').set({ testeAte: new Date(2099, 0, 1) }, { merge: true }));
+  await assertFails(db.doc('installations/teste-pc-5').update({ teste: null }));
+  // métricas, relatório e hash continuam livres pra máquina
+  await assertSucceeds(db.doc('installations/teste-pc-5').set({ maquinaHash: 'h', produtosCadastrados: 10, relatorioMensal: { mes: '2026-09', vendas: 3 } }, { merge: true }));
+  await assertSucceeds(adminCtx().doc('installations/teste-pc-5').update({ testeAte: new Date(2026, 11, 1) }));
+});
+
+test('crescimento: contato comercial é público pra ler e só a Central grava; crm é só da Central', SK, async () => {
+  await setupTestEnv();
+  await assertSucceeds(adminCtx().doc('config_publica/comercial').set({ whatsapp: '81999991234', empresa: 'Vetta' }));
+  await assertSucceeds(semLogin().doc('config_publica/comercial').get());
+  await assertFails(semLogin().doc('config_publica/comercial').set({ whatsapp: '11900000000' }));
+  await assertSucceeds(adminCtx().doc('crm/contatos').set({ telefones: { c1: '81999991234' } }));
+  await assertFails(semLogin().doc('crm/contatos').get());
+  await assertFails(testEnv.authenticatedContext('uid-qualquer').firestore().doc('crm/contatos').get());
+});
+
+test('vitrine: endereço (com o WhatsApp dos pedidos) só a Central grava; página pública lê', SK, async () => {
+  await setupTestEnv();
+  await assertSucceeds(adminCtx().doc('vitrines/padaria-x').set({ clienteId: 'c1', installId: 'pc-vit', whatsapp: '81999991234', ativa: true }));
+  await assertSucceeds(semLogin().doc('vitrines/padaria-x').get());
+  // desktop sem login (ou qualquer celular) não troca o número para onde vão os pedidos
+  await assertFails(semLogin().doc('vitrines/padaria-x').set({ clienteId: 'c1', installId: 'pc-vit', whatsapp: '11900000000', ativa: true }));
+  await assertFails(testEnv.authenticatedContext('uid-qualquer').firestore().doc('vitrines/padaria-x').update({ whatsapp: '11900000000' }));
+});
+
+test('vitrine: o computador publica só catalogo/config; qualquer um lê; logado não grava; endereço na instalação é da Central', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/pc-vit').set({ ativo: true, clienteId: 'c1' }));
+  const desktop = semLogin();
+  await assertSucceeds(desktop.doc('installations/pc-vit/vitrine/catalogo').set({ itens: [] }));
+  await assertSucceeds(desktop.doc('installations/pc-vit/vitrine/config').set({ ativa: true }));
+  await assertFails(desktop.doc('installations/pc-vit/vitrine/outra').set({ x: 1 }));
+  await assertFails(testEnv.authenticatedContext('uid-qualquer').firestore().doc('installations/pc-vit/vitrine/catalogo').set({ itens: [] }));
+  await assertSucceeds(testEnv.authenticatedContext('uid-qualquer').firestore().doc('installations/pc-vit/vitrine/catalogo').get());
+  await assertFails(desktop.doc('installations/pc-vit').set({ vitrineSlug: 'outra-loja' }, { merge: true }));
+  await assertSucceeds(adminCtx().doc('installations/pc-vit').update({ vitrineSlug: 'padaria-x' }));
 });

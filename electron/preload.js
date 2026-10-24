@@ -184,6 +184,11 @@ contextBridge.exposeInMainWorld('pdv', {
     reativarDispositivo: invoke('pairing:reativarDispositivo'),
     excluirDispositivo: invoke('pairing:excluirDispositivo'),
   },
+  vitrine: {
+    getConfig: invoke('vitrine:getConfig'),
+    saveConfig: invoke('vitrine:saveConfig'),
+    publicarAgora: invoke('vitrine:publicarAgora'),
+  },
   pdvMobile: {
     getConfig: invoke('pdvMobile:getConfig'),
     saveConfig: invoke('pdvMobile:saveConfig'),
@@ -201,6 +206,12 @@ contextBridge.exposeInMainWorld('pdv', {
     reprocessar: invoke('pdvTerminal:reprocessar'),
     getConfig: invoke('pdvTerminal:getConfig'),
     salvarConfig: invoke('pdvTerminal:salvarConfig'),
+  },
+  migracao: {
+    abrirArquivo: invoke('migracao:abrirArquivo'),
+    sugerirComIA: invoke('migracao:sugerirComIA'),
+    previa: invoke('migracao:previa'),
+    importar: invoke('migracao:importar'),
   },
   io: {
     exportProducts: invoke('io:exportProducts'),
