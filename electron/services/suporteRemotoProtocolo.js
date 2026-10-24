@@ -197,6 +197,25 @@ const ROTULO_CORRECAO = Object.freeze({
   reiniciar_app: 'Reiniciar o aplicativo',
 });
 
+// ------------------------------------------------------------------
+// Pedido de conexão do técnico: novo ou sobra?
+// ------------------------------------------------------------------
+// O computador não consegue apagar o pedidoConectar (campo do técnico), então
+// um pedido de sessão anterior SEMPRE pode estar no documento. Aceitar uma
+// sobra fazia o não supervisionado entrar em laço (aceita -> falha -> grava
+// -> snapshot -> aceita de novo), abrindo e fechando a captura de tela.
+const JANELA_PEDIDO_MS = 5 * 60 * 1000;
+
+/** true só se o pedido é novo: tem nonce, nunca foi tratado, é recente e
+ * (havendo código gerado) é posterior a ele. */
+function pedidoConectarValido({ nonce, emMs, agoraMs, criadoEmMs = null, jaTratado = false }) {
+  if (!nonce || jaTratado) return false;
+  const em = Number(emMs) || 0;
+  if (!em || Math.abs(agoraMs - em) > JANELA_PEDIDO_MS) return false;
+  if (criadoEmMs != null && em < criadoEmMs) return false;
+  return true;
+}
+
 module.exports = {
   ESTADOS, TRANSICOES, transicaoPermitida,
   DURACAO_CODIGO_MS, MAX_TENTATIVAS_CODIGO,
@@ -205,4 +224,5 @@ module.exports = {
   MSG, CHUNK_BYTES, TAMANHO_MAXIMO_ARQUIVO, numeroDeFatias, fatiarBuffer, remontarPartes,
   COMANDO_MAX_LEN, SHELL_TIMEOUT_MS, SHELL_SAIDA_MAX_BYTES, sanitizarComando,
   CORRECOES, correcaoValida, ROTULO_CORRECAO,
+  JANELA_PEDIDO_MS, pedidoConectarValido,
 };

@@ -43,6 +43,16 @@ const DOC_SESSAO = 'sessao';
 let sessao = null;        // { codigoHash, criadoEmMs, estado, tentativas, naoSupervisionado, tecnico }
 let janelaPeer = null;    // BrowserWindow oculta com o WebRTC
 let pararEscuta = null;   // cancela o onSnapshot da sinalização
+// Nonces de pedidoConectar já tratados NESTE processo. Fica fora de `sessao`
+// de propósito: a sessão vira null ao encerrar, e se a memória do "já
+// tratei esse pedido" morresse junto, o mesmo pedido (que o computador não
+// pode apagar do Firestore) seria aceito de novo a cada snapshot -- laço
+// abre-janela/fecha-janela que fazia a tela piscar no não supervisionado.
+const noncesTratados = new Set();
+// Se a conexão não autenticar em 60 s depois de aceita, desiste (sem isso
+// uma negociação travada deixava a captura de tela aberta à toa).
+const TEMPO_NEGOCIACAO_MS = 60 * 1000;
+let temporizadorNegociacao = null;
 let temporizadorCodigo = null;
 
 function getDb() { return require('../db/database').getDb(); }
@@ -73,12 +83,12 @@ function salvarConfig({ naoSupervisionado }, { operadorId } = {}) {
     db.prepare('UPDATE suporte_remoto_config SET nao_supervisionado = 1, segredo_sal = ?, segredo_hash = ?, atualizado_em = NOW_SYNCED() WHERE id = 1')
       .run(sal, hash);
     auditar('suporte_remoto_config', operadorId, 'Acesso remoto não supervisionado LIGADO');
-    publicarConfigNaCentral();
+    publicarConvite({ naoSupervisionado: true, segredo });
     return { ok: true, naoSupervisionado: true, segredo };
   }
   db.prepare('UPDATE suporte_remoto_config SET nao_supervisionado = 0, segredo_sal = NULL, segredo_hash = NULL, atualizado_em = NOW_SYNCED() WHERE id = 1').run();
   auditar('suporte_remoto_config', operadorId, 'Acesso remoto não supervisionado DESLIGADO');
-  publicarConfigNaCentral();
+  publicarConvite({ naoSupervisionado: false, segredo: null });
   return { ok: true, naoSupervisionado: false };
 }
 
@@ -107,13 +117,13 @@ function idDeSuporteOuAdmin() {
 // ------------------------------------------------------------------
 // Firestore de sinalização
 // ------------------------------------------------------------------
-function refs() {
+function refs(docId = DOC_SESSAO) {
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
   const { doc } = require('firebase/firestore');
   const firestore = licenseService.getLicenseFirestore();
   const installId = pdvRegistryService.getOrCreateDeviceUid();
-  return { firestore, installId, docRef: doc(firestore, 'installations', installId, 'suporte_remoto', DOC_SESSAO) };
+  return { firestore, installId, docRef: doc(firestore, 'installations', installId, 'suporte_remoto', docId) };
 }
 
 async function escreverSinal(campos) {
@@ -126,12 +136,32 @@ async function escreverSinal(campos) {
   }
 }
 
-/** Publica o estado "pronto pra suporte" pra Central mostrar o selo
- * (sem expor o código -- só se há sessão aguardando e se o não
- * supervisionado está ligado). */
+/** Documento `convite` (installations/{id}/suporte_remoto/convite): é o
+ * que faz o código (e o acesso não supervisionado) APARECER NA CENTRAL.
+ * Diferente do doc `sessao` (leitura aberta, só sinalização), a regra do
+ * Firestore deixa só o ADMIN autenticado ler o convite -- o computador
+ * escreve sem login, mas não lê. Gravar aqui não dá acesso a ninguém: a
+ * conferência continua sendo feita pelo computador, dentro do canal
+ * cifrado, contra o hash local. */
+async function publicarConvite(campos) {
+  try {
+    const { setDoc, serverTimestamp } = require('firebase/firestore');
+    const { docRef } = refs('convite');
+    await setDoc(docRef, { ...campos, atualizadoEm: serverTimestamp() }, { merge: true });
+  } catch (err) {
+    console.error('[suporteRemoto] falha ao publicar convite:', err.message);
+  }
+}
+
+/** No boot: não há sessão nem código vivo; reflete o não supervisionado.
+ * O segredo em claro só existe na hora de ligar (salvarConfig) -- aqui não
+ * mexe nele (merge), pra Central continuar com o que recebeu. */
 async function publicarConfigNaCentral() {
   const cfg = getConfig();
-  await escreverSinal({ naoSupervisionadoDisponivel: cfg.naoSupervisionado && cfg.temSegredo });
+  const ligado = cfg.naoSupervisionado && cfg.temSegredo;
+  await publicarConvite(ligado
+    ? { naoSupervisionado: true, codigo: null, codigoExpiraEmMs: null }
+    : { naoSupervisionado: false, segredo: null, codigo: null, codigoExpiraEmMs: null });
 }
 
 // ------------------------------------------------------------------
@@ -158,6 +188,7 @@ function gerarCodigo({ operadorId } = {}) {
   temporizadorCodigo = setTimeout(() => {
     if (sessao && sessao.estado === P.ESTADOS.AGUARDANDO) encerrarSessaoLocal('codigo_expirou');
   }, P.DURACAO_CODIGO_MS);
+  publicarConvite({ codigo, codigoExpiraEmMs: sessao.criadoEmMs + P.DURACAO_CODIGO_MS });
   auditar('suporte_remoto_sessao', operadorId, 'Código de suporte remoto gerado (aguardando conexão)');
   notificarRenderer();
   return { ok: true, codigo, expiraEmMs: sessao.criadoEmMs + P.DURACAO_CODIGO_MS };
@@ -201,6 +232,11 @@ function aceitarConexao({ operadorId } = {}) {
   auditar('suporte_remoto_sessao', operadorId, `Conexão de suporte autorizada${sessao.naoSupervisionado ? ' (não supervisionada)' : ''}`);
   abrirJanelaPeer();
   escreverSinal({ estado: P.ESTADOS.NEGOCIANDO });
+  if (temporizadorNegociacao) clearTimeout(temporizadorNegociacao);
+  temporizadorNegociacao = setTimeout(() => {
+    temporizadorNegociacao = null;
+    if (sessao && !sessao.autenticada) encerrarSessaoLocal('tempo_esgotado');
+  }, TEMPO_NEGOCIACAO_MS);
   notificarRenderer();
   return { ok: true };
 }
@@ -214,12 +250,15 @@ function encerrarSessao({ operadorId, motivo = 'encerrada_pelo_cliente' } = {}) 
 
 function encerrarSessaoLocal(motivo) {
   if (temporizadorCodigo) { clearTimeout(temporizadorCodigo); temporizadorCodigo = null; }
+  if (temporizadorNegociacao) { clearTimeout(temporizadorNegociacao); temporizadorNegociacao = null; }
+  const tinhaCodigo = !!(sessao && sessao.codigoHash);
   if (sessao) {
     sessao.estado = P.ESTADOS.ENCERRADA;
     registrarSessaoNoBanco('encerrada', motivo);
   }
   fecharJanelaPeer();
   escreverSinal({ estado: P.ESTADOS.ENCERRADA, motivoFim: motivo, desktopSdp: null, desktopIce: [] });
+  if (tinhaCodigo) publicarConvite({ codigo: null, codigoExpiraEmMs: null });
   sessao = null;
   notificarRenderer();
 }
@@ -261,15 +300,17 @@ function processarSinal(dados) {
     // 1) Pedido de conexão do técnico (ele digitou o código / usou o
     //    acesso não supervisionado e clicou em Conectar na Central).
     if (dados.pedidoConectar && (!sessao || sessao.estado === P.ESTADOS.AGUARDANDO)) {
-      const nonce = dados.pedidoConectar.nonce;
+      const nonce = String(dados.pedidoConectar.nonce || '');
       // O computador não consegue apagar o pedidoConectar do técnico (a regra
-      // reserva esse campo ao admin), então um pedido de uma sessão ANTERIOR
-      // pode ter sobrado no documento. Ignora qualquer pedido mais antigo que
-      // o início da sessão atual (o técnico carimba `em` em ms).
-      const emMs = Number(dados.pedidoConectar.em) || 0;
-      if (sessao && emMs && emMs < sessao.criadoEmMs) { /* pedido velho -- ignora */ }
-      else if (sessao && sessao.ultimoPedidoNonce === nonce) { /* já tratado */ }
-      else {
+      // reserva esse campo ao admin), então um pedido ANTERIOR sempre pode
+      // estar sobrando no documento. Só vale um pedido: com nonce, nunca
+      // tratado neste processo, recente, e posterior ao código atual.
+      const valido = P.pedidoConectarValido({
+        nonce, emMs: dados.pedidoConectar.em, agoraMs: agoraMs(),
+        criadoEmMs: sessao ? sessao.criadoEmMs : null, jaTratado: noncesTratados.has(nonce),
+      });
+      if (valido) {
+        noncesTratados.add(nonce); // antes de qualquer coisa: nunca reprocessa
         const naoSup = !!dados.pedidoConectar.naoSupervisionado;
         if (!sessao) {
           // Acesso não supervisionado: o técnico pode iniciar mesmo sem o
@@ -288,8 +329,17 @@ function processarSinal(dados) {
           sessao.pedidoPendente = true; // espera o cliente clicar em Permitir na faixa
           notificarRenderer();
         }
+        return; // o resto do documento ainda é do pedido anterior
       }
     }
+
+    // Daqui pra baixo só vale o que pertence ao pedido da sessão ATUAL. A
+    // Central grava pedidoConectar + zera centralSdp/centralIce no mesmo
+    // setDoc, então resposta/ICE que convivem com o nonce atual são desta
+    // sessão; com outro nonce, é sobra de sessão antiga.
+    const doPedidoAtual = !!(sessao && sessao.ultimoPedidoNonce
+      && dados.pedidoConectar && String(dados.pedidoConectar.nonce || '') === sessao.ultimoPedidoNonce);
+    if (!doPedidoAtual) return;
 
     // 2) Resposta/ICE do técnico (answer + candidatos) -> repassa pro peer.
     if (janelaPeer && !janelaPeer.isDestroyed()) {
@@ -298,7 +348,7 @@ function processarSinal(dados) {
     }
 
     // 3) Técnico encerrou pelo lado dele.
-    if (dados.estado === P.ESTADOS.ENCERRADA && sessao && dados.encerradoPeloTecnico) {
+    if (dados.estado === P.ESTADOS.ENCERRADA && sessao && dados.encerradoPeloTecnico === sessao.ultimoPedidoNonce) {
       encerrarSessaoLocal('encerrada_pelo_tecnico');
     }
   } catch (err) {

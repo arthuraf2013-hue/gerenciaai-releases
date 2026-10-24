@@ -87,3 +87,20 @@ test('correção só aceita ação conhecida, com rótulo', () => {
   assert.equal(P.correcaoValida('rm_rf_tudo'), false);
   for (const a of P.CORRECOES) assert.ok(P.ROTULO_CORRECAO[a], `sem rótulo pra ${a}`);
 });
+
+test('pedidoConectar: sobra de sessão anterior nunca é aceita (laço do não supervisionado)', () => {
+  const agora = 1_700_000_000_000;
+  const base = { nonce: 'abc', emMs: agora - 1000, agoraMs: agora };
+  assert.equal(P.pedidoConectarValido(base), true, 'pedido novo deveria valer');
+  // O cenário do laço: mesmo nonce chegando de novo depois que a sessão caiu.
+  assert.equal(P.pedidoConectarValido({ ...base, jaTratado: true }), false);
+  // Sem nonce / sem carimbo de tempo.
+  assert.equal(P.pedidoConectarValido({ ...base, nonce: '' }), false);
+  assert.equal(P.pedidoConectarValido({ ...base, emMs: 0 }), false);
+  // Velho demais (sobra de horas atrás) e do futuro distante (relógio louco).
+  assert.equal(P.pedidoConectarValido({ ...base, emMs: agora - P.JANELA_PEDIDO_MS - 1 }), false);
+  assert.equal(P.pedidoConectarValido({ ...base, emMs: agora + P.JANELA_PEDIDO_MS + 1 }), false);
+  // Anterior ao código que o cliente acabou de gerar.
+  assert.equal(P.pedidoConectarValido({ ...base, criadoEmMs: agora - 500 }), false);
+  assert.equal(P.pedidoConectarValido({ ...base, criadoEmMs: agora - 5000 }), true);
+});

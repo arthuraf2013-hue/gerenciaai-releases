@@ -769,7 +769,20 @@ service cloud.firestore {
     // computador só grava os campos dele (estado e a própria oferta/ICE).
     // Assim, ninguém com o projectId consegue disparar uma sessão nem se
     // passar pela Central (e, mesmo que tentasse, não passaria do código).
-    match /installations/{installId}/suporte_remoto/{docId} {
+    // Dois documentos:
+    //   - `sessao`  : sinalização (SDP/ICE/estado). Leitura aberta -- não
+    //                 carrega nada sensível; o computador lê sem login.
+    //   - `convite` : o que faz o código de 6 dígitos (e o acesso não
+    //                 supervisionado) APARECER NA CENTRAL. O computador
+    //                 escreve sem login mas NÃO lê; só o admin lê. Gravar
+    //                 aqui não dá acesso a ninguém: quem confere o código é
+    //                 o computador, no canal cifrado, contra o hash local.
+    // Central: um único listener (collectionGroup) pra saber quais máquinas
+    // têm código ativo / não supervisionado ligado. Só admin.
+    match /{caminho=**}/suporte_remoto/{docId} {
+      allow read: if ehAdminAutenticado();
+    }
+    match /installations/{installId}/suporte_remoto/sessao {
       function soCamposDoCliente() {
         return !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['pedidoConectar', 'centralSdp', 'centralIce', 'encerradoPeloTecnico']);
@@ -779,6 +792,15 @@ service cloud.firestore {
         || (request.auth == null
             && !request.resource.data.keys().hasAny(['pedidoConectar', 'centralSdp', 'centralIce', 'encerradoPeloTecnico']));
       allow update: if ehAdminAutenticado() || (request.auth == null && soCamposDoCliente());
+      allow delete: if ehAdminAutenticado();
+    }
+    match /installations/{installId}/suporte_remoto/convite {
+      function soCamposDoConvite() {
+        return request.resource.data.keys()
+          .hasOnly(['codigo', 'codigoExpiraEmMs', 'naoSupervisionado', 'segredo', 'atualizadoEm']);
+      }
+      allow read: if ehAdminAutenticado();
+      allow create, update: if ehAdminAutenticado() || (request.auth == null && soCamposDoConvite());
       allow delete: if ehAdminAutenticado();
     }
   }

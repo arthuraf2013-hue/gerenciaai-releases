@@ -657,7 +657,7 @@
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js';
   import {
     getFirestore, collection, onSnapshot, doc, getDoc, getDocs, updateDoc, setDoc, addDoc, deleteDoc,
-    writeBatch, query, orderBy, where, limit, serverTimestamp, Timestamp, arrayUnion,
+    writeBatch, query, orderBy, where, limit, serverTimestamp, Timestamp, arrayUnion, collectionGroup,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js';
   import {
     initializeAppCheck, ReCaptchaEnterpriseProvider,
@@ -909,6 +909,7 @@
     // (nem baixar as coleções inteiras) nessas duas telas economiza
     // leitura/banda à toa, especialmente conforme a base de clientes cresce.
     if (!TELAS_SEM_INSTALACOES_E_CLIENTES.includes(TELA_ATUAL)) {
+      srEscutarConvites();
       onSnapshot(
         query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
         (snap) => {
@@ -4415,6 +4416,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
         <span class="status-pill ${status.classe}">${status.texto}</span>
         ${renderSeloModoMobile(inst)}
         ${renderSeloMigracao(inst)}
+        ${srRenderSelo(inst)}
         ${Number(inst.conflitosCodigoBarrasPendentes) > 0 ? `<span class="badge-warning" title="Produtos com código de barras em conflito, esperando resolução manual na tela de Produtos dessa máquina">${icon('warning', 12)} ${Number(inst.conflitosCodigoBarrasPendentes)} conflito(s)</span>` : ''}
         ${voltouDepoisDeExcluida(inst) ? `<button class="badge-warning badge-botao" data-manter="${escapeHtml(inst.id)}" title="Essa máquina tinha sido excluída do painel em ${formatarData(inst.excluidaEm)} e voltou a se conectar depois disso. Clique pra mantê-la na lista e tirar este aviso.">${icon('warning', 12)} Voltou depois de excluída · manter</button>` : ''}
         ${renderSaude(inst)}
@@ -4422,7 +4424,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
         <span class="maquina-meta" title="${DICA_ULTIMO_CONTATO}">v${escapeHtml(inst.versaoApp || '—')} · último contato: <span data-ultimo-contato="${escapeHtml(inst.id)}">${textoUltimoContato(inst, online)}</span></span>
         <div class="maquina-acoes">
           ${renderBotaoModoMobile(inst)}
-          <button class="btn-secondary btn-small" data-suporte-remoto="${escapeHtml(inst.id)}" title="Acessar esta máquina para dar suporte (precisa do código que o cliente gera no app)">${icon('link', 12)} Acessar</button>
+          <button class="btn-secondary btn-small" data-suporte-remoto="${escapeHtml(inst.id)}" title="Acessar esta máquina para dar suporte (código gerado pelo cliente em Configurações → Suporte, ou acesso não supervisionado)">${icon('link', 12)} Acessar</button>
           ${temCliente ? `<button class="btn-secondary btn-small" data-desvincular="${escapeHtml(inst.id)}">Desvincular</button>`
                         : `<button class="btn-secondary btn-small" data-vincular="${escapeHtml(inst.id)}">Vincular a cliente</button>`}
           <button class="btn-secondary btn-small" data-congelar="${escapeHtml(inst.id)}" data-ativo="${!!inst.ativo}">
@@ -4641,6 +4643,78 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
 
   let SR = null; // sessão atual do console
 
+  // Convites (installations/{id}/suporte_remoto/convite): o código que o
+  // cliente gerou e se o não supervisionado está ligado. Só admin lê (regra
+  // do Firestore). Um listener só, em collectionGroup -- sem where, então
+  // não precisa de índice.
+  const srConvites = new Map(); // installId -> dados do convite
+  let srAssinaturaConvites = '';
+  function srConviteVivo(c) {
+    if (!c) return { codigo: null, naoSup: false, segredo: null };
+    const codigoOk = c.codigo && Number(c.codigoExpiraEmMs) > Date.now();
+    return { codigo: codigoOk ? String(c.codigo) : null, naoSup: !!c.naoSupervisionado, segredo: c.segredo || null };
+  }
+  let srEscutandoConvites = false;
+  function srEscutarConvites() {
+    if (srEscutandoConvites) return;
+    srEscutandoConvites = true;
+    onSnapshot(collectionGroup(db, 'suporte_remoto'), (snap) => {
+      srConvites.clear();
+      snap.forEach((d) => {
+        if (d.id !== 'convite') return;
+        const instId = d.ref.parent.parent && d.ref.parent.parent.id;
+        if (instId) srConvites.set(instId, d.data());
+      });
+      // Só re-renderiza a lista quando algo VISÍVEL mudou (render completo
+      // recria os inputs de nome -- não atrapalhar quem está digitando).
+      const assinatura = [...srConvites.entries()]
+        .map(([id, c]) => { const v = srConviteVivo(c); return `${id}:${v.codigo || ''}:${v.naoSup ? 1 : 0}`; })
+        .sort().join('|');
+      if (assinatura !== srAssinaturaConvites) { srAssinaturaConvites = assinatura; render(); }
+      srPreencherConvite();
+    }, (err) => console.error('[suporte remoto] convites:', err && err.message));
+    // O código expira em 10 min: tira o selo vencido sem esperar snapshot.
+    setInterval(() => {
+      const assinatura = [...srConvites.entries()]
+        .map(([id, c]) => { const v = srConviteVivo(c); return `${id}:${v.codigo || ''}:${v.naoSup ? 1 : 0}`; })
+        .sort().join('|');
+      if (assinatura !== srAssinaturaConvites) { srAssinaturaConvites = assinatura; render(); }
+    }, 30000);
+  }
+  function srRenderSelo(inst) {
+    const v = srConviteVivo(srConvites.get(inst.id));
+    const partes = [];
+    if (v.codigo) {
+      partes.push(`<span class="badge-warning" title="O cliente gerou um código de suporte remoto — clique em Acessar">${icon('link', 12)} Código ${escapeHtml(v.codigo.slice(0, 3))} ${escapeHtml(v.codigo.slice(3))}</span>`);
+    }
+    if (v.naoSup) {
+      partes.push(`<span class="status-pill" title="Acesso remoto não supervisionado ligado nesta máquina">${icon('link', 12)} Não supervisionado</span>`);
+    }
+    return partes.join('');
+  }
+  /** Preenche o console aberto com o código/segredo publicados (só antes
+   * de conectar -- nunca sobrescreve o que o técnico já digitou). */
+  function srPreencherConvite() {
+    if (!SR || !SR.ov || SR.pc) return;
+    const v = srConviteVivo(srConvites.get(SR.installId));
+    const inCodigo = SR.ov.querySelector('[data-sr="codigo"]');
+    const inSegredo = SR.ov.querySelector('[data-sr="segredo"]');
+    const chk = SR.ov.querySelector('[data-sr="naosup"]');
+    const dica = SR.ov.querySelector('[data-sr="convite-dica"]');
+    if (v.codigo && !inCodigo.value) inCodigo.value = v.codigo;
+    if (v.segredo && !inSegredo.value) inSegredo.value = v.segredo;
+    // Sem código vivo mas com não supervisionado: já deixa esse modo marcado.
+    if (!v.codigo && v.naoSup && v.segredo && !chk.checked && !inCodigo.value) {
+      chk.checked = true; chk.dispatchEvent(new Event('change'));
+    }
+    if (dica) {
+      dica.textContent = v.codigo
+        ? 'Código do cliente já preenchido — é só conectar.'
+        : (v.naoSup ? (v.segredo ? 'Acesso não supervisionado disponível — segredo preenchido.' : 'Não supervisionado ligado, mas o segredo não chegou à Central — peça ao cliente para desligar e ligar de novo.')
+                    : 'Nenhum código ativo nesta máquina ainda. Peça ao cliente para gerar em Configurações → Suporte.');
+    }
+  }
+
   function srInjetarEstilo() {
     if (document.getElementById('sr-estilo')) return;
     const st = document.createElement('style');
@@ -4690,6 +4764,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
           <input data-sr="segredo" class="sr-oculto" placeholder="segredo não supervisionado" style="width:280px;font-size:14px;letter-spacing:0" />
           <button class="btn-primary" data-sr="conectar">Conectar</button>
           <p class="sr-mini" data-sr="auth-erro"></p>
+          <p class="sr-mini" data-sr="convite-dica"></p>
         </div>
         <div class="sr-corpo sr-oculto" data-sr="corpo">
           <div class="sr-esq">
@@ -4779,6 +4854,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
     ov.querySelector('[data-sr="pedir-arquivo"]').addEventListener('click', srPedirArquivo);
     ov.querySelector('[data-sr="clip-pegar"]').addEventListener('click', () => srEnviarCanal({ tipo: SR_MSG.CLIP_PEGAR }));
     ov.querySelector('[data-sr="clip-def"]').addEventListener('click', () => srEnviarCanal({ tipo: SR_MSG.CLIP_DEF, texto: ov.querySelector('[data-sr="clip"]').value }));
+    srPreencherConvite();
   }
 
   async function srConectar() {
@@ -4786,6 +4862,11 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
     const codigo = naoSup ? SR.ov.querySelector('[data-sr="segredo"]').value.trim() : SR.ov.querySelector('[data-sr="codigo"]').value.trim();
     if (!codigo) { SR.ov.querySelector('[data-sr="auth-erro"]').textContent = 'Informe o código.'; return; }
     SR.segredo = codigo;
+    // Nova tentativa (ex.: a anterior falhou): descarta a conexão velha.
+    try { if (SR.unsub) SR.unsub(); } catch { /* */ }
+    try { if (SR.pc) SR.pc.close(); } catch { /* */ }
+    SR.unsub = null; SR.pc = null; SR.canal = null;
+    SR.remotoSetado = false; SR.desktopIceAplicados = 0;
     SR.ov.querySelector('[data-sr="auth-erro"]').textContent = 'Conectando...';
     srEstado('conectando', false);
 
@@ -4800,8 +4881,9 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
     };
 
     // 2) Pedido de conexão pro computador do cliente (limpa resposta antiga).
+    SR.nonce = (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
     await setDoc(SR.ref, {
-      pedidoConectar: { em: Date.now(), nonce: Math.random().toString(36).slice(2), tecnico: (auth.currentUser && auth.currentUser.email) || 'suporte', naoSupervisionado: naoSup },
+      pedidoConectar: { em: Date.now(), nonce: SR.nonce, tecnico: (auth.currentUser && auth.currentUser.email) || 'suporte', naoSupervisionado: naoSup },
       centralSdp: null, centralIce: [], encerradoPeloTecnico: null,
     }, { merge: true });
 
@@ -4924,7 +5006,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
   }
 
   async function srEncerrarPeloTecnico() {
-    try { if (SR && SR.ref) await updateDoc(SR.ref, { estado: 'encerrada', encerradoPeloTecnico: true }); } catch { /* */ }
+    try { if (SR && SR.ref) if (SR.nonce) await updateDoc(SR.ref, { estado: 'encerrada', encerradoPeloTecnico: SR.nonce }); } catch { /* */ }
     srFechar();
   }
   function srFechar() {

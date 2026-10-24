@@ -33,7 +33,9 @@
       };
       pc.onconnectionstatechange = () => {
         const s = pc.connectionState;
-        if (s === 'failed' || s === 'disconnected' || s === 'closed') avisarMain('desconectou', { estado: s });
+        // 'disconnected' é transitório no WebRTC (oscilação de rede) e
+        // costuma voltar sozinho -- só 'failed'/'closed' encerram.
+        if (s === 'failed' || s === 'closed') avisarMain('desconectou', { estado: s });
       };
 
       // Canal de dados (quem faz a oferta cria o canal; o técnico recebe
