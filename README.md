@@ -6105,3 +6105,49 @@ Testes: `tests/pixAutomatico.test.js` (provedor e `fetch` falsos, sem rede).
 **Não testado contra a API real do Mercado Pago** nesta sessão (sem rota de rede):
 na loja, comece com um token `TEST-` e uma venda de R$ 1,00. O PDV do celular
 continua com o QR fixo.
+
+## ERP, Fase 1 — custo médio, pedido de compra e entrada pelo XML da NF-e
+
+Primeira fase do ERP (documento de arquitetura "GerenciaAI ERP — Arquitetura").
+Tudo dentro do app, mesmo SQLite, em Abastecimento (gerente/admin/suporte):
+abas novas **Notas de compra (XML)** e **Pedidos de compra**.
+
+- **Custo médio ponderado** (`custoMedioService.js`, tabela `product_cost_history`):
+  toda entrada COM custo recalcula `products.custo` = (qtd atual × médio + qtd
+  entrada × custo) / (qtd atual + qtd entrada), com a quantidade de todos os
+  locais; estoque zerado/negativo assume o custo da entrada. Saída não mexe.
+  Vale também no Abastecimento de antes (leitura por IA/planilha), que
+  sobrescrevia o custo com o preço da última nota. Não é módulo pago.
+- **Entrada pelo XML** (`nfeXmlParser.js` + `nfeEntradaService.js`): lê
+  `<nfeProc>` ou `<NFe>` 4.00 (`@xmldom/xmldom`, que passou de devDependency
+  para dependency), confere o DV da chave, recusa NFC-e/DOCTYPE, avisa se falta
+  protocolo, se a SEFAZ não autorizou ou se o destinatário não é o CNPJ da loja.
+  Grava em RASCUNHO; casa cada item por código memorizado do fornecedor
+  (`supplier_products`) → EAN → EAN tributável (com fator qTrib/qCom). Custo do
+  item = vProd + frete + seguro + outros + IPI + ICMS-ST + FCP-ST − desconto,
+  dividido pela quantidade convertida (ST retida antes, `vICMSSTRet`, não entra).
+  Confirmar faz tudo numa transação: lote + movimento (via
+  `batchService.createBatch`, que agora devolve `movementId`), custo médio,
+  contas a pagar em `expenses` (uma por duplicata, com `nfe_entrada_id`; ou
+  vencimento único, à vista paga, ou nenhuma), fornecedor novo a partir do
+  `<emit>`, código memorizado e abatimento do pedido vinculado. Estornar volta
+  tudo por lançamentos novos e trava se alguma conta da nota já foi paga. A
+  mesma chave não entra duas vezes (índice único parcial, liberado após estorno).
+- **Pedido de compra** (`purchaseOrderService.js`): rascunho → enviado →
+  parcial → recebido / cancelado; status sempre recalculado das quantidades
+  recebidas. Gera da sugestão de compra (um por fornecedor), manda por WhatsApp
+  ou copia o texto (sem custo), recebe sem nota (custo do pedido → custo médio).
+- **Licença**: módulo pago `erpCompras` em `clientes/{id}.modulosAtivos`
+  (checkbox "ERP — Compras" na Central), espelhado em
+  `modulos_pagos_state.erp_compras`; canais `purchaseOrder:*`/`nfeEntrada:*`
+  recusam com `moduloInativo` quando confirmado desligado (`erpService.js`).
+- Valores em REAL (reais), como o resto do banco — o documento de arquitetura
+  falava em centavos; ficou o padrão do código. Colunas novas em tabela antiga:
+  `expenses.nfe_entrada_id` e `modulos_pagos_state.erp_compras` (+ índice em
+  `migrateColumnsIfNeeded`).
+
+Testes: `custoMedioService`, `nfeEntradaService` (XMLs montados por
+`tests/helpers/nfeXml.js`), `purchaseOrderService` e `erpFase1` (banco antigo
+abrindo com o schema novo, papel e licença no IPC). **Não testado com XML real
+de fornecedor** nesta sessão: na loja, comece por uma nota conhecida e confira o
+custo unitário de cada item antes de lançar.

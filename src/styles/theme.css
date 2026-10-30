@@ -904,3 +904,15 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .pix-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--color-border); border-top-color: var(--color-primary); animation: pix-girar .8s linear infinite; }
 @keyframes pix-girar { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .pix-spinner { animation: none; } }
+/* ERP, Fase 1 -- notas de compra (XML) e pedidos de compra */
+.chip-neutro { background: color-mix(in srgb, var(--color-text-muted) 16%, var(--color-surface)); color: var(--color-text-muted); }
+.erp-bloqueado { max-width: 640px; }
+.nfe-itens td { font-size: 13px; }
+.nfe-item-codigos { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.nfe-item-ignorado td { color: var(--color-text-muted); text-decoration: line-through; }
+.nfe-item-ignorado td:last-child { text-decoration: none; }
+.nfe-rodape { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; margin-top: 20px; align-items: start; }
+.nfe-rodape .settings-section { margin: 0; }
+.nfe-opcoes-pagamento { display: flex; flex-direction: column; gap: 8px; }
+.nfe-opcao { flex-direction: row; align-items: center; gap: 8px; color: var(--color-text); font-size: 14px; }
+.nfe-opcao input[type="radio"] { width: auto; margin: 0; }

@@ -609,6 +609,13 @@ function migrateColumnsIfNeeded(database) {
   // PDV móvel -- módulo pago próprio (ver modulosPagosService.js).
   adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'pdv_mobile', 'INTEGER NOT NULL DEFAULT 0');
 
+  // ERP, Fase 1 (ver schema.sql: product_cost_history, purchase_orders,
+  // nfe_entradas...). As tabelas novas nascem pelo schema.sql; aqui só as
+  // colunas novas em tabelas que já existiam, e o índice delas.
+  adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'erp_compras', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'expenses', 'nfe_entrada_id', 'TEXT');
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_expenses_nfe_entrada ON expenses(nfe_entrada_id);`);
+
   // Tabela de preços de serviços (ver comentário de garantirCampoExtraNoPerfil).
   garantirCampoExtraNoPerfil(database, 'salao_beleza', {
     campo: 'tipo_servico', label: 'Tipo de serviço (corte, coloração, pigmentação...)', tipo: 'texto', obrigatorio: false, aplicaA: 'servico',

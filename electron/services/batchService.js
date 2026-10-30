@@ -16,6 +16,7 @@ function createBatch({ productId, locationId, lote, validade, quantidade, fornec
   if (!product) return { ok: false, error: 'Produto não encontrado.' };
 
   const batchId = randomUUID();
+  const movementId = randomUUID();
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO product_batches (id, product_id, location_id, lote, validade, quantidade, fornecedor_id, operador_id)
@@ -25,13 +26,13 @@ function createBatch({ productId, locationId, lote, validade, quantidade, fornec
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, operador_id, device_id)
        VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?)`
-    ).run(randomUUID(), productId, locationId, qtd, motivo || 'Abastecimento — nota de compra', operadorId, deviceId);
+    ).run(movementId, productId, locationId, qtd, motivo || 'Abastecimento — nota de compra', operadorId, deviceId);
   });
   tx();
 
   require('./stockSyncService').registrarMovimentoDoServidor(productId, qtd, 'abastecimento');
 
-  return { ok: true, batchId };
+  return { ok: true, batchId, movementId };
 }
 
 /** Todos os lotes recebidos de um produto, mais recentes primeiro. */

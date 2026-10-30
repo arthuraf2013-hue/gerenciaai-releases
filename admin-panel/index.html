@@ -2088,7 +2088,7 @@
     pdv_mobile_voltar_autonomo: 'Voltou o celular a vender sozinho',
   };
 
-  const NOMES_MODULO = { consultaRemota: 'Consulta remota', appGarcom: 'App do garçom', pdvMobile: 'PDV móvel' };
+  const NOMES_MODULO = { consultaRemota: 'Consulta remota', appGarcom: 'App do garçom', pdvMobile: 'PDV móvel', erpCompras: 'ERP — Compras' };
   const ORIGENS_PAGAMENTO = { manual: 'manual', um_clique: 'botão "Marcar pago hoje"', com_data: 'com data informada' };
 
   function tituloDaAcao(a) {
@@ -3949,6 +3949,11 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
               <input type="checkbox" data-modulo-toggle="${escapeHtml(cliente.id)}" data-modulo-nome="pdvMobile"
                 ${cliente.modulosAtivos?.pdvMobile ? 'checked' : ''} style="width:auto;">
               PDV móvel
+            </label>
+            <label style="display:flex; align-items:center; gap:4px; font-size:12px;" title="Pedido de compra e entrada de mercadoria pelo XML da NF-e">
+              <input type="checkbox" data-modulo-toggle="${escapeHtml(cliente.id)}" data-modulo-nome="erpCompras"
+                ${cliente.modulosAtivos?.erpCompras ? 'checked' : ''} style="width:auto;">
+              ERP — Compras
             </label>
           </div>
           ${renderVitrineDoCliente(cliente, maquinas)}

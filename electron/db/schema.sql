@@ -833,6 +833,9 @@ CREATE TABLE IF NOT EXISTS modulos_pagos_state (
   consulta_remota   INTEGER NOT NULL DEFAULT 0,
   app_garcom        INTEGER NOT NULL DEFAULT 0,
   pdv_mobile        INTEGER NOT NULL DEFAULT 0,
+  -- ERP, Fase 1 (pedido de compra + entrada por XML de NF-e) -- módulo
+  -- pago `erpCompras` em clientes/{id}.modulosAtivos. Ver erpService.js.
+  erp_compras       INTEGER NOT NULL DEFAULT 0,
   ja_sincronizado   INTEGER NOT NULL DEFAULT 0
 );
 
@@ -1371,11 +1374,158 @@ CREATE TABLE IF NOT EXISTS expenses (
   data_pagamento  TEXT, -- NULL = ainda pendente
   location_id     TEXT NOT NULL REFERENCES locations(id),
   operador_id     TEXT NOT NULL REFERENCES users(id),
-  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED())
+  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  -- Conta a pagar gerada por uma entrada de NF-e (uma por duplicata) --
+  -- é por aqui que o estorno da entrada acha o que cancelar. O índice
+  -- desta coluna fica em database.js (coluna nova em tabela antiga).
+  nfe_entrada_id  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_vencimento ON expenses(data_vencimento);
 CREATE INDEX IF NOT EXISTS idx_expenses_pagamento ON expenses(data_pagamento);
 CREATE INDEX IF NOT EXISTS idx_expenses_location_criado ON expenses(location_id, criado_em);
+
+-- ============================================================
+-- ERP, Fase 1 -- custo médio, pedido de compra e entrada por XML de NF-e
+-- (ver custoMedioService.js, purchaseOrderService.js, nfeEntradaService.js).
+-- Valores em REAL (reais), como o resto do banco.
+-- ============================================================
+
+-- Livro do custo médio ponderado: uma linha por entrada que mudou (ou
+-- confirmou) o custo de um produto, e outra por estorno. Nunca editado.
+-- products.custo continua sendo o número que o app inteiro lê; esta
+-- tabela é o "porquê" de cada valor que ele já teve.
+CREATE TABLE IF NOT EXISTS product_cost_history (
+  id              TEXT PRIMARY KEY,
+  product_id      TEXT NOT NULL REFERENCES products(id),
+  tipo            TEXT NOT NULL CHECK (tipo IN ('entrada','estorno')),
+  qtd_antes       REAL NOT NULL,  -- estoque total do produto (todos os locais) antes
+  custo_antes     REAL NOT NULL,  -- products.custo antes
+  qtd_movimento   REAL NOT NULL,  -- positiva na entrada, positiva também no estorno (o que saiu)
+  custo_movimento REAL NOT NULL,  -- custo unitário da entrada (ou da entrada estornada)
+  custo_depois    REAL NOT NULL,
+  origem          TEXT NOT NULL,  -- 'nfe' | 'pedido_compra' | 'abastecimento'
+  origem_id       TEXT,
+  operador_id     TEXT REFERENCES users(id),
+  criado_em       TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_cost_history_product ON product_cost_history(product_id, criado_em);
+
+-- Código do produto NA NOTA do fornecedor -> produto daqui. Preenchido
+-- quando alguém confirma uma entrada; na próxima nota do mesmo
+-- fornecedor o item já vem casado (e com a mesma conversão de unidade).
+CREATE TABLE IF NOT EXISTS supplier_products (
+  supplier_id       TEXT NOT NULL REFERENCES suppliers(id),
+  codigo_fornecedor TEXT NOT NULL,
+  product_id        TEXT NOT NULL REFERENCES products(id),
+  fator             REAL NOT NULL DEFAULT 1, -- 1 unidade da nota = `fator` unidades do produto (caixa com 12 -> 12)
+  atualizado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  PRIMARY KEY (supplier_id, codigo_fornecedor)
+);
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id                TEXT PRIMARY KEY,
+  numero            INTEGER NOT NULL UNIQUE,
+  fornecedor_id     TEXT NOT NULL REFERENCES suppliers(id),
+  status            TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho','enviado','parcial','recebido','cancelado')),
+  previsao_entrega  TEXT, -- AAAA-MM-DD (data local)
+  observacoes       TEXT,
+  location_id       TEXT NOT NULL REFERENCES locations(id),
+  operador_id       TEXT NOT NULL REFERENCES users(id),
+  criado_em         TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  enviado_em        TEXT,
+  cancelado_em      TEXT,
+  cancelado_por_id  TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_status ON purchase_orders(status, criado_em);
+CREATE INDEX IF NOT EXISTS idx_purchase_orders_fornecedor ON purchase_orders(fornecedor_id);
+
+CREATE TABLE IF NOT EXISTS purchase_order_items (
+  id                   TEXT PRIMARY KEY,
+  order_id             TEXT NOT NULL REFERENCES purchase_orders(id),
+  product_id           TEXT NOT NULL REFERENCES products(id),
+  quantidade           REAL NOT NULL CHECK (quantidade > 0),
+  custo_unitario       REAL NOT NULL DEFAULT 0,
+  quantidade_recebida  REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_order_items_order ON purchase_order_items(order_id);
+
+-- Nota fiscal de COMPRA (NF-e modelo 55) importada pelo XML. Fica em
+-- 'rascunho' enquanto alguém confere; só 'confirmada' mexe em estoque,
+-- custo e contas a pagar. Estornada não apaga nada: volta o estoque e o
+-- custo por movimentos novos e cancela as contas ainda não pagas.
+CREATE TABLE IF NOT EXISTS nfe_entradas (
+  id                 TEXT PRIMARY KEY,
+  chave              TEXT NOT NULL,
+  numero             TEXT,
+  serie              TEXT,
+  emissao            TEXT, -- dhEmi como veio na nota (com fuso)
+  fornecedor_id      TEXT REFERENCES suppliers(id),
+  emitente_cnpj      TEXT,
+  emitente_nome      TEXT,
+  destinatario_doc   TEXT,
+  valor_produtos     REAL NOT NULL DEFAULT 0,
+  valor_frete        REAL NOT NULL DEFAULT 0,
+  valor_desconto     REAL NOT NULL DEFAULT 0,
+  valor_total        REAL NOT NULL DEFAULT 0,
+  xml                TEXT NOT NULL,
+  status             TEXT NOT NULL DEFAULT 'rascunho' CHECK (status IN ('rascunho','confirmada','estornada')),
+  purchase_order_id  TEXT REFERENCES purchase_orders(id),
+  location_id        TEXT NOT NULL REFERENCES locations(id),
+  operador_id        TEXT NOT NULL REFERENCES users(id),
+  criado_em          TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  confirmada_em      TEXT,
+  confirmada_por_id  TEXT REFERENCES users(id),
+  estornada_em       TEXT,
+  estornada_por_id   TEXT REFERENCES users(id),
+  estorno_motivo     TEXT
+);
+-- A mesma nota não entra duas vezes -- a não ser que a anterior tenha
+-- sido estornada (aí lançar de novo, certo, é o caminho normal).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_nfe_entradas_chave_ativa ON nfe_entradas(chave) WHERE status != 'estornada';
+CREATE INDEX IF NOT EXISTS idx_nfe_entradas_status ON nfe_entradas(status, criado_em);
+
+CREATE TABLE IF NOT EXISTS nfe_entrada_itens (
+  id                  TEXT PRIMARY KEY,
+  entrada_id          TEXT NOT NULL REFERENCES nfe_entradas(id),
+  n_item              INTEGER NOT NULL,
+  codigo_fornecedor   TEXT,
+  ean                 TEXT,
+  descricao           TEXT NOT NULL,
+  ncm                 TEXT,
+  cfop                TEXT,
+  unidade_nota        TEXT,
+  quantidade_nota     REAL NOT NULL,
+  valor_unitario_nota REAL NOT NULL DEFAULT 0,
+  valor_produto       REAL NOT NULL DEFAULT 0,
+  valor_frete         REAL NOT NULL DEFAULT 0,
+  valor_seguro        REAL NOT NULL DEFAULT 0,
+  valor_desconto      REAL NOT NULL DEFAULT 0,
+  valor_outros        REAL NOT NULL DEFAULT 0,
+  valor_ipi           REAL NOT NULL DEFAULT 0,
+  valor_icms_st       REAL NOT NULL DEFAULT 0, -- ICMS-ST + FCP-ST: os dois entram no custo
+  lotes_json          TEXT NOT NULL DEFAULT '[]', -- grupo <rastro> da nota, quando vier
+  -- Conferência (editável enquanto a entrada é rascunho):
+  product_id          TEXT REFERENCES products(id),
+  fator               REAL NOT NULL DEFAULT 1,
+  lote                TEXT,
+  validade            TEXT,
+  ignorar             INTEGER NOT NULL DEFAULT 0, -- item que não entra no estoque (brinde, uso e consumo)
+  -- Gravado na confirmação:
+  quantidade_entrada  REAL,
+  custo_unitario      REAL,
+  stock_movement_id   TEXT,
+  batch_id            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_nfe_entrada_itens_entrada ON nfe_entrada_itens(entrada_id, n_item);
+
+CREATE TABLE IF NOT EXISTS nfe_entrada_duplicatas (
+  id          TEXT PRIMARY KEY,
+  entrada_id  TEXT NOT NULL REFERENCES nfe_entradas(id),
+  numero      TEXT,
+  vencimento  TEXT NOT NULL, -- AAAA-MM-DD
+  valor       REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_nfe_entrada_duplicatas_entrada ON nfe_entrada_duplicatas(entrada_id);
 
 -- ============================================================
 -- Devoluções pós-venda — separado do cancelamento (que só existe durante

@@ -53,6 +53,10 @@ const reservationService = require('../services/reservationService');
 const whatsappAutomationService = require('../services/whatsappAutomationService');
 const kitchenService = require('../services/kitchenService');
 const saudeService = require('../services/saudeService');
+const erpService = require('../services/erpService');
+const custoMedioService = require('../services/custoMedioService');
+const purchaseOrderService = require('../services/purchaseOrderService');
+const nfeEntradaService = require('../services/nfeEntradaService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -149,6 +153,13 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
   'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora',
   'pixAuto:saveConfig', 'pixAuto:testar', 'pixAuto:listarSemVenda',
+  // ERP, Fase 1 -- custo, compras e notas de entrada são gestão.
+  'custoMedio:historico',
+  'purchaseOrder:list', 'purchaseOrder:listAbertosDoFornecedor', 'purchaseOrder:get', 'purchaseOrder:save',
+  'purchaseOrder:criarDaSugestao', 'purchaseOrder:marcarEnviado', 'purchaseOrder:cancelar', 'purchaseOrder:receberSemNota',
+  'purchaseOrder:texto', 'purchaseOrder:enviarWhatsapp',
+  'nfeEntrada:importarXml', 'nfeEntrada:list', 'nfeEntrada:get', 'nfeEntrada:atualizarItem', 'nfeEntrada:vincularPedido',
+  'nfeEntrada:descartar', 'nfeEntrada:confirmar', 'nfeEntrada:estornar',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
@@ -976,6 +987,53 @@ function registerIpcHandlers() {
   safeHandle('supply:clearDraft', () => supplyService.clearDraft());
   safeHandle('supply:listUpcomingExpiry', (_e, payload) => batchService.listUpcomingExpiry(payload));
   safeHandle('batch:listForProduct', (_e, { productId }) => batchService.listBatchesForProduct(productId));
+
+  // --- ERP, Fase 1: custo médio, pedido de compra, entrada por XML de NF-e ---
+  // Pedido e nota passam pela licença do módulo `erpCompras` (erpService);
+  // o custo médio não. Papel (gestão) já é exigido em PAPEL_POR_CANAL.
+  const comModuloCompras = (fn) => (event, payload) => erpService.exigirCompras() || fn(event, payload || {});
+  safeHandle('erp:status', () => erpService.status());
+  safeHandle('custoMedio:historico', (_e, { productId } = {}) => custoMedioService.historico(productId));
+
+  safeHandle('purchaseOrder:list', comModuloCompras((_e, p) => purchaseOrderService.listar(p)));
+  safeHandle('purchaseOrder:listAbertosDoFornecedor', comModuloCompras((_e, { fornecedorId }) => purchaseOrderService.listarAbertosDoFornecedor(fornecedorId)));
+  safeHandle('purchaseOrder:get', comModuloCompras((_e, { id }) => purchaseOrderService.obter(id)));
+  safeHandle('purchaseOrder:save', comModuloCompras((event, p) => auditarSeOk(event, purchaseOrderService.salvar(p), 'pedido_compra_salvo',
+    `Pedido de compra ${p.id ? 'editado' : 'criado'} (${(p.itens || []).length} item(ns)).`)));
+  safeHandle('purchaseOrder:criarDaSugestao', comModuloCompras((_e, p) => purchaseOrderService.criarDaSugestao(p)));
+  safeHandle('purchaseOrder:marcarEnviado', comModuloCompras((_e, { id }) => purchaseOrderService.marcarEnviado({ id })));
+  safeHandle('purchaseOrder:cancelar', comModuloCompras((event, { id }) => purchaseOrderService.cancelar({ id, operadorId: usuarioLogado(event) })));
+  safeHandle('purchaseOrder:receberSemNota', comModuloCompras((_e, p) => purchaseOrderService.receberSemNota(p)));
+  safeHandle('purchaseOrder:texto', comModuloCompras((_e, { id }) => purchaseOrderService.textoParaFornecedor(id)));
+  safeHandle('purchaseOrder:enviarWhatsapp', comModuloCompras((_e, { id }) => {
+    const r = purchaseOrderService.linkWhatsapp(id);
+    if (!r.ok) return r;
+    if (!require('../seguranca').urlExternaPermitida(r.url)) return { ok: false, error: 'Link inválido.' };
+    require('electron').shell.openExternal(r.url);
+    return { ok: true };
+  }));
+
+  // O caminho do XML nasce e morre aqui (diálogo do processo principal):
+  // o renderer nunca manda caminho de arquivo.
+  safeHandle('nfeEntrada:importarXml', comModuloCompras(async (_e, { locationId, operadorId }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Selecionar XML da NF-e de compra',
+      properties: ['openFile'],
+      filters: [{ name: 'XML da NF-e', extensions: ['xml'] }],
+    });
+    if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
+    const lido = nfeEntradaService.lerArquivoXml(filePaths[0]);
+    if (!lido.ok) return lido;
+    return nfeEntradaService.importarXml({ xml: lido.xml, locationId, operadorId });
+  }));
+  safeHandle('nfeEntrada:list', comModuloCompras((_e, p) => nfeEntradaService.listar(p)));
+  safeHandle('nfeEntrada:get', comModuloCompras((_e, { id }) => nfeEntradaService.obter(id)));
+  safeHandle('nfeEntrada:atualizarItem', comModuloCompras((_e, p) => nfeEntradaService.atualizarItem(p)));
+  safeHandle('nfeEntrada:vincularPedido', comModuloCompras((_e, p) => nfeEntradaService.vincularPedido(p)));
+  safeHandle('nfeEntrada:descartar', comModuloCompras((_e, p) => nfeEntradaService.descartar(p)));
+  safeHandle('nfeEntrada:confirmar', comModuloCompras((_e, p) => nfeEntradaService.confirmar(p)));
+  safeHandle('nfeEntrada:estornar', comModuloCompras((_e, p) => nfeEntradaService.estornar(p)));
 
   // --- Atualização automática ---
   safeHandle('update:getStatus', () => updateService.getStatus());

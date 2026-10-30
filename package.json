@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "6.7.24",
+    "@xmldom/xmldom": "^0.9.10",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^13.0.3",
     "electron-updater": "^6.3.9",
@@ -32,7 +33,6 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
     "@vitejs/plugin-react": "^4.3.1",
-    "@xmldom/xmldom": "^0.9.10",
     "concurrently": "^8.2.2",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",

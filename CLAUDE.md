@@ -213,6 +213,19 @@ máquinas). Venda ABERTA não mexe no contador (débito só na finalização).
   desse documento, criado no Console.
 - Operação financeira numa venda (`saleService`) confere `status = 'aberta'`.
 
+## ERP, Fase 1 (compras)
+
+Custo médio (`custoMedioService`), entrada pelo XML da NF-e (`nfeXmlParser` +
+`nfeEntradaService`) e pedido de compra (`purchaseOrderService`). Não quebrar:
+- custo médio é gravado DENTRO da transação da entrada e ANTES do movimento de
+  estoque (a ponderação lê o estoque de antes); entrada sem custo não mexe nele;
+- nota só mexe em estoque/custo/financeiro na confirmação; estorno é por
+  lançamento novo, nunca apagando ledger, e trava com conta da nota já paga;
+- contas a pagar da nota ficam em `expenses` com `nfe_entrada_id`;
+- caminho do XML vem do diálogo do processo principal, nunca do renderer;
+- pedido/nota passam por `erpService.exigirCompras()` (módulo pago `erpCompras`);
+  custo médio não. Canais novos estão em `PAPEL_POR_CANAL`.
+
 ## SQL: nada de função JS no WHERE
 
 `datetime(NOW_SYNCED(), '-30 days')` dentro de WHERE chama a função JS a

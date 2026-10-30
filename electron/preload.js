@@ -468,6 +468,34 @@ contextBridge.exposeInMainWorld('pdv', {
   batches: {
     listForProduct: invoke('batch:listForProduct'),
   },
+  erp: {
+    status: invoke('erp:status'),
+  },
+  custoMedio: {
+    historico: invoke('custoMedio:historico'),
+  },
+  purchaseOrders: {
+    list: invoke('purchaseOrder:list'),
+    listAbertosDoFornecedor: invoke('purchaseOrder:listAbertosDoFornecedor'),
+    get: invoke('purchaseOrder:get'),
+    save: invoke('purchaseOrder:save'),
+    criarDaSugestao: invoke('purchaseOrder:criarDaSugestao'),
+    marcarEnviado: invoke('purchaseOrder:marcarEnviado'),
+    cancelar: invoke('purchaseOrder:cancelar'),
+    receberSemNota: invoke('purchaseOrder:receberSemNota'),
+    texto: invoke('purchaseOrder:texto'),
+    enviarWhatsapp: invoke('purchaseOrder:enviarWhatsapp'),
+  },
+  nfeEntradas: {
+    importarXml: invoke('nfeEntrada:importarXml'),
+    list: invoke('nfeEntrada:list'),
+    get: invoke('nfeEntrada:get'),
+    atualizarItem: invoke('nfeEntrada:atualizarItem'),
+    vincularPedido: invoke('nfeEntrada:vincularPedido'),
+    descartar: invoke('nfeEntrada:descartar'),
+    confirmar: invoke('nfeEntrada:confirmar'),
+    estornar: invoke('nfeEntrada:estornar'),
+  },
   update: {
     getStatus: invoke('update:getStatus'),
     getForcedStatus: invoke('update:getForcedStatus'),

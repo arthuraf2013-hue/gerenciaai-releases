@@ -5,8 +5,9 @@ import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
 
 /** Campo de busca de produto por linha — pré-preenchido com o melhor
- * palpite (busca pela descrição extraída), editável pra corrigir. */
-function ProductPicker({ value, onChange }) {
+ * palpite (busca pela descrição extraída), editável pra corrigir.
+ * Também usado na conferência de NF-e e no pedido de compra. */
+export function ProductPicker({ value, onChange, disabled = false, width = 180 }) {
   const [query, setQuery] = useState(value?.nome || '');
   const [results, setResults] = useState([]);
   const [open, setOpen] = useState(false);
@@ -44,7 +45,8 @@ function ProductPicker({ value, onChange }) {
         onChange={(e) => handleChange(e.target.value)}
         onFocus={() => results.length > 0 && setOpen(true)}
         placeholder="Buscar produto..."
-        style={{ width: 180, borderColor: value ? undefined : 'var(--color-danger)' }}
+        disabled={disabled}
+        style={{ width, borderColor: value || disabled ? undefined : 'var(--color-danger)' }}
       />
       {open && results.length > 0 && (
         <ul className="customer-suggestions" style={{ width: 240 }}>

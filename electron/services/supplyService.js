@@ -101,31 +101,52 @@ async function extractFromFile(filePath) {
  * Confirma a entrada de mercadoria — recebe as linhas já revisadas
  * (produto já escolhido/casado, lote e validade preenchidos por quem
  * está conferindo a mercadoria física) e cria um lote por linha.
+ *
+ * Linha com preço unitário atualiza o custo pelo CUSTO MÉDIO ponderado
+ * (custoMedioService) -- antes sobrescrevia products.custo com o preço da
+ * última nota, e o estoque que já estava na prateleira passava a valer o
+ * preço novo. Custo e entrada de estoque vão na mesma transação: ou as
+ * duas coisas acontecem, ou nenhuma.
  */
 function confirmEntries({ linhas, locationId, operadorId, deviceId, motivo }) {
   const db = getDb();
+  const custoMedioService = require('./custoMedioService');
   const resultados = { sucesso: 0, erros: [], linhasComSucesso: [] };
 
   linhas.forEach((linha, i) => {
-    const result = batchService.createBatch({
-      productId: linha.productId,
-      locationId,
-      lote: linha.lote,
-      validade: linha.validade,
-      quantidade: linha.quantidade,
-      fornecedorId: linha.fornecedorId,
-      operadorId,
-      deviceId,
-      motivo,
-    });
+    let result;
+    try {
+      db.transaction(() => {
+        const qtd = Number(linha.quantidade);
+        const preco = Number(linha.precoUnitario);
+        const existe = db.prepare('SELECT 1 FROM products WHERE id = ?').get(linha.productId);
+        // Custo ANTES do movimento: a ponderação usa o estoque de antes da entrada.
+        if (existe && qtd > 0 && preco > 0) {
+          custoMedioService.registrarEntrada(db, {
+            productId: linha.productId, quantidade: qtd, custoUnitario: preco,
+            origem: 'abastecimento', origemId: null, operadorId,
+          });
+        }
+        result = batchService.createBatch({
+          productId: linha.productId,
+          locationId,
+          lote: linha.lote,
+          validade: linha.validade,
+          quantidade: linha.quantidade,
+          fornecedorId: linha.fornecedorId,
+          operadorId,
+          deviceId,
+          motivo,
+        });
+        // Desfaz o custo se o lote não entrou (validação do createBatch).
+        if (!result.ok) throw new Error(result.error);
+      })();
+    } catch (err) {
+      result = { ok: false, error: err.message };
+    }
     if (result.ok) {
       resultados.sucesso += 1;
       resultados.linhasComSucesso.push(linha.linhaId);
-      // Atualiza o custo do produto pro preço unitário da nota — só se
-      // veio um valor de verdade (nem toda nota traz preço por item).
-      if (linha.precoUnitario > 0) {
-        db.prepare('UPDATE products SET custo = ? WHERE id = ?').run(linha.precoUnitario, linha.productId);
-      }
     } else {
       resultados.erros.push({ linha: i + 1, linhaId: linha.linhaId, erro: result.error });
     }
