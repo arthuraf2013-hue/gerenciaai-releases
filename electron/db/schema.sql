@@ -523,7 +523,12 @@ CREATE TABLE IF NOT EXISTS sale_items (
   -- naturalmente (é o DEFAULT), se mais itens forem lançados na mesma
   -- mesa depois do primeiro "pronto" -- não precisa de lógica especial
   -- pra isso. Ver kitchenService.js.
-  status_preparo        TEXT NOT NULL DEFAULT 'pendente' CHECK (status_preparo IN ('pendente','preparando','pronto'))
+  status_preparo        TEXT NOT NULL DEFAULT 'pendente' CHECK (status_preparo IN ('pendente','preparando','pronto')),
+  -- Custo médio do produto NO MOMENTO da venda (ERP, Fase 2) -- é ele que
+  -- faz o CMV do DRE não mudar quando o custo do produto muda depois.
+  -- Preenchido por gatilho (database.js, garantirGatilhosErp) em todo
+  -- INSERT, venha de onde vier o item; NULL = venda de antes da coluna.
+  custo_unitario        REAL
 );
 CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
 CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
@@ -836,6 +841,10 @@ CREATE TABLE IF NOT EXISTS modulos_pagos_state (
   -- ERP, Fase 1 (pedido de compra + entrada por XML de NF-e) -- módulo
   -- pago `erpCompras` em clientes/{id}.modulosAtivos. Ver erpService.js.
   erp_compras       INTEGER NOT NULL DEFAULT 0,
+  -- ERP, Fases 2 a 4 -- `erpFinanceiro`, `erpEstoque`, `erpFiscal`.
+  erp_financeiro    INTEGER NOT NULL DEFAULT 0,
+  erp_estoque       INTEGER NOT NULL DEFAULT 0,
+  erp_fiscal        INTEGER NOT NULL DEFAULT 0,
   ja_sincronizado   INTEGER NOT NULL DEFAULT 0
 );
 
@@ -1378,7 +1387,12 @@ CREATE TABLE IF NOT EXISTS expenses (
   -- Conta a pagar gerada por uma entrada de NF-e (uma por duplicata) --
   -- é por aqui que o estorno da entrada acha o que cancelar. O índice
   -- desta coluna fica em database.js (coluna nova em tabela antiga).
-  nfe_entrada_id  TEXT
+  nfe_entrada_id  TEXT,
+  -- Despesa gerada por uma recorrência (aluguel, internet...): uma por
+  -- recorrência e competência (AAAA-MM) -- o índice único parcial que
+  -- garante isso fica em database.js (colunas novas em tabela antiga).
+  recorrencia_id  TEXT,
+  competencia     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_vencimento ON expenses(data_vencimento);
 CREATE INDEX IF NOT EXISTS idx_expenses_pagamento ON expenses(data_pagamento);
@@ -1492,6 +1506,7 @@ CREATE TABLE IF NOT EXISTS nfe_entrada_itens (
   ean                 TEXT,
   descricao           TEXT NOT NULL,
   ncm                 TEXT,
+  cest                TEXT, -- coluna de nov/2026 (database.js migra as tabelas da Fase 1)
   cfop                TEXT,
   unidade_nota        TEXT,
   quantidade_nota     REAL NOT NULL,
@@ -1526,6 +1541,156 @@ CREATE TABLE IF NOT EXISTS nfe_entrada_duplicatas (
   valor       REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_nfe_entrada_duplicatas_entrada ON nfe_entrada_duplicatas(entrada_id);
+
+-- ============================================================
+-- ERP, Fases 2 a 4 -- financeiro, inventário e assistente fiscal
+-- (financeiroService.js, inventarioService.js, assistenteFiscalService.js).
+-- ============================================================
+
+-- Configurações do ERP que não são de NFC-e (singleton).
+CREATE TABLE IF NOT EXISTS erp_config (
+  id                     TEXT PRIMARY KEY DEFAULT 'default',
+  saldo_inicial          REAL NOT NULL DEFAULT 0, -- dinheiro em caixa + banco na data abaixo (fluxo de caixa)
+  data_saldo_inicial     TEXT,                     -- AAAA-MM-DD
+  data_abertura_empresa  TEXT,                     -- AAAA-MM-DD (limite proporcional do MEI, RBT12 do 1º ano)
+  atividade_mei          TEXT NOT NULL DEFAULT 'comercio' CHECK (atividade_mei IN ('comercio','servicos','ambos')),
+  das_mei_valor          REAL,                     -- NULL = valor padrão do ano (assistenteFiscalService)
+  rbt12_anterior         REAL,                     -- faturamento dos 12 meses antes de usar o sistema, se houver
+  dia_pacote_contador    INTEGER NOT NULL DEFAULT 5,
+  -- Cadastro automático (produtos novos da nota): markup sobre o custo e
+  -- arredondamento do preço ('x9' = termina em 9 centavos, 'x90', 'nenhum').
+  margem_padrao          REAL,
+  arredondamento_preco   TEXT
+);
+
+-- Taxa e prazo das maquininhas, por forma de pagamento. Contas a receber
+-- de cartão são PROJETADAS dos pagamentos com estas regras (sem duplicar
+-- dado de venda).
+CREATE TABLE IF NOT EXISTS card_fee_config (
+  metodo           TEXT PRIMARY KEY CHECK (metodo IN ('cartao_debito','cartao_credito')),
+  taxa_percentual  REAL NOT NULL DEFAULT 0,
+  prazo_dias       INTEGER NOT NULL DEFAULT 0
+);
+
+-- Contas a receber lançadas à mão (venda a prazo fora do PDV, aluguel de
+-- espaço, reembolso...). Fiado e cartão vêm das próprias vendas.
+CREATE TABLE IF NOT EXISTS receivables (
+  id               TEXT PRIMARY KEY,
+  descricao        TEXT NOT NULL,
+  customer_id      TEXT REFERENCES customers(id),
+  valor            REAL NOT NULL CHECK (valor > 0),
+  vencimento       TEXT NOT NULL,  -- AAAA-MM-DD
+  recebido_em      TEXT,           -- AAAA-MM-DD; NULL = em aberto
+  valor_recebido   REAL,
+  cancelado_em     TEXT,
+  location_id      TEXT NOT NULL REFERENCES locations(id),
+  operador_id      TEXT NOT NULL REFERENCES users(id),
+  criado_em        TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+CREATE INDEX IF NOT EXISTS idx_receivables_vencimento ON receivables(vencimento);
+
+-- Despesa fixa que se repete todo mês (aluguel, internet, contador...).
+CREATE TABLE IF NOT EXISTS expense_recurrences (
+  id               TEXT PRIMARY KEY,
+  descricao        TEXT NOT NULL,
+  categoria        TEXT NOT NULL,
+  valor            REAL NOT NULL CHECK (valor > 0),
+  dia_vencimento   INTEGER NOT NULL CHECK (dia_vencimento BETWEEN 1 AND 31),
+  fornecedor_id    TEXT REFERENCES suppliers(id),
+  competencia_inicio TEXT NOT NULL, -- AAAA-MM: primeiro mês gerado
+  -- Último mês já lançado em expenses. Gera só daqui pra frente: excluir
+  -- uma despesa gerada não faz ela voltar na próxima abertura.
+  ultima_competencia_gerada TEXT,
+  ativa            INTEGER NOT NULL DEFAULT 1,
+  location_id      TEXT NOT NULL REFERENCES locations(id),
+  operador_id      TEXT NOT NULL REFERENCES users(id),
+  criado_em        TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
+-- Inventário (contagem de estoque). A diferença de cada produto vira um
+-- movimento 'ajuste' no fechamento; o que vendeu durante a contagem é
+-- descontado pelos movimentos posteriores ao snapshot (ultimo_rowid).
+CREATE TABLE IF NOT EXISTS inventory_counts (
+  id               TEXT PRIMARY KEY,
+  numero           INTEGER NOT NULL UNIQUE,
+  location_id      TEXT NOT NULL REFERENCES locations(id),
+  status           TEXT NOT NULL DEFAULT 'aberta' CHECK (status IN ('aberta','fechada','cancelada')),
+  cega             INTEGER NOT NULL DEFAULT 1, -- quem conta não vê o saldo do sistema
+  categoria        TEXT,                       -- NULL = todos os produtos
+  ultimo_rowid     INTEGER NOT NULL,           -- maior rowid de stock_movements na abertura
+  observacao       TEXT,
+  aberta_em        TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  aberta_por_id    TEXT NOT NULL REFERENCES users(id),
+  fechada_em       TEXT,
+  fechada_por_id   TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_counts_status ON inventory_counts(status);
+
+CREATE TABLE IF NOT EXISTS inventory_count_items (
+  id                  TEXT PRIMARY KEY,
+  count_id            TEXT NOT NULL REFERENCES inventory_counts(id),
+  product_id          TEXT NOT NULL REFERENCES products(id),
+  qtd_sistema         REAL NOT NULL,  -- saldo na abertura
+  qtd_contada         REAL,           -- NULL = ainda não contado
+  contado_em          TEXT,
+  contado_por_id      TEXT REFERENCES users(id),
+  -- Gravado no fechamento:
+  qtd_esperada        REAL,           -- saldo na abertura + movimentos durante a contagem
+  diferenca           REAL,
+  custo_unitario      REAL,
+  ajuste_movement_id  TEXT,
+  UNIQUE (count_id, product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_count_items_count ON inventory_count_items(count_id);
+
+-- ERP, fundação: permissões finas por usuário. Só RETIRA acesso de um
+-- gerente a uma área do ERP (o papel continua decidindo o resto); admin e
+-- suporte nunca ficam restritos, pra ninguém se trancar fora.
+CREATE TABLE IF NOT EXISTS user_permission_overrides (
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  permissao   TEXT NOT NULL,
+  permitido   INTEGER NOT NULL DEFAULT 0 CHECK (permitido IN (0, 1)),
+  alterado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  alterado_por TEXT REFERENCES users(id),
+  PRIMARY KEY (user_id, permissao)
+);
+
+-- Motor tributário: regras versionadas por vigência. Campo de critério NULL
+-- = vale para qualquer valor. Regra não é editada: nova versão encerra a
+-- anterior (vigencia_fim) e fica o histórico. origem 'sistema' = semeada
+-- pelo app (ids fixos), 'usuario' = cadastrada na loja (ganha no empate).
+CREATE TABLE IF NOT EXISTS tax_rules (
+  id              TEXT PRIMARY KEY,
+  grupo_id        TEXT NOT NULL,               -- mesmo grupo = versões da mesma regra
+  versao          INTEGER NOT NULL DEFAULT 1,
+  nome            TEXT NOT NULL,
+  tributo         TEXT NOT NULL CHECK (tributo IN ('ICMS','ICMS_ST','FCP','PIS','COFINS','IPI','ISS','IBS','CBS','IS')),
+  regime          TEXT CHECK (regime IN ('mei','simples_nacional','lucro_presumido','lucro_real')),
+  uf_origem       TEXT,
+  uf_destino      TEXT,
+  ncm_prefixo     TEXT,
+  cfop            TEXT,
+  cst_csosn_item  TEXT,                        -- critério: CST/CSOSN do cadastro do produto
+  natureza        TEXT CHECK (natureza IN ('venda','devolucao','transferencia','remessa','outra')),
+  perfil_cliente  TEXT CHECK (perfil_cliente IN ('consumidor_final','contribuinte','nao_contribuinte')),
+  cst             TEXT,                        -- resultado: CST/CSOSN a usar
+  cclass_trib     TEXT,
+  aliquota        REAL NOT NULL DEFAULT 0 CHECK (aliquota >= 0 AND aliquota <= 100),
+  reducao_base    REAL NOT NULL DEFAULT 0 CHECK (reducao_base >= 0 AND reducao_base < 100),
+  mva             REAL NOT NULL DEFAULT 0 CHECK (mva >= 0),
+  aliquota_interna_destino REAL CHECK (aliquota_interna_destino IS NULL OR (aliquota_interna_destino >= 0 AND aliquota_interna_destino <= 100)),
+  recolhido_no_das INTEGER NOT NULL DEFAULT 0 CHECK (recolhido_no_das IN (0, 1)),
+  informativo     INTEGER NOT NULL DEFAULT 0 CHECK (informativo IN (0, 1)),
+  fundamento      TEXT,
+  vigencia_inicio TEXT NOT NULL,
+  vigencia_fim    TEXT,
+  origem          TEXT NOT NULL DEFAULT 'usuario' CHECK (origem IN ('sistema','usuario')),
+  ativo           INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+  criado_em       TEXT NOT NULL DEFAULT (datetime('now')),
+  criado_por      TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_tax_rules_tributo ON tax_rules(tributo, ativo);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tax_rules_grupo_versao ON tax_rules(grupo_id, versao);
 
 -- ============================================================
 -- Devoluções pós-venda — separado do cancelamento (que só existe durante

@@ -226,6 +226,36 @@ Custo médio (`custoMedioService`), entrada pelo XML da NF-e (`nfeXmlParser` +
 - pedido/nota passam por `erpService.exigirCompras()` (módulo pago `erpCompras`);
   custo médio não. Canais novos estão em `PAPEL_POR_CANAL`.
 
+## ERP, Fases 2 a 4 (financeiro, inventário, fiscal)
+
+`financeiroService`, `inventarioService`, `assistenteFiscalService` (+
+`tabelasFiscais.js`, valores por ano: atualizar todo janeiro). Não quebrar:
+- canais passam por `comModulo('erpFinanceiro'|'erpEstoque'|'erpFiscal')`;
+  `erp:*` e `financeiro:pagarDespesaNaData` não dependem de módulo;
+- `sale_items.custo_unitario` é gravado pelo gatilho `trg_sale_items_custo`
+  (criado em `garantirGatilhosErp`, database.js): não calcular CMV com o custo
+  ATUAL do produto, salvo venda antiga sem custo (marcada como estimada);
+- despesa fixa gera só da última competência gerada para frente (apagar uma
+  conta não a ressuscita) e o índice único impede duplicar;
+- inventário compara com `qtd_sistema` + movimentos com rowid > `ultimo_rowid`
+  (vendas durante a contagem); ajuste só no fechamento, por movimento novo;
+- correção fiscal em massa só preenche campo vazio/inválido; imposto e limites
+  são estimativa, nunca apuração;
+- PDF/ZIP: caminho só do diálogo do processo principal.
+
+## ERP: permissões finas e motor tributário
+
+Plano e decisões em `docs/ERP-*.md` (atualizar o ROADMAP e o CHANGELOG a cada fase).
+- `permissaoService`: canal novo de uma área do ERP precisa cair num prefixo de
+  `PERMISSOES` (o teste `permissaoErp` confere que todo prefixo existe); só
+  retira acesso de gerente, nunca de admin/suporte.
+- `motorTributarioService`: regra nunca é editada (nova versão fecha a anterior);
+  regra do sistema nova = id novo em `regrasTributariasPadrao.js`; não semear
+  alíquota de ICMS; o motor ainda NÃO alimenta `nfceXmlService`.
+- `cadastroAutomaticoService`: todo preenchimento automático só PREENCHE vazio ou
+  inválido (nunca troca valor válido); a maioria da loja (`fiscalDaLoja`) não passa
+  por cima de CFOP válido diferente; IA só sugere NCM, gravação é conferida.
+
 ## SQL: nada de função JS no WHERE
 
 `datetime(NOW_SYNCED(), '-30 days')` dentro de WHERE chama a função JS a

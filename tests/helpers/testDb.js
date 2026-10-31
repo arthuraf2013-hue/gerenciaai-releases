@@ -50,3 +50,24 @@ function addStock(db, { productId, locationId, quantidade, operadorId }) {
 }
 
 module.exports = { freshTestDb, createProduct, addStock, createSuporteUser };
+
+/** Venda já finalizada, gravada direto (sem passar pelo PDV), pra testes
+ * de relatório: `finalizadaEm` em UTC 'AAAA-MM-DD HH:MM:SS'. */
+function createFinalizedSale(db, { locationId, operadorId, finalizadaEm, itens, pagamentos, desconto = 0, taxaServico = 0 }) {
+  const id = randomUUID();
+  const total = itens.reduce((s, i) => s + i.quantidade * i.preco, 0);
+  db.prepare(
+    `INSERT INTO sales (id, location_id, operador_id, status, total, desconto, taxa_servico_percentual, criado_em, finalizada_em)
+     VALUES (?, ?, ?, 'finalizada', ?, ?, ?, ?, ?)`
+  ).run(id, locationId, operadorId, total, desconto, taxaServico, finalizadaEm, finalizadaEm);
+  for (const i of itens) {
+    db.prepare('INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, criado_em) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(randomUUID(), id, i.productId, i.quantidade, i.preco, finalizadaEm);
+  }
+  for (const [metodo, valor] of pagamentos) {
+    db.prepare('INSERT INTO payments (id, sale_id, metodo, valor, criado_em) VALUES (?, ?, ?, ?, ?)').run(randomUUID(), id, metodo, valor, finalizadaEm);
+  }
+  return id;
+}
+
+module.exports.createFinalizedSale = createFinalizedSale;

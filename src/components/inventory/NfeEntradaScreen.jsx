@@ -4,6 +4,7 @@ import { useEscToClose } from '../../hooks/useEscToClose';
 import { ProductPicker } from './SupplyScreen';
 import Icon from '../common/Icon';
 import { brl, brlCusto, qtd, dataBR, ChipStatus } from './erpUtils';
+import { ProdutosDaNotaModal, ReajustePrecos } from './CadastroAutomatico';
 
 /**
  * Entrada de mercadoria pelo XML da NF-e de compra (ERP, Fase 1).
@@ -110,6 +111,8 @@ function NfeConferencia({ id, avisos, erroInicial, onVoltar }) {
   const [salvando, setSalvando] = useState(false);
   const [estornando, setEstornando] = useState(false);
   const [motivoEstorno, setMotivoEstorno] = useState('');
+  const [cadastrandoNovos, setCadastrandoNovos] = useState(false);
+  const [mostrarReajuste, setMostrarReajuste] = useState(false);
   useEscToClose(() => setEstornando(false), estornando);
 
   async function carregar() {
@@ -154,7 +157,8 @@ function NfeConferencia({ id, avisos, erroInicial, onVoltar }) {
     });
     setSalvando(false);
     if (!r?.ok) { setErro(r?.error || 'Não foi possível lançar a nota.'); return; }
-    setMensagem(`Entrada lançada: ${r.itens} item(ns) no estoque${r.contas ? `, ${r.contas} conta(s) a pagar no Financeiro` : ''}.`);
+    setMensagem(`Entrada lançada: ${r.itens} item(ns) no estoque${r.contas ? `, ${r.contas} conta(s) a pagar no Financeiro` : ''}${r.fiscalPreenchidos ? `; dados fiscais completados em ${r.fiscalPreenchidos} produto(s)` : ''}.`);
+    setMostrarReajuste(true);
     carregar();
   }
 
@@ -366,7 +370,12 @@ function NfeConferencia({ id, avisos, erroInicial, onVoltar }) {
             <button className="btn-secondary" onClick={handleDescartar} disabled={salvando}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={15} /> Descartar nota</span>
             </button>
-            {nota.pendencias > 0 && <span className="screen-hint" style={{ margin: 0, alignSelf: 'center' }}>Escolha o produto das linhas em vermelho (ou marque "ignorar").</span>}
+            {nota.pendencias > 0 && (
+              <button className="btn-secondary" onClick={() => setCadastrandoNovos(true)} disabled={salvando}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="sparkle" size={15} /> Cadastrar {nota.pendencias} produto(s) novo(s)</span>
+              </button>
+            )}
+            {nota.pendencias > 0 && <span className="screen-hint" style={{ margin: 0, alignSelf: 'center' }}>Escolha o produto das linhas em vermelho, cadastre automaticamente ou marque "ignorar".</span>}
           </>
         )}
         {nota.status === 'confirmada' && (
@@ -376,6 +385,18 @@ function NfeConferencia({ id, avisos, erroInicial, onVoltar }) {
         )}
       </div>
 
+      {mostrarReajuste && nota.status === 'confirmada' && <ReajustePrecos entradaId={nota.id} />}
+      {cadastrandoNovos && (
+        <ProdutosDaNotaModal
+          entradaId={id}
+          onClose={() => setCadastrandoNovos(false)}
+          onFeito={(r) => {
+            setCadastrandoNovos(false);
+            setMensagem(`${r.criados} produto(s) cadastrado(s)${r.vinculados ? ` e ${r.vinculados} vinculado(s) pelo código de barras` : ''}. Confira e lance a entrada.${r.avisos.length ? ` Atenção: ${r.avisos.join(' ')}` : ''}`);
+            carregar();
+          }}
+        />
+      )}
       {estornando && (
         <div className="modal-overlay">
           <div className="modal-card">

@@ -94,6 +94,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
   const [fotoDataUrl, setFotoDataUrl] = useState(null);
   const [fotoBusy, setFotoBusy] = useState(false);
   const [historicoPreco, setHistoricoPreco] = useState([]);
+  const [dicaFiscal, setDicaFiscal] = useState('');
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [insumosDisponiveis, setInsumosDisponiveis] = useState([]);
   const [receita, setReceita] = useState([]); // [{ ingredientId, quantidade }]
@@ -206,6 +207,23 @@ export function ProductForm({ product, onSaved, onCancel }) {
 
   function setField(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Cadastro automático do imposto: ao sair do NCM, preenche só o que está
+  // VAZIO com o que a loja já usa para esse NCM (ou o padrão do Simples, avisando).
+  async function completarPeloNcm() {
+    const ncm = String(form.ncm || '').replace(/\D/g, '');
+    if (ncm.length !== 8) { setDicaFiscal(''); return; }
+    const r = await window.pdv.cadastroAuto?.sugerirPorNcm({ ncm, productId: form.id || undefined });
+    if (!r?.ok) return;
+    const mudancas = {};
+    if (r.fiscal && !form.cfop && !form.cstCsosn) { mudancas.cfop = r.fiscal.cfop; mudancas.cstCsosn = r.fiscal.cstCsosn; }
+    if (r.fiscal?.cest && !form.cest) mudancas.cest = r.fiscal.cest;
+    if (r.categoria && !form.categoria) mudancas.categoria = r.categoria;
+    const nomes = { cfop: 'CFOP', cstCsosn: 'CST/CSOSN', cest: 'CEST', categoria: 'categoria' };
+    const preenchidos = Object.keys(mudancas).map((k) => nomes[k]);
+    if (preenchidos.length) setForm((prev) => ({ ...prev, ...mudancas }));
+    setDicaFiscal(preenchidos.length ? `Preenchido pelo NCM: ${preenchidos.join(', ')} (${r.fiscal?.fonte || 'produtos da loja'}). Confira antes de salvar.` : '');
   }
 
   const [identificandoFoto, setIdentificandoFoto] = useState(false);
@@ -510,7 +528,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={16} /> Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
           <div className="form-grid">
             <label>NCM
-              <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} placeholder="8 dígitos" maxLength={8} />
+              <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} onBlur={completarPeloNcm} placeholder="8 dígitos" maxLength={8} />
             </label>
             <label>CEST
               <input value={form.cest} onChange={(e) => setField('cest', e.target.value)} placeholder="quando aplicável" />
@@ -529,6 +547,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
               </select>
             </label>
           </div>
+          {dicaFiscal && <p className="io-message" style={{ marginTop: 8 }}><Icon name="sparkle" size={14} /> {dicaFiscal}</p>}
         </>
       )}
 

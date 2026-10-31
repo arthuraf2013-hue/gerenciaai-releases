@@ -451,6 +451,29 @@ function garantirCampoExtraNoPerfil(database, perfilId, novoCampo) {
   database.prepare('UPDATE custom_profiles SET campos_extras_json = ? WHERE id = ?').run(JSON.stringify(campos), perfilId);
 }
 
+/**
+ * Índices e gatilhos do ERP que citam colunas novas em tabelas antigas --
+ * por isso moram aqui e não no schema.sql (que roda antes da migração).
+ * Chamado por migrateColumnsIfNeeded e por setDbForTesting.
+ */
+function garantirGatilhosErp(database) {
+  database.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_recorrencia_competencia
+      ON expenses(recorrencia_id, competencia) WHERE recorrencia_id IS NOT NULL;
+    -- Custo do produto na hora da venda (CMV do DRE). AFTER INSERT porque
+    -- o SQLite não deixa um gatilho mudar a linha antes de gravar; vale pra
+    -- todo caminho que cria item de venda (balcão, mesa, bot, celular).
+    CREATE TRIGGER IF NOT EXISTS trg_sale_items_custo AFTER INSERT ON sale_items
+    WHEN NEW.custo_unitario IS NULL
+    BEGIN
+      UPDATE sale_items SET custo_unitario = (SELECT COALESCE(custo, 0) FROM products WHERE id = NEW.product_id)
+      WHERE id = NEW.id;
+    END;
+  `);
+  // Motor tributário: regras de base legal clara que o app semeia (ids fixos).
+  require('../services/regrasTributariasPadrao').garantirRegrasTributariasPadrao(database);
+}
+
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
@@ -615,6 +638,20 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'erp_compras', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'expenses', 'nfe_entrada_id', 'TEXT');
   database.exec(`CREATE INDEX IF NOT EXISTS idx_expenses_nfe_entrada ON expenses(nfe_entrada_id);`);
+
+  // ERP, Fases 2 a 4 (ver schema.sql: erp_config, receivables, inventory_counts...).
+  adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'erp_financeiro', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'erp_estoque', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'modulos_pagos_state', 'erp_fiscal', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'expenses', 'recorrencia_id', 'TEXT');
+  adicionarColunaSeFaltando(database, 'expenses', 'competencia', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sale_items', 'custo_unitario', 'REAL');
+  // nfe_entrada_itens nasceu na Fase 1 sem o CEST (o assistente fiscal usa).
+  adicionarColunaSeFaltando(database, 'nfe_entrada_itens', 'cest', 'TEXT');
+  // Cadastro automático de produtos pela nota (margem e arredondamento lembrados).
+  adicionarColunaSeFaltando(database, 'erp_config', 'margem_padrao', 'REAL');
+  adicionarColunaSeFaltando(database, 'erp_config', 'arredondamento_preco', 'TEXT');
+  garantirGatilhosErp(database);
 
   // Tabela de preços de serviços (ver comentário de garantirCampoExtraNoPerfil).
   garantirCampoExtraNoPerfil(database, 'salao_beleza', {
@@ -843,7 +880,7 @@ module.exports = {
   // Idem, pra tests/pdvMobileSyncService.test.js (CHECK de tipo de pareamento com 'pdv').
   atualizarCheckTipoPareamentoParaIncluirPdv,
   // Pra tests/desempenho.test.js (abertura de banco antigo sem travar).
-  aplicarSchemaComRedeDeSeguranca, migrateColumnsIfNeeded,
+  aplicarSchemaComRedeDeSeguranca, migrateColumnsIfNeeded, garantirGatilhosErp,
 };
 
 function getDbPath() {
@@ -875,6 +912,7 @@ function setDbForTesting(databaseInstance) {
   db.function('NOW_SYNCED', () => timeService.nowSyncedUTCString());
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
   db.exec(schema);
+  garantirGatilhosErp(db);
   seedIfEmpty(db);
   return db;
 }

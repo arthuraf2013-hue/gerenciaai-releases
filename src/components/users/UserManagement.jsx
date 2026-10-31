@@ -19,6 +19,8 @@ export function UserManagement() {
   const [novoNome, setNovoNome] = useState('');
   const [novoRole, setNovoRole] = useState('operador');
   const [novoPin, setNovoPin] = useState('');
+  const [permissoesDe, setPermissoesDe] = useState(null);
+  const podeMudarPermissao = ['admin', 'suporte'].includes(currentUser.role);
 
   async function reload() {
     const result = await window.pdv.users.listAll({ requestingUserId: currentUser.id });
@@ -72,7 +74,7 @@ export function UserManagement() {
         <p className="empty-state">Carregando...</p>
       ) : (
       <table className="data-table">
-        <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th></th><th></th></tr></thead>
+        <thead><tr><th>Nome</th><th>Papel</th><th>Status</th><th></th><th></th><th></th></tr></thead>
         <tbody>
           {users.map((u) => {
             const bloqueadoPraGerente = currentUser.role === 'gerente' && ['admin', 'suporte'].includes(u.role);
@@ -83,6 +85,11 @@ export function UserManagement() {
                 <td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
                 <td>
                   {!bloqueadoPraGerente && <button className="btn-link" onClick={() => resetPin(u)}><Icon name="key" size={14} /> Resetar PIN</button>}
+                </td>
+                <td>
+                  {podeMudarPermissao && u.role === 'gerente' && (
+                    <button className="btn-link" onClick={() => setPermissoesDe(u)}><Icon name="lock" size={14} /> Permissões do ERP</button>
+                  )}
                 </td>
                 <td>
                   {!bloqueadoPraGerente && (
@@ -124,9 +131,54 @@ export function UserManagement() {
           </form>
         </div>
       )}
+      {permissoesDe && <PermissoesErpModal usuario={permissoesDe} onClose={() => setPermissoesDe(null)} />}
       {promptState && (
         <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}
+    </div>
+  );
+}
+
+/** Admin/suporte retira (ou devolve) áreas do ERP de um gerente. */
+function PermissoesErpModal({ usuario, onClose }) {
+  useEscToClose(onClose, true);
+  const [catalogo, setCatalogo] = useState([]);
+  const [valores, setValores] = useState(null);
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  useEffect(() => {
+    Promise.all([window.pdv.permissoes.catalogo(), window.pdv.permissoes.doUsuario({ usuarioId: usuario.id })]).then(([cat, atual]) => {
+      if (!Array.isArray(cat)) return setErro(cat?.error || 'Não foi possível carregar.');
+      if (!atual?.ok) return setErro(atual?.error || 'Não foi possível carregar.');
+      setCatalogo(cat);
+      setValores(atual.permissoes);
+    });
+  }, [usuario.id]);
+  async function salvar(e) {
+    e.preventDefault();
+    setSalvando(true);
+    const r = await window.pdv.permissoes.salvar({ usuarioId: usuario.id, permissoes: valores });
+    setSalvando(false);
+    if (!r?.ok) return setErro(r?.error || 'Não foi possível salvar.');
+    onClose();
+  }
+  return (
+    <div className="modal-overlay">
+      <form className="modal-card" onSubmit={salvar}>
+        <h2><Icon name="lock" size={18} /> Permissões do ERP — {usuario.nome}</h2>
+        <p className="screen-hint">Desmarque o que este gerente não deve abrir. O resto do sistema continua igual. Fica registrado na Auditoria.</p>
+        {erro && <p className="modal-error">{erro}</p>}
+        {!valores ? <p className="empty-state">{erro ? '' : 'Carregando...'}</p> : catalogo.map((p) => (
+          <label key={p.chave} className="nfe-opcao">
+            <input type="checkbox" checked={!!valores[p.chave]} onChange={(e) => setValores({ ...valores, [p.chave]: e.target.checked })} />
+            {p.rotulo}
+          </label>
+        ))}
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}><Icon name="close" size={15} /> Cancelar</button>
+          <button type="submit" className="btn-primary" disabled={!valores || salvando}><Icon name="save" size={15} /> {salvando ? 'Salvando...' : 'Salvar'}</button>
+        </div>
+      </form>
     </div>
   );
 }

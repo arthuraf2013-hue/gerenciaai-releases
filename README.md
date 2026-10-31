@@ -6151,3 +6151,90 @@ Testes: `custoMedioService`, `nfeEntradaService` (XMLs montados por
 abrindo com o schema novo, papel e licença no IPC). **Não testado com XML real
 de fornecedor** nesta sessão: na loja, comece por uma nota conhecida e confira o
 custo unitário de cada item antes de lançar.
+
+## ERP, Fases 2 a 4 — financeiro, inventário e assistente fiscal
+
+Restante do documento "GerenciaAI ERP — Arquitetura". Três módulos pagos novos
+(`erpFinanceiro`, `erpEstoque`, `erpFiscal` em `clientes/{id}.modulosAtivos`,
+checkboxes na Central, espelhados em `modulos_pagos_state.erp_*`). Canais
+recusam com `moduloInativo` só quando a Central CONFIRMOU desligado
+(`erpService.exigir(modulo)`); instalação que nunca sincronizou continua vendo.
+
+- **Financeiro** (`financeiroService.js`, aba nova em Financeiro): contas a
+  receber (cartão a cair calculado dos pagamentos + `card_fee_config` com taxa
+  e prazo de débito/crédito; contas lançadas em `receivables`; fiado em aberto),
+  despesa fixa (`expense_recurrences`, gera só para frente, uma por competência
+  pelo índice único `recorrencia_id + competencia`), despesa parcelada (centavos
+  que sobram na última), "paga em outra data", fluxo de caixa dia a dia
+  (realizado + previsto, saldo inicial em `erp_config`, aviso de saldo negativo)
+  e DRE por mês. CMV vem de `sale_items.custo_unitario`, gravado pelo gatilho
+  `trg_sale_items_custo` (custo médio do produto na hora da venda, vale para
+  qualquer caminho que insere item); venda antiga sem custo usa o custo atual e
+  é marcada como estimada. Compra de mercadoria (conta com `nfe_entrada_id` ou
+  categoria `fornecedor`) e retirada do sócio ficam fora do resultado.
+- **Inventário** (`inventarioService.js`, abas Inventário e Movimentação no
+  Abastecimento): contagem com foto do estoque + `ultimo_rowid` do livro, então
+  venda feita durante a contagem não vira falta; contagem cega opcional, leitor
+  de código de barras somando, filtro por categoria, zerar o que não foi achado.
+  Fechar gera movimentos `ajuste` (e a variação do grupo multi-PDV pelo
+  `registrarMovimentoDoServidor`) e fica na Auditoria. Kardex por produto com
+  histórico do custo médio.
+- **Assistente fiscal** (`assistenteFiscalService.js` + `tabelasFiscais.js`,
+  tela nova Fiscal em Gestão): limite do MEI (R$ 81 mil, proporcional no ano de
+  abertura, faixa de 20%) ou do Simples (R$ 4,8 mi e sublimite), projeção do ano,
+  DAS-MEI do ano (2026: R$ 82,05 comércio / 86,05 serviços / 87,05 ambos) ou DAS
+  estimado pelo Anexo I (RBT12, alíquota efetiva), calendário de obrigações (DAS,
+  PGDAS-D, DASN-SIMEI, DEFIS, pacote do contador; avisa fim de semana),
+  diagnóstico do cadastro fiscal (NCM, CFOP, CSOSN, CEST) com correção em massa
+  pelo que veio nas notas de compra (CFOP de ST do fornecedor → 5405 + CSOSN 500;
+  sem ST → 5102 + 102) e só em campo vazio ou inválido, relatório mensal de
+  receitas brutas do MEI em PDF e o **pacote do contador** (.zip com vendas por
+  CFOP/CSOSN/NCM, compras, financeiro, XML das NF-e de entrada e das NFC-e).
+  A entrada de NF-e agora grava o CEST do item e preenche NCM/CEST vazios do
+  produto. Nada aqui apura nem transmite imposto: tudo marcado como estimativa.
+- Caminho do PDF e do .zip nasce no `showSaveDialog` do processo principal; o
+  HTML do relatório passa por `escapeHtml` e é impresso em janela sem JavaScript.
+- `jszip` virou dependência direta (já vinha pelo `exceljs`).
+
+Testes: `financeiroService`, `inventarioService`, `assistenteFiscalService`,
+`erpFases2a4Ipc` (papel, módulo desligado, operador da sessão, arquivo só pelo
+diálogo) e `erpFase1` atualizado. **Não testado com dados reais de loja**:
+confira o primeiro fluxo de caixa e o primeiro pacote com o contador.
+
+## ERP: permissões finas e motor tributário
+
+Fundação (Fase 2) e núcleo fiscal (Fase 4) do plano em `docs/ERP-ROADMAP.md`;
+arquitetura e decisões em `docs/ERP-ARCHITECTURE.md`.
+
+- **Permissões do ERP por usuário** (`permissaoService.js`, tabela
+  `user_permission_overrides`): admin/suporte retiram de um gerente as áreas
+  Compras, Financeiro, Inventário, Fiscal ou Configurações do ERP (Usuários →
+  Permissões do ERP). Checagem por prefixo de canal dentro de
+  `politicaDeAcesso`, depois do papel; sem linha = permitido; admin/suporte
+  nunca restritos. `erp:status` devolve também o que o usuário pode abrir.
+- **Motor tributário** (`motorTributarioService.js`, tabela `tax_rules`):
+  regras por tributo (ICMS, ICMS-ST, FCP, PIS, COFINS, IPI, ISS, IBS, CBS, IS)
+  com critérios opcionais e vigência; vence a mais específica; mudar = nova
+  versão (a anterior fecha na véspera). Semeia só regras de base legal clara
+  (`regrasTributariasPadrao.js`): Simples/MEI e IBS/CBS de teste em 2026 no
+  regime regular. Aba Fiscal → Regras tributárias com simulador por produto.
+  **Ainda não alimenta a emissão da NFC-e** (precisa de homologação).
+
+Testes: `motorTributario`, `permissaoErp`.
+
+## ERP: cadastro automático de produtos e impostos
+
+- **Produtos da nota** (`cadastroAutomaticoService.produtosDaNota`, botão "Cadastrar N
+  produto(s) novo(s)" na conferência da NF-e): prévia e cadastro dos itens sem produto, com
+  nome limpo, EAN da unidade (caixa → unidade pelo qTrib/qCom), custo da nota, preço pela
+  margem (arredondado para ,x9 / ,90), categoria e fiscal da loja ou do CFOP do fornecedor.
+  EAN que já existe num produto ativo só vincula; EAN de produto desativado: cadastra sem
+  código e avisa. Margem e arredondamento ficam em `erp_config`.
+- **Reajuste pela margem** depois de lançar a nota: lista quem ficou abaixo da margem padrão
+  com o custo médio novo; aplicar confere o preço anterior e grava o histórico.
+- **Fiscal automático**: a confirmação da nota completa CFOP/CSOSN vazios; o formulário de
+  produto preenche CFOP/CSOSN/CEST/categoria ao sair do NCM; o assistente corrige também pelo
+  "mesmo NCM na loja" (`fiscalDaLoja`), sem passar por cima de CFOP válido; NCM pela IA com
+  conferência; motor × cadastro (`conferirCadastro`) com aplicar.
+
+Testes: `cadastroAutomatico`.

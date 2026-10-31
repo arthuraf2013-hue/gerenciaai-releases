@@ -29,12 +29,14 @@ function getLocalState() {
   return row;
 }
 
-function salvarEstado({ clienteId, consultaRemota, appGarcom, pdvMobile, erpCompras, jaSincronizado }) {
+function salvarEstado({ clienteId, consultaRemota, appGarcom, pdvMobile, erpCompras, erpFinanceiro, erpEstoque, erpFiscal, jaSincronizado }) {
   const db = getDb();
   getLocalState(); // garante que a linha 'default' existe antes do UPDATE
   db.prepare(
-    `UPDATE modulos_pagos_state SET cliente_id = ?, consulta_remota = ?, app_garcom = ?, pdv_mobile = ?, erp_compras = ?, ja_sincronizado = ? WHERE id = ?`
-  ).run(clienteId, consultaRemota ? 1 : 0, appGarcom ? 1 : 0, pdvMobile ? 1 : 0, erpCompras ? 1 : 0, jaSincronizado ? 1 : 0, 'default');
+    `UPDATE modulos_pagos_state SET cliente_id = ?, consulta_remota = ?, app_garcom = ?, pdv_mobile = ?, erp_compras = ?,
+       erp_financeiro = ?, erp_estoque = ?, erp_fiscal = ?, ja_sincronizado = ? WHERE id = ?`
+  ).run(clienteId, consultaRemota ? 1 : 0, appGarcom ? 1 : 0, pdvMobile ? 1 : 0, erpCompras ? 1 : 0,
+    erpFinanceiro ? 1 : 0, erpEstoque ? 1 : 0, erpFiscal ? 1 : 0, jaSincronizado ? 1 : 0, 'default');
 }
 
 let pararEscutaCliente = null;
@@ -58,7 +60,7 @@ function aplicarClienteIdDaInstalacao(dadosInstalacao) {
     // fica ativo (mesma conclusão a que a regra do Firestore chega).
     if (pararEscutaCliente) { pararEscutaCliente(); pararEscutaCliente = null; }
     clienteIdComEscutaAtiva = null;
-    salvarEstado({ clienteId: null, consultaRemota: false, appGarcom: false, pdvMobile: false, erpCompras: false, jaSincronizado: true });
+    salvarEstado({ clienteId: null, consultaRemota: false, appGarcom: false, pdvMobile: false, erpCompras: false, erpFinanceiro: false, erpEstoque: false, erpFiscal: false, jaSincronizado: true });
     return;
   }
 
@@ -83,6 +85,9 @@ function aplicarClienteIdDaInstalacao(dadosInstalacao) {
           appGarcom: modulos.appGarcom === true,
           pdvMobile: modulos.pdvMobile === true,
           erpCompras: modulos.erpCompras === true,
+          erpFinanceiro: modulos.erpFinanceiro === true,
+          erpEstoque: modulos.erpEstoque === true,
+          erpFiscal: modulos.erpFiscal === true,
           jaSincronizado: true,
         });
       },
@@ -115,6 +120,9 @@ function moduloAtivo(modulo) {
   if (modulo === 'appGarcom') return state.app_garcom === 1;
   if (modulo === 'pdvMobile') return state.pdv_mobile === 1;
   if (modulo === 'erpCompras') return state.erp_compras === 1;
+  if (modulo === 'erpFinanceiro') return state.erp_financeiro === 1;
+  if (modulo === 'erpEstoque') return state.erp_estoque === 1;
+  if (modulo === 'erpFiscal') return state.erp_fiscal === 1;
   return state.consulta_remota === 1;
 }
 

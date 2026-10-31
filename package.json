@@ -25,6 +25,7 @@
     "electron-updater": "^6.3.9",
     "exceljs": "^4.4.0",
     "firebase": "^11.0.0",
+    "jszip": "^3.10.1",
     "node-forge": "^1.4.0",
     "qrcode": "^1.5.4",
     "serialport": "^12.0.0",

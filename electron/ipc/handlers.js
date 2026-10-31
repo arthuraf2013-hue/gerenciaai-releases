@@ -57,6 +57,12 @@ const erpService = require('../services/erpService');
 const custoMedioService = require('../services/custoMedioService');
 const purchaseOrderService = require('../services/purchaseOrderService');
 const nfeEntradaService = require('../services/nfeEntradaService');
+const financeiroService = require('../services/financeiroService');
+const inventarioService = require('../services/inventarioService');
+const assistenteFiscalService = require('../services/assistenteFiscalService');
+const permissaoService = require('../services/permissaoService');
+const motorTributarioService = require('../services/motorTributarioService');
+const cadastroAutomaticoService = require('../services/cadastroAutomaticoService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -160,6 +166,24 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'purchaseOrder:texto', 'purchaseOrder:enviarWhatsapp',
   'nfeEntrada:importarXml', 'nfeEntrada:list', 'nfeEntrada:get', 'nfeEntrada:atualizarItem', 'nfeEntrada:vincularPedido',
   'nfeEntrada:descartar', 'nfeEntrada:confirmar', 'nfeEntrada:estornar',
+  // ERP, Fases 2 a 4.
+  'erp:getConfig', 'erp:salvarConfig',
+  'financeiro:getTaxas', 'financeiro:salvarTaxas', 'financeiro:contasAReceber', 'financeiro:criarRecebivel',
+  'financeiro:receberRecebivel', 'financeiro:cancelarRecebivel', 'financeiro:listarRecorrencias', 'financeiro:criarRecorrencia',
+  'financeiro:alterarRecorrencia', 'financeiro:criarDespesaParcelada', 'financeiro:pagarDespesaNaData', 'financeiro:fluxoDeCaixa',
+  'financeiro:dre',
+  'inventario:abrir', 'inventario:listar', 'inventario:obter', 'inventario:registrarContagem', 'inventario:limparContagem',
+  'inventario:fechar', 'inventario:cancelar', 'inventario:kardex',
+  'assistenteFiscal:painel', 'assistenteFiscal:diagnostico', 'assistenteFiscal:aplicarSugestoes', 'assistenteFiscal:relatorioMei',
+  'assistenteFiscal:salvarRelatorioMeiPdf', 'assistenteFiscal:gerarPacoteContador',
+  // ERP: permissões finas e motor tributário.
+  'permissao:catalogo', 'permissao:doUsuario', 'permissao:salvar',
+  'tributacao:listar', 'tributacao:criar', 'tributacao:novaVersao', 'tributacao:desativar',
+  'tributacao:calcularItem', 'tributacao:simularProduto',
+  // Cadastro automático (produto e imposto).
+  'nfeEntrada:produtosNovos', 'nfeEntrada:cadastrarProdutosNovos', 'cadastroAuto:sugerirPorNcm',
+  'nfeEntrada:reajustePrecos', 'nfeEntrada:aplicarReajuste',
+  'assistenteFiscal:sugerirNcmIA', 'assistenteFiscal:aplicarNcm', 'tributacao:conferirCadastro', 'tributacao:aplicarAoCadastro',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
@@ -173,7 +197,8 @@ function politicaDeAcesso(channel, event) {
     const guard = authService.requireRole(usuarioId, papeis);
     if (!guard.ok) return guard;
   }
-  return null;
+  // Permissão fina do ERP (só retira acesso de gerente; ver permissaoService).
+  return permissaoService.negadoPorPermissao(usuarioId, channel);
 }
 
 // Quem está operando é SEMPRE quem está logado nesta janela: o renderer
@@ -992,7 +1017,7 @@ function registerIpcHandlers() {
   // Pedido e nota passam pela licença do módulo `erpCompras` (erpService);
   // o custo médio não. Papel (gestão) já é exigido em PAPEL_POR_CANAL.
   const comModuloCompras = (fn) => (event, payload) => erpService.exigirCompras() || fn(event, payload || {});
-  safeHandle('erp:status', () => erpService.status());
+  safeHandle('erp:status', (event) => erpService.status(usuarioLogado(event)));
   safeHandle('custoMedio:historico', (_e, { productId } = {}) => custoMedioService.historico(productId));
 
   safeHandle('purchaseOrder:list', comModuloCompras((_e, p) => purchaseOrderService.listar(p)));
@@ -1034,6 +1059,110 @@ function registerIpcHandlers() {
   safeHandle('nfeEntrada:descartar', comModuloCompras((_e, p) => nfeEntradaService.descartar(p)));
   safeHandle('nfeEntrada:confirmar', comModuloCompras((_e, p) => nfeEntradaService.confirmar(p)));
   safeHandle('nfeEntrada:estornar', comModuloCompras((_e, p) => nfeEntradaService.estornar(p)));
+  // Itens sem produto viram produtos novos (prévia e cadastro; o operador vem da sessão).
+  safeHandle('nfeEntrada:produtosNovos', comModuloCompras((_e, p) => cadastroAutomaticoService.produtosDaNota({ ...p, aplicar: false })));
+  safeHandle('nfeEntrada:cadastrarProdutosNovos', comModuloCompras((_e, p) => cadastroAutomaticoService.produtosDaNota({ ...p, aplicar: true })));
+  safeHandle('nfeEntrada:reajustePrecos', comModuloCompras((_e, p) => cadastroAutomaticoService.reajustePorMargem(p)));
+  safeHandle('nfeEntrada:aplicarReajuste', comModuloCompras((_e, p) => cadastroAutomaticoService.aplicarReajuste(p)));
+  // Ajuda do formulário de produto: não é módulo pago (como o custo médio).
+  safeHandle('cadastroAuto:sugerirPorNcm', (_e, p) => cadastroAutomaticoService.sugerirPorNcm(p || {}));
+
+  // --- ERP, Fases 2 a 4: financeiro, inventário e assistente fiscal ---
+  const comModulo = (modulo, fn) => (event, payload) => erpService.exigir(modulo) || fn(event, payload || {});
+  safeHandle('erp:getConfig', () => financeiroService.getConfig());
+  safeHandle('erp:salvarConfig', (event, p) => auditarSeOk(event, financeiroService.salvarConfig(p || {}), 'erp_config_alterada', 'Configurações do ERP alteradas.'));
+  // Pagar com data é melhoria das contas a pagar que já existiam: sem licença.
+  safeHandle('financeiro:pagarDespesaNaData', (_e, p) => financeiroService.pagarDespesaNaData(p || {}));
+  const F = (fn) => comModulo('erpFinanceiro', fn);
+  safeHandle('financeiro:getTaxas', F(() => financeiroService.getTaxas()));
+  safeHandle('financeiro:salvarTaxas', F((event, { taxas }) => auditarSeOk(event, financeiroService.salvarTaxas(taxas), 'taxas_cartao_alteradas', 'Taxas e prazos das maquininhas alterados.')));
+  safeHandle('financeiro:contasAReceber', F((_e, p) => financeiroService.contasAReceber(p)));
+  safeHandle('financeiro:criarRecebivel', F((_e, p) => financeiroService.criarRecebivel(p)));
+  safeHandle('financeiro:receberRecebivel', F((_e, p) => financeiroService.receberRecebivel(p)));
+  safeHandle('financeiro:cancelarRecebivel', F((event, p) => auditarSeOk(event, financeiroService.cancelarRecebivel(p), 'conta_receber_cancelada', `Conta a receber ${p.id} cancelada.`)));
+  safeHandle('financeiro:listarRecorrencias', F(() => financeiroService.listarRecorrencias()));
+  safeHandle('financeiro:criarRecorrencia', F((_e, p) => financeiroService.criarRecorrencia(p)));
+  safeHandle('financeiro:alterarRecorrencia', F((_e, p) => financeiroService.alterarRecorrencia(p)));
+  safeHandle('financeiro:criarDespesaParcelada', F((_e, p) => financeiroService.criarDespesaParcelada(p)));
+  safeHandle('financeiro:fluxoDeCaixa', F((_e, p) => financeiroService.fluxoDeCaixa(p)));
+  safeHandle('financeiro:dre', F((_e, p) => financeiroService.dre(p)));
+
+  const E = (fn) => comModulo('erpEstoque', fn);
+  safeHandle('inventario:abrir', E((_e, p) => inventarioService.abrir(p)));
+  safeHandle('inventario:listar', E((_e, p) => inventarioService.listar(p)));
+  safeHandle('inventario:obter', E((_e, p) => inventarioService.obter(p)));
+  safeHandle('inventario:registrarContagem', E((_e, p) => inventarioService.registrarContagem(p)));
+  safeHandle('inventario:limparContagem', E((_e, p) => inventarioService.limparContagem(p)));
+  safeHandle('inventario:fechar', E((_e, p) => inventarioService.fechar(p)));
+  safeHandle('inventario:cancelar', E((_e, p) => inventarioService.cancelar(p)));
+  safeHandle('inventario:kardex', E((_e, p) => inventarioService.kardex(p)));
+
+  const FI = (fn) => comModulo('erpFiscal', fn);
+  safeHandle('assistenteFiscal:painel', FI((_e, p) => assistenteFiscalService.painel(p)));
+  safeHandle('assistenteFiscal:diagnostico', FI(() => assistenteFiscalService.diagnosticoCadastro()));
+  safeHandle('assistenteFiscal:aplicarSugestoes', FI((_e, p) => assistenteFiscalService.aplicarSugestoes(p)));
+  safeHandle('assistenteFiscal:relatorioMei', FI((_e, p) => assistenteFiscalService.relatorioMei(p)));
+  // Motor tributário (regras versionadas). Mudança de regra fica na Auditoria.
+  safeHandle('tributacao:listar', FI((_e, p) => ({ ok: true, regras: motorTributarioService.listar(p), contexto: motorTributarioService.contextoDaLoja() })));
+  safeHandle('tributacao:criar', FI((event, p) => auditarSeOk(event, motorTributarioService.criar(p), 'regra_tributaria_criada', `Regra tributária criada: ${p.tributo} "${p.nome}".`)));
+  safeHandle('tributacao:novaVersao', FI((event, p) => auditarSeOk(event, motorTributarioService.novaVersao(p), 'regra_tributaria_versionada', `Nova versão da regra tributária "${p.nome}" a partir de ${p.vigenciaInicio}.`)));
+  safeHandle('tributacao:desativar', FI((event, p) => auditarSeOk(event, motorTributarioService.desativar(p), 'regra_tributaria_desativada', `Regra tributária ${p.id} desativada.`)));
+  safeHandle('tributacao:calcularItem', FI((_e, p) => motorTributarioService.calcularItem(p)));
+  safeHandle('tributacao:simularProduto', FI((_e, p) => motorTributarioService.simularProduto(p)));
+  safeHandle('tributacao:conferirCadastro', FI(() => motorTributarioService.conferirCadastro({ aplicar: false })));
+  safeHandle('tributacao:aplicarAoCadastro', FI((_e, p) => motorTributarioService.conferirCadastro({ aplicar: true, productIds: p.productIds, operadorId: p.operadorId })));
+  safeHandle('assistenteFiscal:sugerirNcmIA', FI((_e, p) => cadastroAutomaticoService.sugerirNcmComIA(p)));
+  safeHandle('assistenteFiscal:aplicarNcm', FI((_e, p) => cadastroAutomaticoService.aplicarNcm(p)));
+
+  // Permissões finas do ERP: ver é de gestão; mudar é só admin/suporte.
+  safeHandle('permissao:catalogo', () => permissaoService.catalogo());
+  safeHandle('permissao:doUsuario', (_e, { usuarioId } = {}) => permissaoService.doUsuario(usuarioId));
+  safeHandle('permissao:salvar', (event, p = {}) => {
+    const negado = guardRole(event, ['admin', 'suporte']);
+    if (negado) return negado;
+    const r = permissaoService.salvar({ ...p, operadorId: usuarioLogado(event) });
+    if (r.ok && r.alteradas.length) {
+      authService.registrarEventoAuditoria({ tipoEvento: 'permissao_erp_alterada', solicitanteId: usuarioLogado(event), motivo: `Usuário ${p.usuarioId}: ${r.alteradas.join('; ')}.` });
+    }
+    return r;
+  });
+
+  // PDF e ZIP: o caminho nasce no diálogo do processo principal.
+  safeHandle('assistenteFiscal:salvarRelatorioMeiPdf', FI(async (_e, p) => {
+    const rel = assistenteFiscalService.relatorioMei(p);
+    if (!rel.ok) return rel;
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Salvar relatório mensal de receitas brutas (MEI)',
+      defaultPath: `relatorio-mensal-mei-${p.competencia}.pdf`,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    // Mesma janela invisível das impressões: sem JavaScript, só o HTML escapado.
+    const janela = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
+    try {
+      await janela.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(assistenteFiscalService.htmlRelatorioMei(rel))}`);
+      const pdf = await janela.webContents.printToPDF({ printBackground: true, pageSize: 'A4' });
+      require('fs').writeFileSync(filePath, pdf);
+    } finally {
+      janela.destroy();
+    }
+    return { ok: true, arquivo: filePath.split(/[\\/]/).pop() };
+  }));
+  safeHandle('assistenteFiscal:gerarPacoteContador', FI(async (_e, p) => {
+    const pacote = await assistenteFiscalService.pacoteContador(p);
+    if (!pacote.ok) return pacote;
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Salvar pacote do contador',
+      defaultPath: pacote.nomeSugerido,
+      filters: [{ name: 'Arquivo ZIP', extensions: ['zip'] }],
+    });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    require('fs').writeFileSync(filePath, pacote.buffer);
+    require('electron').shell.showItemInFolder(filePath);
+    return { ok: true, arquivo: filePath.split(/[\\/]/).pop(), resumo: pacote.resumo, avisos: pacote.avisos };
+  }));
 
   // --- Atualização automática ---
   safeHandle('update:getStatus', () => updateService.getStatus());

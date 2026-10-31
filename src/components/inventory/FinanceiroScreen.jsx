@@ -3,18 +3,43 @@ import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { CATEGORIAS_DESPESA as CATEGORIAS, CATEGORIA_LABEL, ContasAReceberTab, FluxoCaixaTab, DreTab, AjustesFinanceiroTab } from './FinanceiroErp';
+import { Abas, useModulosErp, ModuloInativo } from './erpUtils';
 
-const CATEGORIAS = [
-  { value: 'aluguel', label: 'Aluguel' },
-  { value: 'contas_consumo', label: 'Água/Luz/Internet' },
-  { value: 'fornecedor', label: 'Fornecedor' },
-  { value: 'salario', label: 'Salário' },
-  { value: 'impostos', label: 'Impostos' },
-  { value: 'outro', label: 'Outro' },
+const ABAS = [
+  { id: 'resumo', icone: 'money', rotulo: 'Resumo e despesas' },
+  { id: 'receber', icone: 'receipt', rotulo: 'Contas a receber', erp: true },
+  { id: 'fluxo', icone: 'trendUp', rotulo: 'Fluxo de caixa', erp: true },
+  { id: 'dre', icone: 'chart', rotulo: 'DRE', erp: true },
+  { id: 'ajustes', icone: 'sliders', rotulo: 'Ajustes', erp: true },
 ];
-const CATEGORIA_LABEL = Object.fromEntries(CATEGORIAS.map((c) => [c.value, c.label]));
 
+/** Financeiro: o resumo e as despesas de sempre + o financeiro do ERP
+ * (módulo pago `erpFinanceiro`). */
 export function FinanceiroScreen() {
+  const [aba, setAba] = useState('resumo');
+  const modulos = useModulosErp();
+  const atual = ABAS.find((a) => a.id === aba);
+  const bloqueadas = modulos && !modulos.financeiro ? Object.fromEntries(ABAS.filter((a) => a.erp).map((a) => [a.id, true])) : {};
+  let conteudo;
+  // Sem permissão o usuário não vê nem as despesas (canais expense:* também são da área).
+  if (modulos?.semPermissao.financeiro) conteudo = <ModuloInativo modulo="financeiro" semPermissao />;
+  else if (!atual.erp) conteudo = <ResumoEDespesas />;
+  else if (modulos === null) conteudo = <p className="empty-state">Carregando...</p>;
+  else if (!modulos.financeiro) conteudo = <ModuloInativo modulo="financeiro" />;
+  else if (aba === 'receber') conteudo = <ContasAReceberTab />;
+  else if (aba === 'fluxo') conteudo = <FluxoCaixaTab />;
+  else if (aba === 'dre') conteudo = <DreTab />;
+  else conteudo = <AjustesFinanceiroTab />;
+  return (
+    <div className="screen">
+      <Abas abas={ABAS} atual={aba} onChange={setAba} bloqueadas={bloqueadas} />
+      <div style={{ marginTop: 12 }}>{conteudo}</div>
+    </div>
+  );
+}
+
+function ResumoEDespesas() {
   const { currentUser } = useSession();
   const [periodo, setPeriodo] = useState('mes');
   const [dataInicio, setDataInicio] = useState('');
@@ -27,6 +52,8 @@ export function FinanceiroScreen() {
   useEscToClose(() => setShowForm(false), showForm);
   const [form, setForm] = useState({ categoria: 'outro', descricao: '', valor: '', fornecedorId: '', dataVencimento: '' });
   const [erro, setErro] = useState('');
+  const [pagandoEm, setPagandoEm] = useState(null); // { id, descricao, data }
+  useEscToClose(() => setPagandoEm(null), !!pagandoEm);
 
   useEffect(() => {
     const hoje = new Date();
@@ -67,6 +94,16 @@ export function FinanceiroScreen() {
 
   async function handleMarcarPaga(expenseId) {
     await window.pdv.expenses.markAsPaid({ expenseId, operadorId: currentUser.id });
+    carregar();
+  }
+
+  // Paga em outro dia (o fluxo de caixa e o pacote do contador usam a data).
+  async function handlePagaEmOutraData(e) {
+    e.preventDefault();
+    const r = await window.pdv.financeiro.pagarDespesaNaData({ expenseId: pagandoEm.id, data: pagandoEm.data });
+    if (r && r.ok === false) return setErro(r.error);
+    setErro('');
+    setPagandoEm(null);
     carregar();
   }
 
@@ -123,7 +160,10 @@ export function FinanceiroScreen() {
                   <td>{p.descricao}</td>
                   <td>{p.fornecedor_nome || '—'}</td>
                   <td>R$ {p.valor.toFixed(2)}</td>
-                  <td><button className="btn-link" onClick={() => handleMarcarPaga(p.id)}><Icon name="checkCircle" size={14} /> Marcar como paga</button></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button className="btn-link" onClick={() => handleMarcarPaga(p.id)}><Icon name="checkCircle" size={14} /> Paga hoje</button>
+                    <button className="btn-link" onClick={() => { setErro(''); setPagandoEm({ id: p.id, descricao: p.descricao, data: toISODate(new Date()) }); }}>Outra data</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -152,6 +192,27 @@ export function FinanceiroScreen() {
         </table>
       )}
 
+      {erro && !showForm && !pagandoEm && <p className="modal-error" style={{ marginTop: 12 }}>{erro}</p>}
+
+      {pagandoEm && (
+        <div className="modal-overlay">
+          <div className="modal-card">
+            <form onSubmit={handlePagaEmOutraData}>
+              <h2><Icon name="checkCircle" size={18} /> Pagamento — {pagandoEm.descricao}</h2>
+              <label>
+                Pago em
+                <input type="date" value={pagandoEm.data} max={toISODate(new Date())} onChange={(e) => setPagandoEm({ ...pagandoEm, data: e.target.value })} required />
+              </label>
+              {erro && <p className="modal-error">{erro}</p>}
+              <div className="modal-actions" style={{ marginTop: 16 }}>
+                <button type="button" className="btn-secondary" onClick={() => setPagandoEm(null)}>Voltar</button>
+                <button type="submit" className="btn-primary">Marcar como paga</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {showForm && (
         <div className="modal-overlay">
           <div className="modal-card">
@@ -171,7 +232,7 @@ export function FinanceiroScreen() {
                 Valor (R$)
                 <input type="number" step="0.01" min="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} required />
               </label>
-              {form.categoria === 'fornecedor' && (
+              {['fornecedor', 'servicos_terceiros', 'manutencao'].includes(form.categoria) && (
                 <label style={{ marginTop: 12 }}>
                   Fornecedor
                   <select value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })}>

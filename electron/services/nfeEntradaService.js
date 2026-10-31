@@ -23,6 +23,8 @@ const { parseNFeXml, TAMANHO_MAXIMO } = require('./nfeXmlParser');
  * a entrada anterior tenha sido estornada.
  */
 
+function cadastroAuto() { return require('./cadastroAutomaticoService'); }
+
 function arred(v, casas = 2) {
   const f = 10 ** casas;
   return Math.round((Number(v) + Number.EPSILON) * f) / f;
@@ -137,10 +139,10 @@ function importarXml({ xml, locationId, operadorId }) {
       nota.totais.desconto, nota.totais.total, String(xml), locationId, operadorId);
 
     const insItem = db.prepare(
-      `INSERT INTO nfe_entrada_itens (id, entrada_id, n_item, codigo_fornecedor, ean, descricao, ncm, cfop, unidade_nota,
+      `INSERT INTO nfe_entrada_itens (id, entrada_id, n_item, codigo_fornecedor, ean, descricao, ncm, cest, cfop, unidade_nota,
          quantidade_nota, valor_unitario_nota, valor_produto, valor_frete, valor_seguro, valor_desconto, valor_outros,
          valor_ipi, valor_icms_st, lotes_json, product_id, fator, lote, validade)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const item of nota.itens) {
       const palpite = casarItem(db, fornecedor?.id, item);
@@ -148,7 +150,7 @@ function importarXml({ xml, locationId, operadorId }) {
       // alimento). Com mais de um lote no item, sugere o que vence antes.
       const lotes = [...item.lotes].sort((a, b) => String(a.validade).localeCompare(String(b.validade)));
       insItem.run(randomUUID(), id, item.nItem, item.codigo || null, item.ean || item.eanTributavel || null, item.descricao,
-        item.ncm || null, item.cfop || null, item.unidade || null, item.quantidade, item.valorUnitario, item.valorProduto,
+        item.ncm || null, item.cest || null, item.cfop || null, item.unidade || null, item.quantidade, item.valorUnitario, item.valorProduto,
         item.frete, item.seguro, item.desconto, item.outros, item.ipi, item.icmsSt, JSON.stringify(item.lotes),
         palpite.productId, palpite.fator, lotes[0]?.lote || null, /^\d{4}-\d{2}-\d{2}$/.test(lotes[0]?.validade || '') ? lotes[0].validade : null);
     }
@@ -341,6 +343,8 @@ function confirmar({ entradaId, locationId, operadorId, deviceId, contaAPagar })
       }
       const fornecedorNome = db.prepare('SELECT nome FROM suppliers WHERE id = ?').get(fornecedorId).nome;
       const motivo = `NF-e ${entrada.numero}${entrada.serie ? `/${entrada.serie}` : ''} — ${fornecedorNome}`;
+      let fiscalPreenchidos = 0;
+      const regimeLoja = db.prepare("SELECT regime_tributario FROM fiscal_config WHERE id = 'default'").get()?.regime_tributario || null;
 
       for (const item of validos) {
         const { quantidadeEntrada, custoUnitario } = calcularItem(item);
@@ -365,6 +369,27 @@ function confirmar({ entradaId, locationId, operadorId, deviceId, contaAPagar })
         }
         if (entrada.purchase_order_id) {
           purchaseOrderService.aplicarRecebimento(db, entrada.purchase_order_id, item.product_id, quantidadeEntrada);
+        }
+        // Facilitador fiscal: NCM/CEST do fornecedor preenchem o cadastro
+        // quando ele está VAZIO (nunca sobrescreve o que alguém já pôs).
+        const cad = db.prepare('SELECT ncm, cest, cfop, cst_csosn FROM products WHERE id = ?').get(item.product_id);
+        const ncmNota = /^\d{8}$/.test(item.ncm || '') && item.ncm !== '00000000' ? item.ncm : null;
+        const cestNota = /^\d{7}$/.test(item.cest || '') ? item.cest : null;
+        const novoNcm = !String(cad.ncm || '').trim() && ncmNota ? ncmNota : null;
+        const novoCest = !String(cad.cest || '').trim() && cestNota ? cestNota : null;
+        // CFOP e CSOSN só se os DOIS estão vazios (meio preenchido = alguém mexeu; o diagnóstico avisa):
+        // pelo que a loja usa para o NCM ou, no Simples/MEI, pelo CFOP do fornecedor (ST -> 5405/500).
+        let novoCfop = null;
+        let novoCst = null;
+        if (!String(cad.cfop || '').trim() && !String(cad.cst_csosn || '').trim()) {
+          const f = cadastroAuto().fiscalSugerido(db, { ncm: novoNcm || cad.ncm, cest: null, cfopCompra: item.cfop, regime: regimeLoja, excluirId: item.product_id });
+          novoCfop = f.cfop;
+          novoCst = f.cst_csosn;
+        }
+        if (novoNcm || novoCest || novoCfop) {
+          db.prepare('UPDATE products SET ncm = COALESCE(?, ncm), cest = COALESCE(?, cest), cfop = COALESCE(?, cfop), cst_csosn = COALESCE(?, cst_csosn) WHERE id = ?')
+            .run(novoNcm, novoCest, novoCfop, novoCst, item.product_id);
+          fiscalPreenchidos += 1;
         }
       }
       if (entrada.purchase_order_id) purchaseOrderService.recalcularStatus(db, entrada.purchase_order_id);
@@ -394,7 +419,7 @@ function confirmar({ entradaId, locationId, operadorId, deviceId, contaAPagar })
         .run(fornecedorId, operadorId, entradaId);
       purchaseOrderService.registrarAuditoria(db, 'nfe_entrada_confirmada', operadorId,
         `${motivo}: ${validos.length} item(ns) no estoque, R$ ${Number(entrada.valor_total).toFixed(2)}, ${contas} conta(s) a pagar.`);
-      resumo = { itens: validos.length, contas, fornecedorId };
+      resumo = { itens: validos.length, contas, fornecedorId, fiscalPreenchidos };
     })();
   } catch (err) {
     return { ok: false, error: err.message };

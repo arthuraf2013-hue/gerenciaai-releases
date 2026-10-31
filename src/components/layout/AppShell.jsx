@@ -25,6 +25,7 @@ const HistoryScreen = lazy(() => import('../pos/HistoryScreen').then((m) => ({ d
 const ProductsScreen = lazy(() => import('../inventory/ProductsScreen').then((m) => ({ default: m.ProductsScreen })));
 const SupplyAndSuppliersScreen = lazy(() => import('../inventory/SupplyAndSuppliersScreen').then((m) => ({ default: m.SupplyAndSuppliersScreen })));
 const FinanceiroScreen = lazy(() => import('../inventory/FinanceiroScreen').then((m) => ({ default: m.FinanceiroScreen })));
+const AssistenteFiscalScreen = lazy(() => import('../inventory/AssistenteFiscalScreen').then((m) => ({ default: m.AssistenteFiscalScreen })));
 const StockAlerts = lazy(() => import('../inventory/StockAlerts').then((m) => ({ default: m.StockAlerts })));
 const SettingsScreen = lazy(() => import('../settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const UserManagement = lazy(() => import('../users/UserManagement').then((m) => ({ default: m.UserManagement })));
@@ -89,6 +90,7 @@ const NAV_ITEMS = [
   { id: 'dashboard', icon: 'chart', label: 'Painel', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'supply', icon: 'import', label: 'Abastecimento', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'financeiro', icon: 'money', label: 'Financeiro', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'fiscal', icon: 'document', label: 'Fiscal', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'alerts', icon: 'warning', label: 'Alertas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'users', icon: 'briefcase', label: 'Usuários', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
 
@@ -126,6 +128,7 @@ const NAV_ICON_COLOR = {
   chart: '#42a5f5',
   import: '#66bb6a',
   money: '#ffca28',
+  document: '#80cbc4',
   warning: '#f4511e',
   briefcase: '#7e57c2',
   settings: '#90a4ae',
@@ -446,6 +449,7 @@ export function AppShell() {
           {screen === 'products' && <ProductsScreen />}
           {screen === 'supply' && <SupplyAndSuppliersScreen />}
           {screen === 'financeiro' && <FinanceiroScreen />}
+          {screen === 'fiscal' && <AssistenteFiscalScreen />}
           {screen === 'customers' && <CustomerList />}
           {screen === 'delivery' && <DeliveryScreen />}
           {screen === 'quotes' && <QuotesScreen />}
