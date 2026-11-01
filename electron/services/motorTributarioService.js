@@ -71,6 +71,7 @@ function validar(c) {
     aliquota_interna_destino: vazio(c.aliquotaInternaDestino) ? null : Number(c.aliquotaInternaDestino),
     recolhido_no_das: c.recolhidoNoDas ? 1 : 0,
     informativo: c.informativo ? 1 : 0,
+    difal_base: vazio(c.difalBase) ? null : c.difalBase,
     fundamento: vazio(c.fundamento) ? null : String(c.fundamento).trim().slice(0, 1000),
     vigencia_inicio: c.vigenciaInicio,
     vigencia_fim: vazio(c.vigenciaFim) ? null : c.vigenciaFim,
@@ -94,6 +95,8 @@ function validar(c) {
   if (!Number.isFinite(r.reducao_base) || r.reducao_base < 0 || r.reducao_base >= 100) return { ok: false, error: 'Redução de base deve ficar entre 0 e 99,99%.' };
   if (!Number.isFinite(r.mva) || r.mva < 0 || r.mva > 1000) return { ok: false, error: 'MVA inválida.' };
   if (r.tributo === 'ICMS_ST' && r.aliquota_interna_destino === null && !(r.aliquota > 0)) return { ok: false, error: 'ICMS-ST precisa da alíquota interna do destino.' };
+  if (r.difal_base && !['unica', 'dupla'].includes(r.difal_base)) return { ok: false, error: 'Base do DIFAL: única ou dupla.' };
+  if (r.difal_base && r.tributo !== 'ICMS') return { ok: false, error: 'Base do DIFAL só vale para regra de ICMS.' };
   if (!ehData(r.vigencia_inicio)) return { ok: false, error: 'Informe o início da vigência.' };
   if (r.vigencia_fim && (!ehData(r.vigencia_fim) || r.vigencia_fim < r.vigencia_inicio)) return { ok: false, error: 'Fim da vigência inválido.' };
   return { ok: true, regra: r };
@@ -255,8 +258,37 @@ function calcularItem({ quantidade = 1, precoUnitario = 0, desconto = 0, outras 
   const avisos = [];
   if (!ctx.regime) avisos.push('Regime tributário não informado: configure em Configurações → Geral → Fiscal (NFC-e).');
   if (semRegra.length) avisos.push(`Sem regra para ${semRegra.join(', ')} neste contexto: cadastre com o contador.`);
-  if (ctx.uf_origem && ctx.uf_destino && ctx.uf_origem !== ctx.uf_destino && ctx.perfil_cliente !== 'contribuinte') {
-    avisos.push('Venda interestadual a não contribuinte: o DIFAL ainda não é calculado pelo motor.');
+  // DIFAL (EC 87/2015, LC 190/2022): venda interestadual a consumidor final
+  // não contribuinte, regime regular. Precisa da regra de ICMS interestadual
+  // com a alíquota interna do destino; a base (única ou dupla) é da UF de destino.
+  // Simples/MEI fora (cláusula nona do Conv. 93/2015 suspensa, ADI 5464).
+  const simples = ctx.regime === 'simples_nacional' || ctx.regime === 'mei';
+  if (ctx.uf_origem && ctx.uf_destino && ctx.uf_origem !== ctx.uf_destino && ctx.perfil_cliente !== 'contribuinte' && !simples) {
+    const icms = regras.ICMS?.regra;
+    const icmsItem = tributos.find((t) => t.tributo === 'ICMS');
+    if (icms && icms.aliquota_interna_destino !== null && icmsItem) {
+      const v = icmsItem.base;
+      const inter = icms.aliquota;
+      const dest = icms.aliquota_interna_destino;
+      const metodo = icms.difal_base || 'unica';
+      let base = v;
+      let valor;
+      if (metodo === 'dupla') {
+        base = arred((v - (v * inter) / 100) / (1 - dest / 100));
+        valor = arred((base * dest) / 100 - (v * inter) / 100);
+      } else {
+        valor = arred((v * (dest - inter)) / 100);
+      }
+      tributos.push({
+        tributo: 'DIFAL', cst: null, cclassTrib: null, base, aliquota: arred(dest - inter), valor: Math.max(0, valor),
+        recolhidoNoDas: false, informativo: false,
+        regra: { id: icms.id, grupoId: icms.grupo_id, nome: `${icms.nome} (DIFAL, base ${metodo})`, versao: icms.versao, origem: icms.origem, fundamento: 'EC 87/2015 e LC 190/2022: diferença entre a alíquota interna do destino e a interestadual.', especificidade: regras.ICMS.especificidade },
+        avisoEmpate: null,
+      });
+      if (!icms.difal_base) avisos.push('Base do DIFAL não informada na regra: calculado em base única. Confira com o contador se a UF de destino usa base dupla.');
+    } else {
+      avisos.push('Venda interestadual a não contribuinte: cadastre a regra de ICMS interestadual com a alíquota interna do destino para calcular o DIFAL.');
+    }
   }
   const totalDestacado = arred(tributos.filter((t) => !t.informativo && t.tributo !== 'ICMS_ST').reduce((s, t) => s + t.valor, 0));
   return { ok: true, contexto: ctx, baseOperacao, tributos, semRegra, avisos, totalDestacado };

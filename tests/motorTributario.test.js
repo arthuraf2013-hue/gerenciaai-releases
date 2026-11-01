@@ -103,7 +103,7 @@ test('validação: UF, CFOP, NCM, alíquota e vigência inválidos são recusado
   assert.equal(motor.criar({ nome: 'ST sem alíquota', tributo: 'ICMS_ST', mva: 30, vigenciaInicio: '2026-01-01' }).ok, false);
 });
 
-test('simulação do produto usa o cadastro e aponta CSOSN divergente; DIFAL é avisado, não inventado', () => {
+test('simulação do produto usa o cadastro e aponta CSOSN divergente; Simples sem DIFAL', () => {
   const { db } = freshTestDb();
   db.prepare(`INSERT INTO fiscal_config (id, regime_tributario, uf) VALUES ('default', 'simples_nacional', 'PE')
               ON CONFLICT(id) DO UPDATE SET regime_tributario = 'simples_nacional', uf = 'PE'`).run();
@@ -114,7 +114,7 @@ test('simulação do produto usa o cadastro e aponta CSOSN divergente; DIFAL é 
   assert.equal(r.baseOperacao, 12);
   assert.match(r.divergencias[0], /500.*102/);
   const inter = motor.simularProduto({ productId: pid, ufDestino: 'BA', perfilCliente: 'nao_contribuinte', data: '2026-10-31' });
-  assert.ok(inter.avisos.some((a) => /DIFAL/.test(a)));
+  assert.equal(inter.tributos.some((t) => t.tributo === 'DIFAL'), false, 'Simples não recolhe DIFAL na venda (ADI 5464)');
   assert.equal(motor.simularProduto({ productId: 'nao-existe' }).ok, false);
 });
 
@@ -127,4 +127,23 @@ test('regra desativada deixa de valer e some da lista padrão', () => {
   assert.equal(r.tributos.some((t) => t.tributo === 'ICMS'), false);
   assert.equal(motor.listar({ tributo: 'ICMS' }).some((x) => x.id === id), false);
   assert.equal(motor.listar({ tributo: 'ICMS', incluirInativas: true }).some((x) => x.id === id), true);
+});
+
+test('DIFAL: base única e dupla, só a não contribuinte; sem alíquota do destino, avisa em vez de inventar', () => {
+  freshTestDb();
+  const ctx = { regime: 'lucro_presumido', ufOrigem: 'PE', ufDestino: 'BA', quantidade: 1, precoUnitario: 1000, data: '2026-10-31', perfilCliente: 'nao_contribuinte' };
+  assert.ok(motor.calcularItem(ctx).avisos.some((a) => /cadastre a regra de ICMS interestadual/.test(a)));
+  const unica = motor.criar({ nome: 'PE -> BA', tributo: 'ICMS', regime: 'lucro_presumido', ufOrigem: 'PE', ufDestino: 'BA', cst: '00', aliquota: 12, aliquotaInternaDestino: 20.5, vigenciaInicio: '2024-01-01' });
+  assert.equal(unica.ok, true, unica.error);
+  let r = motor.calcularItem(ctx);
+  assert.equal(r.tributos.find((t) => t.tributo === 'DIFAL').valor, 85);
+  assert.ok(r.avisos.some((a) => /base única/.test(a)));
+  assert.equal(motor.calcularItem({ ...ctx, perfilCliente: 'contribuinte' }).tributos.some((t) => t.tributo === 'DIFAL'), false);
+  motor.criar({ nome: 'PE -> BA dupla', tributo: 'ICMS', regime: 'lucro_presumido', ufOrigem: 'PE', ufDestino: 'BA', perfilCliente: 'nao_contribuinte', cst: '00', aliquota: 12, aliquotaInternaDestino: 20.5, difalBase: 'dupla', vigenciaInicio: '2024-01-01' });
+  r = motor.calcularItem(ctx);
+  const d = r.tributos.find((t) => t.tributo === 'DIFAL');
+  assert.equal(d.base, 1106.92); // (1000 - 120) / (1 - 0,205)
+  assert.equal(d.valor, 106.92); // 1106,92 x 20,5% - 120
+  assert.equal(motor.criar({ nome: 'x', tributo: 'PIS', difalBase: 'dupla', vigenciaInicio: '2024-01-01' }).ok, false);
+  assert.equal(motor.criar({ nome: 'x', tributo: 'ICMS', difalBase: 'tripla', vigenciaInicio: '2024-01-01' }).ok, false);
 });

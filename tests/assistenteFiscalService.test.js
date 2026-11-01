@@ -239,7 +239,7 @@ test('pacote do contador: planilhas, XML das compras e das NFC-e, relatório do 
   const zip = await JSZip.loadAsync(r.buffer);
   const nomes = Object.keys(zip.files).filter((n) => !zip.files[n].dir).sort();
   const chave = c.db.prepare('SELECT chave FROM nfe_entradas').get().chave;
-  assert.deepEqual(nomes, ['LEIA-ME.txt', 'compras-2026-10.xlsx', 'financeiro-2026-10.xlsx', 'relatorio-mensal-receitas-mei-2026-10.html',
+  assert.deepEqual(nomes, ['LEIA-ME.txt', 'compras-2026-10.xlsx', 'contabil-2026-10.xlsx', 'financeiro-2026-10.xlsx', 'relatorio-mensal-receitas-mei-2026-10.html',
     'vendas-2026-10.xlsx', `xml/compras/${chave}.xml`, 'xml/nfce/2626.xml'].sort());
   assert.match(await zip.file('LEIA-ME.txt').async('string'), /1 NFC-e sem o arquivo XML/);
   assert.equal(r.resumo.vendas, 1);

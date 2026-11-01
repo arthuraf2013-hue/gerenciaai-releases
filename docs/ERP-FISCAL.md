@@ -31,8 +31,13 @@ nova; o histórico fica e cada data é calculada com a versão daquela data. Des
 valor = base × alíquota. ICMS-ST = (base + IPI) × (1 + MVA) × alíquota interna − ICMS próprio.
 Regra "recolhido no DAS" zera o valor do item (o imposto sai na guia).
 
-**Ainda não calcula:** DIFAL e FCP interestadual (o motor avisa, não inventa), IPI por pauta,
-benefícios específicos por UF. Esses entram como regra da loja com o contador ou numa próxima versão.
+**DIFAL** (venda interestadual a consumidor não contribuinte, regime regular): usa a regra de ICMS
+interestadual com a alíquota interna do destino. Base única: V × (interna − interestadual). Base
+dupla: BC = (V − ICMS origem) / (1 − interna); DIFAL = BC × interna − ICMS origem. A base vem da regra
+(`difal_base`); sem informar, calcula em base única e avisa. Simples/MEI não recolhem na venda
+(cláusula nona do Conv. 93/2015 suspensa, ADI 5464).
+
+**Ainda não calcula:** FCP sobre base dupla, IPI por pauta, benefícios específicos por UF.
 
 ### Regras semeadas pelo sistema (`regrasTributariasPadrao.js`)
 

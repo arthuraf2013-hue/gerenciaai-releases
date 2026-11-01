@@ -6238,3 +6238,34 @@ Testes: `motorTributario`, `permissaoErp`.
   conferência; motor × cadastro (`conferirCadastro`) com aplicar.
 
 Testes: `cadastroAutomatico`.
+
+## ERP: gestão completa (segunda leva)
+
+Itens que faltavam no `docs/ERP-ROADMAP.md`, todos no módulo pago `erpFinanceiro`:
+centros de custo (despesa + DRE por centro), inadimplência (fiado FIFO + contas a receber,
+faixas de atraso, mensagem de cobrança), conciliação bancária por OFX (reimportar não duplica;
+baixa a conta na data do extrato), comissões e metas, exportação contábil (partidas dobradas,
+balancete e de-para; também no pacote do contador), Equipe (cadastro, documentos e férias pela
+CLT, sem folha), Painel executivo (comparação, ABC, estoque parado, ruptura, clientes, alertas)
+e DIFAL no motor tributário. Permissões novas: `erp.comercial`, `erp.bi`, `erp.rh`.
+
+Testes: `gestaoErp`, `motorTributario` (DIFAL).
+
+## ERP: caixa, contabilidade gravada e fiscal (terceira leva)
+
+- **Vendas → Caixa** (tela nova): abrir o caixa, sangria (com motivo, nunca acima do que deveria
+  estar na gaveta), suprimento, e fechamento com conferência do dinheiro e de Pix/cartões. O
+  fechamento pelo PDV continua igual e já desconta as sangrias.
+- **Usuários → Limite de desconto do operador**: até X% sem PIN; acima, só com gerente.
+- **Financeiro → Contas a receber**: limite e bloqueio de fiado por cliente; baixa (a pagar e a
+  receber) com juros, multa, desconto e pagamento parcial (o resto vira uma conta nova).
+- **Financeiro → Contabilidade**: lançamento manual (estorno em vez de apagar), fechar o mês
+  (trava tudo com data nele; reabrir só o administrador, com motivo), razão e DRE contábil.
+- **Fiscal**: CRT 4 para MEI, rejeições da SEFAZ explicadas, anexos I a V e fator R (Ajustes),
+  aviso de vencimento do certificado, natureza da operação → CFOP e Glossário.
+- CPF, CNPJ (também o alfanumérico de 2026) e IE de PE/SP conferidos nos cadastros.
+- Banco: a partir daqui as mudanças são migrações versionadas (`electron/db/migracoes.js`,
+  tabela `schema_migrations`, com `down`); a auditoria não aceita UPDATE/DELETE.
+
+Testes: `erpTerceiraLeva`, `rejeicoesSefaz`. Pendências e o que depende do contador ou da
+SEFAZ: `docs/ERP-GAP.md` e `docs/ERP-ROADMAP.md`.

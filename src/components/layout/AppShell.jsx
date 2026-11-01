@@ -22,10 +22,13 @@ import Icon from '../common/Icon';
 // Cozinha, NFC-e...) só pra abrir o PDV, que é a tela que 100% dos
 // usuários veem primeiro. Cada uma vira um chunk separado do Vite.
 const HistoryScreen = lazy(() => import('../pos/HistoryScreen').then((m) => ({ default: m.HistoryScreen })));
+const CaixaScreen = lazy(() => import('../inventory/CaixaScreen').then((m) => ({ default: m.CaixaScreen })));
 const ProductsScreen = lazy(() => import('../inventory/ProductsScreen').then((m) => ({ default: m.ProductsScreen })));
 const SupplyAndSuppliersScreen = lazy(() => import('../inventory/SupplyAndSuppliersScreen').then((m) => ({ default: m.SupplyAndSuppliersScreen })));
 const FinanceiroScreen = lazy(() => import('../inventory/FinanceiroScreen').then((m) => ({ default: m.FinanceiroScreen })));
 const AssistenteFiscalScreen = lazy(() => import('../inventory/AssistenteFiscalScreen').then((m) => ({ default: m.AssistenteFiscalScreen })));
+const PainelExecutivoScreen = lazy(() => import('../inventory/PainelExecutivoScreen').then((m) => ({ default: m.PainelExecutivoScreen })));
+const EquipeScreen = lazy(() => import('../inventory/EquipeScreen').then((m) => ({ default: m.EquipeScreen })));
 const StockAlerts = lazy(() => import('../inventory/StockAlerts').then((m) => ({ default: m.StockAlerts })));
 const SettingsScreen = lazy(() => import('../settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const UserManagement = lazy(() => import('../users/UserManagement').then((m) => ({ default: m.UserManagement })));
@@ -69,6 +72,7 @@ const NAV_ITEMS = [
   { id: 'kitchen', icon: 'cooking', label: 'Cozinha', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE },
 
   { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
+  { id: 'caixa', icon: 'cash', label: 'Caixa', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
   { id: 'returns', icon: 'undo', label: 'Devolução', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
   { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
   { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
@@ -91,6 +95,8 @@ const NAV_ITEMS = [
   { id: 'supply', icon: 'import', label: 'Abastecimento', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'financeiro', icon: 'money', label: 'Financeiro', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'fiscal', icon: 'document', label: 'Fiscal', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'painelExecutivo', icon: 'chart', label: 'Painel executivo', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'equipe', icon: 'briefcase', label: 'Equipe', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'alerts', icon: 'warning', label: 'Alertas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'users', icon: 'briefcase', label: 'Usuários', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
 
@@ -446,10 +452,13 @@ export function AppShell() {
           {screen === 'history' && (
             <HistoryScreen onDevolver={(saleId) => { setReturnPreselectId(saleId); setScreen('returns'); }} />
           )}
+          {screen === 'caixa' && <CaixaScreen />}
           {screen === 'products' && <ProductsScreen />}
           {screen === 'supply' && <SupplyAndSuppliersScreen />}
           {screen === 'financeiro' && <FinanceiroScreen />}
           {screen === 'fiscal' && <AssistenteFiscalScreen />}
+          {screen === 'painelExecutivo' && <PainelExecutivoScreen />}
+          {screen === 'equipe' && <EquipeScreen />}
           {screen === 'customers' && <CustomerList />}
           {screen === 'delivery' && <DeliveryScreen />}
           {screen === 'quotes' && <QuotesScreen />}

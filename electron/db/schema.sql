@@ -1392,7 +1392,8 @@ CREATE TABLE IF NOT EXISTS expenses (
   -- recorrência e competência (AAAA-MM) -- o índice único parcial que
   -- garante isso fica em database.js (colunas novas em tabela antiga).
   recorrencia_id  TEXT,
-  competencia     TEXT
+  competencia     TEXT,
+  centro_custo_id TEXT  -- centro de custo (cost_centers); índice em database.js
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_vencimento ON expenses(data_vencimento);
 CREATE INDEX IF NOT EXISTS idx_expenses_pagamento ON expenses(data_pagamento);
@@ -1561,6 +1562,7 @@ CREATE TABLE IF NOT EXISTS erp_config (
   -- arredondamento do preço ('x9' = termina em 9 centavos, 'x90', 'nenhum').
   margem_padrao          REAL,
   arredondamento_preco   TEXT
+  -- anexo_simples / folha_12_meses: migração versionada 1 (electron/db/migracoes.js)
 );
 
 -- Taxa e prazo das maquininhas, por forma de pagamento. Contas a receber
@@ -1681,6 +1683,7 @@ CREATE TABLE IF NOT EXISTS tax_rules (
   aliquota_interna_destino REAL CHECK (aliquota_interna_destino IS NULL OR (aliquota_interna_destino >= 0 AND aliquota_interna_destino <= 100)),
   recolhido_no_das INTEGER NOT NULL DEFAULT 0 CHECK (recolhido_no_das IN (0, 1)),
   informativo     INTEGER NOT NULL DEFAULT 0 CHECK (informativo IN (0, 1)),
+  difal_base      TEXT,                        -- ICMS interestadual a não contribuinte: 'unica' ou 'dupla' (regra da UF de destino)
   fundamento      TEXT,
   vigencia_inicio TEXT NOT NULL,
   vigencia_fim    TEXT,
@@ -1691,6 +1694,85 @@ CREATE TABLE IF NOT EXISTS tax_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_tax_rules_tributo ON tax_rules(tributo, ativo);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tax_rules_grupo_versao ON tax_rules(grupo_id, versao);
+
+-- ---------- ERP, segunda leva: gestão completa ----------
+
+-- Centros de custo (financeiro). expenses.centro_custo_id é coluna nova em
+-- tabela antiga: migrada em database.js.
+CREATE TABLE IF NOT EXISTS cost_centers (
+  id         TEXT PRIMARY KEY,
+  nome       TEXT NOT NULL UNIQUE,
+  ativo      INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+  criado_em  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Extrato bancário importado (OFX) e conciliação. FITID é o id da transação
+-- no banco: importar o mesmo arquivo de novo não duplica.
+CREATE TABLE IF NOT EXISTS bank_statement_lines (
+  id            TEXT PRIMARY KEY,
+  conta         TEXT NOT NULL,                   -- banco/agência/conta do OFX
+  fitid         TEXT NOT NULL,
+  data          TEXT NOT NULL,                   -- AAAA-MM-DD
+  valor         REAL NOT NULL,                   -- + entrada, - saída
+  descricao     TEXT,
+  status        TEXT NOT NULL DEFAULT 'pendente' CHECK (status IN ('pendente','conciliado','ignorado')),
+  vinculo_tipo  TEXT CHECK (vinculo_tipo IN ('despesa','recebivel','cartao','outro')),
+  vinculo_id    TEXT,
+  importado_em  TEXT NOT NULL DEFAULT (datetime('now')),
+  conciliado_em TEXT,
+  operador_id   TEXT REFERENCES users(id),
+  UNIQUE (conta, fitid)
+);
+CREATE INDEX IF NOT EXISTS idx_bank_lines_status_data ON bank_statement_lines(status, data);
+
+-- Comissão por vendedor (usuário que registrou a venda) e metas mensais.
+CREATE TABLE IF NOT EXISTS commission_rules (
+  user_id     TEXT PRIMARY KEY REFERENCES users(id),
+  percentual  REAL NOT NULL CHECK (percentual >= 0 AND percentual <= 100)
+);
+CREATE TABLE IF NOT EXISTS sales_goals (
+  id           TEXT PRIMARY KEY,
+  competencia  TEXT NOT NULL,                    -- AAAA-MM
+  user_id      TEXT REFERENCES users(id),        -- NULL = meta da loja
+  valor        REAL NOT NULL CHECK (valor > 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_goals_comp_user ON sales_goals(competencia, COALESCE(user_id, ''));
+
+-- Exportação contábil: de-para das contas do app para o plano de contas do
+-- escritório (códigos editáveis). Lançamentos são gerados na hora, nunca gravados.
+CREATE TABLE IF NOT EXISTS accounting_map (
+  chave   TEXT PRIMARY KEY,
+  codigo  TEXT NOT NULL,
+  nome    TEXT NOT NULL
+);
+
+-- Gestão de pessoas (cadastro, documentos e férias; sem cálculo de folha).
+CREATE TABLE IF NOT EXISTS employees (
+  id            TEXT PRIMARY KEY,
+  nome          TEXT NOT NULL,
+  cpf           TEXT,
+  cargo         TEXT,
+  departamento  TEXT,
+  admissao      TEXT,                            -- AAAA-MM-DD
+  demissao      TEXT,
+  salario       REAL CHECK (salario IS NULL OR salario >= 0),
+  telefone      TEXT,
+  email         TEXT,
+  user_id       TEXT REFERENCES users(id),       -- login no PDV, se tiver
+  documentos    TEXT NOT NULL DEFAULT '{}',      -- checklist {rg: true, ctps: false...}
+  observacoes   TEXT,
+  ativo         INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+  criado_em     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS employee_vacations (
+  id           TEXT PRIMARY KEY,
+  employee_id  TEXT NOT NULL REFERENCES employees(id),
+  inicio       TEXT NOT NULL,
+  fim          TEXT NOT NULL,
+  observacao   TEXT,
+  criado_em    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_employee_vacations_emp ON employee_vacations(employee_id, inicio);
 
 -- ============================================================
 -- Devoluções pós-venda — separado do cancelamento (que só existe durante

@@ -34,6 +34,51 @@ function fiscalConfig(db) {
   return db.prepare('SELECT * FROM fiscal_config WHERE id = ?').get('default') || {};
 }
 
+// ---------- certificado digital ----------
+
+const DIAS_AVISO_CERTIFICADO = 30;
+let cacheCertificado = null; // { chave, info } -- abrir o .pfx custa; o painel é aberto toda hora
+
+/** Validade do certificado A1 configurado (null se não há certificado).
+ * Nunca lança: arquivo sumido ou senha errada viram `erro` legível. */
+function situacaoCertificado({ agora = Date.now() } = {}) {
+  const c = fiscalConfig(getDb());
+  if (!c.certificado_path) return null;
+  let chave;
+  try {
+    const st = fs.statSync(c.certificado_path);
+    chave = `${c.certificado_path}|${st.mtimeMs}|${c.certificado_senha || ''}`;
+  } catch {
+    return { erro: 'O arquivo do certificado digital não foi encontrado. Selecione-o de novo em Configurações → Fiscal.' };
+  }
+  if (!cacheCertificado || cacheCertificado.chave !== chave) {
+    try {
+      const senha = require('./secretsService').decrypt(c.certificado_senha);
+      const cert = require('./nfceCertificateService').carregarCertificado(c.certificado_path, senha);
+      cacheCertificado = { chave, info: { validoAte: cert.validoAte.getTime(), nomeTitular: cert.nomeTitular } };
+    } catch {
+      return { erro: 'Não foi possível abrir o certificado digital (arquivo ou senha). Confira em Configurações → Fiscal.' };
+    }
+  }
+  const { validoAte, nomeTitular } = cacheCertificado.info;
+  const diasRestantes = Math.floor((validoAte - agora) / 86400000);
+  return { validoAte: new Date(validoAte).toISOString(), diasRestantes, nomeTitular, vencido: validoAte < agora };
+}
+
+/** Aviso pronto para painel/BI, ou null quando está tudo certo. */
+function avisoCertificado(opcoes) {
+  const s = situacaoCertificado(opcoes);
+  if (!s) return null;
+  if (s.erro) return { nivel: 'aviso', texto: s.erro };
+  const data = new Date(s.validoAte).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+  if (s.vencido) return { nivel: 'critico', texto: `O certificado digital venceu em ${data}: nenhuma nota será emitida até renovar. Compre a renovação (A1) e selecione o arquivo novo em Configurações → Fiscal.` };
+  if (s.diasRestantes <= DIAS_AVISO_CERTIFICADO) {
+    const quando = s.diasRestantes === 0 ? 'hoje' : `em ${s.diasRestantes} dia(s) (${data})`;
+    return { nivel: 'aviso', texto: `O certificado digital vence ${quando}. Renove antes para não parar de emitir notas.` };
+  }
+  return null;
+}
+
 // ---------- receita, RBT12, imposto estimado ----------
 
 /** Primeiro mês com venda finalizada registrada no sistema (AAAA-MM). */
@@ -98,8 +143,8 @@ function impostoEstimadoDoMes({ locationId, competencia, receitaDoMes, regime })
     return { valor: das.valor, origem: 'das_mei', estimado: das.estimado };
   }
   const base = rbt12({ locationId, competencia });
-  const aliq = tabelas.aliquotaEfetivaAnexoI(base.valor);
-  return { valor: arred(Math.max(0, receitaDoMes) * aliq.efetiva), origem: 'simples_anexo_i', aliquota: aliq, rbt12: base };
+  const aliq = tabelas.aliquotaEfetivaSimples(base.valor, config.anexo_simples || 'I', { folha12: config.folha_12_meses ?? null });
+  return { valor: arred(Math.max(0, receitaDoMes) * aliq.efetiva), origem: `simples_anexo_${aliq.anexo.toLowerCase()}`, aliquota: aliq, rbt12: base };
 }
 
 // ---------- painel de limites ----------
@@ -146,11 +191,14 @@ function painel({ locationId, ano }) {
     imposto = { tipo: 'das_mei', valorMensal: das.valor, estimado: das.estimado, informado: das.informado, atividade: config.atividade_mei };
   } else if (regime === 'simples_nacional') {
     const base = rbt12({ locationId, competencia: mesAtual });
-    const aliq = tabelas.aliquotaEfetivaAnexoI(base.valor);
+    const aliq = tabelas.aliquotaEfetivaSimples(base.valor, config.anexo_simples || 'I', { folha12: config.folha_12_meses ?? null });
     const receitaMes = fin.receitaLiquidaDoMes(db, locationId, mesAtual);
     imposto = { tipo: 'simples', competencia: mesAtual, rbt12: base, ...aliq, receitaMes, dasEstimado: arred(receitaMes * aliq.efetiva) };
     if (base.estimado) avisos.push({ nivel: 'info', texto: 'O RBT12 está incompleto (o sistema tem menos de 12 meses de vendas). Informe o faturamento anterior ou a data de abertura em Fiscal → Ajustes.' });
   }
+
+  const cert = avisoCertificado();
+  if (cert) avisos.unshift(cert);
 
   return { ok: true, regime, ano: anoRef, meses, acumulado, projecaoAno, limite, imposto, avisos, calendario: calendario({ hoje, regime }) };
 }
@@ -306,7 +354,7 @@ function sugestaoDoProduto(db, p, regime) {
   return s;
 }
 
-function diagnosticoCadastro({ limite = 500 } = {}) {
+function diagnosticoCadastro({ limite = 500, apenasContagem = false } = {}) {
   const db = getDb();
   const regime = fiscalConfig(db).regime_tributario || null;
   const produtos = db.prepare(
@@ -319,7 +367,7 @@ function diagnosticoCadastro({ limite = 500 } = {}) {
     const problemas = problemasDoProduto(p, regime);
     if (problemas.length === 0) continue;
     problemas.forEach((c) => { contagem[c] = (contagem[c] || 0) + 1; });
-    comProblema.push({ ...p, problemas, sugestao: sugestaoDoProduto(db, p, regime) });
+    comProblema.push({ ...p, problemas, sugestao: apenasContagem ? {} : sugestaoDoProduto(db, p, regime) });
   }
   const daNota = comProblema.filter((p) => p.sugestao.fonte && p.sugestao.fonte !== 'padrao').length;
   return {
@@ -551,6 +599,10 @@ async function pacoteContador({ locationId, competencia }) {
     ['Valor', 'valor', 14, MOEDA]], abertas.map((p) => ({ ...p, venc: dataBR(p.data_vencimento) })));
   zip.file(`financeiro-${competencia}.xlsx`, await wbF.xlsx.writeBuffer());
 
+  // --- Lançamentos contábeis gerenciais (de-para do plano do escritório) ---
+  const contabil = await require('./contabilService').xlsx({ locationId, competencia });
+  if (contabil.ok) zip.file(contabil.nomeSugerido, contabil.buffer);
+
   // --- XML das NFC-e (arquivos gravados pela emissão) ---
   const nfces = db.prepare(
     `SELECT n.chave_acesso, n.xml_path, n.status FROM nfce_emitidas n JOIN sales s ON s.id = n.sale_id
@@ -584,6 +636,7 @@ async function pacoteContador({ locationId, competencia }) {
     `Notas de compra lançadas: ${compras.length} (XMLs em xml/compras)`,
     `NFC-e no período: ${nfces.length} (${xmlsNfce} XML em xml/nfce)`,
     `Contas pagas no mês: ${pagas.length}`,
+    contabil.ok ? `Lançamentos contábeis gerenciais: ${contabil.linhas} (contabil-${competencia}.xlsx; ajuste os códigos em Financeiro → Contabilidade)` : null,
     relatorio ? `Relatório mensal do MEI: total R$ ${relatorio.linhas.X.toFixed(2)} (abrir o .html e imprimir para assinar)` : null,
     '',
     'A aba "Por tributação" de vendas usa o CFOP/CSOSN/NCM ATUAL de cada produto.',
@@ -600,5 +653,5 @@ async function pacoteContador({ locationId, competencia }) {
 
 module.exports = {
   rbt12, impostoEstimadoDoMes, painel, calendario, diagnosticoCadastro, aplicarSugestoes, problemasDoProduto, fiscalDaLoja,
-  relatorioMei, htmlRelatorioMei, pacoteContador, PROBLEMAS, escapeHtml,
+  relatorioMei, htmlRelatorioMei, pacoteContador, PROBLEMAS, escapeHtml, situacaoCertificado, avisoCertificado,
 };

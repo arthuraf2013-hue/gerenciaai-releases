@@ -255,6 +255,17 @@ Plano e decisões em `docs/ERP-*.md` (atualizar o ROADMAP e o CHANGELOG a cada f
 - `cadastroAutomaticoService`: todo preenchimento automático só PREENCHE vazio ou
   inválido (nunca troca valor válido); a maioria da loja (`fiscalDaLoja`) não passa
   por cima de CFOP válido diferente; IA só sugere NCM, gravação é conferida.
+- Segunda leva (centros de custo, inadimplência, conciliação OFX, comissões, contábil,
+  equipe, painel executivo): tudo sob `erpFinanceiro`; conciliação nunca apaga conta
+  (desfazer só volta a linha para pendente); lançamento contábil é gerado na hora,
+  nunca gravado (exceto os manuais e a foto do mês fechado); RH não calcula folha.
+- Terceira leva: mudança de banco NOVA vai em `electron/db/migracoes.js` (migração numerada
+  com `up` idempotente e `down`; o schema.sql não repete o que está lá). `audit_log`,
+  `journal_entries` e `cash_movements` são só de inclusão (gatilho): corrigir = estorno/inverso.
+  Operação com data em mês fechado (`accounting_periods`) passa por
+  `contabilService.bloqueioPorFechamento`. Baixa parcial desdobra o título (`parcial_de_id`),
+  nunca cria tabela paralela de baixas. Documento novo em cadastro: `validadores.conferirDocumentos`
+  só quando o valor muda.
 
 ## SQL: nada de função JS no WHERE
 

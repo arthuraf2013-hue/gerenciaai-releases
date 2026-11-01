@@ -16,6 +16,9 @@ const PERMISSOES = {
   'erp.financeiro': { rotulo: 'Financeiro (contas, fluxo de caixa e DRE)', canais: ['financeiro:', 'expense:'] },
   'erp.estoque': { rotulo: 'Inventário e movimentação de estoque', canais: ['inventario:'] },
   'erp.fiscal': { rotulo: 'Fiscal (assistente e regras tributárias)', canais: ['assistenteFiscal:', 'tributacao:'] },
+  'erp.comercial': { rotulo: 'Comissões e metas', canais: ['comissao:'] },
+  'erp.bi': { rotulo: 'Painel executivo', canais: ['bi:'] },
+  'erp.rh': { rotulo: 'Equipe (cadastro, salários e férias)', canais: ['rh:'] },
   'erp.config': { rotulo: 'Configurações do ERP', canais: ['erp:salvarConfig'] },
 };
 

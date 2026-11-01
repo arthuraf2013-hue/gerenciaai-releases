@@ -3,6 +3,7 @@ import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
 import { RegrasTributariasTab } from './TributacaoErp';
 import { NcmPorIa } from './CadastroAutomatico';
+import { GlossarioTab, Termo } from './Glossario';
 import { brl, dataBR, mesCurto, mesAtualLocal, somarMeses, Abas, useModulosErp, ModuloInativo } from './erpUtils';
 
 /**
@@ -17,6 +18,7 @@ const ABAS = [
   { id: 'contador', icone: 'archive', rotulo: 'Pacote do contador' },
   { id: 'regras', icone: 'receipt', rotulo: 'Regras tributárias' },
   { id: 'ajustes', icone: 'sliders', rotulo: 'Ajustes' },
+  { id: 'glossario', icone: 'book', rotulo: 'Glossário' },
 ];
 
 const REGIME = { mei: 'MEI', simples_nacional: 'Simples Nacional', lucro_presumido: 'Lucro Presumido', lucro_real: 'Lucro Real' };
@@ -38,6 +40,7 @@ export function AssistenteFiscalScreen() {
         {aba === 'contador' && <PacoteContador />}
         {aba === 'regras' && <RegrasTributariasTab />}
         {aba === 'ajustes' && <AjustesFiscais />}
+        {aba === 'glossario' && <GlossarioTab />}
       </div>
     </div>
   );
@@ -100,11 +103,14 @@ function PainelFiscal({ irPara }) {
         </section>
         {p.imposto?.tipo === 'simples' && (
           <section className="settings-section">
-            <h2><Icon name="money" size={16} /> Simples Nacional — Anexo I (comércio)</h2>
+            <h2><Icon name="money" size={16} /> Simples Nacional — Anexo {p.imposto.anexo} ({DESCRICAO_ANEXO[p.imposto.anexo]})</h2>
             <table className="data-table">
               <tbody>
-                <tr><td>Receita dos últimos 12 meses (RBT12)</td><td style={{ textAlign: 'right' }}>{brl(p.imposto.rbt12.valor)}{p.imposto.rbt12.estimado ? ' *' : ''}</td></tr>
-                <tr><td>Faixa</td><td style={{ textAlign: 'right' }}>{p.imposto.faixa}ª</td></tr>
+                <tr><td>Receita dos últimos 12 meses (<Termo t="RBT12" />)</td><td style={{ textAlign: 'right' }}>{brl(p.imposto.rbt12.valor)}{p.imposto.rbt12.estimado ? ' *' : ''}</td></tr>
+                {p.imposto.fatorR !== null && p.imposto.fatorR !== undefined && (
+                  <tr><td><Termo t="Fator R" /> (folha ÷ receita, 12 meses)</td><td style={{ textAlign: 'right' }}>{(p.imposto.fatorR * 100).toFixed(1)}% {p.imposto.anexo === 'III' ? '→ tributa pelo Anexo III' : '→ fica no Anexo V (abaixo de 28%)'}</td></tr>
+                )}
+                <tr><td>Faixa</td><td style={{ textAlign: 'right' }}>{p.imposto.faixa}ª{p.imposto.acimaDoLimite ? ' (acima do limite do Simples)' : ''}</td></tr>
                 <tr><td>Alíquota nominal / a deduzir</td><td style={{ textAlign: 'right' }}>{(p.imposto.nominal * 100).toFixed(2)}% / {brl(p.imposto.deduzir)}</td></tr>
                 <tr><td><strong>Alíquota efetiva</strong></td><td style={{ textAlign: 'right' }}><strong>{(p.imposto.efetiva * 100).toFixed(2)}%</strong></td></tr>
                 <tr><td>Receita de {mesCurto(p.imposto.competencia)} até agora</td><td style={{ textAlign: 'right' }}>{brl(p.imposto.receitaMes)}</td></tr>
@@ -289,6 +295,8 @@ function PacoteContador() {
   );
 }
 
+const DESCRICAO_ANEXO = { I: 'comércio', II: 'indústria', III: 'serviços', IV: 'serviços — construção, limpeza, vigilância, advocacia', V: 'serviços intelectuais/técnicos' };
+
 function AjustesFiscais() {
   const [c, setC] = useState(null);
   const [msg, setMsg] = useState('');
@@ -296,6 +304,7 @@ function AjustesFiscais() {
   useEffect(() => { window.pdv.erp.getConfig().then((x) => setC({
     dataAberturaEmpresa: x.data_abertura_empresa || '', atividadeMei: x.atividade_mei, dasMeiValor: x.das_mei_valor ?? '',
     rbt12Anterior: x.rbt12_anterior ?? '', diaPacoteContador: x.dia_pacote_contador,
+    anexoSimples: x.anexo_simples || 'I', folha12Meses: x.folha_12_meses ?? '',
   })); }, []);
   async function salvar(e) {
     e.preventDefault();
@@ -314,7 +323,14 @@ function AjustesFiscais() {
         <label>DAS-MEI mensal (deixe vazio para o valor do ano)<input type="number" step="0.01" min="0" value={c.dasMeiValor} onChange={(e) => setC({ ...c, dasMeiValor: e.target.value })} /></label>
         <label>Faturamento dos 12 meses antes de usar o sistema (R$)<input type="number" step="0.01" min="0" value={c.rbt12Anterior} onChange={(e) => setC({ ...c, rbt12Anterior: e.target.value })} /></label>
         <label>Lembrar do pacote do contador no dia<input type="number" min="1" max="28" value={c.diaPacoteContador} onChange={(e) => setC({ ...c, diaPacoteContador: e.target.value })} /></label>
+        <label>Anexo do Simples (atividade principal)<select value={c.anexoSimples} onChange={(e) => setC({ ...c, anexoSimples: e.target.value })}>
+          {Object.entries(DESCRICAO_ANEXO).map(([a, d]) => <option key={a} value={a}>Anexo {a} — {d}</option>)}</select></label>
+        {c.anexoSimples === 'V' && (
+          <label title="Salários, pró-labore, INSS patronal e FGTS dos últimos 12 meses. Com 28% ou mais da receita, a empresa paga pelo Anexo III (mais barato).">
+            Folha de pagamento dos últimos 12 meses (R$, para o fator R)<input type="number" step="0.01" min="0" value={c.folha12Meses} onChange={(e) => setC({ ...c, folha12Meses: e.target.value })} /></label>
+        )}
       </div>
+      <p className="screen-hint">O anexo é definido pelo CNAE da empresa — na dúvida, pergunte ao contador. Comércio é quase sempre Anexo I.</p>
       {erro && <p className="modal-error" style={{ marginTop: 10 }}>{erro}</p>}
       {msg && <p className="io-message" style={{ marginTop: 10 }}>{msg}</p>}
       <div className="settings-actions"><button className="btn-primary" type="submit"><Icon name="save" size={15} /> Salvar</button></div>

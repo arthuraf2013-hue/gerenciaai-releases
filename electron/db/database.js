@@ -474,6 +474,18 @@ function garantirGatilhosErp(database) {
   require('../services/regrasTributariasPadrao').garantirRegrasTributariasPadrao(database);
 }
 
+/** Roda as migrações versionadas. Uma falha (rara: disco cheio, banco
+ * travado) é registrada e o app abre assim mesmo -- o PDV nunca deixa de
+ * vender por causa de uma tela nova; a migração tenta de novo na próxima
+ * abertura (cada uma é transacional, nada fica pela metade). */
+function aplicarMigracoesComSeguranca(database) {
+  try {
+    require('./migracoes').aplicarMigracoes(database);
+  } catch (err) {
+    console.error('[migração versionada] falhou -- tenta de novo na próxima abertura:', err);
+  }
+}
+
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
@@ -651,7 +663,13 @@ function migrateColumnsIfNeeded(database) {
   // Cadastro automático de produtos pela nota (margem e arredondamento lembrados).
   adicionarColunaSeFaltando(database, 'erp_config', 'margem_padrao', 'REAL');
   adicionarColunaSeFaltando(database, 'erp_config', 'arredondamento_preco', 'TEXT');
+  // ERP, segunda leva: centro de custo nas despesas e base do DIFAL nas regras.
+  adicionarColunaSeFaltando(database, 'expenses', 'centro_custo_id', 'TEXT');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_expenses_centro_custo ON expenses(centro_custo_id)');
+  adicionarColunaSeFaltando(database, 'tax_rules', 'difal_base', 'TEXT');
   garantirGatilhosErp(database);
+  // Daqui em diante, mudanças de banco são migrações versionadas (ver migracoes.js).
+  aplicarMigracoesComSeguranca(database);
 
   // Tabela de preços de serviços (ver comentário de garantirCampoExtraNoPerfil).
   garantirCampoExtraNoPerfil(database, 'salao_beleza', {
@@ -913,6 +931,7 @@ function setDbForTesting(databaseInstance) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
   db.exec(schema);
   garantirGatilhosErp(db);
+  require('./migracoes').aplicarMigracoes(db); // em teste, falha de migração tem que aparecer
   seedIfEmpty(db);
   return db;
 }

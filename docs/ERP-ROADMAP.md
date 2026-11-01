@@ -11,7 +11,9 @@ teste automatizado (critério do pedido original). Nada aqui foi testado com dad
 ## Fase 2: fundação 🟡
 - ✅ Permissões finas por usuário nas áreas do ERP (`permissaoService`, Usuários → Permissões do ERP).
 - ✅ Módulos pagos por área (Central).
-- ✅ Auditoria de toda mudança de regra, permissão, inventário e configuração.
+- ✅ Auditoria de toda mudança de regra, permissão, inventário e configuração; `audit_log` imutável (gatilhos) com antes/depois nas alterações novas.
+- ✅ Migrações versionadas com `up`/`down` (`electron/db/migracoes.js`, `schema_migrations`), testadas em base populada.
+- ✅ Validação de CPF, CNPJ (inclusive alfanumérico) e IE de PE/SP nos cadastros.
 - ⬜ Multiempresa no mesmo banco: **não será feito** (decisão D1). Filiais = instalações no grupo.
 - ⬜ Tela de consolidação entre unidades: depende do BI (Fase 7).
 
@@ -19,11 +21,15 @@ teste automatizado (critério do pedido original). Nada aqui foi testado com dad
 - ✅ Contas a pagar (já existiam) e a receber, cartão a cair com taxa e prazo, fiado.
 - ✅ Contas recorrentes e parceladas, fluxo de caixa realizado e previsto, DRE gerencial mensal.
 - ✅ Inventário (cego, leitor, categoria), kardex, histórico de custo.
-- ⬜ 3b: plano de contas gerencial e centros de custo (hoje: categorias fixas de despesa).
-- ⬜ 3b: conciliação bancária por OFX (arquivo do banco, sem credencial).
-- ⬜ 3b: inadimplência (aging do fiado e das contas a receber) e alerta.
-- ⬜ 3c: comissão por vendedor, metas, política de desconto por papel.
-- ⬜ 3c: transferência entre unidades (precisa do grupo multi-PDV) e curva ABC.
+- ✅ 3b: centros de custo (despesa + DRE por centro) e plano de contas do escritório (de-para na exportação contábil).
+- ✅ 3b: conciliação bancária por OFX (SGML e XML), sugestões, baixa automática, despesa a partir do extrato.
+- ✅ 3b: inadimplência (fiado FIFO + contas a receber, faixas de atraso, mensagem de cobrança).
+- ✅ 3c: comissão por vendedor e metas mensais (loja e vendedor) com projeção. ✅ limite de desconto do operador (%), acima só com PIN de gerente.
+- ✅ Caixa: sangria, suprimento e fechamento com conferência por forma de pagamento (tela Vendas → Caixa).
+- ✅ Fiado com limite e bloqueio por cliente.
+- ✅ Baixa com juros, multa, desconto e baixa parcial (contas a pagar e a receber).
+- ⬜ Cotação entre fornecedores, contas bancárias múltiplas e transferências, conciliação por CSV, depósitos/série.
+- ✅ 3c: curva ABC (painel executivo). ⬜ transferência entre unidades (precisa do grupo multi-PDV).
 
 ## Cadastro automático (produto e imposto) ✅
 - Produtos novos direto da NF-e de compra: nome limpo, EAN da unidade, conversão da caixa, custo,
@@ -42,22 +48,28 @@ teste automatizado (critério do pedido original). Nada aqui foi testado com dad
 - ⛔ Ligar o motor à emissão da NFC-e: exige homologação com certificado e CSC reais.
 - ⬜ Grupos IBS/CBS no XML (NT 2025.002-RTC): Simples obrigatório a partir de 2027 (confirmar data no Portal da NF-e).
 - ⛔ NF-e 55 de saída, manifestação do destinatário, NFS-e (padrão nacional): certificado e homologação.
-- ⬜ DIFAL e FCP interestadual no motor.
+- ✅ DIFAL (base única/dupla por regra, regime regular, a não contribuinte). ⬜ FCP sobre base dupla.
+- ✅ Natureza da operação → CFOP (dentro/fora do estado, com/sem ST) e CSOSN de venda no Simples.
+- ✅ CRT 4 para MEI na NFC-e; rejeições da SEFAZ explicadas; cStat 150/155 tratados.
+- ✅ Simples: anexos I a V e fator R; aviso de vencimento do certificado A1.
 - CT-e e MDF-e: fora do público atual (pequeno comércio sem frota própria emitindo CT-e).
 
-## Fase 5: contabilidade e obrigações ⬜
-- Exportação contábil (lançamentos em partidas dobradas a partir de vendas, compras e despesas,
-  em layout que o escritório importa). Escrituração oficial continua com o contador.
+## Fase 5: contabilidade e obrigações 🟡
+- ✅ Exportação contábil: lançamentos gerenciais em partidas dobradas + balancete + de-para (xlsx e
+  no pacote do contador). Escrituração oficial continua com o contador.
+- ✅ Lançamentos manuais (só inclusão, estorno), fechamento do mês com foto e trava, reabertura
+  auditada (admin), livro razão e DRE contábil do mês.
+- ⬜ Balanço patrimonial acumulado e ECD: dependem de saldos de abertura validados pelo contador.
 - SPED Fiscal / EFD-Contribuições: só para regime normal; depende da emissão estar homologada.
 
-## Fase 6: RH e operação ⬜
-- Cadastro de colaboradores, cargos, documentos e férias (sem cálculo trabalhista; folha por integração).
+## Fase 6: RH e operação 🟡
+- ✅ Equipe: cadastro, CPF validado, checklist de documentos, férias pela CLT com alerta de vencimento (sem folha).
 - Ordem de serviço genérica e checklist (hoje há agenda, ótica e materiais por serviço).
 
 ## Fase 7: BI, automação e IA 🟡
 - Existe: dashboard, relatório de lucro por produto, resumo de vendas por IA, tutor.
-- ⬜ Painel executivo único (faturamento, margem, caixa, estoque parado, clientes rentáveis).
-- ⬜ Alertas: despesa fora do padrão, inadimplência, inconsistência fiscal (base já existe no assistente).
+- ✅ Painel executivo (faturamento, lucro, margem, ticket, comparação, ABC, estoque parado, ruptura, clientes rentáveis, projeção).
+- ✅ Alertas: despesa fora do padrão, inadimplência, ruptura da curva A, fiscal, extrato, férias, queda de margem.
 - ⬜ Perguntas em linguagem natural respondidas por serviços autorizados (respeitando permissão).
 
 ## Fase 8: testes integrados e homologação 🟡

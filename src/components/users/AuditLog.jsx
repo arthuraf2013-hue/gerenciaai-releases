@@ -49,6 +49,14 @@ const TIPO_LABEL = {
   fiscal_ncm_aplicado: 'NCM gravado (sugestão da IA conferida)',
   regras_aplicadas_ao_cadastro: 'Regras tributárias aplicadas ao cadastro',
   precos_reajustados_pela_margem: 'Preços reajustados pela margem',
+  extrato_importado: 'Extrato bancário importado',
+  extrato_conciliado: 'Extrato bancário conciliado',
+  plano_contas_alterado: 'Plano de contas (contábil) alterado',
+  comissao_alterada: 'Comissão alterada',
+  meta_alterada: 'Meta de vendas alterada',
+  colaborador_salvo: 'Cadastro de colaborador',
+  ferias_registradas: 'Férias registradas',
+  ferias_removidas: 'Férias removidas',
 };
 
 export function AuditLog() {

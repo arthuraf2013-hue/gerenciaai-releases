@@ -44,6 +44,9 @@ function status(usuarioId) {
       financeiro: permissaoService.temPermissao(usuarioId, 'erp.financeiro'),
       estoque: permissaoService.temPermissao(usuarioId, 'erp.estoque'),
       fiscal: permissaoService.temPermissao(usuarioId, 'erp.fiscal'),
+      comercial: permissaoService.temPermissao(usuarioId, 'erp.comercial'),
+      bi: permissaoService.temPermissao(usuarioId, 'erp.bi'),
+      rh: permissaoService.temPermissao(usuarioId, 'erp.rh'),
     };
   }
   return r;

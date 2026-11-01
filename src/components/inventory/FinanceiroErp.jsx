@@ -24,6 +24,53 @@ export const CATEGORIA_LABEL = Object.fromEntries(CATEGORIAS_DESPESA.map((c) => 
 
 const METODO_LABEL = { cartao_debito: 'Débito', cartao_credito: 'Crédito' };
 
+const numero = (v) => (v === '' || v === null || v === undefined ? 0 : Number(String(v).replace(',', '.')));
+
+/**
+ * Baixa de conta (a pagar ou a receber) com juros, multa, desconto e baixa
+ * parcial. `conta` = { descricao, saldo }. onConfirmar recebe
+ * { data, principal, juros, multa, desconto } e devolve o resultado do canal.
+ */
+export function BaixaComEncargos({ titulo, rotuloData, rotuloTotal, conta, onConfirmar, onFechar }) {
+  const [f, setF] = useState({ data: hojeLocal(), principal: String(conta.saldo), juros: '', multa: '', desconto: '' });
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const principal = numero(f.principal);
+  const total = Math.round((principal + numero(f.juros) + numero(f.multa) - numero(f.desconto)) * 100) / 100;
+  const saldo = Math.round((conta.saldo - principal) * 100) / 100;
+  async function confirmar(e) {
+    e.preventDefault();
+    setSalvando(true);
+    const r = await onConfirmar({ data: f.data, principal, juros: numero(f.juros), multa: numero(f.multa), desconto: numero(f.desconto) });
+    setSalvando(false);
+    if (!r?.ok) setErro(r?.error || 'Não foi possível dar baixa.');
+  }
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <div className="modal-overlay"><div className="modal-card" style={{ width: 'min(520px, 100%)' }}><form onSubmit={confirmar}>
+      <h2><Icon name="checkCircle" size={18} /> {titulo} — {conta.descricao}</h2>
+      <div className="form-grid">
+        <label>{rotuloData}<input type="date" value={f.data} max={hojeLocal()} onChange={set('data')} required /></label>
+        <label title="Quanto do valor da conta está sendo quitado agora. Se for menos que o total, o resto vira uma conta nova com o mesmo vencimento.">
+          Valor da conta quitado (R$)<input type="number" step="0.01" min="0.01" max={conta.saldo} value={f.principal} onChange={set('principal')} required /></label>
+        <label>Juros (R$)<input type="number" step="0.01" min="0" value={f.juros} onChange={set('juros')} placeholder="0,00" /></label>
+        <label>Multa (R$)<input type="number" step="0.01" min="0" value={f.multa} onChange={set('multa')} placeholder="0,00" /></label>
+        <label>Desconto (R$)<input type="number" step="0.01" min="0" value={f.desconto} onChange={set('desconto')} placeholder="0,00" /></label>
+      </div>
+      <div className="cash-summary" style={{ marginTop: 12 }}>
+        <div><span>Valor da conta</span><span>{brl(conta.saldo)}</span></div>
+        {saldo > 0.004 && <div><span>Fica em aberto (nova conta)</span><span>{brl(saldo)}</span></div>}
+        <div className="cash-summary-total"><strong>{rotuloTotal}</strong><strong>{brl(total)}</strong></div>
+      </div>
+      {erro && <p className="modal-error">{erro}</p>}
+      <div className="modal-actions" style={{ marginTop: 16 }}>
+        <button type="button" className="btn-secondary" onClick={onFechar}>Voltar</button>
+        <button type="submit" className="btn-primary" disabled={salvando || !(total > 0)}>{salvando ? 'Salvando…' : 'Confirmar'}</button>
+      </div>
+    </form></div></div>
+  );
+}
+
 // ---------------- contas a receber ----------------
 
 export function ContasAReceberTab() {
@@ -43,11 +90,10 @@ export function ContasAReceberTab() {
     if (!r?.ok) return setErro(r?.error);
     setForm(null); setErro(''); carregar();
   }
-  async function baixar(e) {
-    e.preventDefault();
-    const r = await window.pdv.financeiro.receberRecebivel({ id: baixando.id, data: baixando.data, valor: Number(String(baixando.valor).replace(',', '.')) });
-    if (!r?.ok) return setErro(r?.error);
-    setBaixando(null); setErro(''); carregar();
+  async function baixar(valores) {
+    const r = await window.pdv.financeiro.baixarRecebivel({ id: baixando.id, ...valores });
+    if (r?.ok) { setBaixando(null); setErro(''); carregar(); }
+    return r;
   }
 
   if (!dados) return <p className="empty-state">Carregando...</p>;
@@ -85,7 +131,7 @@ export function ContasAReceberTab() {
                 <td>{dataBR(r.vencimento)}{r.vencida && <span className="badge-warning" style={{ marginLeft: 6, fontSize: 12 }}>vencida</span>}</td>
                 <td>{r.descricao}</td><td>{r.cliente_nome || '—'}</td><td style={{ textAlign: 'right' }}>{brl(r.valor)}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
-                  <button className="btn-link" onClick={() => setBaixando({ id: r.id, descricao: r.descricao, data: hojeLocal(), valor: r.valor })}><Icon name="checkCircle" size={14} /> Recebi</button>
+                  <button className="btn-link" onClick={() => setBaixando({ id: r.id, descricao: r.descricao, saldo: r.valor })}><Icon name="checkCircle" size={14} /> Recebi</button>
                   <button className="btn-link-danger" onClick={async () => { if (confirm('Cancelar esta conta a receber?')) { await window.pdv.financeiro.cancelarRecebivel({ id: r.id }); carregar(); } }}><Icon name="close" size={14} /></button>
                 </td>
               </tr>
@@ -123,18 +169,7 @@ export function ContasAReceberTab() {
         </form></div></div>
       )}
       {baixando && (
-        <div className="modal-overlay"><div className="modal-card"><form onSubmit={baixar}>
-          <h2><Icon name="checkCircle" size={18} /> Recebimento — {baixando.descricao}</h2>
-          <div className="form-grid">
-            <label>Recebido em<input type="date" value={baixando.data} max={hojeLocal()} onChange={(e) => setBaixando({ ...baixando, data: e.target.value })} required /></label>
-            <label>Valor recebido (R$)<input type="number" step="0.01" min="0.01" value={baixando.valor} onChange={(e) => setBaixando({ ...baixando, valor: e.target.value })} required /></label>
-          </div>
-          {erro && <p className="modal-error">{erro}</p>}
-          <div className="modal-actions" style={{ marginTop: 16 }}>
-            <button type="button" className="btn-secondary" onClick={() => setBaixando(null)}>Voltar</button>
-            <button type="submit" className="btn-primary">Confirmar recebimento</button>
-          </div>
-        </form></div></div>
+        <BaixaComEncargos titulo="Recebimento" rotuloData="Recebido em" rotuloTotal="Total recebido" conta={baixando} onConfirmar={baixar} onFechar={() => setBaixando(null)} />
       )}
     </div>
   );

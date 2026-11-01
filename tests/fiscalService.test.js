@@ -73,7 +73,7 @@ test('updateFiscalConfig salva a URL de consulta do QR Code', () => {
 test('emitirNFCe não exige mais CSC pra passar da checagem de configuração completa', () => {
   const { adminId } = freshTestDb();
   fiscalService.updateFiscalConfig(adminId, {
-    cnpj: '00000000000191', inscricaoEstadual: '123456', uf: 'SP', regimeTributario: 'simples_nacional',
+    cnpj: '00000000000191', inscricaoEstadual: '110042490114', uf: 'SP', regimeTributario: 'simples_nacional',
     municipioCodigoIbge: '3550308', certificadoPath: '/tmp/certificado-inexistente.pfx',
     endereco: { logradouro: 'Rua Teste', numero: '1', bairro: 'Centro', cep: '00000000', municipio: 'São Paulo' },
   });
@@ -248,7 +248,7 @@ test('listNfcePendentesOuContingencia traz as duas situações, não só pendent
 
 function configuracaoFiscalCompleta(adminId) {
   fiscalService.updateFiscalConfig(adminId, {
-    cnpj: '00000000000191', inscricaoEstadual: '123456', uf: 'SP', regimeTributario: 'simples_nacional',
+    cnpj: '00000000000191', inscricaoEstadual: '110042490114', uf: 'SP', regimeTributario: 'simples_nacional',
     municipioCodigoIbge: '3550308', certificadoPath: '/tmp/certificado-inexistente.pfx',
     endereco: { logradouro: 'Rua Teste', numero: '1', bairro: 'Centro', cep: '00000000', municipio: 'São Paulo' },
   });

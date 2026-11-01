@@ -108,7 +108,8 @@ async function enviarNFCe({ xmlNFeAssinado, config, certificado, idLote = 1 }) {
   }
 
   const resultado = extrairResultado(resposta.corpo);
-  const autorizada = resultado.cStat === '100';
+  // 150 = autorizada fora de prazo (comum ao transmitir a contingência): também é autorização.
+  const autorizada = require('./rejeicoesSefaz').autorizado(resultado.cStat);
 
   return {
     ok: true, // a COMUNICAÇÃO funcionou -- autorizada ou não é outra checagem
@@ -175,7 +176,8 @@ async function enviarEventoNFCe({ envEventoAssinado, config, certificado }) {
   const resultado = extrairResultado(resposta.corpo);
   return {
     ok: true,
-    registrado: resultado.cStat === '135',
+    // 155 = cancelamento homologado fora de prazo: também vale como registrado.
+    registrado: ['135', '155'].includes(resultado.cStat),
     cStat: resultado.cStat,
     motivo: resultado.xMotivo,
     protocolo: resultado.protocoloAutorizacao,

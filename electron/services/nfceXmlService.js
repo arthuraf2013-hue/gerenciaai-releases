@@ -21,8 +21,11 @@ const VERSAO_LAYOUT = '4.00';
 
 /** Regime tributário do cadastro -> Código de Regime Tributário (CRT)
  * exigido no XML. MEI se enquadra como Simples Nacional pra esse fim. */
+/** CRT da NF-e/NFC-e. MEI usa 4 desde a NT 2024.001 (obrigatório a partir de
+ * abril/2025; CRT 1 em nota de MEI é rejeitado pela SEFAZ). */
 function crtDoRegime(regimeTributario) {
-  if (regimeTributario === 'simples_nacional' || regimeTributario === 'mei') return '1';
+  if (regimeTributario === 'mei') return '4';
+  if (regimeTributario === 'simples_nacional') return '1';
   return '3'; // lucro_presumido, lucro_real
 }
 

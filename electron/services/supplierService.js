@@ -14,6 +14,11 @@ function list({ query } = {}) {
 function upsert(supplier) {
   if (!supplier.nome?.trim()) return { ok: false, error: 'Informe o nome do fornecedor.' };
   const db = getDb();
+  const atual = supplier.id ? db.prepare('SELECT cnpj_cpf FROM suppliers WHERE id = ?').get(supplier.id) : null;
+  if (supplier.cnpjCpf && supplier.cnpjCpf !== atual?.cnpj_cpf) {
+    const erroDoc = require('./validadores').conferirDocumentos({ cpfCnpj: supplier.cnpjCpf });
+    if (erroDoc) return erroDoc;
+  }
   const id = supplier.id || randomUUID();
   db.prepare(
     `INSERT INTO suppliers (id, nome, cnpj_cpf, telefone, email, prazo_entrega_dias) VALUES (@id, @nome, @cnpjCpf, @telefone, @email, @prazo)

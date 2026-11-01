@@ -14,6 +14,14 @@ function list({ query } = {}) {
 function upsert(customer) {
   if (!customer.nome?.trim()) return { ok: false, error: 'Informe o nome do cliente.' };
   const db = getDb();
+  // CPF/CNPJ conferidos pelos dígitos verificadores -- só quando mudam
+  // (cadastro antigo com documento errado continua editável).
+  const atual = customer.id ? db.prepare('SELECT cpf, cnpj FROM customers WHERE id = ?').get(customer.id) : null;
+  const erroDoc = require('./validadores').conferirDocumentos({
+    cpf: customer.cpf && customer.cpf !== atual?.cpf ? customer.cpf : null,
+    cnpj: customer.cnpj && customer.cnpj !== atual?.cnpj ? customer.cnpj : null,
+  });
+  if (erroDoc) return erroDoc;
   const id = customer.id || randomUUID();
   db.prepare(
     `INSERT INTO customers (id, nome, telefone, cpf, cnpj, data_nascimento) VALUES (@id, @nome, @telefone, @cpf, @cnpj, @dataNascimento)
@@ -72,6 +80,53 @@ function registrarDivida({ customerId, valor, saleId, operadorId }) {
   db.prepare(
     `INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, sale_id, operador_id) VALUES (?, ?, 'divida', ?, ?, ?)`
   ).run(randomUUID(), customerId, valor, saleId, operadorId);
+}
+
+/**
+ * Fiado novo de `valorNovo` cabe no limite do cliente? (sem limite = cabe).
+ * Cliente bloqueado não compra fiado. Colunas da migração versionada 1;
+ * sem elas (migração pendente), não há limite.
+ */
+function checarLimiteFiado(customerId, valorNovo) {
+  const db = getDb();
+  let c;
+  try {
+    c = db.prepare('SELECT nome, limite_fiado, fiado_bloqueado FROM customers WHERE id = ?').get(customerId);
+  } catch (err) {
+    if (/no such column/i.test(err.message || '')) return { ok: true };
+    throw err;
+  }
+  if (!c) return { ok: false, error: 'Cliente não encontrado.' };
+  if (c.fiado_bloqueado) return { ok: false, fiadoBloqueado: true, error: `${c.nome} está com o fiado bloqueado. Receba de outra forma ou libere em Financeiro → Inadimplência.` };
+  if (c.limite_fiado === null || c.limite_fiado === undefined) return { ok: true };
+  const saldo = getSaldoFiado(customerId);
+  const disponivel = Math.max(0, Math.round((c.limite_fiado - saldo) * 100) / 100);
+  if (Number(valorNovo) > disponivel + 0.005) {
+    return { ok: false, limiteExcedido: true, disponivel, error: `Limite de fiado de ${c.nome}: R$ ${Number(c.limite_fiado).toFixed(2)} (já deve R$ ${saldo.toFixed(2)}; disponível R$ ${disponivel.toFixed(2)}).` };
+  }
+  return { ok: true, disponivel };
+}
+
+/** Limite de fiado e bloqueio (tela de inadimplência). limite vazio = sem limite. */
+function definirLimiteFiado({ customerId, limite, bloqueado, operadorId }) {
+  const db = getDb();
+  const c = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId);
+  if (!c) return { ok: false, error: 'Cliente não encontrado.' };
+  const vazio = limite === null || limite === undefined || limite === '';
+  const novoLimite = vazio ? null : Math.round(Number(limite) * 100) / 100;
+  if (!vazio && !(Number.isFinite(novoLimite) && novoLimite >= 0)) return { ok: false, error: 'Limite inválido.' };
+  const novoBloqueio = bloqueado === undefined ? c.fiado_bloqueado : (bloqueado ? 1 : 0);
+  db.transaction(() => {
+    db.prepare('UPDATE customers SET limite_fiado = ?, fiado_bloqueado = ? WHERE id = ?').run(novoLimite, novoBloqueio, customerId);
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso, entidade, entidade_id, dados_antes, dados_depois)
+       VALUES (?, 'fiado_limite_alterado', ?, ?, 1, 'customers', ?, ?, ?)`
+    ).run(
+      randomUUID(), operadorId || null, `Fiado de ${c.nome}: limite ${novoLimite === null ? 'livre' : `R$ ${novoLimite.toFixed(2)}`}${novoBloqueio ? ', bloqueado' : ''}`,
+      customerId, JSON.stringify({ limite_fiado: c.limite_fiado, fiado_bloqueado: c.fiado_bloqueado }), JSON.stringify({ limite_fiado: novoLimite, fiado_bloqueado: novoBloqueio })
+    );
+  })();
+  return { ok: true };
 }
 
 function registrarPagamento({ customerId, valor, motivo, operadorId }) {
@@ -270,7 +325,7 @@ function marcarReconquistaAutomaticaEnviada(customerId) {
 }
 
 module.exports = {
-  list, upsert, getSaldoFiado, listWithSaldo, getCreditHistory, registrarDivida, registrarPagamento,
+  list, upsert, getSaldoFiado, listWithSaldo, getCreditHistory, registrarDivida, registrarPagamento, checarLimiteFiado, definirLimiteFiado,
   getLoyaltyConfig, updateLoyaltyConfig, acumularPontos, calcularValorResgate, debitarPontos,
   listClientesQueSumiram, listClientesQueSumiramParaAutomacao, montarLinkReconquista, textoMensagemReconquista, buscarPorTelefone,
   listAniversariantesHoje, creditarCupomAniversario, marcarReconquistaAutomaticaEnviada,

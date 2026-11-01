@@ -30,7 +30,7 @@ test('sem restrição nada muda: gerente abre tudo do ERP (instalação antiga c
   const { gerenteId, locationId } = freshTestDb();
   sessionService.iniciarSessao(31, { id: gerenteId, nome: 'Ger', role: 'gerente' });
   const st = await chamar('erp:status', undefined, 31);
-  assert.deepEqual(st.permissoes, { compras: true, financeiro: true, estoque: true, fiscal: true });
+  assert.deepEqual(st.permissoes, { compras: true, financeiro: true, estoque: true, fiscal: true, comercial: true, bi: true, rh: true });
   assert.equal((await chamar('assistenteFiscal:painel', { locationId }, 31)).ok, true);
 });
 

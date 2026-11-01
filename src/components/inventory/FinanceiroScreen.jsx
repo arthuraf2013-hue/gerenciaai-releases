@@ -3,7 +3,8 @@ import { useSession } from '../../context/SessionContext';
 import { toISODate } from '../../utils/date';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
-import { CATEGORIAS_DESPESA as CATEGORIAS, CATEGORIA_LABEL, ContasAReceberTab, FluxoCaixaTab, DreTab, AjustesFinanceiroTab } from './FinanceiroErp';
+import { CATEGORIAS_DESPESA as CATEGORIAS, CATEGORIA_LABEL, ContasAReceberTab, FluxoCaixaTab, DreTab, AjustesFinanceiroTab, BaixaComEncargos } from './FinanceiroErp';
+import { ConciliacaoTab, ComissoesTab, ContabilTab, InadimplenciaSecao, LimitesFiadoSecao, DespesasPorCentro, CentrosDeCustoSecao } from './GestaoErp';
 import { Abas, useModulosErp, ModuloInativo } from './erpUtils';
 
 const ABAS = [
@@ -11,6 +12,9 @@ const ABAS = [
   { id: 'receber', icone: 'receipt', rotulo: 'Contas a receber', erp: true },
   { id: 'fluxo', icone: 'trendUp', rotulo: 'Fluxo de caixa', erp: true },
   { id: 'dre', icone: 'chart', rotulo: 'DRE', erp: true },
+  { id: 'conciliacao', icone: 'checkCircle', rotulo: 'Conciliação bancária', erp: true },
+  { id: 'comissoes', icone: 'users', rotulo: 'Comissões e metas', erp: true },
+  { id: 'contabil', icone: 'book', rotulo: 'Contabilidade', erp: true },
   { id: 'ajustes', icone: 'sliders', rotulo: 'Ajustes', erp: true },
 ];
 
@@ -27,10 +31,13 @@ export function FinanceiroScreen() {
   else if (!atual.erp) conteudo = <ResumoEDespesas />;
   else if (modulos === null) conteudo = <p className="empty-state">Carregando...</p>;
   else if (!modulos.financeiro) conteudo = <ModuloInativo modulo="financeiro" />;
-  else if (aba === 'receber') conteudo = <ContasAReceberTab />;
+  else if (aba === 'receber') conteudo = <><ContasAReceberTab /><InadimplenciaSecao /><LimitesFiadoSecao /></>;
   else if (aba === 'fluxo') conteudo = <FluxoCaixaTab />;
-  else if (aba === 'dre') conteudo = <DreTab />;
-  else conteudo = <AjustesFinanceiroTab />;
+  else if (aba === 'dre') conteudo = <><DreTab /><DespesasPorCentro /></>;
+  else if (aba === 'conciliacao') conteudo = <ConciliacaoTab />;
+  else if (aba === 'comissoes') conteudo = modulos.semPermissao.comercial ? <ModuloInativo modulo="financeiro" semPermissao /> : <ComissoesTab />;
+  else if (aba === 'contabil') conteudo = <ContabilTab />;
+  else conteudo = <><AjustesFinanceiroTab /><CentrosDeCustoSecao /></>;
   return (
     <div className="screen">
       <Abas abas={ABAS} atual={aba} onChange={setAba} bloqueadas={bloqueadas} />
@@ -50,9 +57,10 @@ function ResumoEDespesas() {
   const [fornecedores, setFornecedores] = useState([]);
   const [showForm, setShowForm] = useState(false);
   useEscToClose(() => setShowForm(false), showForm);
-  const [form, setForm] = useState({ categoria: 'outro', descricao: '', valor: '', fornecedorId: '', dataVencimento: '' });
+  const [form, setForm] = useState({ categoria: 'outro', descricao: '', valor: '', fornecedorId: '', dataVencimento: '', centroCustoId: '' });
+  const [centros, setCentros] = useState([]);
   const [erro, setErro] = useState('');
-  const [pagandoEm, setPagandoEm] = useState(null); // { id, descricao, data }
+  const [pagandoEm, setPagandoEm] = useState(null); // { id, descricao, saldo }
   useEscToClose(() => setPagandoEm(null), !!pagandoEm);
 
   useEffect(() => {
@@ -67,6 +75,8 @@ function ResumoEDespesas() {
 
   useEffect(() => {
     window.pdv.suppliers.list().then(setFornecedores);
+    // Centros de custo são do ERP — Financeiro: sem o módulo, a lista vem vazia.
+    window.pdv.financeiro.centros().then((c) => setCentros(Array.isArray(c) ? c : []));
   }, []);
 
   function carregar() {
@@ -83,28 +93,27 @@ function ResumoEDespesas() {
     setErro('');
     const result = await window.pdv.expenses.create({
       categoria: form.categoria, descricao: form.descricao, valor: Number(form.valor.replace(',', '.')),
-      fornecedorId: form.fornecedorId || null, dataVencimento: form.dataVencimento || null,
+      fornecedorId: form.fornecedorId || null, dataVencimento: form.dataVencimento || null, centroCustoId: form.centroCustoId || null,
       locationId: window.APP_LOCATION_ID, operadorId: currentUser.id,
     });
     if (!result.ok) return setErro(result.error);
-    setForm({ categoria: 'outro', descricao: '', valor: '', fornecedorId: '', dataVencimento: '' });
+    setForm({ categoria: 'outro', descricao: '', valor: '', fornecedorId: '', dataVencimento: '', centroCustoId: '' });
     setShowForm(false);
     carregar();
   }
 
   async function handleMarcarPaga(expenseId) {
-    await window.pdv.expenses.markAsPaid({ expenseId, operadorId: currentUser.id });
+    const r = await window.pdv.expenses.markAsPaid({ expenseId, operadorId: currentUser.id });
+    if (r && r.ok === false) setErro(r.error); else setErro('');
     carregar();
   }
 
-  // Paga em outro dia (o fluxo de caixa e o pacote do contador usam a data).
-  async function handlePagaEmOutraData(e) {
-    e.preventDefault();
-    const r = await window.pdv.financeiro.pagarDespesaNaData({ expenseId: pagandoEm.id, data: pagandoEm.data });
-    if (r && r.ok === false) return setErro(r.error);
-    setErro('');
-    setPagandoEm(null);
-    carregar();
+  // Paga em outro dia, com juros/multa/desconto ou só uma parte (o resto
+  // vira uma conta nova). O fluxo de caixa e o contador usam a data.
+  async function handleBaixa(valores) {
+    const r = await window.pdv.financeiro.baixarDespesa({ expenseId: pagandoEm.id, ...valores });
+    if (r?.ok) { setErro(''); setPagandoEm(null); carregar(); }
+    return r;
   }
 
   async function handleExcluir(expenseId) {
@@ -162,7 +171,7 @@ function ResumoEDespesas() {
                   <td>R$ {p.valor.toFixed(2)}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <button className="btn-link" onClick={() => handleMarcarPaga(p.id)}><Icon name="checkCircle" size={14} /> Paga hoje</button>
-                    <button className="btn-link" onClick={() => { setErro(''); setPagandoEm({ id: p.id, descricao: p.descricao, data: toISODate(new Date()) }); }}>Outra data</button>
+                    <button className="btn-link" title="Outra data, juros, multa, desconto ou pagamento de só uma parte" onClick={() => { setErro(''); setPagandoEm({ id: p.id, descricao: p.descricao, saldo: p.valor }); }}>Outra data ou valor</button>
                   </td>
                 </tr>
               ))}
@@ -182,7 +191,7 @@ function ResumoEDespesas() {
               <tr key={d.id}>
                 <td>{d.criado_em?.slice(0, 10)}</td>
                 <td>{CATEGORIA_LABEL[d.categoria] || d.categoria}</td>
-                <td>{d.descricao}{d.fornecedor_nome ? ` (${d.fornecedor_nome})` : ''}</td>
+                <td>{d.descricao}{d.fornecedor_nome ? ` (${d.fornecedor_nome})` : ''}{d.centro_custo_nome ? <div className="nfe-item-codigos">{d.centro_custo_nome}</div> : null}</td>
                 <td>R$ {d.valor.toFixed(2)}</td>
                 <td>{d.data_pagamento ? 'Paga' : 'Pendente'}</td>
                 <td><button className="btn-link-danger" onClick={() => handleExcluir(d.id)}><Icon name="trash" size={14} /> Excluir</button></td>
@@ -195,22 +204,7 @@ function ResumoEDespesas() {
       {erro && !showForm && !pagandoEm && <p className="modal-error" style={{ marginTop: 12 }}>{erro}</p>}
 
       {pagandoEm && (
-        <div className="modal-overlay">
-          <div className="modal-card">
-            <form onSubmit={handlePagaEmOutraData}>
-              <h2><Icon name="checkCircle" size={18} /> Pagamento — {pagandoEm.descricao}</h2>
-              <label>
-                Pago em
-                <input type="date" value={pagandoEm.data} max={toISODate(new Date())} onChange={(e) => setPagandoEm({ ...pagandoEm, data: e.target.value })} required />
-              </label>
-              {erro && <p className="modal-error">{erro}</p>}
-              <div className="modal-actions" style={{ marginTop: 16 }}>
-                <button type="button" className="btn-secondary" onClick={() => setPagandoEm(null)}>Voltar</button>
-                <button type="submit" className="btn-primary">Marcar como paga</button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <BaixaComEncargos titulo="Pagamento" rotuloData="Pago em" rotuloTotal="Total pago" conta={pagandoEm} onConfirmar={handleBaixa} onFechar={() => setPagandoEm(null)} />
       )}
 
       {showForm && (
@@ -238,6 +232,15 @@ function ResumoEDespesas() {
                   <select value={form.fornecedorId} onChange={(e) => setForm({ ...form, fornecedorId: e.target.value })}>
                     <option value="">(nenhum)</option>
                     {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                  </select>
+                </label>
+              )}
+              {centros.length > 0 && (
+                <label style={{ marginTop: 12 }}>
+                  Centro de custo
+                  <select value={form.centroCustoId} onChange={(e) => setForm({ ...form, centroCustoId: e.target.value })}>
+                    <option value="">(nenhum)</option>
+                    {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                   </select>
                 </label>
               )}

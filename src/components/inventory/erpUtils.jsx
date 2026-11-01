@@ -36,8 +36,15 @@ export function useModulosErp() {
   useEffect(() => {
     window.pdv.erp.status().then((r) => {
       const areas = ['compras', 'financeiro', 'estoque', 'fiscal'];
-      const semPermissao = Object.fromEntries(areas.map((a) => [a, r?.permissoes?.[a] === false]));
-      setStatus({ ...Object.fromEntries(areas.map((a) => [a, r?.[a] !== false && !semPermissao[a]])), semPermissao });
+      // Comissões, painel executivo e equipe vêm no módulo do Financeiro, com permissão própria.
+      const extras = ['comercial', 'bi', 'rh'];
+      const semPermissao = Object.fromEntries([...areas, ...extras].map((a) => [a, r?.permissoes?.[a] === false]));
+      setStatus({
+        ...Object.fromEntries(areas.map((a) => [a, r?.[a] !== false && !semPermissao[a]])),
+        ...Object.fromEntries(extras.map((a) => [a, r?.financeiro !== false && !semPermissao[a]])),
+        financeiroLicenciado: r?.financeiro !== false,
+        semPermissao,
+      });
     });
   }, []);
   return status;

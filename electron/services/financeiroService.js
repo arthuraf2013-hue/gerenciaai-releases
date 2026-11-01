@@ -77,24 +77,35 @@ function salvarConfig(campos) {
   const permitidos = {
     saldoInicial: 'saldo_inicial', dataSaldoInicial: 'data_saldo_inicial', dataAberturaEmpresa: 'data_abertura_empresa',
     atividadeMei: 'atividade_mei', dasMeiValor: 'das_mei_valor', rbt12Anterior: 'rbt12_anterior', diaPacoteContador: 'dia_pacote_contador',
+    anexoSimples: 'anexo_simples', folha12Meses: 'folha_12_meses',
   };
+  // Valida tudo antes de gravar: um campo inválido no meio não pode deixar
+  // metade da configuração salva.
+  const aGravar = [];
   for (const [chave, coluna] of Object.entries(permitidos)) {
-    if (!(chave in campos)) continue;
+    if (!campos || !(chave in campos)) continue;
     let v = campos[chave];
     if (v === '' || v === undefined) v = null;
     if (['dataSaldoInicial', 'dataAberturaEmpresa'].includes(chave) && v !== null && !ehData(v)) return { ok: false, error: 'Data inválida.' };
-    if (['saldoInicial', 'dasMeiValor', 'rbt12Anterior'].includes(chave) && v !== null) {
+    if (['saldoInicial', 'dasMeiValor', 'rbt12Anterior', 'folha12Meses'].includes(chave) && v !== null) {
       v = Number(v);
       if (!Number.isFinite(v) || (chave !== 'saldoInicial' && v < 0)) return { ok: false, error: 'Valor inválido.' };
     }
     if (chave === 'saldoInicial' && v === null) v = 0;
     if (chave === 'atividadeMei' && !['comercio', 'servicos', 'ambos'].includes(v)) return { ok: false, error: 'Atividade inválida.' };
+    if (chave === 'anexoSimples') {
+      v = v === null ? 'I' : String(v).toUpperCase();
+      if (!['I', 'II', 'III', 'IV', 'V'].includes(v)) return { ok: false, error: 'Anexo do Simples: I, II, III, IV ou V.' };
+    }
     if (chave === 'diaPacoteContador') {
       v = Number(v);
       if (!(v >= 1 && v <= 28)) return { ok: false, error: 'Dia do pacote do contador: de 1 a 28.' };
     }
-    db.prepare(`UPDATE erp_config SET ${coluna} = ? WHERE id = 'default'`).run(v);
+    aGravar.push([coluna, v]);
   }
+  db.transaction(() => {
+    for (const [coluna, v] of aGravar) db.prepare(`UPDATE erp_config SET ${coluna} = ? WHERE id = 'default'`).run(v);
+  })();
   return { ok: true, config: getConfig() };
 }
 
@@ -190,10 +201,99 @@ function receberRecebivel({ id, data, valor }) {
   if (r.recebido_em || r.cancelado_em) return { ok: false, error: 'Esta conta já foi baixada.' };
   const dataRecebimento = data || timeService.hojeLocalISO();
   if (!ehData(dataRecebimento)) return { ok: false, error: 'Data inválida.' };
+  const bloqueio = fechamento().bloqueioPorFechamento(r.location_id, [dataRecebimento]);
+  if (bloqueio) return bloqueio;
   const v = valor === undefined || valor === null || valor === '' ? r.valor : Number(valor);
   if (!(v > 0)) return { ok: false, error: 'Valor recebido inválido.' };
   db.prepare('UPDATE receivables SET recebido_em = ?, valor_recebido = ? WHERE id = ?').run(dataRecebimento, arred(v), id);
   return { ok: true };
+}
+
+// ---------- baixa com juros, multa, desconto e baixa parcial ----------
+
+const fechamento = () => require('./contabilService');
+
+/** Lê e valida os valores de uma baixa. principal = quanto do valor da
+ * conta está sendo quitado (o que faltar vira uma conta nova com o saldo). */
+function valoresDaBaixa({ saldo, principal, juros, multa, desconto }) {
+  const num = (v) => (v === undefined || v === null || v === '' ? 0 : Number(v));
+  const p = principal === undefined || principal === null || principal === '' ? saldo : Number(principal);
+  const j = num(juros); const m = num(multa); const d = num(desconto);
+  if (![p, j, m, d].every(Number.isFinite)) return { ok: false, error: 'Valor inválido.' };
+  if (!(p > 0)) return { ok: false, error: 'Informe quanto está sendo pago (maior que zero).' };
+  if (p > saldo + 0.005) return { ok: false, error: `O valor pago passa do valor da conta (R$ ${saldo.toFixed(2)}). Juros e multa vão nos campos próprios.` };
+  if (j < 0 || m < 0 || d < 0) return { ok: false, error: 'Juros, multa e desconto não podem ser negativos.' };
+  const total = arred(p + j + m - d);
+  if (!(total > 0)) return { ok: false, error: 'O desconto não pode ser maior que o valor pago.' };
+  return { ok: true, principal: arred(Math.min(p, saldo)), juros: arred(j), multa: arred(m), desconto: arred(d), total, parcial: p < saldo - 0.005 };
+}
+
+/**
+ * Baixa de conta a receber com juros/multa/desconto. Baixa parcial: esta
+ * conta fica com o valor pago e uma conta NOVA (mesmo vencimento, ligada
+ * por parcial_de_id) nasce com o saldo -- assim todo relatório que já lia
+ * "recebido_em/valor_recebido" continua certo sem mudar nada.
+ */
+function baixarRecebivel({ id, data, principal, juros, multa, desconto, operadorId }) {
+  const db = getDb();
+  const r = db.prepare('SELECT * FROM receivables WHERE id = ?').get(id);
+  if (!r) return { ok: false, error: 'Conta a receber não encontrada.' };
+  if (r.recebido_em || r.cancelado_em) return { ok: false, error: 'Esta conta já foi baixada.' };
+  const dia = data || timeService.hojeLocalISO();
+  if (!ehData(dia) || dia > timeService.hojeLocalISO()) return { ok: false, error: 'Data de recebimento inválida (não pode ser futura).' };
+  const bloqueio = fechamento().bloqueioPorFechamento(r.location_id, [dia]);
+  if (bloqueio) return bloqueio;
+  const v = valoresDaBaixa({ saldo: r.valor, principal, juros, multa, desconto });
+  if (!v.ok) return v;
+  let saldoId = null;
+  db.transaction(() => {
+    if (v.parcial) {
+      saldoId = randomUUID();
+      db.prepare(
+        `INSERT INTO receivables (id, descricao, customer_id, valor, vencimento, location_id, operador_id, parcial_de_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(saldoId, r.descricao.endsWith(' (saldo)') ? r.descricao : `${r.descricao} (saldo)`, r.customer_id, arred(r.valor - v.principal), r.vencimento, r.location_id, operadorId || r.operador_id, r.id);
+    }
+    db.prepare('UPDATE receivables SET valor = ?, recebido_em = ?, valor_recebido = ?, juros = ?, multa = ?, desconto = ? WHERE id = ?')
+      .run(v.principal, dia, v.total, v.juros || null, v.multa || null, v.desconto || null, id);
+  })();
+  return { ok: true, valorRecebido: v.total, saldoId, saldo: v.parcial ? arred(r.valor - v.principal) : 0 };
+}
+
+/** Baixa de despesa (conta a pagar) com juros/multa/desconto e parcial.
+ * `valor` passa a ser o que saiu do caixa; `valor_original` guarda o
+ * principal (o DRE e o fluxo já leem `valor`, então os encargos entram). */
+function baixarDespesa({ expenseId, data, principal, juros, multa, desconto, operadorId }) {
+  const db = getDb();
+  const e = db.prepare('SELECT * FROM expenses WHERE id = ?').get(expenseId);
+  if (!e) return { ok: false, error: 'Despesa não encontrada.' };
+  if (e.data_pagamento) return { ok: false, error: 'Essa despesa já está marcada como paga.' };
+  const dia = data || timeService.hojeLocalISO();
+  if (!ehData(dia) || dia > timeService.hojeLocalISO()) return { ok: false, error: 'Data de pagamento inválida (não pode ser futura).' };
+  const bloqueio = fechamento().bloqueioPorFechamento(e.location_id, [dia, e.competencia ? `${e.competencia}-01` : e.data_vencimento]);
+  if (bloqueio) return bloqueio;
+  const v = valoresDaBaixa({ saldo: e.valor, principal, juros, multa, desconto });
+  if (!v.ok) return v;
+  let saldoId = null;
+  db.transaction(() => {
+    if (v.parcial) {
+      saldoId = randomUUID();
+      // Sem recorrencia_id: o índice único (recorrência, competência) é da conta original.
+      db.prepare(
+        `INSERT INTO expenses (id, categoria, descricao, valor, fornecedor_id, data_vencimento, location_id, operador_id, nfe_entrada_id, competencia, centro_custo_id, parcial_de_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(saldoId, e.categoria, e.descricao.endsWith(' (saldo)') ? e.descricao : `${e.descricao} (saldo)`, arred(e.valor - v.principal), e.fornecedor_id,
+        e.data_vencimento, e.location_id, operadorId || e.operador_id, e.nfe_entrada_id, e.competencia, e.centro_custo_id, e.id);
+    }
+    db.prepare(
+      `UPDATE expenses SET valor = ?, valor_original = ?, juros = ?, multa = ?, desconto = ?, data_pagamento = ? WHERE id = ?`
+    ).run(v.total, v.principal, v.juros || null, v.multa || null, v.desconto || null, `${dia} 15:00:00`, expenseId);
+    db.prepare(
+      `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso, entidade, entidade_id, dados_antes, dados_depois)
+       VALUES (?, 'despesa_baixada', ?, ?, 1, 'expenses', ?, ?, ?)`
+    ).run(randomUUID(), operadorId || null, `"${e.descricao}": pago R$ ${v.total.toFixed(2)}${v.parcial ? ` (parcial; saldo R$ ${arred(e.valor - v.principal).toFixed(2)})` : ''}`,
+      expenseId, JSON.stringify({ valor: e.valor, data_pagamento: null }), JSON.stringify({ valor: v.total, principal: v.principal, juros: v.juros, multa: v.multa, desconto: v.desconto, data_pagamento: dia }));
+  })();
+  return { ok: true, valorPago: v.total, saldoId, saldo: v.parcial ? arred(e.valor - v.principal) : 0 };
 }
 
 function cancelarRecebivel({ id }) {
@@ -348,11 +448,13 @@ function criarDespesaParcelada({ descricao, categoria, valorTotal, parcelas, pri
 /** Marca despesa como paga numa data (a tela antiga só sabia "pago agora"). */
 function pagarDespesaNaData({ expenseId, data }) {
   const db = getDb();
-  const e = db.prepare('SELECT data_pagamento FROM expenses WHERE id = ?').get(expenseId);
+  const e = db.prepare('SELECT data_pagamento, location_id FROM expenses WHERE id = ?').get(expenseId);
   if (!e) return { ok: false, error: 'Despesa não encontrada.' };
   if (e.data_pagamento) return { ok: false, error: 'Essa despesa já está marcada como paga.' };
   const dia = data || timeService.hojeLocalISO();
   if (!ehData(dia) || dia > timeService.hojeLocalISO()) return { ok: false, error: 'Data de pagamento inválida (não pode ser futura).' };
+  const bloqueio = fechamento().bloqueioPorFechamento(e.location_id, [dia]);
+  if (bloqueio) return bloqueio;
   // Meio-dia de Brasília em UTC: a data local nunca escorrega pro dia vizinho.
   db.prepare('UPDATE expenses SET data_pagamento = ? WHERE id = ?').run(`${dia} 15:00:00`, expenseId);
   return { ok: true };
@@ -616,8 +718,8 @@ function dre({ locationId, competencias }) {
 module.exports = {
   CATEGORIAS_VALIDAS, CATEGORIAS_FORA_DO_DRE,
   getConfig, salvarConfig, getTaxas, salvarTaxas,
-  criarRecebivel, receberRecebivel, cancelarRecebivel, contasAReceber,
+  criarRecebivel, receberRecebivel, cancelarRecebivel, contasAReceber, baixarRecebivel, baixarDespesa, valoresDaBaixa,
   criarRecorrencia, listarRecorrencias, alterarRecorrencia, gerarRecorrencias, criarDespesaParcelada, pagarDespesaNaData,
-  fluxoDeCaixa, dre, receitaLiquidaDoMes, vendasComPagamentos,
+  fluxoDeCaixa, dre, receitaLiquidaDoMes, vendasComPagamentos, recebimentosDeCartao,
   somarDias, somarMeses, competenciasEntre, ultimoDiaDoMes, dataLocalDeUtc,
 };

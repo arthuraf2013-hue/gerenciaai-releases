@@ -219,12 +219,35 @@ function requireRole(requestingUserId, allowedRoles) {
  * desconto — é a própria trava de segurança central do sistema (ver
  * authorizeManagerOverride acima), então só admin pode desligá-la.
  */
-function updateSecurityConfig(requestingUserId, { exigirAutorizacaoCancelamento, exigirAutorizacaoDesconto }) {
+function updateSecurityConfig(requestingUserId, { exigirAutorizacaoCancelamento, exigirAutorizacaoDesconto, limiteDescontoOperador }) {
   const guard = requireRole(requestingUserId, ['admin', 'suporte']);
   if (!guard.ok) return guard;
 
   const db = getDb();
   const atual = getSecurityConfig();
+  // Limite de desconto do operador (% da venda) que dispensa autorização;
+  // vazio = sem limite próprio (vale só a chave "exigir autorização").
+  if (limiteDescontoOperador !== undefined) {
+    const vazio = limiteDescontoOperador === null || limiteDescontoOperador === '';
+    const novoLimite = vazio ? null : Number(limiteDescontoOperador);
+    if (!vazio && !(Number.isFinite(novoLimite) && novoLimite >= 0 && novoLimite <= 100)) {
+      return { ok: false, error: 'Limite de desconto: de 0% a 100% (ou vazio para não usar).' };
+    }
+    const anterior = atual.limite_desconto_operador ?? null;
+    if (anterior !== novoLimite) {
+      db.transaction(() => {
+        db.prepare('UPDATE security_config SET limite_desconto_operador = ? WHERE id = ?').run(novoLimite, 'default');
+        db.prepare(
+          `INSERT INTO audit_log (id, tipo_evento, solicitante_id, motivo, sucesso, entidade, entidade_id, dados_antes, dados_depois)
+           VALUES (?, 'config_seguranca_alterada', ?, ?, 1, 'security_config', 'default', ?, ?)`
+        ).run(
+          randomUUID(), requestingUserId,
+          `Limite de desconto do operador: ${anterior === null ? 'sem limite' : `${anterior}%`} → ${novoLimite === null ? 'sem limite' : `${novoLimite}%`}`,
+          JSON.stringify({ limite_desconto_operador: anterior }), JSON.stringify({ limite_desconto_operador: novoLimite })
+        );
+      })();
+    }
+  }
   const novoCancelamento = exigirAutorizacaoCancelamento !== undefined ? (exigirAutorizacaoCancelamento ? 1 : 0) : atual.exigir_autorizacao_cancelamento;
   const novoDesconto = exigirAutorizacaoDesconto !== undefined ? (exigirAutorizacaoDesconto ? 1 : 0) : atual.exigir_autorizacao_desconto;
   db.prepare('UPDATE security_config SET exigir_autorizacao_cancelamento = ?, exigir_autorizacao_desconto = ? WHERE id = ?')

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
+import { Termo } from './Glossario';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { ProductPicker } from './SupplyScreen';
 import { brl, dataBR, hojeLocal } from './erpUtils';
@@ -31,7 +32,7 @@ function criterios(r) {
 const FORM_VAZIO = {
   nome: '', tributo: 'ICMS', regime: '', ufOrigem: '', ufDestino: '', ncmPrefixo: '', cfop: '', cstCsosnItem: '', natureza: '', perfilCliente: '',
   cst: '', cclassTrib: '', aliquota: '', reducaoBase: '', mva: '', aliquotaInternaDestino: '', recolhidoNoDas: false, informativo: false,
-  fundamento: '', vigenciaInicio: '', vigenciaFim: '',
+  fundamento: '', vigenciaInicio: '', vigenciaFim: '', difalBase: '',
 };
 
 function paraForm(r) {
@@ -40,7 +41,7 @@ function paraForm(r) {
     ncmPrefixo: r.ncm_prefixo || '', cfop: r.cfop || '', cstCsosnItem: r.cst_csosn_item || '', natureza: r.natureza || '', perfilCliente: r.perfil_cliente || '',
     cst: r.cst || '', cclassTrib: r.cclass_trib || '', aliquota: r.aliquota || '', reducaoBase: r.reducao_base || '', mva: r.mva || '',
     aliquotaInternaDestino: r.aliquota_interna_destino ?? '', recolhidoNoDas: !!r.recolhido_no_das, informativo: !!r.informativo,
-    fundamento: r.fundamento || '', vigenciaInicio: hojeLocal(), vigenciaFim: '',
+    fundamento: r.fundamento || '', vigenciaInicio: hojeLocal(), vigenciaFim: '', difalBase: r.difal_base || '',
   };
 }
 
@@ -79,6 +80,7 @@ export function RegrasTributariasTab() {
   return (
     <div>
       <SimuladorTributario contexto={dados.contexto} />
+      <NaturezasOperacao />
       <MotorXCadastro key={dados.regras.length + (msg || '')} />
       <section className="settings-section">
         <div className="screen-header" style={{ marginBottom: 6 }}>
@@ -149,6 +151,8 @@ export function RegrasTributariasTab() {
                 <label>MVA (%)<input type="number" step="0.0001" min="0" value={form.campos.mva} onChange={(e) => set('mva', e.target.value)} /></label>
                 <label>Alíquota interna do destino (%)<input type="number" step="0.0001" min="0" max="100" value={form.campos.aliquotaInternaDestino} onChange={(e) => set('aliquotaInternaDestino', e.target.value)} /></label>
               </>}
+              {form.campos.tributo === 'ICMS' && <label>Base do DIFAL (venda para outra UF)<select value={form.campos.difalBase} onChange={(e) => set('difalBase', e.target.value)}>
+                <option value="">Não se aplica / única</option><option value="unica">Base única</option><option value="dupla">Base dupla</option></select></label>}
               <label>Início da vigência<input type="date" value={form.campos.vigenciaInicio} onChange={(e) => set('vigenciaInicio', e.target.value)} required /></label>
               <label>Fim da vigência (opcional)<input type="date" value={form.campos.vigenciaFim} onChange={(e) => set('vigenciaFim', e.target.value)} /></label>
             </div>
@@ -164,6 +168,48 @@ export function RegrasTributariasTab() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Natureza da operação → CFOP: escolhe o que está fazendo e o destino. */
+function NaturezasOperacao() {
+  const [d, setD] = useState(null);
+  const [q, setQ] = useState({ codigo: 'venda_revenda', ufDestino: '', comSt: false });
+  const [r, setR] = useState(null);
+  useEffect(() => { window.pdv.tributacao.naturezas().then(setD); }, []);
+  useEffect(() => {
+    if (!d?.ok) return;
+    window.pdv.tributacao.cfopPorNatureza({ codigo: q.codigo, ufEmitente: d.contexto.ufOrigem, ufDestino: q.ufDestino || d.contexto.ufOrigem, comSt: q.comSt, regime: d.contexto.regime }).then(setR);
+  }, [d, q]);
+  if (!d) return null;
+  if (d.ok === false) return <p className="modal-error">{d.error}</p>;
+  return (
+    <section className="settings-section">
+      <h2><Icon name="document" size={16} /> <Termo t="Natureza da operação" /> → <Termo t="CFOP" /></h2>
+      <p className="screen-hint">Diga o que a nota vai fazer e para onde: o sistema mostra o CFOP certo (dentro ou fora do estado, com ou sem <Termo t="ICMS-ST" />). Fonte: tabela CFOP oficial; confirme com o contador operações fora do dia a dia.</p>
+      <div className="period-selector" style={{ flexWrap: 'wrap' }}>
+        <select value={q.codigo} onChange={(e) => setQ({ ...q, codigo: e.target.value })} style={{ maxWidth: 380 }}>
+          {['saida', 'entrada'].map((tipo) => (
+            <optgroup key={tipo} label={tipo === 'saida' ? 'Saídas' : 'Entradas'}>
+              {d.naturezas.filter((n) => n.tipo === tipo).map((n) => <option key={n.codigo} value={n.codigo}>{n.nome}</option>)}
+            </optgroup>
+          ))}
+        </select>
+        <select value={q.ufDestino} onChange={(e) => setQ({ ...q, ufDestino: e.target.value })} title="UF do destinatário / remetente">
+          <option value="">{d.contexto.ufOrigem ? `Mesma UF (${d.contexto.ufOrigem})` : 'Mesma UF'}</option>{UFS.map((u) => <option key={u}>{u}</option>)}
+        </select>
+        <label className="nfe-opcao"><input type="checkbox" checked={q.comSt} onChange={(e) => setQ({ ...q, comSt: e.target.checked })} /> Mercadoria com ICMS-ST já retido</label>
+      </div>
+      {!r ? null : r.ok === false ? <p className="io-message-aviso">{r.error}</p> : (
+        <div className="dashboard-stats" style={{ marginTop: 10 }}>
+          <div className="stat-card"><span>CFOP</span><strong>{r.cfop}</strong></div>
+          <div className="stat-card"><span>Finalidade da nota</span><strong style={{ fontSize: 15 }}>{r.finalidade === 4 ? '4 — devolução' : '1 — normal'}</strong></div>
+          {r.csosnSugerido && <div className="stat-card"><span><Termo t="CSOSN" /></span><strong>{r.csosnSugerido}</strong></div>}
+          <div className="stat-card"><span>Destino</span><strong style={{ fontSize: 15 }}>{r.interestadual ? 'Outro estado' : 'Dentro do estado'}</strong></div>
+        </div>
+      )}
+      {r?.aviso && <p className="io-message-aviso" style={{ marginTop: 6 }}><Icon name="warning" size={14} /> {r.aviso}</p>}
+    </section>
   );
 }
 

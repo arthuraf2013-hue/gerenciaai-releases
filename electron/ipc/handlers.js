@@ -23,6 +23,7 @@ const importExportService = require('../services/importExportService');
 const attachmentService = require('../services/attachmentService');
 const aiService = require('../services/aiService');
 const cashService = require('../services/cashService');
+const naturezaOperacaoService = require('../services/naturezaOperacaoService');
 const fiscalService = require('../services/fiscalService');
 const pixService = require('../services/pixService');
 const timeService = require('../services/timeService');
@@ -63,6 +64,13 @@ const assistenteFiscalService = require('../services/assistenteFiscalService');
 const permissaoService = require('../services/permissaoService');
 const motorTributarioService = require('../services/motorTributarioService');
 const cadastroAutomaticoService = require('../services/cadastroAutomaticoService');
+const centroCustoService = require('../services/centroCustoService');
+const cobrancaService = require('../services/cobrancaService');
+const conciliacaoService = require('../services/conciliacaoService');
+const contabilService = require('../services/contabilService');
+const comissaoService = require('../services/comissaoService');
+const biService = require('../services/biService');
+const rhService = require('../services/rhService');
 
 /**
  * Envolve todo handler IPC para nunca deixar uma exceção do processo
@@ -183,7 +191,14 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   // Cadastro automático (produto e imposto).
   'nfeEntrada:produtosNovos', 'nfeEntrada:cadastrarProdutosNovos', 'cadastroAuto:sugerirPorNcm',
   'nfeEntrada:reajustePrecos', 'nfeEntrada:aplicarReajuste',
+  // ERP, segunda leva: centros de custo, inadimplência, conciliação, contabilidade, comissões, painel e equipe.
+  'financeiro:centros', 'financeiro:salvarCentro', 'financeiro:ativarCentro', 'financeiro:atribuirCentro', 'financeiro:despesasPorCentro', 'financeiro:inadimplencia', 'financeiro:mensagemCobranca', 'financeiro:importarOfx', 'financeiro:extrato', 'financeiro:conciliar', 'financeiro:criarDespesaDoExtrato', 'financeiro:ignorarExtrato', 'financeiro:desfazerExtrato', 'financeiro:contabilPlano', 'financeiro:salvarContabilPlano', 'financeiro:contabilLancamentos', 'financeiro:exportarContabil', 'comissao:regras', 'comissao:salvarRegra', 'comissao:salvarMeta', 'comissao:relatorio', 'bi:painel', 'rh:listar', 'rh:salvar', 'rh:registrarFerias', 'rh:removerFerias',
   'assistenteFiscal:sugerirNcmIA', 'assistenteFiscal:aplicarNcm', 'tributacao:conferirCadastro', 'tributacao:aplicarAoCadastro',
+  // ERP, terceira leva: baixa com encargos/parcial, limite de fiado, contabilidade gravada, naturezas.
+  'financeiro:baixarRecebivel', 'financeiro:baixarDespesa', 'financeiro:definirLimiteFiado',
+  'financeiro:contabilLancarManual', 'financeiro:contabilEstornar', 'financeiro:contabilFecharMes', 'financeiro:contabilReabrirMes',
+  'financeiro:contabilFechamentos', 'financeiro:contabilRazao', 'financeiro:contabilDre',
+  'tributacao:naturezas', 'tributacao:cfopPorNatureza',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
@@ -565,6 +580,14 @@ function registerIpcHandlers() {
   safeHandle('cash:close', (_e, payload) => cashService.closeSession(payload));
   safeHandle('cash:listClosedSessions', (_e, payload) => cashService.listClosedSessions(payload));
   safeHandle('cash:getClosedSessionsSummary', (_e, payload) => cashService.getClosedSessionsSummary(payload));
+  // Tela Caixa: resumo do caixa aberto, sangria e suprimento (auditados no serviço).
+  safeHandle('cash:caixaAtual', (_e, payload) => cashService.caixaAtual(payload || {}));
+  safeHandle('cash:movimento', (event, payload) => cashService.registrarMovimento({ ...(payload || {}), operadorId: usuarioLogado(event) }));
+  // Validação de CPF/CNPJ/IE em tempo real nos formulários (puro, sem banco).
+  safeHandle('validar:documentos', (_e, payload) => {
+    const erro = require('../services/validadores').conferirDocumentos(payload || {});
+    return erro || { ok: true };
+  });
 
   // --- Fiscal (configuração + ponto de emissão, ver fiscalService.js) ---
   safeHandle('fiscal:getConfig', () => fiscalService.getFiscalConfigPublic());
@@ -1073,12 +1096,16 @@ function registerIpcHandlers() {
   safeHandle('erp:salvarConfig', (event, p) => auditarSeOk(event, financeiroService.salvarConfig(p || {}), 'erp_config_alterada', 'Configurações do ERP alteradas.'));
   // Pagar com data é melhoria das contas a pagar que já existiam: sem licença.
   safeHandle('financeiro:pagarDespesaNaData', (_e, p) => financeiroService.pagarDespesaNaData(p || {}));
+  // Baixa de conta a pagar com juros/multa/desconto e parcial: idem (auditada no serviço).
+  safeHandle('financeiro:baixarDespesa', (event, p) => financeiroService.baixarDespesa({ ...(p || {}), operadorId: usuarioLogado(event) }));
   const F = (fn) => comModulo('erpFinanceiro', fn);
   safeHandle('financeiro:getTaxas', F(() => financeiroService.getTaxas()));
   safeHandle('financeiro:salvarTaxas', F((event, { taxas }) => auditarSeOk(event, financeiroService.salvarTaxas(taxas), 'taxas_cartao_alteradas', 'Taxas e prazos das maquininhas alterados.')));
   safeHandle('financeiro:contasAReceber', F((_e, p) => financeiroService.contasAReceber(p)));
   safeHandle('financeiro:criarRecebivel', F((_e, p) => financeiroService.criarRecebivel(p)));
   safeHandle('financeiro:receberRecebivel', F((_e, p) => financeiroService.receberRecebivel(p)));
+  safeHandle('financeiro:baixarRecebivel', F((event, p) => auditarSeOk(event, financeiroService.baixarRecebivel({ ...p, operadorId: usuarioLogado(event) }), 'conta_receber_baixada', `Conta a receber ${p.id} baixada${p.principal ? ` (R$ ${Number(p.principal).toFixed(2)} do principal)` : ''}.`)));
+  safeHandle('financeiro:definirLimiteFiado', F((event, p) => customerService.definirLimiteFiado({ ...p, operadorId: usuarioLogado(event) })));
   safeHandle('financeiro:cancelarRecebivel', F((event, p) => auditarSeOk(event, financeiroService.cancelarRecebivel(p), 'conta_receber_cancelada', `Conta a receber ${p.id} cancelada.`)));
   safeHandle('financeiro:listarRecorrencias', F(() => financeiroService.listarRecorrencias()));
   safeHandle('financeiro:criarRecorrencia', F((_e, p) => financeiroService.criarRecorrencia(p)));
@@ -1086,6 +1113,62 @@ function registerIpcHandlers() {
   safeHandle('financeiro:criarDespesaParcelada', F((_e, p) => financeiroService.criarDespesaParcelada(p)));
   safeHandle('financeiro:fluxoDeCaixa', F((_e, p) => financeiroService.fluxoDeCaixa(p)));
   safeHandle('financeiro:dre', F((_e, p) => financeiroService.dre(p)));
+  // Centros de custo e inadimplência.
+  safeHandle('financeiro:centros', F((_e, p) => centroCustoService.listar(p)));
+  safeHandle('financeiro:salvarCentro', F((_e, p) => centroCustoService.salvar(p)));
+  safeHandle('financeiro:ativarCentro', F((_e, p) => centroCustoService.definirAtivo(p)));
+  safeHandle('financeiro:atribuirCentro', F((_e, p) => centroCustoService.atribuir(p)));
+  safeHandle('financeiro:despesasPorCentro', F((_e, p) => centroCustoService.despesasPorCentro(p)));
+  safeHandle('financeiro:inadimplencia', F((_e, p) => cobrancaService.relatorio(p)));
+  safeHandle('financeiro:mensagemCobranca', F((_e, p) => cobrancaService.mensagemDeCobranca(p)));
+  // Conciliação bancária: o arquivo OFX vem do diálogo do processo principal.
+  safeHandle('financeiro:importarOfx', F(async (event, p) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      title: 'Importar extrato bancário (OFX)', properties: ['openFile'], filters: [{ name: 'Extrato OFX', extensions: ['ofx', 'OFX'] }],
+    });
+    if (canceled || !filePaths?.[0]) return { ok: false, canceled: true };
+    const fs = require('fs');
+    if (fs.statSync(filePaths[0]).size > conciliacaoService.TAMANHO_MAXIMO) return { ok: false, error: 'Arquivo grande demais para um extrato (máx. 5 MB).' };
+    return auditarSeOk(event, conciliacaoService.importar({ buffer: fs.readFileSync(filePaths[0]), operadorId: p.operadorId }), 'extrato_importado', 'Extrato bancário (OFX) importado.');
+  }));
+  safeHandle('financeiro:extrato', F((_e, p) => conciliacaoService.listar(p)));
+  safeHandle('financeiro:conciliar', F((event, p) => auditarSeOk(event, conciliacaoService.conciliar(p), 'extrato_conciliado', `Linha do extrato conciliada (${p.tipo}).`)));
+  safeHandle('financeiro:criarDespesaDoExtrato', F((event, p) => auditarSeOk(event, conciliacaoService.criarDespesa(p), 'extrato_conciliado', 'Despesa criada a partir do extrato bancário.')));
+  safeHandle('financeiro:ignorarExtrato', F((_e, p) => conciliacaoService.ignorar(p)));
+  safeHandle('financeiro:desfazerExtrato', F((_e, p) => conciliacaoService.desfazer(p)));
+  // Exportação contábil (lançamentos gerenciais + de-para do plano do escritório).
+  safeHandle('financeiro:contabilPlano', F(() => contabilService.planoDeContas()));
+  safeHandle('financeiro:salvarContabilPlano', F((event, p) => auditarSeOk(event, contabilService.salvarPlano(p), 'plano_contas_alterado', 'Plano de contas (de-para contábil) alterado.')));
+  safeHandle('financeiro:contabilLancamentos', F((_e, p) => contabilService.lancamentos(p)));
+  // Contabilidade gravada: lançamento manual, estorno, fechamento do mês, razão e DRE contábil.
+  safeHandle('financeiro:contabilLancarManual', F((event, p) => contabilService.lancarManual({ ...p, operadorId: usuarioLogado(event) })));
+  safeHandle('financeiro:contabilEstornar', F((event, p) => contabilService.estornarManual({ ...p, operadorId: usuarioLogado(event) })));
+  safeHandle('financeiro:contabilFecharMes', F((event, p) => contabilService.fecharMes({ ...p, operadorId: usuarioLogado(event) })));
+  // Reabrir mês fechado é só admin/suporte (gerente fecha, não reabre).
+  safeHandle('financeiro:contabilReabrirMes', F((event, p) => guardRole(event, ['admin', 'suporte']) || contabilService.reabrirMes({ ...p, operadorId: usuarioLogado(event) })));
+  safeHandle('financeiro:contabilFechamentos', F((_e, p) => contabilService.listarFechamentos(p)));
+  safeHandle('financeiro:contabilRazao', F((_e, p) => contabilService.razao(p)));
+  safeHandle('financeiro:contabilDre', F((_e, p) => contabilService.dreContabil(p)));
+  safeHandle('financeiro:exportarContabil', F(async (_e, p) => {
+    const r = await contabilService.xlsx(p);
+    if (!r.ok) return r;
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, { title: 'Salvar lançamentos contábeis', defaultPath: r.nomeSugerido, filters: [{ name: 'Planilha', extensions: ['xlsx'] }] });
+    if (canceled || !filePath) return { ok: false, canceled: true };
+    require('fs').writeFileSync(filePath, r.buffer);
+    return { ok: true, arquivo: filePath.split(/[\\/]/).pop(), linhas: r.linhas };
+  }));
+  // Comissões e metas, painel executivo e equipe (mesmo módulo pago do financeiro).
+  safeHandle('comissao:regras', F(() => comissaoService.regras()));
+  safeHandle('comissao:salvarRegra', F((event, p) => auditarSeOk(event, comissaoService.salvarRegra(p), 'comissao_alterada', `Comissão do usuário ${p.userId}: ${p.percentual ?? 'removida'}%.`)));
+  safeHandle('comissao:salvarMeta', F((event, p) => auditarSeOk(event, comissaoService.salvarMeta(p), 'meta_alterada', `Meta de ${p.competencia}${p.userId ? ` do usuário ${p.userId}` : ' da loja'}: ${p.valor ?? 'removida'}.`)));
+  safeHandle('comissao:relatorio', F((_e, p) => comissaoService.relatorio(p)));
+  safeHandle('bi:painel', F((_e, p) => biService.painel(p)));
+  safeHandle('rh:listar', F((_e, p) => rhService.listar(p)));
+  safeHandle('rh:salvar', F((event, p) => auditarSeOk(event, rhService.salvar(p), 'colaborador_salvo', `Cadastro de colaborador salvo: ${p.nome}.`)));
+  safeHandle('rh:registrarFerias', F((event, p) => auditarSeOk(event, rhService.registrarFerias(p), 'ferias_registradas', `Férias registradas de ${p.inicio} a ${p.fim}.`)));
+  safeHandle('rh:removerFerias', F((event, p) => auditarSeOk(event, rhService.removerFerias(p), 'ferias_removidas', 'Registro de férias removido.')));
 
   const E = (fn) => comModulo('erpEstoque', fn);
   safeHandle('inventario:abrir', E((_e, p) => inventarioService.abrir(p)));
@@ -1109,6 +1192,8 @@ function registerIpcHandlers() {
   safeHandle('tributacao:desativar', FI((event, p) => auditarSeOk(event, motorTributarioService.desativar(p), 'regra_tributaria_desativada', `Regra tributária ${p.id} desativada.`)));
   safeHandle('tributacao:calcularItem', FI((_e, p) => motorTributarioService.calcularItem(p)));
   safeHandle('tributacao:simularProduto', FI((_e, p) => motorTributarioService.simularProduto(p)));
+  safeHandle('tributacao:naturezas', FI(() => ({ ok: true, naturezas: naturezaOperacaoService.listar(), contexto: motorTributarioService.contextoDaLoja() })));
+  safeHandle('tributacao:cfopPorNatureza', FI((_e, p) => naturezaOperacaoService.cfopPara(p)));
   safeHandle('tributacao:conferirCadastro', FI(() => motorTributarioService.conferirCadastro({ aplicar: false })));
   safeHandle('tributacao:aplicarAoCadastro', FI((_e, p) => motorTributarioService.conferirCadastro({ aplicar: true, productIds: p.productIds, operadorId: p.operadorId })));
   safeHandle('assistenteFiscal:sugerirNcmIA', FI((_e, p) => cadastroAutomaticoService.sugerirNcmComIA(p)));

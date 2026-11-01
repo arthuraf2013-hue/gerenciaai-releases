@@ -83,12 +83,12 @@ SQLite (schema.sql + migrateColumnsIfNeeded + garantirGatilhosErp)
 | Assistente fiscal (limites, DAS, calendário, cadastro, pacote do contador) | pronto | `assistenteFiscalService`, `tabelasFiscais` |
 | Motor tributário | pronto (simulação e conferência) | `motorTributarioService`, `regrasTributariasPadrao` |
 | Permissões finas | pronto | `permissaoService` |
-| Conciliação bancária, centros de custo, plano de contas | a fazer | Fase 3b |
+| Conciliação bancária (OFX), centros de custo, inadimplência | pronto | `conciliacaoService`, `centroCustoService`, `cobrancaService` |
 | NF-e 55 de saída, NFS-e, SPED | a fazer, depende de homologação | Fases 4b e 5 |
-| Contabilidade (partidas dobradas, balancete) | a fazer, exportação primeiro | Fase 5 |
-| Comercial (comissão, metas) | a fazer; CRM, orçamento e fidelidade já existem | Fase 3c |
-| RH | a fazer, só cadastro e documentos; folha só por integração | Fase 6 |
-| BI e IA | parcial: dashboard e IA de vendas existem | Fase 7 |
+| Contabilidade: lançamentos gerenciais, balancete, de-para | pronto (exportação) | `contabilService` |
+| Comercial: comissões e metas | pronto; CRM, orçamento e fidelidade já existiam | `comissaoService` |
+| Equipe (RH): cadastro, documentos, férias | pronto; folha só por integração | `rhService` |
+| Painel executivo e alertas | pronto; IA em linguagem natural a fazer | `biService` |
 
 ## 4. Dependências entre módulos
 

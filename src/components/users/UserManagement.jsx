@@ -131,11 +131,47 @@ export function UserManagement() {
           </form>
         </div>
       )}
+      <LimiteDescontoSecao podeMudar={podeMudarPermissao} />
       {permissoesDe && <PermissoesErpModal usuario={permissoesDe} onClose={() => setPermissoesDe(null)} />}
       {promptState && (
         <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}
     </div>
+  );
+}
+
+/** Desconto que operador/garçom pode dar sem PIN de gerente (% da venda).
+ * Vale no PDV do balcão; o celular tem a política própria em PDV móvel. */
+function LimiteDescontoSecao({ podeMudar }) {
+  const [cfg, setCfg] = useState(null);
+  const [valor, setValor] = useState('');
+  const [msg, setMsg] = useState('');
+  const [erro, setErro] = useState('');
+  useEffect(() => {
+    window.pdv.auth.getSecurityConfig().then((c) => { setCfg(c || {}); setValor(c?.limite_desconto_operador ?? ''); });
+  }, []);
+  async function salvar(e) {
+    e.preventDefault();
+    const r = await window.pdv.auth.updateSecurityConfig({ limiteDescontoOperador: valor === '' ? null : Number(valor) });
+    if (!r?.ok) { setErro(r?.error); setMsg(''); return; }
+    setErro(''); setMsg('Limite salvo.');
+  }
+  if (!cfg) return null;
+  return (
+    <form onSubmit={salvar} className="settings-section" style={{ maxWidth: 760, marginTop: 20 }}>
+      <h2><Icon name="tag" size={16} /> Limite de desconto do operador</h2>
+      <p className="screen-hint">
+        Até este percentual, o operador dá desconto sem pedir o PIN do gerente; acima dele, só com autorização.
+        Vazio = vale só a regra geral ({cfg.exigir_autorizacao_desconto ? 'todo desconto pede autorização' : 'desconto livre'}). Gerente e administrador seguem a regra geral.
+      </p>
+      <div className="period-selector">
+        <input type="number" min="0" max="100" step="0.5" value={valor} disabled={!podeMudar} placeholder="sem limite" onChange={(e) => setValor(e.target.value)} style={{ width: 120 }} />
+        <span className="screen-hint" style={{ margin: 0 }}>% da venda</span>
+        {podeMudar ? <button className="btn-primary" type="submit"><Icon name="save" size={15} /> Salvar</button> : <span className="screen-hint" style={{ margin: 0 }}>Só o administrador muda.</span>}
+      </div>
+      {msg && <p className="io-message" style={{ marginTop: 8 }}>{msg}</p>}
+      {erro && <p className="modal-error" style={{ marginTop: 8 }}>{erro}</p>}
+    </form>
   );
 }
 

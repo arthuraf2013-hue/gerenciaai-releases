@@ -62,6 +62,14 @@ function updateFiscalConfig(requestingUserId, payload) {
 
   const db = getDb();
   const current = getFiscalConfig();
+  // CNPJ e IE da empresa vão em toda nota: conferir os dígitos aqui evita
+  // rejeição na SEFAZ (e aceita o CNPJ alfanumérico de 2026).
+  const erroDoc = require('./validadores').conferirDocumentos({
+    cnpj: payload.cnpj && payload.cnpj !== current.cnpj ? payload.cnpj : null,
+    ie: payload.inscricaoEstadual && payload.inscricaoEstadual !== current.inscricao_estadual ? payload.inscricaoEstadual : null,
+    uf: payload.uf ?? current.uf,
+  });
+  if (erroDoc) return erroDoc;
 
   db.prepare(
     `UPDATE fiscal_config SET
@@ -254,13 +262,13 @@ async function emitirNFCe(saleId, opcoes = {}) {
   const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso, ambiente: config.ambiente }) : null;
   db.prepare(
     `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
-  ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, qrCodeConteudo, id);
+  ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo), qrCodeConteudo, id);
 
   return {
     ok: true, xmlGerado: true, assinado: true, transmitido: true,
     autorizada: resultadoTransmissao.autorizada, numero, chaveAcesso, xmlPath, id,
     protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao,
-    motivo: resultadoTransmissao.motivo,
+    motivo: resultadoTransmissao.autorizada ? resultadoTransmissao.motivo : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo),
     qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
   };
 }
@@ -343,11 +351,11 @@ async function reenviarNFCe(nfceId) {
     const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: config.ambiente }) : null;
     db.prepare(
       `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
-    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : resultadoTransmissao.motivo, qrCodeConteudo, nfceId);
+    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo), qrCodeConteudo, nfceId);
 
     return {
       ok: true, autorizada: resultadoTransmissao.autorizada,
-      protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao, motivo: resultadoTransmissao.motivo,
+      protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao, motivo: resultadoTransmissao.autorizada ? resultadoTransmissao.motivo : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo),
       qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
     };
   } catch (err) {

@@ -338,7 +338,24 @@ function applyManagerDiscount({ saleId, valor, percentual, motivo, currentOperat
     return { ok: false, error: `Desconto não pode passar de R$ ${totalDisponivel.toFixed(2)} (valor restante da venda).` };
   }
 
-  const exigeAutorizacao = getSecurityConfig().exigir_autorizacao_desconto === 1;
+  const seguranca = getSecurityConfig();
+  let exigeAutorizacao = seguranca.exigir_autorizacao_desconto === 1;
+  // Limite por perfil: operador/garçom dá até X% sem autorização; acima
+  // disso, só com PIN de gerente -- com a chave geral ligada ou desligada.
+  // Gerente/admin/suporte seguem só a chave geral.
+  const limite = seguranca.limite_desconto_operador ?? null;
+  let dentroDoLimite = false;
+  if (limite !== null) {
+    const operador = db.prepare('SELECT role FROM users WHERE id = ?').get(currentOperatorId);
+    if (!operador || !['gerente', 'admin', 'suporte'].includes(operador.role)) {
+      const percentualDado = totalDisponivel > 0 ? (desc / totalDisponivel) * 100 : 100;
+      dentroDoLimite = percentualDado <= limite + 1e-9;
+      exigeAutorizacao = !dentroDoLimite;
+      if (exigeAutorizacao && !candidateManagerId) {
+        return { ok: false, precisaAutorizacao: true, error: `Desconto acima de ${limite}% precisa da autorização de um gerente.` };
+      }
+    }
+  }
 
   let autorizadoPor = null;
   if (exigeAutorizacao) {
@@ -355,8 +372,8 @@ function applyManagerDiscount({ saleId, valor, percentual, motivo, currentOperat
   } else {
     db.prepare(
       `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, motivo, sucesso)
-       VALUES (?, 'desconto_manual_sem_autorizacao_configurada', ?, ?, ?, 1)`
-    ).run(randomUUID(), saleId, currentOperatorId, motivo || null);
+       VALUES (?, ?, ?, ?, ?, 1)`
+    ).run(randomUUID(), dentroDoLimite ? 'desconto_manual_dentro_do_limite' : 'desconto_manual_sem_autorizacao_configurada', saleId, currentOperatorId, motivo || null);
   }
 
   db.prepare(
@@ -611,6 +628,14 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
 
   if (!(valor > 0)) return { ok: false, error: 'Valor do pagamento precisa ser maior que zero.' };
 
+  // Limite/bloqueio de fiado do cliente: avisa já no pagamento (a regra
+  // que vale de verdade é a do finalizeSale, que soma todo o fiado da venda).
+  if (metodo === 'fiado' && sale.customer_id) {
+    const fiadoJaLancado = db.prepare("SELECT COALESCE(SUM(valor), 0) AS t FROM payments WHERE sale_id = ? AND metodo = 'fiado'").get(saleId).t;
+    const limite = customerService.checarLimiteFiado(sale.customer_id, fiadoJaLancado + Number(valor));
+    if (!limite.ok) return limite;
+  }
+
   if (metodo !== 'dinheiro') {
     const jaPago = db.prepare('SELECT COALESCE(SUM(valor), 0) as t FROM payments WHERE sale_id = ?').get(saleId).t;
     // Taxa de serviço (se a mesa tiver uma ativa) precisa entrar aqui --
@@ -810,6 +835,10 @@ function finalizeSale(saleId) {
   const valorFiado = pagamentos.filter((p) => p.metodo === 'fiado').reduce((acc, p) => acc + p.valor, 0);
   if (valorFiado > 0 && !sale.customer_id) {
     return { ok: false, error: 'Pagamento em fiado exige um cliente vinculado à venda.' };
+  }
+  if (valorFiado > 0) {
+    const limite = customerService.checarLimiteFiado(sale.customer_id, valorFiado);
+    if (!limite.ok) return limite;
   }
 
   const tx = db.transaction(() => {
