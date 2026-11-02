@@ -6269,3 +6269,57 @@ Testes: `gestaoErp`, `motorTributario` (DIFAL).
 
 Testes: `erpTerceiraLeva`, `rejeicoesSefaz`. Pendências e o que depende do contador ou da
 SEFAZ: `docs/ERP-GAP.md` e `docs/ERP-ROADMAP.md`.
+
+## Vitrine de demonstração (reunião com prospect)
+
+Para mostrar o sistema numa reunião: o prospect abre um link no celular, monta o pedido como
+cliente da loja dele e o pedido cai na hora na Separação da **máquina de demonstração**.
+
+- **Central → Crescimento → Vitrine de demonstração**: nome da loja do prospect, segmento
+  (padaria, lanchonete, mercearia, bar, pet shop), máquina e validade (24/48/72 h). Cria
+  `vitrines/{demo-...}` com `demo: { segmento, nomeLoja, expiraEm }` e, na primeira vez, marca
+  `installations/{id}.maquinaDemo = true` (campo de controle: só a Central grava). Copia o link,
+  encerra antes do prazo, desmarca a máquina.
+- **Na máquina de demonstração** (`vitrineDemoService.js`): cria uma vez os produtos `DEMO-...`
+  com estoque (`vitrineDemoCatalogos.js`; nunca regrava produto existente), publica
+  `installations/{id}/vitrine/demo_<segmento>` e escuta `installations/{id}/pedidos_vitrine`. Cada
+  pedido vira `bot_orders` com `canal = 'vitrine_demo'` (migração v2: `canal`, `canal_ref` único,
+  `vitrine_slug`), com o preço da loja, só produtos DEMO-, no máximo 30 por demonstração, e avisa
+  com notificação do Windows. Concluído na Separação, vira venda e baixa estoque como qualquer pedido.
+  Configurações → Vitrine online mostra o QR de cada demonstração aberta e avisa se a aba
+  Separação estiver desligada.
+- **Página** (`loja.js`): com `demo`, mostra a faixa "Demonstração", troca o botão do WhatsApp por
+  "Enviar pedido para a loja", grava o pedido (só id do produto e quantidade) e acompanha até a
+  máquina marcar "recebido".
+- **Regras**: o público só cria pedido com demonstração aberta, desta máquina, no prazo e no
+  formato certo; lista só os `novo`; a máquina marca o resultado uma vez; ninguém apaga. A vitrine
+  normal continua sem gravar nada.
+
+Testes: `vitrineDemo` (9) e regras (+4, emulador 85/85).
+
+## Demonstração completa para apresentação (só suporte)
+
+Para apresentar o sistema a um cliente-alvo, o usuário `suporte` carrega em
+Configurações → Suporte uma loja fictícia inteira do perfil escolhido (os 11
+perfis): produtos com custo, validade e lote quando o perfil exige, 40 clientes
+(8 "sumidos", para a reconquista), fornecedores, entregas e cerca de 400 vendas
+dos últimos 120 dias -- o histórico é o que faz cliente sumido, previsão de
+ruptura e "quem compra isso, compra aquilo" terem o que mostrar. Extras por
+perfil: pets e vacinas (petshop), agenda (salão), orçamentos (material de
+construção), receitas (ótica), mesas (restaurante); a farmácia tem controlados,
+que aparecem no livro de controlados.
+
+**Por que limpar troca o arquivo em vez de apagar dados.** A primeira ideia seria
+um DELETE nas linhas da demonstração, mas `audit_log`, `journal_entries` e
+`cash_movements` são só de inclusão por gatilho, e a identidade da máquina na
+Central (`locations.device_uid`), os usuários e a licença moram no mesmo SQLite.
+Então a carga guarda antes uma cópia completa do banco (backup API do SQLite) e
+limpar coloca essa cópia de volta e reinicia -- o mesmo caminho da restauração de
+backup. "Trocar perfil" faz limpar e carregar com um reinício só.
+
+**Por que só suporte.** Pedido explícito: é uma ferramenta de apresentação, não do
+lojista. É a única exceção à regra "suporte = admin" (registrada no CLAUDE.md).
+A trava está na política do IPC (`PAPEL_POR_CANAL`), não só na tela.
+
+**Travas.** Só carrega em banco sem nenhuma venda, sem caixa aberto e fora de grupo
+multi-PDV; confirmação digitada (DEMONSTRAÇÃO); telefones fictícios com DDD 00.

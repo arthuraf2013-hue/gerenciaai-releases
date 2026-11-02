@@ -78,11 +78,31 @@ function linkWhatsapp(numero, texto) {
   return `https://wa.me/${d.length <= 11 ? `55${d}` : d}?text=${encodeURIComponent(texto)}`;
 }
 
+/** Documento do pedido da vitrine de DEMONSTRAÇÃO (installations/{id}/pedidos_vitrine),
+ * no formato que firestore.rules aceita (o `criadoEm` entra no loja.js, com a
+ * hora do servidor). Só id do produto e quantidade: preço é sempre o da loja. */
+function montarPedidoDemo({ slug, itens, nome, modo, endereco, pagamento, trocoPara, observacao }) {
+  const pedido = {
+    slug: String(slug || ''),
+    status: 'novo',
+    nome: String(nome || '').trim().slice(0, 60),
+    modo: modo === 'entrega' ? 'entrega' : 'retirada',
+    pagamento: Object.prototype.hasOwnProperty.call(PAGAMENTOS, pagamento) ? pagamento : 'pix',
+    itens: (itens || []).slice(0, 40).map((i) => ({ produtoId: String(i.id), quantidade: arred(i.quantidade, 3) })),
+  };
+  if (pedido.modo === 'entrega') pedido.endereco = String(endereco || '').trim().slice(0, 200);
+  const troco = Number(String(trocoPara ?? '').replace(',', '.'));
+  if (pedido.pagamento === 'dinheiro' && troco > 0) pedido.trocoPara = arred(Math.min(troco, 10000));
+  const obs = String(observacao || '').trim().slice(0, 200);
+  if (obs) pedido.observacao = obs;
+  return pedido;
+}
+
 function normalizar(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 }
 
 export {
   formatarMoeda, unidadeFracionada, passoDa, quantidadeInicial, arred, formatarQuantidade, slugValido,
-  itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS,
+  itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS, montarPedidoDemo,
 };

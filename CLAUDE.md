@@ -97,6 +97,10 @@ atual.
   admin: um `gerente` não pode criar/ativar/desativar/resetar PIN de
   um usuário `suporte`, mesma regra que já existia pra `admin`
   (`userService.js`).
+  **Exceção deliberada (nov/2026): a demonstração completa é SÓ do
+  `suporte`** (canais `demo:*` com `['suporte']` em `PAPEL_POR_CANAL`, aba
+  Configurações → Suporte, `demoDataService.js`) -- nem admin vê nem chama.
+  É o único fluxo exclusivo de suporte; não "corrigir" incluindo admin.
 
 ## Teste grátis e Central "Crescimento"
 
@@ -120,6 +124,37 @@ atual.
 `vitrines/{endereço}` (só a Central grava) — não mover para documento da
 máquina. Página pública: `pwa-mobile/loja.html` + `loja.js` (só lê) +
 `loja-util.js` (contas, testadas).
+
+**Vitrine de demonstração** (`vitrineDemoService.js` + `vitrineDemoCatalogos.js`): endereço com
+`demo` criado na Central aponta para a máquina com `maquinaDemo = true` (campo de controle). É o
+ÚNICO caso em que a página grava (`installations/{id}/pedidos_vitrine`, regra confere demo aberta,
+desta máquina, no prazo). A máquina só aceita produto `DEMO-` com o preço DELA e marca
+`bot_orders.canal = 'vitrine_demo'` (índice único em `canal, canal_ref`: não duplica). Segmento novo:
+chave igual em `vitrineDemoCatalogos.js` e `SEGMENTOS_DEMO` (admin-panel).
+
+## Demonstração completa (só suporte)
+
+`demoDataService.js` + `demoDataCatalogos.js` (11 perfis) + `DemonstracaoSuporte.jsx`.
+Carrega uma loja fictícia inteira (produtos, 40 clientes, fornecedores, entregas,
+~400 vendas dos últimos 120 dias e extras do perfil) e LIMPA depois. Não confundir
+com a vitrine de demonstração (`vitrineDemo*`), que só alimenta a página pública.
+Não quebrar:
+- limpar = colocar de volta o PONTO DE RESTAURAÇÃO (cópia do banco feita com
+  `db.backup` antes de gravar) e reiniciar, igual à restauração de backup. Nunca
+  apagar linhas: `audit_log`/`journal_entries`/`cash_movements` são só de inclusão,
+  e `locations.device_uid` (identidade na Central), usuários e licença moram no
+  mesmo banco -- banco "do zero" viraria instalação nova na Central;
+- o estado fica em `<userData>/demonstracao/estado.json`, FORA do banco (o banco é
+  o que se troca). Gravado ANTES de semear (queda no meio = limpeza inofensiva);
+- a carga exige banco SEM NENHUMA venda, sem caixa aberto e fora de grupo multi-PDV.
+  É o único lugar que grava venda com data retroativa (contorna `NOW_SYNCED()`);
+- "Trocar perfil" restaura e semeia por conexão avulsa (nunca `getDb()` depois de
+  trocar o arquivo) e mantém o ponto de restauração da PRIMEIRA carga;
+- totais e pagamentos seguem `recalcularTotal`/`finalizeSale` (total sem
+  arredondar, pagamento em centavos cobrindo o total);
+- telefones fictícios com DDD 00 (automação de WhatsApp nunca alcança número real);
+  SKU `APRES-<código>`, EAN na faixa interna 29x. Testes: `demoDataService.test.js`
+  (todos os perfis) e `demoDataIpc.test.js` (admin/gerente recusados).
 
 ## Pix automático
 

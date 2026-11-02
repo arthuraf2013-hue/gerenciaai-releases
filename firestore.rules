@@ -118,7 +118,9 @@ service cloud.firestore {
         // documento; depois disso, prazo e extensão são da Central.
         'teste', 'testeAte',
         // Vitrine online: endereço criado pela Central (vitrineService.js).
-        'vitrineSlug'];
+        'vitrineSlug',
+        // Máquina de demonstração (vitrineDemoService.js): só a Central marca.
+        'maquinaDemo'];
     }
     // Celular (PDV mobile autônomo) ativado com código da Central: o código
     // já foi resgatado POR ESTE aparelho (regra de ativacoes_mobile abaixo)
@@ -138,7 +140,8 @@ service cloud.firestore {
         && (d.get('clienteId', null) == null || ativacaoConfirmaCliente(installId, d))
         && !d.keys().hasAny(['grupoSincronizacaoId', 'servidorDoGrupo', 'overrideAtivo', 'versaoMinimaOverride',
           'excluidaEm', 'restaurarBackupSolicitado', 'atualizacaoSegurada', 'atualizacaoSeguradaVersao',
-          'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte', 'testeAte'])
+          'atualizacaoSeguradaMotivo', 'atualizacaoSeguradaEm', 'atualizacaoLiberadaEm', 'terminalDesde', 'terminalAte', 'testeAte',
+          'maquinaDemo'])
         // Teste grátis (testeGratisService.js): no máximo 30 dias, só o campo `dias`.
         && (!d.keys().hasAny(['teste'])
             || (d.teste is map && d.teste.keys().hasOnly(['dias']) && d.teste.dias is int && d.teste.dias >= 1 && d.teste.dias <= 30));
@@ -742,9 +745,62 @@ service cloud.firestore {
     // disponibilidade -- nunca custo nem estoque exato). Leitura aberta (é
     // uma página pública); só o desktop publica, mesmo nível de confiança
     // de status_ao_vivo. O número que recebe os pedidos NÃO mora aqui.
+    // demo_<segmento>: catálogo da vitrine de DEMONSTRAÇÃO publicado pela
+    // máquina de demonstração (vitrineDemoService.js), mesmo nível de confiança.
     match /installations/{installId}/vitrine/{docId} {
       allow read: if true;
-      allow write: if request.auth == null && docId in ['catalogo', 'config'];
+      allow write: if request.auth == null
+        && (docId in ['catalogo', 'config'] || docId.matches('^demo_[a-z]{3,20}$'));
+    }
+
+    // Vitrine de DEMONSTRAÇÃO: o prospect (página pública, sem login) grava o
+    // pedido aqui e a máquina de demonstração o transforma em pedido na
+    // Separação (vitrineDemoService.js). Só enquanto existir um endereço de
+    // demonstração criado pela Central (vitrines/{endereço} com `demo`)
+    // apontando para ESTA instalação, ativo e dentro do prazo. A máquina
+    // ainda confere tudo de novo e só aceita produto DEMO- dela, com o preço
+    // dela. A vitrine normal (pedido pelo WhatsApp) não grava nada.
+    match /installations/{installId}/pedidos_vitrine/{pedidoId} {
+      function demoAbertaParaEstaLoja(slug) {
+        let caminho = /databases/$(database)/documents/vitrines/$(slug);
+        return exists(caminho)
+          && get(caminho).data.get('installId', null) == installId
+          && get(caminho).data.get('ativa', true) != false
+          && get(caminho).data.get('demo', null) is map
+          && get(caminho).data.demo.get('expiraEm', null) is timestamp
+          && request.time < get(caminho).data.demo.expiraEm;
+      }
+      function pedidoDemoValido(d) {
+        return d.keys().hasAll(['slug', 'status', 'nome', 'modo', 'pagamento', 'itens', 'criadoEm'])
+          && d.keys().hasOnly(['slug', 'status', 'nome', 'modo', 'endereco', 'pagamento', 'trocoPara', 'observacao', 'itens', 'criadoEm'])
+          && d.slug is string && d.slug.matches('^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$')
+          && d.status == 'novo'
+          && d.nome is string && d.nome.size() >= 2 && d.nome.size() <= 60
+          && d.modo in ['retirada', 'entrega']
+          && (d.modo == 'retirada' || (d.get('endereco', null) is string && d.endereco.size() >= 6))
+          && (!('endereco' in d) || (d.endereco is string && d.endereco.size() <= 200))
+          && d.pagamento in ['pix', 'dinheiro', 'cartao']
+          && (!('trocoPara' in d) || (d.trocoPara is number && d.trocoPara >= 0 && d.trocoPara <= 10000))
+          && (!('observacao' in d) || (d.observacao is string && d.observacao.size() <= 200))
+          && d.itens is list && d.itens.size() >= 1 && d.itens.size() <= 40
+          && d.criadoEm == request.time;
+      }
+
+      allow create: if pedidoId.matches('^[A-Za-z0-9]{20}$')
+        && pedidoDemoValido(request.resource.data)
+        && demoAbertaParaEstaLoja(request.resource.data.slug);
+
+      // A página acompanha o PRÓPRIO pedido pelo id (aleatório, 20 letras).
+      allow get: if true;
+      // A máquina (sem login) escuta só os pedidos ainda 'novo' -- quem
+      // listar não consegue baixar os já processados.
+      allow list: if request.auth == null && resource.data.status == 'novo';
+      // Só a máquina, sem login, marca o resultado; uma vez, a partir de 'novo'.
+      allow update: if request.auth == null
+        && resource.data.status == 'novo'
+        && request.resource.data.status in ['recebido', 'erro']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'erro', 'processadoEm', 'bot_order_id']);
+      allow delete: if false;
     }
 
     // Lista pessoal de lojas às quais um celular de CONSULTA está

@@ -303,6 +303,27 @@
       </div>
 
       <div class="card cresc-card">
+        <h2>Vitrine de demonstração</h2>
+        <p class="subtitle" style="margin-bottom: 14px;">
+          Para reunião com prospect: um link com o nome da loja dele e um catálogo pronto do segmento. Ele faz o pedido pelo
+          celular e o pedido cai na Separação da sua máquina de demonstração, na hora. O link expira sozinho; nenhum WhatsApp é usado.
+        </p>
+        <div class="modal-form" style="flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px;">
+          <input type="text" id="demo-nome" maxlength="60" placeholder="Nome da loja do prospect (ex: Padaria Pão Quente)" style="flex: 1; min-width: 220px;">
+          <select id="demo-segmento" title="Catálogo pronto que aparece na vitrine"></select>
+          <select id="demo-maquina" title="Máquina onde o pedido cai (a sua máquina de demonstração)" style="max-width: 260px;"></select>
+          <select id="demo-horas" title="Por quanto tempo o link funciona">
+            <option value="24">Vale por 24 horas</option>
+            <option value="48" selected>Vale por 48 horas</option>
+            <option value="72">Vale por 72 horas</option>
+          </select>
+          <button class="btn-primary" id="demo-criar">Criar demonstração</button>
+        </div>
+        <div class="maquina-meta" id="demo-maquinas"></div>
+        <div id="demo-conteudo" style="margin-top: 12px;"></div>
+      </div>
+
+      <div class="card cresc-card">
         <h2>Ligar hoje</h2>
         <p class="subtitle" style="margin-bottom: 14px;">
           Nota de risco de cancelamento de 0 a 100, só com o que a Central já recebe: dias sem sinal, queda de vendas,
@@ -888,6 +909,8 @@
     'saude', 'reparo',
     // Tela Crescimento (teste grátis, funil, relatório mensal).
     'teste', 'testeAte', 'maquinaHash', 'produtosCadastrados', 'totalVendasHistorico', 'relatorioMensal',
+    // Vitrine de demonstração.
+    'maquinaDemo',
   ];
   function precisaRenderCompleto(antigas, novas) {
     if (antigas.length !== novas.length) return true;
@@ -953,7 +976,7 @@
         },
         (err) => console.warn('[ativacoes_mobile] sem acesso (regras do Firestore publicadas?)', err)
       );
-      if (TELA_ATUAL === 'painel') {
+      if (TELA_ATUAL === 'painel' || TELA_ATUAL === 'crescimento') {
         onSnapshot(
           collection(db, 'vitrines'),
           (snap) => {
@@ -1427,6 +1450,151 @@
     } catch (err) {
       mostrarErro(err, 'mudar a vitrine');
     }
+  }
+
+  // --- Vitrine de demonstração (ver electron/services/vitrineDemoService.js) ---
+  // vitrines/{endereço} = { installId, ativa, demo: { segmento, nomeLoja, expiraEm } }
+  // e installations/{id}.maquinaDemo = true na máquina onde o pedido cai.
+  // As chaves precisam bater com electron/services/vitrineDemoCatalogos.js.
+  const SEGMENTOS_DEMO = [['padaria', 'Padaria'], ['lanchonete', 'Lanchonete'], ['mercearia', 'Mercearia'], ['bar', 'Bar'], ['petshop', 'Pet shop']];
+  const rotuloSegmentoDemo = (s) => (SEGMENTOS_DEMO.find(([k]) => k === s) || [s, s || '?'])[1];
+  const msDe = (t) => (ehTimestamp(t) ? t.toMillis() : 0);
+
+  function maquinasParaDemo() {
+    return instalacoes
+      .filter((i) => !ehPdvMobile(i))
+      .sort((a, b) => (b.maquinaDemo === true) - (a.maquinaDemo === true) || String(a.nomeNegocio || '').localeCompare(String(b.nomeNegocio || '')));
+  }
+
+  function situacaoDemo(v, agora) {
+    if (v.ativa === false) return 'encerrada';
+    return msDe(v.demo?.expiraEm) > agora ? 'aberta' : 'expirada';
+  }
+
+  function renderDemos(agora) {
+    const div = document.getElementById('demo-conteudo');
+    if (!div) return;
+    const segSel = document.getElementById('demo-segmento');
+    if (segSel && !segSel.options.length) {
+      segSel.innerHTML = SEGMENTOS_DEMO.map(([k, r]) => `<option value="${escapeHtml(k)}">${escapeHtml(r)}</option>`).join('');
+    }
+    const maqSel = document.getElementById('demo-maquina');
+    if (maqSel) {
+      const escolhida = maqSel.value;
+      const maquinas = maquinasParaDemo();
+      maqSel.innerHTML = maquinas.length
+        ? maquinas.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.nomeNegocio || codigoCurto(m.id))}${m.maquinaDemo === true ? ' (demonstração)' : ''}</option>`).join('')
+        : '<option value="">Nenhuma máquina</option>';
+      if (escolhida && maquinas.some((m) => m.id === escolhida)) maqSel.value = escolhida;
+    }
+    const demoMaquinas = instalacoes.filter((i) => i.maquinaDemo === true);
+    const listaMaq = document.getElementById('demo-maquinas');
+    if (listaMaq) {
+      listaMaq.innerHTML = demoMaquinas.length
+        ? `Máquinas de demonstração: ${demoMaquinas.map((m) => `${escapeHtml(m.nomeNegocio || codigoCurto(m.id))} <button class="btn-secondary btn-small" data-demo-desmarcar="${escapeHtml(m.id)}" title="Para de aceitar pedidos das vitrines de demonstração (os produtos DEMO- continuam lá)">desmarcar</button>`).join(' · ')}`
+        : 'Nenhuma máquina de demonstração ainda: a primeira demonstração marca a máquina escolhida.';
+      listaMaq.querySelectorAll('[data-demo-desmarcar]').forEach((b) => b.addEventListener('click', () => desmarcarMaquinaDemo(b.dataset.demoDesmarcar)));
+    }
+
+    const nomeMaquina = (id) => {
+      const m = todasInstalacoes.find((i) => i.id === id);
+      return m ? (m.nomeNegocio || codigoCurto(m.id)) : 'máquina removida';
+    };
+    const demos = vitrines
+      .filter((v) => v.demo && typeof v.demo === 'object')
+      .map((v) => ({ v, situacao: situacaoDemo(v, agora) }))
+      .sort((a, b) => (a.situacao === 'aberta') === (b.situacao === 'aberta')
+        ? msDe(b.v.demo.expiraEm) - msDe(a.v.demo.expiraEm)
+        : (a.situacao === 'aberta' ? -1 : 1));
+    const abertas = demos.filter((d) => d.situacao === 'aberta');
+    const recentes = [...abertas, ...demos.filter((d) => d.situacao !== 'aberta').slice(0, 5)];
+    if (!recentes.length) {
+      div.innerHTML = '<div class="empty" style="padding:16px;">Nenhuma demonstração criada ainda.</div>';
+      return;
+    }
+    div.innerHTML = recentes.map(({ v, situacao }) => {
+      const link = URL_VITRINE + encodeURIComponent(v.id);
+      const horas = Math.max(0, Math.floor((msDe(v.demo.expiraEm) - agora) / 3600000));
+      const pill = situacao === 'aberta'
+        ? `<span class="status-pill status-ativa">${horas < 1 ? 'expira em menos de 1 h' : `expira em ${horas} h`}</span>`
+        : `<span class="status-pill status-inativa">${situacao === 'encerrada' ? 'encerrada' : 'expirou'}</span>`;
+      return `
+        <div class="maquina-row">
+          <div style="flex:1; min-width: 220px;">
+            <strong>${escapeHtml(v.demo.nomeLoja || 'Loja de demonstração')}</strong>
+            <span class="maquina-meta">· ${escapeHtml(rotuloSegmentoDemo(v.demo.segmento))} · ${escapeHtml(nomeMaquina(v.installId))}</span>
+            ${situacao === 'aberta' ? `<div class="maquina-meta"><a href="${escapeHtml(link)}" target="_blank" rel="noopener">${escapeHtml(link)}</a></div>` : ''}
+          </div>
+          ${pill}
+          ${situacao === 'aberta' ? `
+            <button class="btn-secondary btn-small" data-demo-copiar="${escapeHtml(v.id)}">Copiar link</button>
+            <a class="btn-secondary btn-small" style="text-decoration:none;" href="${escapeHtml(link)}" target="_blank" rel="noopener">Abrir</a>
+            <button class="btn-secondary btn-small" data-demo-encerrar="${escapeHtml(v.id)}">Encerrar</button>` : ''}
+        </div>`;
+    }).join('');
+    div.querySelectorAll('[data-demo-copiar]').forEach((b) => b.addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(URL_VITRINE + encodeURIComponent(b.dataset.demoCopiar)); b.textContent = 'Copiado'; } catch { alert('Não consegui copiar.'); }
+    }));
+    div.querySelectorAll('[data-demo-encerrar]').forEach((b) => b.addEventListener('click', () => encerrarDemo(b.dataset.demoEncerrar)));
+  }
+
+  function slugDeDemo(nome) {
+    const base = sugerirSlug(nome).slice(0, 24).replace(/-+$/g, '') || 'loja';
+    const sufixo = Array.from(crypto.getRandomValues(new Uint8Array(4)), (n) => 'abcdefghijkmnpqrstuvwxyz23456789'[n % 32]).join('');
+    return `demo-${base}-${sufixo}`;
+  }
+
+  async function criarDemo() {
+    const nomeLoja = document.getElementById('demo-nome').value.trim().replace(/\s+/g, ' ').slice(0, 60);
+    const segmento = document.getElementById('demo-segmento').value;
+    const installId = document.getElementById('demo-maquina').value;
+    const horas = Number(document.getElementById('demo-horas').value) || 48;
+    if (nomeLoja.length < 2) { alert('Escreva o nome da loja do prospect.'); return; }
+    if (!SEGMENTOS_DEMO.some(([k]) => k === segmento)) { alert('Escolha o segmento.'); return; }
+    const maquina = instalacoes.find((i) => i.id === installId);
+    if (!maquina) { alert('Escolha a máquina de demonstração.'); return; }
+    if (maquina.maquinaDemo !== true && !confirm(
+      `"${maquina.nomeNegocio || codigoCurto(maquina.id)}" ainda não é máquina de demonstração.\n\n`
+      + 'Ela vai receber os produtos de demonstração (código DEMO-...) e passar a aceitar os pedidos das vitrines de demonstração. '
+      + 'Use só a SUA máquina de demonstração, nunca a de um cliente. Continuar?'
+    )) return;
+    const slug = slugDeDemo(nomeLoja);
+    if (!SLUG_VITRINE.test(slug)) { alert('Não consegui montar o endereço. Tente outro nome.'); return; }
+    const botao = document.getElementById('demo-criar');
+    botao.disabled = true;
+    try {
+      const lote = writeBatch(db);
+      lote.set(doc(db, 'vitrines', slug), {
+        installId, ativa: true,
+        demo: { segmento, nomeLoja, expiraEm: Timestamp.fromMillis(Date.now() + Math.min(Math.max(horas, 1), 72) * 3600000), criadoEm: serverTimestamp() },
+        atualizadoEm: serverTimestamp(),
+      });
+      if (maquina.maquinaDemo !== true) lote.update(doc(db, 'installations', installId), { maquinaDemo: true });
+      await lote.commit();
+      registrarAcao('vitrine_demo_criada', { endereco: slug, instalacaoId: installId, segmento });
+      document.getElementById('demo-nome').value = '';
+      try { await navigator.clipboard.writeText(URL_VITRINE + encodeURIComponent(slug)); } catch { /* copiar é extra */ }
+    } catch (err) {
+      mostrarErro(err, 'criar a demonstração');
+    } finally {
+      botao.disabled = false;
+    }
+  }
+
+  async function encerrarDemo(slug) {
+    if (!confirm('Encerrar esta demonstração? O link para de funcionar na hora.')) return;
+    try {
+      await updateDoc(doc(db, 'vitrines', slug), { ativa: false, atualizadoEm: serverTimestamp() });
+      registrarAcao('vitrine_demo_encerrada', { endereco: slug });
+    } catch (err) { mostrarErro(err, 'encerrar a demonstração'); }
+  }
+
+  async function desmarcarMaquinaDemo(id) {
+    if (!confirm('Desmarcar esta máquina? Ela para de receber os pedidos das vitrines de demonstração (os produtos DEMO- continuam cadastrados nela).')) return;
+    try {
+      await updateDoc(doc(db, 'installations', id), { maquinaDemo: false });
+      registrarAcao('maquina_demo_desmarcada', { instalacaoId: id });
+    } catch (err) { mostrarErro(err, 'desmarcar a máquina de demonstração'); }
   }
 
   function renderAtivacoesDoCliente(cliente) {
@@ -3176,6 +3344,7 @@
   });
 
   document.getElementById('comercial-salvar')?.addEventListener('click', salvarConfigComercial);
+  document.getElementById('demo-criar')?.addEventListener('click', criarDemo);
 
   document.getElementById('vincular-cancelar').addEventListener('click', () => {
     vincularModal.style.display = 'none';
@@ -3756,6 +3925,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
     if (TELA_ATUAL !== 'crescimento') return;
     const agora = Date.now();
     renderTesteGratis(agora);
+    renderDemos(agora);
     renderRisco(agora);
     const segmentos = crescComparacaoPorSegmento(instalacoes);
     renderRelatorio(segmentos);

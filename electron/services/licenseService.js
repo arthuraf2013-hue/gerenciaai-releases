@@ -130,6 +130,13 @@ function aplicarDadosDoServidor(dados) {
     console.error('[licenseService] aplicarDaInstalacao (vitrine) falhou:', err);
   }
 
+  // Máquina de demonstração (vitrine de demonstração, marcada na Central).
+  try {
+    require('./vitrineDemoService').aplicarDaInstalacao(dados);
+  } catch (err) {
+    console.error('[licenseService] aplicarDaInstalacao (vitrine de demonstração) falhou:', err);
+  }
+
   // Override de versão mínima por instalação (rollout gradual/exceção
   // pontual) -- mesmo documento, mesma leitura.
   try {

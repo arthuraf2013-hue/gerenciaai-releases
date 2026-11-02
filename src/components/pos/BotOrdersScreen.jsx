@@ -175,6 +175,8 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
   // bate com nenhum cliente já cadastrado -- evita duplicar cadastro.
   useEffect(() => {
     if (!detalhe?.pedido?.cliente_telefone) return;
+    // Pedido da vitrine de demonstração não tem telefone de verdade.
+    if (detalhe.pedido.canal === 'vitrine_demo') return;
     window.pdv.customers.buscarPorTelefone({ telefone: detalhe.pedido.cliente_telefone }).then((c) => setClienteCadastrado(!!c));
   }, [detalhe?.pedido?.cliente_telefone]);
 
@@ -260,7 +262,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           {pedido.mesa_numero
             ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={15} /> Mesa {pedido.mesa_numero}</span>
-            : pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.cliente_telefone}
+            : pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.canal === 'vitrine_demo' ? 'Vitrine (demonstração)' : pedido.cliente_telefone}
           {pedido.observacoes && <> · {pedido.observacoes}</>}
         </p>
 
@@ -416,11 +418,11 @@ export function BotOrdersScreen() {
           <tbody>
             {pedidos.map((p) => (
               <tr key={p.id} className={STATUS_CLASSE[p.status]}>
-                <td>{p.cliente_nome}<br /><span className="screen-hint">{p.cliente_telefone}</span></td>
+                <td>{p.cliente_nome}<br /><span className="screen-hint">{p.canal === 'vitrine_demo' ? 'pedido pela vitrine' : p.cliente_telefone}</span></td>
                 <td>{p.mesa_numero ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={14} /> Mesa {p.mesa_numero}</span> : (p.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada')}</td>
                 <td>{p.itensSeparados || 0}/{p.totalItens}</td>
                 <td>{formatarPreco(p.valorTotal)}</td>
-                <td>{p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual'}</td>
+                <td>{p.canal === 'vitrine_demo' ? 'Vitrine (demo)' : (p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual')}</td>
                 <td>{STATUS_LABEL[p.status]}</td>
                 <td><button className="btn-link" onClick={() => setSeparandoId(p.id)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="box" size={14} /> Ver / Separar</span></button></td>
               </tr>

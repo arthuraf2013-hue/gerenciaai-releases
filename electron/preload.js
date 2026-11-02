@@ -198,6 +198,7 @@ contextBridge.exposeInMainWorld('pdv', {
     getConfig: invoke('vitrine:getConfig'),
     saveConfig: invoke('vitrine:saveConfig'),
     publicarAgora: invoke('vitrine:publicarAgora'),
+    listarDemos: invoke('vitrine:listarDemos'),
   },
   pdvMobile: {
     getConfig: invoke('pdvMobile:getConfig'),
@@ -448,6 +449,13 @@ contextBridge.exposeInMainWorld('pdv', {
     getRelatorioProdutos: invoke('dashboard:getRelatorioProdutos'),
     getResultadoSimples: invoke('dashboard:getResultadoSimples'),
     explicarVariacao: invoke('dashboard:explicarVariacao'),
+  },
+  // Demonstração completa -- só o papel suporte (ver demoDataService.js).
+  demo: {
+    estado: invoke('demo:estado'),
+    carregar: invoke('demo:carregar'),
+    trocarPerfil: invoke('demo:trocarPerfil'),
+    limpar: invoke('demo:limpar'),
   },
   backup: {
     getStatus: invoke('backup:getStatus'),

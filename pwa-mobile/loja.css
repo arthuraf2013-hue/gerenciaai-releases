@@ -63,3 +63,19 @@ button { cursor: pointer; }
 .loja-enviar { min-height: 52px; border: none; border-radius: 12px; background: #1f9d55; color: #fff; font-weight: 800; font-size: 16px; }
 .loja-secundario { min-height: 44px; border-radius: 12px; border: 1px solid var(--border); background: transparent; font-weight: 600; }
 .loja-rodape { text-align: center; color: var(--muted); font-size: 12px; margin-top: 28px; }
+
+/* Vitrine de demonstração (loja.js, vitrines/{endereço} com `demo`). */
+.loja-demo { margin: 0 -16px; background: var(--warn-bg); color: var(--warn); font-size: 13px; font-weight: 600; padding: 9px 16px; line-height: 1.4; }
+.loja-enviar-demo { background: var(--primary); }
+.loja-enviar:disabled { opacity: .7; }
+.loja-fundo-cheio { align-items: stretch; background: var(--bg); }
+.loja-ok { width: 100%; max-width: 640px; margin: 0 auto; padding: 72px 22px 32px; text-align: center; display: flex; flex-direction: column; gap: 12px; }
+.loja-ok h2 { margin: 0; font-size: 21px; }
+.loja-ok p { margin: 0; color: var(--muted); line-height: 1.5; }
+.loja-ok-icone { width: 76px; height: 76px; border-radius: 38px; margin: 0 auto 4px; display: flex; align-items: center; justify-content: center; background: var(--surface2); color: var(--primary); font-size: 34px; font-weight: 800; }
+.loja-ok-icone-erro { color: var(--danger); }
+.loja-passos { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; margin: 6px 0; }
+.loja-passo { display: flex; gap: 10px; align-items: center; padding: 6px 0; font-size: 14px; }
+.loja-passo.pendente { color: var(--muted); }
+.loja-bola { width: 22px; height: 22px; border-radius: 11px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--primary); }
+.loja-passo.pendente .loja-bola { background: var(--surface2); color: var(--muted); }

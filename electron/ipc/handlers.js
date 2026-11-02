@@ -33,6 +33,7 @@ const salesSyncService = require('../services/salesSyncService');
 const connectivityService = require('../services/connectivityService');
 const posDisplayService = require('../services/posDisplayService');
 const backupService = require('../services/backupService');
+const demoDataService = require('../services/demoDataService');
 const updateService = require('../services/updateService');
 const customerService = require('../services/customerService');
 const petService = require('../services/petService');
@@ -165,7 +166,7 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'pairing:gerarCodigo', 'pairing:revogarDispositivo', 'pairing:reativarDispositivo', 'pairing:excluirDispositivo',
   'saude:implantacao', 'whatsappAutomation:resultadoCampanhas', 'dashboard:explicarVariacao',
   'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
-  'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora',
+  'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora', 'vitrine:listarDemos',
   'pixAuto:saveConfig', 'pixAuto:testar', 'pixAuto:listarSemVenda',
   // ERP, Fase 1 -- custo, compras e notas de entrada são gestão.
   'custoMedio:historico',
@@ -200,6 +201,12 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'financeiro:contabilFechamentos', 'financeiro:contabilRazao', 'financeiro:contabilDre',
   'tributacao:naturezas', 'tributacao:cfopPorNatureza',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
+
+// Demonstração completa (demoDataService.js): ÚNICA exceção à regra
+// "suporte = admin" do CLAUDE.md -- só o papel suporte, admin e gerente não.
+for (const canal of ['demo:estado', 'demo:carregar', 'demo:trocarPerfil', 'demo:limpar']) {
+  PAPEL_POR_CANAL[canal] = ['suporte'];
+}
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
 
@@ -478,6 +485,8 @@ function registerIpcHandlers() {
   safeHandle('vitrine:getConfig', () => require('../services/vitrineService').getConfigComQr());
   safeHandle('vitrine:saveConfig', (_e, payload) => require('../services/vitrineService').saveConfig(payload || {}));
   safeHandle('vitrine:publicarAgora', () => require('../services/vitrineService').publicarSeMudou());
+  // Vitrine de demonstração (ver vitrineDemoService.js): só na máquina marcada na Central.
+  safeHandle('vitrine:listarDemos', () => require('../services/vitrineDemoService').listarDemos());
   safeHandle('pdvMobile:listarVendasRecentes', (_e, payload) => require('../services/pdvMobileSyncService').listarVendasRecentes(payload || {}));
 
   // Migração de um PDV mobile AUTÔNOMO (celular que vendia sem computador)
@@ -976,6 +985,28 @@ function registerIpcHandlers() {
     if (canceled || filePaths.length === 0) return { ok: false, canceled: true };
     return aiService.identificarProdutoPorFoto(filePaths[0]);
   });
+
+  // --- Demonstração completa (SÓ o papel suporte; ver demoDataService.js) ---
+  // Carregar, trocar e limpar terminam reiniciando o app: o arquivo do banco
+  // foi trocado ou o perfil mudou, e nada em memória pode seguir com o antigo.
+  const reiniciarSePedido = (resultado) => {
+    if (resultado?.reiniciar) {
+      setTimeout(() => {
+        require('electron').app.relaunch();
+        require('electron').app.exit(0);
+      }, 300);
+    }
+    return resultado;
+  };
+  safeHandle('demo:estado', () => demoDataService.estado());
+  safeHandle('demo:carregar', async (event, { perfil } = {}) => {
+    const r = await demoDataService.carregar({ perfil, solicitanteId: usuarioLogado(event) });
+    return reiniciarSePedido(r.ok ? { ...r, reiniciar: true } : r);
+  });
+  safeHandle('demo:trocarPerfil', (event, { perfil } = {}) => reiniciarSePedido(
+    demoDataService.trocarPerfil({ perfil, solicitanteId: usuarioLogado(event) })
+  ));
+  safeHandle('demo:limpar', (event) => reiniciarSePedido(demoDataService.limpar({ solicitanteId: usuarioLogado(event) })));
 
   // --- Backup automático do banco ---
   safeHandle('backup:getStatus', () => backupService.getStatus());

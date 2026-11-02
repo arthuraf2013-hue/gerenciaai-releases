@@ -1070,3 +1070,73 @@ test('vitrine: o computador publica só catalogo/config; qualquer um lê; logado
   await assertFails(desktop.doc('installations/pc-vit').set({ vitrineSlug: 'outra-loja' }, { merge: true }));
   await assertSucceeds(adminCtx().doc('installations/pc-vit').update({ vitrineSlug: 'padaria-x' }));
 });
+
+// ---- Vitrine de demonstração (vitrineDemoService.js) ----
+function serverTs() {
+  const firebase = require('firebase/compat/app');
+  require('firebase/compat/firestore');
+  return firebase.firestore.FieldValue.serverTimestamp();
+}
+async function semearDemo({ slug = 'demo-padaria-x-ab12', installId = 'pc-demo', expiraEm = new Date(Date.now() + 3600000), ativa = true } = {}) {
+  await semRegras((db) => db.doc(`vitrines/${slug}`).set({ installId, ativa, demo: { segmento: 'padaria', nomeLoja: 'Padaria X', expiraEm } }));
+  return slug;
+}
+const pedidoDemo = (slug, extra = {}) => ({
+  slug, status: 'novo', nome: 'Marcos', modo: 'retirada', pagamento: 'pix',
+  itens: [{ produtoId: 'p1', quantidade: 1 }], criadoEm: serverTs(), ...extra,
+});
+
+test('vitrine demo: público grava pedido só com demonstração aberta desta máquina e no formato certo', SK, async () => {
+  await setupTestEnv();
+  const slug = await semearDemo();
+  const col = (inst = 'pc-demo') => semLogin().collection(`installations/${inst}/pedidos_vitrine`);
+  await assertSucceeds(col().doc('AAAAAAAAAAAAAAAAAAA1').set(pedidoDemo(slug)));
+  await assertSucceeds(col().doc('AAAAAAAAAAAAAAAAAAA2').set(pedidoDemo(slug, { modo: 'entrega', endereco: 'Rua A, 10', pagamento: 'dinheiro', trocoPara: 50, observacao: 'ok' })));
+  // outra máquina, endereço que não existe, id fora do formato
+  await assertFails(col('pc-outra').doc('AAAAAAAAAAAAAAAAAAA3').set(pedidoDemo(slug)));
+  await assertFails(col().doc('AAAAAAAAAAAAAAAAAAA4').set(pedidoDemo('demo-nao-existe-zz99')));
+  await assertFails(col().doc('curto').set(pedidoDemo(slug)));
+  // campo a mais (preço), status diferente, entrega sem endereço, lista vazia, hora do cliente
+  await assertFails(col().doc('AAAAAAAAAAAAAAAAAAA5').set(pedidoDemo(slug, { total: 1 })));
+  await assertFails(col().doc('AAAAAAAAAAAAAAAAAAA6').set(pedidoDemo(slug, { status: 'recebido' })));
+  await assertFails(col().doc('AAAAAAAAAAAAAAAAAAA7').set(pedidoDemo(slug, { modo: 'entrega' })));
+  await assertFails(col().doc('AAAAAAAAAAAAAAAAAAA8').set(pedidoDemo(slug, { itens: [] })));
+  await assertFails(col().doc('AAAAAAAAAAAAAAAAAAA9').set(pedidoDemo(slug, { criadoEm: new Date() })));
+});
+
+test('vitrine demo: expirada ou encerrada não aceita pedido; vitrine normal (sem demo) nunca aceita', SK, async () => {
+  await setupTestEnv();
+  const expirada = await semearDemo({ slug: 'demo-expirada-ab12', expiraEm: new Date(Date.now() - 1000) });
+  const encerrada = await semearDemo({ slug: 'demo-encerrada-ab12', ativa: false });
+  await semRegras((db) => db.doc('vitrines/padaria-normal').set({ clienteId: 'c1', installId: 'pc-demo', whatsapp: '81999991234', ativa: true }));
+  const col = semLogin().collection('installations/pc-demo/pedidos_vitrine');
+  await assertFails(col.doc('BBBBBBBBBBBBBBBBBBB1').set(pedidoDemo(expirada)));
+  await assertFails(col.doc('BBBBBBBBBBBBBBBBBBB2').set(pedidoDemo(encerrada)));
+  await assertFails(col.doc('BBBBBBBBBBBBBBBBBBB3').set(pedidoDemo('padaria-normal')));
+});
+
+test('vitrine demo: máquina lista só os novos, marca o resultado uma vez; ninguém apaga', SK, async () => {
+  await setupTestEnv();
+  const slug = await semearDemo();
+  const db = semLogin();
+  const ref = db.doc('installations/pc-demo/pedidos_vitrine/CCCCCCCCCCCCCCCCCCC1');
+  await assertSucceeds(ref.set(pedidoDemo(slug)));
+  await assertSucceeds(ref.get());
+  await assertSucceeds(db.collection('installations/pc-demo/pedidos_vitrine').where('status', '==', 'novo').get());
+  await assertFails(db.collection('installations/pc-demo/pedidos_vitrine').get());
+  await assertFails(ref.update({ nome: 'Outro' }));
+  await assertSucceeds(ref.update({ status: 'recebido', bot_order_id: 'x', processadoEm: serverTs() }));
+  await assertFails(ref.update({ status: 'erro', erro: 'de novo' }));
+  await assertFails(ref.delete());
+});
+
+test('vitrine demo: catálogo demo_<segmento> publicado pela máquina; maquinaDemo só a Central marca', SK, async () => {
+  await setupTestEnv();
+  await semRegras((db) => db.doc('installations/pc-demo2').set({ ativo: true }));
+  const desktop = semLogin();
+  await assertSucceeds(desktop.doc('installations/pc-demo2/vitrine/demo_padaria').set({ itens: [] }));
+  await assertFails(desktop.doc('installations/pc-demo2/vitrine/demo_Padaria!').set({ itens: [] }));
+  await assertFails(desktop.doc('installations/pc-demo2').set({ maquinaDemo: true }, { merge: true }));
+  await assertFails(desktop.doc('installations/pc-demo-nova').set({ ativo: true, maquinaDemo: true }));
+  await assertSucceeds(adminCtx().doc('installations/pc-demo2').update({ maquinaDemo: true }));
+});

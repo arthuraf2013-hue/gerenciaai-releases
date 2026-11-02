@@ -9,6 +9,7 @@ import { lerPreferenciaModoLeve, gravarPreferenciaModoLeve } from '../../utils/m
 import { MigracaoPdvMobile } from './MigracaoPdvMobile';
 import { TerminaisPdvMobile } from './TerminaisPdvMobile';
 import { VitrineOnline } from './VitrineOnline';
+import { DemonstracaoSuporte } from './DemonstracaoSuporte';
 import { PixAutomaticoConfig } from './PixAutomaticoConfig';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
@@ -750,7 +751,13 @@ export function SettingsScreen() {
         <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}><Icon name="scale" size={15} /> Balança</button>
         <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}><Icon name="chat" size={15} /> WhatsApp</button>
         <button className={aba === 'pareamento' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('pareamento')}><Icon name="link" size={15} /> Celular</button>
+        {/* Única aba exclusiva do papel suporte (nem admin vê) -- ver CLAUDE.md. */}
+        {currentUser.role === 'suporte' && (
+          <button className={aba === 'suporte' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('suporte')}><Icon name="wrench" size={15} /> Suporte</button>
+        )}
       </div>
+
+      {aba === 'suporte' && currentUser.role === 'suporte' && <DemonstracaoSuporte />}
 
       {aba === 'geral' && (
       <>

@@ -9,6 +9,70 @@ import Icon from '../common/Icon';
 
 const dataHora = (s) => (s ? new Date(`${String(s).replace(' ', 'T')}Z`).toLocaleString('pt-BR') : null);
 
+function expiraEm(ms) {
+  const horas = (ms - Date.now()) / 3600000;
+  if (horas < 1) return 'expira em menos de 1 h';
+  return `expira em ${Math.floor(horas)} h`;
+}
+
+// Vitrine de demonstração (ver electron/services/vitrineDemoService.js): só
+// aparece na máquina marcada como "de demonstração" na Central. Mostra o QR
+// de cada demonstração aberta para o prospect escanear na reunião.
+function DemonstracoesAtivas() {
+  const [dados, setDados] = useState(null);
+  const [aviso, setAviso] = useState(null);
+
+  async function carregar() {
+    const r = await window.pdv.vitrine.listarDemos();
+    setDados(r && r.ok !== false ? r : { maquinaDemo: false, demos: [] });
+  }
+
+  useEffect(() => {
+    carregar();
+    const id = setInterval(carregar, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  async function copiar(link) {
+    try { await navigator.clipboard.writeText(link); setAviso({ tipo: 'ok', texto: 'Link copiado.' }); } catch { setAviso({ tipo: 'erro', texto: 'Não consegui copiar.' }); }
+  }
+
+  if (!dados?.maquinaDemo) return null;
+
+  return (
+    <div className="vitrine-demo">
+      <h3>Demonstrações ativas</h3>
+      <p className="screen-hint" style={{ margin: '2px 0 10px' }}>
+        Esta é sua máquina de demonstração. Mostre o QR para o prospect escanear: o pedido dele cai na Separação desta máquina.
+      </p>
+      {!dados.separacaoAtiva && (
+        <p className="io-message-aviso"><Icon name="warning" size={15} /> A aba "Separação" está desligada. Ligue em Configurações → Aba "Separação", senão o pedido não aparece no menu.</p>
+      )}
+      {dados.erro && <p className="modal-error">{dados.erro}</p>}
+      {!dados.erro && dados.demos.length === 0 && (
+        <p className="empty-state">Nenhuma demonstração aberta. Crie uma na Central (Crescimento → Vitrine de demonstração).</p>
+      )}
+      {dados.demos.map((d) => (
+        <div className="vitrine-link" key={d.slug}>
+          {d.qrDataUrl && <img src={d.qrDataUrl} alt={`QR Code da demonstração ${d.nomeLoja}`} width="132" height="132" />}
+          <div>
+            <div><strong>{d.nomeLoja}</strong> · {d.segmento}</div>
+            <div className="vitrine-link-url">{d.link}</div>
+            <p className="screen-hint" style={{ margin: '4px 0 8px' }}>
+              {expiraEm(d.expiraEmMs)} · {d.pedidosRecebidos} pedido(s) recebido(s)
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn-secondary" onClick={() => copiar(d.link)}><Icon name="link" size={15} /> Copiar link</button>
+              <a className="btn-secondary" href={d.link} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}><Icon name="globe" size={15} /> Abrir a página</a>
+            </div>
+          </div>
+        </div>
+      ))}
+      {aviso && <p className={aviso.tipo === 'erro' ? 'modal-error' : 'io-message'}>{aviso.texto}</p>}
+    </div>
+  );
+}
+
 export function VitrineOnline() {
   const { currentUser } = useSession();
   const [config, setConfig] = useState(null);
@@ -59,6 +123,7 @@ export function VitrineOnline() {
         Uma página com os seus produtos e preços para colocar no Instagram, no Google e no WhatsApp. O cliente escolhe,
         monta o carrinho e o pedido chega no WhatsApp da loja, já escrito. Custo e quantidade exata em estoque nunca aparecem.
       </p>
+      <DemonstracoesAtivas />
       {!form && <p className="screen-hint">Carregando...</p>}
       {form && (
         <>

@@ -123,7 +123,22 @@ function notifyAppointmentConfirmed(agendamento) {
   notif.show();
 }
 
+/** Pedido novo da vitrine de demonstração (vitrineDemoService.js) -- é o
+ * momento de virar a tela para o prospect, então avisa na hora. */
+function notifyNewVitrineOrder(pedido) {
+  const { Notification } = require('electron');
+  if (!Notification || !Notification.isSupported()) return;
+  const total = `R$ ${Number(pedido.total || 0).toFixed(2).replace('.', ',')}`;
+  const notif = new Notification({
+    title: 'Pedido novo da vitrine (demonstração)',
+    body: `${pedido.nome || 'Cliente'} · ${Number(pedido.itens) || 0} item(ns) · ${total} · ${pedido.tipo === 'entrega' ? 'entrega' : 'retirada'}. Veja na Separação.`,
+    silent: false,
+  });
+  notif.show();
+}
+
 module.exports = {
+  notifyNewVitrineOrder,
   notifyLowStock, notifyReservationConfirmed, notifyOrderChangeRequested,
   notifyLowSatisfactionRating, notifyNewQuoteFromBot, notifyNewAppointmentFromBot, notifyAppointmentConfirmed,
 };

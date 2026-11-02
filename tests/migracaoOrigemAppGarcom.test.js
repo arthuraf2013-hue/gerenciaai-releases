@@ -39,8 +39,18 @@ test('atualizarCheckOrigemParaIncluirAppGarcom preserva dados e mantém FK de bo
       concluido_em      TEXT
     );
   `);
+  // Colunas listadas (não SELECT *): o banco de teste já nasce com as colunas
+  // que migrações posteriores adicionam (ex.: canal/canal_ref/vitrine_slug,
+  // migracoes.js v2), que o banco antigo simulado aqui ainda não tinha.
   db.exec(`
-    INSERT INTO bot_orders_antigo SELECT * FROM bot_orders;
+    INSERT INTO bot_orders_antigo
+      (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, status, origem,
+       observacoes, mesa_numero, taxa_entrega, separado_por, delivery_id, sale_id, satisfacao_solicitada_em,
+       nota_satisfacao, comentario_satisfacao, criado_em, separado_em, concluido_em)
+    SELECT id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, status, origem,
+       observacoes, mesa_numero, taxa_entrega, separado_por, delivery_id, sale_id, satisfacao_solicitada_em,
+       nota_satisfacao, comentario_satisfacao, criado_em, separado_em, concluido_em
+    FROM bot_orders;
   `);
   db.exec(`DROP TABLE bot_orders;`);
   db.exec(`ALTER TABLE bot_orders_antigo RENAME TO bot_orders;`);

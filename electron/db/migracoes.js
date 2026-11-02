@@ -181,6 +181,31 @@ const MIGRACOES = [
       dropColuna(db, 'erp_config', 'anexo_simples');
     },
   },
+  {
+    versao: 2,
+    nome: 'vitrine de demonstração: canal do pedido em bot_orders',
+    // Pedido que chega por um canal com identificador próprio (hoje só a
+    // vitrine de demonstração, ver vitrineDemoService.js). `canal_ref` é o
+    // id do documento de origem: o índice único impede o mesmo pedido de
+    // entrar duas vezes. `origem` continua no CHECK antigo ('manual') --
+    // mudar o CHECK exigiria reconstruir a tabela.
+    up(db) {
+      addColuna(db, 'bot_orders', 'canal', 'TEXT');
+      addColuna(db, 'bot_orders', 'canal_ref', 'TEXT');
+      addColuna(db, 'bot_orders', 'vitrine_slug', 'TEXT');
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_orders_canal_ref ON bot_orders(canal, canal_ref) WHERE canal_ref IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_bot_orders_vitrine_slug ON bot_orders(vitrine_slug) WHERE vitrine_slug IS NOT NULL;
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_bot_orders_vitrine_slug;
+        DROP INDEX IF EXISTS idx_bot_orders_canal_ref;
+      `);
+      for (const c of ['vitrine_slug', 'canal_ref', 'canal']) dropColuna(db, 'bot_orders', c);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

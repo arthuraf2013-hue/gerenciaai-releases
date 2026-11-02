@@ -28,7 +28,7 @@ test.afterEach(() => { Date.now = original; });
 
 test('migração 1: aplica uma vez, desfaz e refaz em base populada sem perder dados antigos', () => {
   const { db, locationId, gerenteId } = freshTestDb();
-  assert.deepEqual(db.prepare('SELECT versao FROM schema_migrations').all().map((r) => r.versao), [1]);
+  assert.deepEqual(db.prepare('SELECT versao FROM schema_migrations').all().map((r) => r.versao), [1, 2]);
   assert.deepEqual(migracoes.aplicarMigracoes(db), [], 'segunda aplicação não faz nada');
 
   // Base populada: dado antigo e dado nas colunas novas.
@@ -36,14 +36,15 @@ test('migração 1: aplica uma vez, desfaz e refaz em base populada sem perder d
   db.prepare("INSERT INTO customers (id, nome, cpf, limite_fiado) VALUES (?, 'Ana', '52998224725', 150)").run(cliente);
   expenseService.create({ categoria: 'aluguel', descricao: 'Aluguel', valor: 900, dataVencimento: '2026-10-05', locationId, operadorId: gerenteId });
 
-  assert.deepEqual(migracoes.reverterMigracoes(db, 0), [1]);
+  // Voltar ao zero desfaz da mais nova para a mais antiga (2 = vitrine de demonstração).
+  assert.deepEqual(migracoes.reverterMigracoes(db, 0), [2, 1]);
   const colsCliente = db.prepare('PRAGMA table_info(customers)').all().map((c) => c.name);
   assert.ok(!colsCliente.includes('limite_fiado'));
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'journal_entries'").get().n, 0);
   assert.equal(db.prepare('SELECT nome FROM customers WHERE id = ?').get(cliente).nome, 'Ana', 'linha antiga intacta');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM expenses').get().n, 1);
 
-  assert.deepEqual(migracoes.aplicarMigracoes(db), [1]);
+  assert.deepEqual(migracoes.aplicarMigracoes(db), [1, 2]);
   assert.equal(db.prepare('SELECT limite_fiado FROM customers WHERE id = ?').get(cliente).limite_fiado, null, 'coluna volta vazia');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM natureza_operacao').get().n, migracoes.NATUREZAS.length);
 });

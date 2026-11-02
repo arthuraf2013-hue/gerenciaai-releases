@@ -897,6 +897,9 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .vitrine-link img { border-radius: 8px; background: #fff; padding: 4px; flex-shrink: 0; }
 .vitrine-link-url { font-weight: 700; color: var(--color-primary); word-break: break-all; }
 .vitrine-link .btn-secondary { display: inline-flex; align-items: center; gap: 6px; }
+.vitrine-demo { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--color-border); }
+.vitrine-demo h3 { margin: 0; font-size: 15px; }
+.vitrine-demo .vitrine-link + .vitrine-link { margin-top: 10px; }
 .vitrine-link a.btn-secondary { padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--color-text); }
 
 /* Pix automático (PaymentPanel.jsx) */
