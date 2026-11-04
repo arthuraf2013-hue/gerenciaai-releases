@@ -361,8 +361,15 @@ async function listarDemos() {
   return base;
 }
 
+/** A Central marcou esta instalação como máquina de demonstração
+ * (`installations/{id}.maquinaDemo`). Usado também pela demonstração
+ * completa (demoDataService), que aceita carregar com vendas só aqui. */
+function ehMaquinaDemo() {
+  return estado.maquinaDemo === true;
+}
+
 module.exports = {
-  aplicarDaInstalacao, listarDemos, publicarCatalogos,
+  aplicarDaInstalacao, listarDemos, publicarCatalogos, ehMaquinaDemo,
   // Exportados pra teste (parte local, sem rede).
   garantirProdutosDemo, montarCatalogoDemo, itensValidosDoPedido, criarPedidoDemo, situacaoDaDemo, observacoesDoPedido,
   CANAL, LIMITE_PEDIDOS_POR_DEMO, TELEFONE_PEDIDO,

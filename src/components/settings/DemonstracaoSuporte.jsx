@@ -159,6 +159,12 @@ export function DemonstracaoSuporte() {
         </>
       ) : (
         <>
+          {estado.maquinaDemo && estado.vendasExistentes > 0 && estado.impedimentos.length === 0 && (
+            <p className="io-message">
+              <Icon name="checkCircle" size={15} /> Máquina de demonstração da Central: as {estado.vendasExistentes} venda(s) que já existem
+              ficam junto da demonstração e voltam exatamente como estão ao limpar.
+            </p>
+          )}
           {estado.impedimentos.map((texto) => (
             <p className="io-message-aviso" key={texto}><Icon name="warning" size={15} /> {texto}</p>
           ))}

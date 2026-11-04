@@ -22,7 +22,10 @@
  * isso, e só aqui: sem histórico, cliente sumido, previsão de ruptura e
  * "quem compra isso, compra aquilo" não têm o que mostrar. Por isso a
  * carga exige banco SEM NENHUMA venda: a demonstração nunca se mistura
- * com histórico real.
+ * com histórico real. Única exceção: máquina marcada como de
+ * demonstração pela Central (`maquinaDemo`, a mesma da vitrine de
+ * demonstração) -- lá as vendas já são de teste ou de prospects, e o
+ * ponto de restauração devolve todas elas ao limpar.
  *
  * Estado fica em `<userData>/demonstracao/estado.json` (fora do banco: o
  * banco é justamente o que é trocado na limpeza).
@@ -105,12 +108,26 @@ function grupoDeSincronizacao() {
   }
 }
 
+/** A Central marcou esta instalação como máquina de demonstração. Só a
+ * Central grava esse campo; sem conexão ainda lida, vale false (bloqueia). */
+function ehMaquinaDeDemonstracao() {
+  try {
+    return require('./vitrineDemoService').ehMaquinaDemo() === true;
+  } catch {
+    return false;
+  }
+}
+
+function contarVendas(db) {
+  return db.prepare('SELECT COUNT(*) AS c FROM sales').get().c;
+}
+
 /** O que impede a CARGA (não a limpeza). */
 function impedimentosParaCarregar(db) {
   const impedimentos = [];
-  const vendas = db.prepare('SELECT COUNT(*) AS c FROM sales').get().c;
-  if (vendas > 0) {
-    impedimentos.push(`Esta máquina já tem ${vendas} venda(s) registrada(s). A demonstração só pode ser carregada numa máquina sem vendas.`);
+  const vendas = contarVendas(db);
+  if (vendas > 0 && !ehMaquinaDeDemonstracao()) {
+    impedimentos.push(`Esta máquina já tem ${vendas} venda(s) registrada(s). A demonstração só pode ser carregada numa máquina sem vendas ou marcada como máquina de demonstração na Central.`);
   }
   const caixas = db.prepare(`SELECT COUNT(*) AS c FROM cash_sessions WHERE status = 'aberta'`).get().c;
   if (caixas > 0) impedimentos.push('Feche o caixa aberto antes de carregar a demonstração.');
@@ -138,6 +155,8 @@ function estado() {
     carregadaEm: ativa ? salvo.carregadaEm : null,
     pontoRestauracao: ativa ? path.basename(salvo.pontoRestauracao) : null,
     resumo: ativa ? salvo.resumo || null : null,
+    maquinaDemo: ehMaquinaDeDemonstracao(),
+    vendasExistentes: ativa ? 0 : contarVendas(db),
     perfis: perfisDisponiveis(),
     impedimentos: ativa ? [] : impedimentosParaCarregar(db),
   };

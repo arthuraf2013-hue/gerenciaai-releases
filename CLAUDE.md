@@ -147,6 +147,9 @@ Não quebrar:
 - o estado fica em `<userData>/demonstracao/estado.json`, FORA do banco (o banco é
   o que se troca). Gravado ANTES de semear (queda no meio = limpeza inofensiva);
 - a carga exige banco SEM NENHUMA venda, sem caixa aberto e fora de grupo multi-PDV.
+  Exceção: máquina marcada como de demonstração pela Central (`maquinaDemo`,
+  `vitrineDemoService.ehMaquinaDemo()`) carrega mesmo com vendas -- o ponto de
+  restauração as devolve ao limpar. Sem a marcação lida (offline), bloqueia.
   É o único lugar que grava venda com data retroativa (contorna `NOW_SYNCED()`);
 - "Trocar perfil" restaura e semeia por conexão avulsa (nunca `getDb()` depois de
   trocar o arquivo) e mantém o ponto de restauração da PRIMEIRA carga;

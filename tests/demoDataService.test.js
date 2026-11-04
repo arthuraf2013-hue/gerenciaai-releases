@@ -231,3 +231,43 @@ test('trocarPerfil: volta ao banco de antes e carrega o novo perfil, mantendo o 
     banco.close();
   }
 });
+
+test('máquina de demonstração da Central: carrega mesmo com vendas, e limpar devolve essas vendas', async () => {
+  const vitrine = require('../electron/services/vitrineDemoService');
+  const original = vitrine.ehMaquinaDemo;
+  vitrine.ehMaquinaDemo = () => true;
+  try {
+    const { db, suporteId, locationId, operadorId, dbPath } = ambiente();
+    db.prepare(`INSERT INTO sales (id, location_id, operador_id, status, total) VALUES ('venda-de-teste', ?, ?, 'finalizada', 10)`)
+      .run(locationId, operadorId);
+
+    const estado = demo.estado();
+    assert.deepEqual(estado.impedimentos, []);
+    assert.equal(estado.maquinaDemo, true);
+    assert.equal(estado.vendasExistentes, 1);
+
+    const r = await demo.carregar({ perfil: 'padaria', solicitanteId: suporteId });
+    assert.equal(r.ok, true, r.error);
+    assert.ok(db.prepare(`SELECT id FROM sales WHERE id = 'venda-de-teste'`).get(), 'a venda antiga continua durante a demonstração');
+
+    assert.equal(demo.limpar({ solicitanteId: suporteId }).ok, true);
+    const restaurado = new Database(dbPath, { readonly: true });
+    try {
+      assert.equal(restaurado.prepare('SELECT COUNT(*) c FROM sales').get().c, 1, 'só a venda de antes volta');
+      assert.ok(restaurado.prepare(`SELECT id FROM sales WHERE id = 'venda-de-teste'`).get());
+    } finally {
+      restaurado.close();
+    }
+  } finally {
+    vitrine.ehMaquinaDemo = original;
+  }
+});
+
+test('máquina comum com vendas: continua bloqueada, e a mensagem aponta a marcação da Central', async () => {
+  const { db, suporteId, locationId, operadorId } = ambiente();
+  db.prepare(`INSERT INTO sales (id, location_id, operador_id, status) VALUES ('v1', ?, ?, 'finalizada')`).run(locationId, operadorId);
+  assert.equal(demo.estado().maquinaDemo, false);
+  const r = await demo.carregar({ perfil: 'armazem', solicitanteId: suporteId });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Central/);
+});
