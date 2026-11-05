@@ -132,6 +132,22 @@ desta máquina, no prazo). A máquina só aceita produto `DEMO-` com o preço DE
 `bot_orders.canal = 'vitrine_demo'` (índice único em `canal, canal_ref`: não duplica). Segmento novo:
 chave igual em `vitrineDemoCatalogos.js` e `SEGMENTOS_DEMO` (admin-panel).
 
+## Ficha do cliente (todos os perfis)
+
+Clicar no nome do cliente (Clientes e filtro de cliente do Histórico) abre `FichaClienteModal.jsx`
+(`customer:getFicha` -> `fichaClienteService.getFicha`). Não quebrar:
+- período igual ao Histórico (data de FINALIZAÇÃO, dia local, `localDateRangeToUtcBounds`) + "Tudo";
+  só vendas finalizadas e não excluídas do histórico; devolução sai do total líquido;
+- especificações do item = cópia de `products.custom_fields` feita na venda (`sale_items.especificacoes_json`,
+  migração 6, gatilho AFTER INSERT igual ao do custo). NULL = item de antes da migração: usa o cadastro
+  atual e a tela avisa. Nunca preencher o passado (não dá para saber como o produto estava);
+- peculiaridades: receitas (ótica), animais com vacina/vermífugo (petshop, mesma antecedência de 7 dias
+  dos lembretes), agenda (salão; próximos sempre, histórico no período), reservas pelo telefone
+  (restaurante/padaria), orçamentos, garantia do item (`garantia_meses`, conta do dia da compra),
+  "costuma levar" (tamanho/cor/espécie), selos sim/não (controlado, exige receita), entregas e fiado.
+  As seções do perfil aparecem mesmo vazias; as outras só com dado (`secoesDaFicha` em src/utils/fichaCliente.js).
+  Testes: `fichaCliente.test.js`, `fichaClienteFormato.test.js`.
+
 ## Restaurante: mesas unidas e pessoas nomeadas
 
 `tableService.juntarMesas`/`separarMesa` + `adicionarPessoa`/`renomearPessoa`/`removerPessoa`

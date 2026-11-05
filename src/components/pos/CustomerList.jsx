@@ -7,6 +7,7 @@ import { LapsedCustomersModal } from './LapsedCustomersModal';
 import { MigracaoModal } from '../inventory/MigracaoModal';
 import { PetsModal } from './PetsModal';
 import { EyewearModal } from './EyewearModal';
+import { FichaClienteModal } from './FichaClienteModal';
 import { PetReminderModal } from './PetReminderModal';
 import Icon from '../common/Icon';
 
@@ -28,6 +29,7 @@ export function CustomerList() {
   const [showPetReminders, setShowPetReminders] = useState(false);
   const [petsDoCliente, setPetsDoCliente] = useState(null); // customer com modal de pets aberto
   const [eyewearDoCliente, setEyewearDoCliente] = useState(null); // customer com modal de receita óptica aberto
+  const [fichaDoCliente, setFichaDoCliente] = useState(null); // customer com a ficha aberta
   const [showMigracao, setShowMigracao] = useState(false);
   // Migração mexe em cadastro e fiado de todo mundo: só gestão (o canal
   // migracao:* também exige -- ver PAPEL_POR_CANAL em ipc/handlers.js).
@@ -164,7 +166,11 @@ export function CustomerList() {
           <tbody>
             {customersExibidos.map((c) => (
               <tr key={c.id}>
-              <td>{c.nome}</td>
+              <td>
+                <button type="button" className="cliente-nome-link" onClick={() => setFichaDoCliente(c)} title="Abrir a ficha do cliente (compras e especificações)">
+                  {c.nome}
+                </button>
+              </td>
               <td>{c.telefone}</td>
               <td>{c.pontos}</td>
               <td className={c.saldoFiado > 0 ? 'text-danger' : ''}>R$ {c.saldoFiado.toFixed(2)}</td>
@@ -218,6 +224,7 @@ export function CustomerList() {
       {showPetReminders && <PetReminderModal onFechar={() => setShowPetReminders(false)} />}
       {petsDoCliente && <PetsModal customer={petsDoCliente} onFechar={() => setPetsDoCliente(null)} />}
       {eyewearDoCliente && <EyewearModal customer={eyewearDoCliente} onFechar={() => setEyewearDoCliente(null)} />}
+      {fichaDoCliente && <FichaClienteModal customerId={fichaDoCliente.id} nomeInicial={fichaDoCliente.nome} onFechar={() => setFichaDoCliente(null)} />}
     </div>
   );
 }

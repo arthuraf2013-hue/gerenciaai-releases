@@ -747,6 +747,9 @@ function registerIpcHandlers() {
   safeHandle('customer:list', (_e, opts) => customerService.listWithSaldo(opts));
   safeHandle('customer:upsert', (_e, customer) => customerService.upsert(customer));
   safeHandle('customer:getCreditHistory', (_e, { customerId }) => customerService.getCreditHistory(customerId));
+  // Ficha do cliente (compras com itens e especificações, receitas da ótica) -- mesmo acesso do Histórico.
+  safeHandle('customer:getFicha', (_e, { customerId, dataInicio, dataFim } = {}) =>
+    require('../services/fichaClienteService').getFicha({ customerId, dataInicio, dataFim }));
   // Baixa de pagamento de fiado é operação de balcão do dia a dia -- só
   // exige login, não um papel específico.
   safeHandle('customer:registrarPagamento', (event, payload) => guardLoggedIn(event) || customerService.registrarPagamento(payload));

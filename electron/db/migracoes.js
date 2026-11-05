@@ -304,6 +304,37 @@ const MIGRACOES = [
       `);
     },
   },
+  {
+    versao: 6,
+    nome: 'ficha do cliente: especificações do produto guardadas no item vendido',
+    up(db) {
+      // A ficha do cliente mostra, em cada compra, as especificações do
+      // produto (grau e tipo de lente na ótica, tamanho e cor na loja de
+      // roupas, lote na farmácia...). Elas moram em products.custom_fields,
+      // que pode ser editado depois -- por isso o item vendido guarda uma
+      // CÓPIA de como estavam na hora da venda. Mesmo jeito do custo
+      // (trg_sale_items_custo): gatilho AFTER INSERT, vale para todo caminho
+      // que cria item (balcão, mesa, celular, bot). '{}' = produto sem
+      // especificação; NULL = item de antes desta migração (a ficha usa o
+      // cadastro atual e avisa). Nada antigo é preenchido: não dá para saber
+      // como o produto estava no dia.
+      addColuna(db, 'sale_items', 'especificacoes_json', 'TEXT');
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS trg_sale_items_especificacoes AFTER INSERT ON sale_items
+        WHEN NEW.especificacoes_json IS NULL
+        BEGIN
+          UPDATE sale_items SET especificacoes_json = COALESCE(
+            (SELECT CASE WHEN json_valid(custom_fields) THEN custom_fields ELSE '{}' END FROM products WHERE id = NEW.product_id),
+            '{}')
+          WHERE id = NEW.id;
+        END;
+      `);
+    },
+    down(db) {
+      db.exec('DROP TRIGGER IF EXISTS trg_sale_items_especificacoes;');
+      dropColuna(db, 'sale_items', 'especificacoes_json');
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

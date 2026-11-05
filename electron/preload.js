@@ -316,6 +316,7 @@ contextBridge.exposeInMainWorld('pdv', {
     list: invoke('customer:list'),
     upsert: invoke('customer:upsert'),
     getCreditHistory: invoke('customer:getCreditHistory'),
+    getFicha: invoke('customer:getFicha'),
     registrarPagamento: invoke('customer:registrarPagamento'),
     listQueSumiram: invoke('customer:listQueSumiram'),
     montarLinkReconquista: invoke('customer:montarLinkReconquista'),

@@ -4,6 +4,7 @@ import { toISODate } from '../../utils/date';
 import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
 import { EditHistoricoModal } from './EditHistoricoModal';
+import { FichaClienteModal } from './FichaClienteModal';
 import Icon from '../common/Icon';
 
 const STATUS_LABEL = {
@@ -72,6 +73,7 @@ export function SalesHistory({ onDevolver }) {
   const [clienteSugestoes, setClienteSugestoes] = useState([]);
   const [clienteSelecionado, setClienteSelecionado] = useState(null);
   const [relatorioCliente, setRelatorioCliente] = useState(null);
+  const [fichaAberta, setFichaAberta] = useState(false);
   const [exportandoRelatorio, setExportandoRelatorio] = useState(false);
   const [vendaExpandidaId, setVendaExpandidaId] = useState(null);
   const [itensPorVenda, setItensPorVenda] = useState({}); // cache: { [saleId]: itens[] }
@@ -360,7 +362,9 @@ export function SalesHistory({ onDevolver }) {
       {clienteSelecionado && relatorioCliente && (
         <div className="customer-report-box">
           <h2>
-            {relatorioCliente.cliente.nome}
+            <button type="button" className="cliente-nome-link" onClick={() => setFichaAberta(true)} title="Abrir a ficha do cliente (compras e especificações)">
+              {relatorioCliente.cliente.nome}
+            </button>
             {(relatorioCliente.cliente.cnpj || relatorioCliente.cliente.cpf) && (
               <span className="screen-hint" style={{ fontWeight: 400 }}> — {relatorioCliente.cliente.cnpj ? 'CNPJ' : 'CPF'}: {relatorioCliente.cliente.cnpj || relatorioCliente.cliente.cpf}</span>
             )}
@@ -558,6 +562,9 @@ export function SalesHistory({ onDevolver }) {
       )}
       {promptState && (
         <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
+      )}
+      {fichaAberta && clienteSelecionado && (
+        <FichaClienteModal customerId={clienteSelecionado.id} nomeInicial={clienteSelecionado.nome} onFechar={() => setFichaAberta(false)} />
       )}
       {vendaEditando && (
         <EditHistoricoModal sale={vendaEditando} onConfirmar={handleSalvarEdicaoHistorico} onCancelar={() => setVendaEditando(null)} />

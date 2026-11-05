@@ -1007,3 +1007,106 @@ button.mesa-grupo-nome { cursor: pointer; }
   .mesa-corpo { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   .mesa-comanda { border-left: none; border-top: 1px solid var(--color-border); }
 }
+
+/* ---------- Ficha do cliente (FichaClienteModal.jsx) ---------- */
+.modal-card.ficha-cliente { width: min(1040px, 100%); max-height: 92vh; gap: 16px; padding: 28px; }
+.ficha-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.ficha-rotulo { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); }
+.ficha-nome { margin: 4px 0 2px; font-size: 26px; line-height: 1.15; }
+.ficha-contato { margin: 0; color: var(--color-text-muted); font-size: 14px; }
+.ficha-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+.ficha-btn { display: inline-flex; align-items: center; gap: 6px; }
+.ficha-etiquetas { display: flex; flex-wrap: wrap; gap: 6px; }
+.ficha-etiqueta {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface)); color: var(--color-text-muted);
+}
+.ficha-etiqueta-alerta { background: var(--color-critical-bg); color: var(--color-critical-text); }
+.ficha-periodo { margin-bottom: 0; }
+.ficha-periodo-texto { margin: -8px 0 0; }
+.ficha-resumo { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ficha-numero {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
+.ficha-numero span { font-size: 12px; color: var(--color-text-muted); }
+.ficha-numero strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.ficha-numero small { font-size: 11px; color: var(--color-text-muted); }
+.ficha-secao { display: flex; flex-direction: column; gap: 10px; }
+.ficha-secao h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 15px; }
+.ficha-secao-topo { display: flex; justify-content: space-between; align-items: center; }
+.ficha-receitas td, .ficha-receitas th { padding: 6px 10px; font-size: 13px; }
+.ficha-receitas td { font-variant-numeric: tabular-nums; }
+.ficha-receita-inicio td { border-top: 2px solid var(--color-border); }
+.ficha-compra { border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); overflow: hidden; break-inside: avoid; }
+.ficha-compra-topo {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px;
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface)); border-bottom: 1px solid var(--color-border);
+}
+.ficha-compra-topo > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.ficha-compra-total { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-variant-numeric: tabular-nums; }
+.ficha-compra-total strong { font-size: 16px; }
+.ficha-receita-da-compra { margin: 0; padding: 8px 14px 0; }
+.ficha-itens { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ficha-itens th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); padding: 8px 14px 4px; font-weight: 600; }
+.ficha-itens td { padding: 8px 14px; border-top: 1px solid var(--color-border); vertical-align: top; }
+.ficha-itens .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ficha-itens td .screen-hint { font-size: 12px; margin: 2px 0 0; }
+.ficha-especificacoes { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+.ficha-especificacoes > div { display: contents; }
+.ficha-especificacoes dt { color: var(--color-text-muted); }
+.ficha-especificacoes dd { margin: 0; font-weight: 600; }
+.ficha-observacao { margin-top: 4px; font-size: 12px; color: var(--color-warning-text); }
+.ficha-devolvido { font-size: 12px; color: var(--color-danger); }
+.cliente-nome-link {
+  background: none; border: none; padding: 0; font: inherit; color: var(--color-primary); font-weight: 600;
+  cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px;
+}
+.cliente-nome-link:hover, .cliente-nome-link:focus-visible { text-decoration-color: currentColor; }
+.ficha-subtitulo { font-size: 12px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.ficha-tabela td { padding: 7px 12px; font-size: 13px; }
+.ficha-tabela .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ficha-linha-apagada td { color: var(--color-text-muted); }
+.ficha-status { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 7%, var(--color-surface)); color: var(--color-text-muted); white-space: nowrap; }
+.ficha-status-agendado, .ficha-status-confirmado, .ficha-status-confirmada, .ficha-status-pendente, .ficha-status-em_rota, .ficha-status-orc-aberto,
+.ficha-status-aguardando_confirmacao { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.ficha-status-faltou, .ficha-status-orc-vencido, .ficha-status-nao_confirmada { background: var(--color-critical-bg); color: var(--color-critical-text); }
+.ficha-cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.ficha-cartao { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 13px; }
+.ficha-cartao > strong { font-size: 15px; }
+.ficha-pet-data { font-size: 13px; }
+.ficha-pet-atrasada { color: var(--color-critical-text); }
+.ficha-pet-atrasada strong, .ficha-pet-proxima strong { text-decoration: underline; text-underline-offset: 3px; }
+.ficha-pet-proxima { color: var(--color-warning-text); }
+.ficha-preferencias { display: flex; flex-wrap: wrap; gap: 18px; }
+.ficha-preferencias > div { display: flex; flex-direction: column; gap: 6px; }
+.ficha-etiqueta-forte { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.ficha-etiqueta small { font-weight: 500; opacity: 0.8; }
+.ficha-fiado-saldo { margin: 0; font-size: 14px; }
+.ficha-fiado-devendo strong { color: var(--color-danger); }
+.ficha-pago { color: var(--color-primary); }
+.ficha-selos { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.ficha-selo { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--color-warning-bg); color: var(--color-warning-text); }
+.ficha-selo-servico { margin-left: 6px; background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.ficha-garantia { margin-top: 4px; font-size: 12px; font-weight: 600; }
+.ficha-garantia-ok { color: var(--color-primary); }
+.ficha-garantia-vencida { color: var(--color-text-muted); }
+@media (max-width: 760px) {
+  .ficha-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ficha-topo { flex-direction: column; }
+}
+
+/* Impressão da ficha: só ela (o modal vai direto no <body> por portal), em
+   papel branco e com as cores claras mesmo no tema escuro. */
+@media print {
+  html:has(body.imprimindo-ficha), body.imprimindo-ficha { overflow: visible !important; height: auto !important; background: #fff !important; }
+  body.imprimindo-ficha > *:not(.ficha-cliente-fundo) { display: none !important; }
+  body.imprimindo-ficha .ficha-cliente-fundo { position: static; display: block; padding: 0; background: none; overflow: visible; }
+  body.imprimindo-ficha .modal-card.ficha-cliente {
+    width: 100%; max-height: none; overflow: visible; padding: 0; box-shadow: none;
+    --color-bg: #ffffff; --color-surface: #ffffff; --color-border: #d5dcdf; --color-text: #111b1e; --color-text-muted: #4a575c;
+    --color-primary: #0f6e63; --color-danger: #b3402f; --color-warning-text: #7a5310; --color-critical-bg: #fee2e2; --color-critical-text: #9a2f22;
+    color: var(--color-text); background: #fff;
+  }
+  body.imprimindo-ficha .ficha-cliente .nao-imprimir { display: none !important; }
+}
