@@ -209,6 +209,7 @@ export default function PainelMesas({ loja, modo, aoSemPainel }) {
           pessoaInicial={tela.pessoa ?? null}
           pessoasAoAbrir={tela.pessoasAoAbrir || 0}
           catalogo={catalogo}
+          online={online}
           aoVoltar={voltar}
           aoEnviar={(dados) => enviarItens(tela.mesaId, dados, tela.pessoasAoAbrir)}
         />

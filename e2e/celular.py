@@ -250,6 +250,22 @@ async def main():
         assert await g.get_by_role('button', name=re.compile('^Separar')).count() == 0
         ok('garçom: tocar na mesa 4 abre a comanda da mesa 3, sem separar')
 
+        # nome da pessoa dado na tela de lançar vai para o computador
+        await g.get_by_role('button', name=re.compile('^Adicionar itens para')).click()
+        await g.get_by_role('radio', name='Pessoa 1', exact=True).click()
+        await g.get_by_role('radio', name='Pessoa 1', exact=True).click()
+        await g.fill('#pm-texto', 'Bia')
+        await g.wait_for_timeout(500)  # folha terminando de subir
+        await g.screenshot(path=FOTOS + 'e2e-8a-lancar-dar-nome.png')
+        await g.get_by_role('button', name='Salvar', exact=True).click()
+        await esperar('nome "Bia" dado na tela de lançar gravado no computador', lambda e: any(
+            p['nome'] == 'Bia' and p['numero'] == 1 and p['sale_id'] == mesa(e, '3')['sale_id'] for p in e['pessoas']))
+        await expect(g.get_by_role('radio', name='Bia', exact=True)).to_be_visible(timeout=20000)
+        await expect(g.locator('.pm-barra')).to_contain_text('Para: Bia')
+        await g.wait_for_timeout(300)
+        await g.screenshot(path=FOTOS + 'e2e-8-lancar-nome.png')
+        ok('tela de lançar mostra "Bia" no botão e em "Para:"')
+
         # grupo quebrado no banco (como o do cliente): o computador conserta e o celular não fica preso
         pc('/quebrar-grupo?principal=3')
         await esperar('computador conserta a mesa 4 (sai do grupo, vai para limpeza)', lambda e: mesa(e, '4')['unida_a'] is None

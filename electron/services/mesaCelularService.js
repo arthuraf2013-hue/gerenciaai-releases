@@ -916,6 +916,19 @@ function firestoreCtx() {
 
 let publicarLogo = () => {};
 
+/** Avisa as telas do computador que algo mudou numa mesa pelo celular (nome de
+ * pessoa, item lançado, conta paga...), para a comanda aberta na tela e a
+ * lista de mesas recarregarem na hora. Fora do Electron (testes) não faz nada. */
+function avisarTelas(evento) {
+  try {
+    const { BrowserWindow } = require('electron');
+    if (typeof BrowserWindow?.getAllWindows !== 'function') return;
+    for (const janela of BrowserWindow.getAllWindows()) {
+      if (!janela.isDestroyed()) janela.webContents.send('mesas:mudou', evento);
+    }
+  } catch { /* sem janela */ }
+}
+
 async function processarComando(docSnap) {
   const dados = docSnap.data();
   if (dados.status !== 'novo') return;
@@ -938,6 +951,9 @@ async function processarComando(docSnap) {
     ? { status: 'erro', erro: resposta.erro, resultado: resposta.extra ?? null, respondidoEm: serverTimestamp() }
     : { status: 'feito', resultado: resposta.resultado ?? null, respondidoEm: serverTimestamp() }
   ).catch((err) => console.error('[mesaCelularService] não consegui responder o celular:', err.message));
+  if (!resposta.erro && !TIPOS_SO_LEITURA.includes(dados.tipo)) {
+    avisarTelas({ origem: 'celular', tipo: dados.tipo, mesaId: dados.mesaId || null, saleId: resposta.resultado?.saleId || null });
+  }
   publicarLogo();
 }
 
@@ -1103,6 +1119,7 @@ function iniciar() {
 }
 
 module.exports = {
+  avisarTelas,
   TIPOS, METODOS_MESA, PAPEIS_MESA, PAPEIS_ORGANIZAR, VALIDADE_LANCAR_MS, VALIDADE_MS,
   iniciar, executarComando, concluirConta, calcularConta, montarComanda, montarMesas, montarContexto,
   montarPublicacao, obterChave, decifrarPin, concluirPendentes,

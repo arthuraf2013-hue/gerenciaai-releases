@@ -327,6 +327,51 @@ test('pessoas: nova pessoa com nome; tocar de novo no nome abre renomear/tirar',
   assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'remover_pessoa', campos: { mesaId: 'm2', numero: 1 } });
 });
 
+test('lançar: dar nome à pessoa e criar pessoa nova direto na tela de lançar', async () => {
+  prepararLoja();
+  servidor.estado.respostas.adicionar_pessoa = { numero: 3 };
+  await montar();
+  await clicar(botao('Mesa 2 + 4'));
+  await clicar(botao('Adicionar itens para'));
+  assert.match(texto(), /Lançar · Mesa 2/);
+
+  await clicar(botaoExato('Pessoa 2'));
+  assert.match(texto(), /Toque de novo em Pessoa 2 para dar um nome/);
+  await clicar(botaoExato('Pessoa 2'));
+  await digitar(document.querySelector('#pm-texto'), 'Bia');
+  await clicar(botaoExato('Salvar'));
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'renomear_pessoa', campos: { mesaId: 'm2', numero: 2, nome: 'Bia' } });
+  assert.ok(botaoExato('Bia'), 'o chip já mostra o nome');
+  assert.match(texto(), /Para: Bia/);
+
+  // O computador publica o nome: continua "Bia" (agora vindo dele).
+  await act(async () => servidor.publicarComanda('m2', { ...comandaM2(), pessoas: [{ numero: 1, nome: 'Ana' }, { numero: 2, nome: 'Bia' }] }));
+  assert.ok(botaoExato('Bia'));
+
+  await clicar(botao('+ Pessoa'));
+  await digitar(document.querySelector('#pm-texto'), 'Caio');
+  await clicar(botaoExato('Adicionar'));
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'adicionar_pessoa', campos: { mesaId: 'm2', nome: 'Caio' } });
+  assert.match(texto(), /Para: Caio/);
+  await clicar(botao('Suco'));
+  await clicar(botao('Enviar'));
+  assert.equal(servidor.estado.lancamentos.at(-1).itens[0].pessoaNumero, 3, 'o item vai para o Caio');
+});
+
+test('lançar: computador recusa o nome -- volta o nome de antes e avisa', async () => {
+  prepararLoja();
+  servidor.estado.respostas.renomear_pessoa = new Error('A mesa não está ocupada.');
+  await montar();
+  await clicar(botao('Mesa 2 + 4'));
+  await clicar(botao('Adicionar itens para'));
+  await clicar(botaoExato('Ana'));
+  await clicar(botaoExato('Ana'));
+  await digitar(document.querySelector('#pm-texto'), 'Ana Paula');
+  await clicar(botaoExato('Salvar'));
+  assert.ok(botaoExato('Ana'), 'voltou para o nome publicado');
+  assert.ok(toasts.some((t) => /não está ocupada/.test(t.texto)));
+});
+
 test('cancelar item sem pagamento: só motivo; com pagamento: PIN do gerente vai cifrado', async () => {
   prepararLoja();
   await montar();

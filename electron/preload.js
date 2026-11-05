@@ -104,6 +104,12 @@ contextBridge.exposeInMainWorld('pdv', {
     cancel: invoke('sale:cancel'),
   },
   table: {
+    // Algo mudou numa mesa pelo celular: devolve a função que para de ouvir.
+    onMudou: (callback) => {
+      const ouvinte = (_e, evento) => callback(evento);
+      ipcRenderer.on('mesas:mudou', ouvinte);
+      return () => ipcRenderer.removeListener('mesas:mudou', ouvinte);
+    },
     list: invoke('table:list'),
     create: invoke('table:create'),
     delete: invoke('table:delete'),

@@ -81,6 +81,8 @@ export function RestaurantTables() {
   }
 
   useEffect(() => { reload(); }, []);
+  // Mesa aberta, pedido, nome ou conta fechada pelo celular aparecem na hora.
+  useEffect(() => window.pdv.table.onMudou?.(() => { reload(); }), []);
 
   function pedirNumeroPessoas(table) {
     setLoadError('');

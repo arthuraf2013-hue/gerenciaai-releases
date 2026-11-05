@@ -94,6 +94,8 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }, [saleId, aplicarPessoas]);
 
   useEffect(() => { recarregarComanda(); }, [recarregarComanda]);
+  // Nome de pessoa, item ou pessoa nova lançados pelo celular aparecem na hora.
+  useEffect(() => window.pdv.table.onMudou?.(() => { recarregarComanda(); }), [recarregarComanda]);
 
   useEffect(() => {
     if (!feedback) return;

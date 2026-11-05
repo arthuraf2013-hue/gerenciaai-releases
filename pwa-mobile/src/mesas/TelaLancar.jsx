@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Folha, Icone } from './comum.jsx';
+import { mostrarToast } from '../../pdv-util.js';
+import { Folha, Icone, PedirTexto } from './comum.jsx';
 import {
   categoriasDo, centavos, filtrarCatalogo, formatarMoeda, formatarQuantidade, itensParaLancar, lerValor, quantidadeNoCarrinho,
   resumoCarrinho, rotuloMesa, rotuloPessoa, somarNoCarrinho, unidadeFracionada,
 } from './logica.js';
-import { observarComanda } from './servidorMesas.js';
+import { executar as executarNoComputador, observarComanda } from './servidorMesas.js';
 
 const chaveCarrinho = (installId, mesaId) => `gerenciaai_mesas_carrinho_${installId}_${mesaId}`;
 
@@ -18,15 +19,30 @@ function lerCarrinho(installId, mesaId) {
 }
 
 /** Escolher produtos para uma pessoa (ou para a mesa) e mandar para a comanda. */
-export default function TelaLancar({ loja, mesaId, mesa, pessoaInicial, catalogo, pessoasAoAbrir, aoVoltar, aoEnviar }) {
+export default function TelaLancar({ loja, mesaId, mesa, pessoaInicial, catalogo, pessoasAoAbrir, online = true, aoVoltar, aoEnviar }) {
   const [pessoas, setPessoas] = useState([]);
+  const [temComanda, setTemComanda] = useState(false);
+  // Nome dado aqui e ainda não publicado de volta pelo computador.
+  const [nomesLocais, setNomesLocais] = useState({});
+  const [ocupado, setOcupado] = useState(false);
   const [para, setPara] = useState(pessoaInicial ?? null);
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState('todas');
   const [carrinho, setCarrinho] = useState(() => lerCarrinho(loja.installId, mesaId));
   const [folha, setFolha] = useState(null);
 
-  useEffect(() => observarComanda(loja.installId, mesaId, (r) => setPessoas(r.comanda?.pessoas || [])), [loja.installId, mesaId]);
+  useEffect(() => observarComanda(loja.installId, mesaId, (r) => {
+    setPessoas(r.comanda?.pessoas || []);
+    setTemComanda(!!r.comanda);
+  }), [loja.installId, mesaId]);
+  // Quando o computador publica o nome, o local sai de cena.
+  useEffect(() => {
+    setNomesLocais((atual) => {
+      const resto = { ...atual };
+      for (const p of pessoas) if (p.numero in resto && (p.nome || '') === resto[p.numero]) delete resto[p.numero];
+      return Object.keys(resto).length === Object.keys(atual).length ? atual : resto;
+    });
+  }, [pessoas]);
   useEffect(() => {
     try { localStorage.setItem(chaveCarrinho(loja.installId, mesaId), JSON.stringify(carrinho)); } catch { /* sem armazenamento */ }
   }, [carrinho, loja.installId, mesaId]);
@@ -36,7 +52,49 @@ export default function TelaLancar({ loja, mesaId, mesa, pessoaInicial, catalogo
   const lista = useMemo(() => filtrarCatalogo(produtos, { busca, categoria }), [produtos, busca, categoria]);
   const resumo = resumoCarrinho(carrinho);
   // Mesa sem comanda ainda: "Pessoa N" da escolha feita ao abrir.
-  const pessoasDaTela = pessoas.length ? pessoas : Array.from({ length: pessoasAoAbrir || 0 }, (_, i) => ({ numero: i + 1, nome: null }));
+  const pessoasBase = pessoas.length ? pessoas : Array.from({ length: pessoasAoAbrir || 0 }, (_, i) => ({ numero: i + 1, nome: null }));
+  const pessoasDaTela = pessoasBase.map((p) => (p.numero in nomesLocais ? { ...p, nome: nomesLocais[p.numero] || null } : p));
+  const podeNomear = temComanda && online;
+
+  async function fazer(tipo, campos) {
+    if (ocupado) return null;
+    setOcupado(true);
+    try {
+      return await executarNoComputador(loja.installId, tipo, { mesaId, ...campos });
+    } catch (err) {
+      mostrarToast(err.message, 'erro');
+      return null;
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  const tocarPessoa = (numero) => {
+    if (para !== numero) return setPara(numero);
+    if (!podeNomear) {
+      mostrarToast(online ? 'A mesa ainda está abrindo no computador. Tente de novo em instantes.' : 'Sem internet: o nome fica para quando a conexão voltar.', 'erro');
+      return;
+    }
+    setFolha({ tipo: 'nome', pessoa: pessoasDaTela.find((p) => p.numero === numero) });
+  };
+
+  const salvarNome = async (pessoa, nome) => {
+    setFolha(null);
+    const anterior = nomesLocais;
+    setNomesLocais((a) => ({ ...a, [pessoa.numero]: nome }));
+    const r = await fazer('renomear_pessoa', { numero: pessoa.numero, nome });
+    if (!r) setNomesLocais(anterior);
+  };
+
+  const adicionarPessoa = async (nome) => {
+    setFolha(null);
+    const r = await fazer('adicionar_pessoa', { nome });
+    if (r?.numero) {
+      if (nome) setNomesLocais((a) => ({ ...a, [r.numero]: nome }));
+      setPessoas((lista) => (lista.some((p) => p.numero === r.numero) ? lista : [...lista, { numero: r.numero, nome: nome || null }]));
+      setPara(r.numero);
+    }
+  };
 
   const semEstoque = (p) => p.tipo !== 'servico' && p.estoque != null && p.estoque <= 0;
 
@@ -72,12 +130,19 @@ export default function TelaLancar({ loja, mesaId, mesa, pessoaInicial, catalogo
       <div className="pm-chips pm-chips-para" role="radiogroup" aria-label="Lançar para">
         {pessoasDaTela.map((p) => (
           <button key={p.numero} type="button" role="radio" aria-checked={para === p.numero}
-            className={`chip${para === p.numero ? ' chip-ativo' : ''}`} onClick={() => setPara(p.numero)}>
+            className={`chip${para === p.numero ? ' chip-ativo' : ''}`} onClick={() => tocarPessoa(p.numero)}>
             {p.nome || `Pessoa ${p.numero}`}
           </button>
         ))}
         <button type="button" role="radio" aria-checked={para === null} className={`chip${para === null ? ' chip-ativo' : ''}`} onClick={() => setPara(null)}>Mesa</button>
+        {podeNomear && (
+          <button type="button" className="chip pm-chip-mais" aria-label="Adicionar pessoa" disabled={ocupado}
+            onClick={() => setFolha({ tipo: 'nova-pessoa' })}>+ Pessoa</button>
+        )}
       </div>
+      {para != null && podeNomear && (
+        <span className="subtexto pm-dica pm-dica-lancar">Toque de novo em {pessoasDaTela.find((p) => p.numero === para)?.nome || `Pessoa ${para}`} para {pessoasDaTela.find((p) => p.numero === para)?.nome ? 'trocar o nome' : 'dar um nome'}.</span>
+      )}
 
       <div className="pm-busca">
         <div className="campo-busca">
@@ -124,6 +189,14 @@ export default function TelaLancar({ loja, mesaId, mesa, pessoaInicial, catalogo
       {folha?.tipo === 'peso' && (
         <QuantidadeFracionada produto={folha.produto} aoFechar={() => setFolha(null)}
           aoConfirmar={(q) => { setFolha(null); setCarrinho((c) => somarNoCarrinho(c, folha.produto, para, q)); }} />
+      )}
+      {folha?.tipo === 'nome' && (
+        <PedirTexto titulo={`Nome da Pessoa ${folha.pessoa.numero}`} rotulo="Nome (aparece no computador também)" inicial={folha.pessoa.nome || ''}
+          placeholder="Ex.: Ana" aoFechar={() => setFolha(null)} aoConfirmar={(nome) => salvarNome(folha.pessoa, nome)} />
+      )}
+      {folha?.tipo === 'nova-pessoa' && (
+        <PedirTexto titulo="Nova pessoa na mesa" rotulo="Nome (opcional)" placeholder="Ex.: Ana" textoBotao="Adicionar"
+          aoFechar={() => setFolha(null)} aoConfirmar={adicionarPessoa} />
       )}
       {folha?.tipo === 'pedido' && (
         <RevisarPedido carrinho={carrinho} pessoas={pessoasDaTela} aoMudar={setCarrinho} aoFechar={() => setFolha(null)}

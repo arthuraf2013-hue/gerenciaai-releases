@@ -231,6 +231,43 @@ test('mesa unida a uma mesa livre (grupo quebrado): a publicação conserta ante
   assert.equal(ctx.db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(ctx.mesa1).status, 'livre');
 });
 
+test('nome dado no celular é o mesmo que o computador mostra na comanda', () => {
+  const ctx = loja();
+  executar(comando('lancar', { mesaId: ctx.mesa1, pessoas: 2, itens: [{ produtoId: ctx.prato, quantidade: 1, pessoaNumero: 1 }] }));
+  assert.ifError(executar(comando('renomear_pessoa', { mesaId: ctx.mesa1, numero: 1, nome: '  Ana  Paula ' })).erro);
+  assert.ifError(executar(comando('adicionar_pessoa', { mesaId: ctx.mesa1, nome: 'Caio' })).erro);
+  const saleId = ctx.db.prepare('SELECT sale_id FROM restaurant_tables WHERE id = ?').get(ctx.mesa1).sale_id;
+  assert.deepEqual(tableService.getTableCart(saleId).pessoas, [
+    { numero: 1, nome: 'Ana Paula' }, { numero: 2, nome: null }, { numero: 3, nome: 'Caio' },
+  ]);
+  // E o caminho de volta: nome trocado no computador chega ao celular.
+  tableService.renomearPessoa({ tableId: ctx.mesa1, numero: 2, nome: 'Bia' });
+  const comanda = mesas.montarComanda(ctx.db, ctx.db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(ctx.mesa1));
+  assert.deepEqual(comanda.pessoas.map((p) => p.nome), ['Ana Paula', 'Bia', 'Caio']);
+});
+
+test('avisarTelas manda "mesas:mudou" para as janelas abertas do computador', () => {
+  const Module = require('module');
+  const original = Module._load;
+  const enviados = [];
+  Module._load = function carregar(pedido, ...resto) {
+    if (pedido === 'electron') {
+      return { BrowserWindow: { getAllWindows: () => [
+        { isDestroyed: () => false, webContents: { send: (canal, evento) => enviados.push([canal, evento]) } },
+        { isDestroyed: () => true, webContents: { send: () => { throw new Error('janela fechada'); } } },
+      ] } };
+    }
+    return original.call(this, pedido, ...resto);
+  };
+  try {
+    mesas.avisarTelas({ origem: 'celular', tipo: 'renomear_pessoa', mesaId: 'm1' });
+  } finally {
+    Module._load = original;
+  }
+  assert.deepEqual(enviados, [['mesas:mudou', { origem: 'celular', tipo: 'renomear_pessoa', mesaId: 'm1' }]]);
+  assert.doesNotThrow(() => mesas.avisarTelas({}), 'fora do Electron não faz nada');
+});
+
 test('conta por pessoa: taxa de serviço proporcional e a soma fecha com o total', () => {
   const ctx = loja();
   executar(comando('lancar', { mesaId: ctx.mesa1, pessoas: 2, itens: [
