@@ -17,3 +17,6 @@ masterkey co.txt
 # nunca deveriam ter ido pro Git (entraram sem querer num "release: att"
 # automático que faz `git add -A`)
 .data/
+
+# fotos do teste de ponta a ponta (e2e/celular.py)
+e2e/fotos/

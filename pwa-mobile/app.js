@@ -75,10 +75,52 @@ async function iniciar() {
 
 iniciar();
 
-if ('serviceWorker' in navigator) {
+// Service worker só no app publicado (npm run build) -- no `npm run dev`
+// ele guardaria arquivos de desenvolvimento e atrapalharia.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch((err) => {
+    navigator.serviceWorker.register('./sw.js').then(acompanharAtualizacao).catch((err) => {
       console.warn('[app] service worker não registrou', err);
     });
   });
+}
+
+/** Versão nova baixada fica esperando: o app avisa e só troca quando a
+ * pessoa tocar em "Atualizar" (nunca no meio de um pedido ou venda). */
+function acompanharAtualizacao(reg) {
+  if (!reg) return;
+  const avisar = () => { if (reg.waiting && navigator.serviceWorker.controller) mostrarAvisoDeAtualizacao(reg); };
+  avisar();
+  reg.addEventListener('updatefound', () => {
+    const nova = reg.installing;
+    if (!nova) return;
+    nova.addEventListener('statechange', () => { if (nova.state === 'installed') avisar(); });
+  });
+  let recarregando = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (recarregando) return;
+    recarregando = true;
+    window.location.reload();
+  });
+  // Celular que fica o dia todo aberto: confere de hora em hora se saiu versão nova.
+  setInterval(() => { reg.update().catch(() => {}); }, 60 * 60 * 1000);
+}
+
+function mostrarAvisoDeAtualizacao(reg) {
+  if (document.getElementById('aviso-atualizacao')) return;
+  const aviso = document.createElement('div');
+  aviso.id = 'aviso-atualizacao';
+  aviso.className = 'aviso-atualizacao';
+  aviso.setAttribute('role', 'status');
+  aviso.innerHTML = `
+    <span>Versão nova do app pronta.</span>
+    <button type="button" class="btn-primario btn-pequeno" id="btn-atualizar-app">Atualizar</button>
+    <button type="button" class="btn-icone" id="btn-depois-app" aria-label="Depois">✕</button>
+  `;
+  document.body.appendChild(aviso);
+  aviso.querySelector('#btn-atualizar-app').addEventListener('click', () => {
+    if (reg.waiting) reg.waiting.postMessage('atualizar');
+    else window.location.reload();
+  });
+  aviso.querySelector('#btn-depois-app').addEventListener('click', () => aviso.remove());
 }

@@ -448,8 +448,13 @@ function setServiceCharge(saleId, percentual) {
  * (requisito: vendas diminuem estoque diretamente, não só no fechamento).
  * Roda em transação: se o movimento de estoque falhar, o item não é gravado.
  */
-function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero }) {
+function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao }) {
   const db = getDb();
+
+  // Observação do item (ex.: "sem gelo"): o item com observação é sempre uma
+  // linha própria -- somar numa linha existente misturaria a observação com
+  // unidades pedidas sem ela.
+  const obs = typeof observacao === 'string' && observacao.trim() ? observacao.trim().slice(0, 200) : null;
 
   // Pessoa da mesa (opcional): o item já nasce dela, e só soma quantidade
   // com uma linha da MESMA pessoa -- o suco da Ana e o da Bia são linhas
@@ -488,8 +493,14 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // Se o mesmo produto já está no carrinho (ainda não cancelado), soma
   // na linha existente em vez de criar uma linha nova — bipar o mesmo
   // item duas vezes deve virar "produto x2", não duas linhas separadas.
-  const itemExistente = db.prepare(
-    `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0 AND pessoa_numero IS ?`
+  // Só soma numa linha que a cozinha ainda não recebeu (não impressa, ainda
+  // 'pendente') e sem observação: a segunda rodada de sucos não pode entrar
+  // na linha que já foi impressa ou marcada como pronta, senão a cozinha
+  // nunca fica sabendo das unidades novas. No balcão (PDV) nada disso muda:
+  // lá a linha nunca é impressa nem sai de 'pendente'.
+  const itemExistente = obs ? null : db.prepare(
+    `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0 AND pessoa_numero IS ?
+       AND observacao IS NULL AND enviado_cozinha = 0 AND status_preparo = 'pendente'`
   ).get(saleId, productId, pessoa);
 
   // Preço a usar pra atualizar sales.total (e pro que a tela usa pra
@@ -513,8 +524,8 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       itemId = randomUUID();
       quantidadeTotal = quantidade;
       db.prepare(
-        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, pessoa_numero) VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(itemId, saleId, productId, quantidade, precoDeVenda, pessoa);
+        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, pessoa_numero, observacao) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(itemId, saleId, productId, quantidade, precoDeVenda, pessoa, obs);
     }
 
     if (!ehServico) {

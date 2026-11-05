@@ -6357,3 +6357,42 @@ ganha a coluna "Mesa" (só aparece quando o período tem venda de mesa, ex.: "Me
 e, ao abrir uma venda, mostra os itens separados por pessoa, com o nome e o subtotal de
 cada uma, e um grupo "Sem pessoa" para o que não foi atribuído. Vendas fechadas antes desta
 versão não têm a mesa registrada; os nomes por pessoa aparecem nelas se tinham sido dados.
+
+## Celular: painel de mesas para garçom e operador
+
+O app do celular (PWA, `pwa-mobile/`) ganhou um painel de mesas feito para quem está
+atendendo. O garçom vê na aba "Mesas" todas as mesas da loja por status (livre,
+ocupada com pessoas, tempo e total, unida, reservada, aguardando limpeza), abre a
+comanda de qualquer uma e lança os itens **já na pessoa certa**: escolhe a pessoa em
+"Lançar para", toca nos produtos e envia. Cada item pode ter observação ("sem gelo") e
+mostra o status da cozinha (aguardando, preparando, pronto). Pessoas com nome, mover
+item de pessoa, cancelar item e marcar mesa limpa também saem do celular. No celular do
+operador (PDV móvel) entram ainda juntar, separar e transferir mesas e **fechar a
+conta**: mesa inteira ou por pessoa, em uma ou mais formas de pagamento, com troco e QR
+do Pix. A aba "Vendas" do PDV móvel mostra "Meu turno": o que o usuário vendeu no caixa
+aberto do computador.
+
+**Como funciona.** O computador publica as mesas e a comanda de cada mesa ocupada só
+quando mudam (`mesaCelularService.js`). O celular manda um comando por ação; o
+computador confere o celular e o papel ATUAL do usuário e aplica pelos mesmos serviços
+da tela do computador (`tableService`, `saleService`), uma vez só por comando. Lançar
+funciona sem internet (o pedido fica guardado no celular até 12 h e entra quando a
+conexão volta); o resto precisa do computador respondendo.
+
+**Regras que valem igual ao computador.** Garçom lança e organiza pessoas, mas não junta
+mesas nem recebe. Cancelar item segue Configurações → Segurança: com pagamento na conta,
+pede o PIN de um gerente, que vai cifrado do celular até o computador (nunca em claro no
+Firestore) e conta tentativa errada para o bloqueio. O dinheiro recebido pelo celular
+entra no caixa aberto do computador, com troco calculado. Por pessoa, a taxa de serviço e
+o desconto são divididos na proporção do consumo de cada um, e cada pagamento guarda de
+quem era. Conta toda paga: a venda finaliza e a mesa vai para "aguardando limpeza".
+
+**Correção que veio junto (vale também no computador).** Um item igual lançado depois
+somava na linha que a cozinha já tinha recebido (impressa ou marcada como pronta), e as
+unidades novas nunca apareciam para a cozinha. Agora só soma numa linha ainda pendente e
+sem observação; item com observação é sempre uma linha própria.
+
+**Publicar.** É preciso publicar as regras do Firestore (`firebase deploy --only
+firestore:rules`) e o app do celular, que agora tem build (`npm --prefix pwa-mobile
+install` uma vez; `firebase deploy --only hosting:garcom` roda o build sozinho). Com o
+GerenciaAI do computador antigo ou sem as regras novas, o celular continua como antes.

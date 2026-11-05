@@ -1140,3 +1140,96 @@ test('vitrine demo: catálogo demo_<segmento> publicado pela máquina; maquinaDe
   await assertFails(desktop.doc('installations/pc-demo-nova').set({ ativo: true, maquinaDemo: true }));
   await assertSucceeds(adminCtx().doc('installations/pc-demo2').update({ maquinaDemo: true }));
 });
+
+// ---------------------------------------------------------------------
+// Mesas pelo celular (mesaCelularService.js): mesas_ao_vivo e
+// comandas_mesa só celular de garçom/PDV pareado e ativo lê; comandos_mesa
+// o celular cria (formato fechado, hora do servidor) e só o computador
+// responde.
+// ---------------------------------------------------------------------
+
+async function setupMesas(installId, { appGarcom = true, pdvMobile = true } = {}) {
+  await setupModulos(installId, { appGarcom, pdvMobile });
+  await semRegras(async (db) => {
+    await db.doc(`installations/${installId}/dispositivos/uid-garcom-m`).set({ tipo: 'garcom', ativo: true, vinculoUserId: 'u-garcom' });
+    await db.doc(`installations/${installId}/dispositivos/uid-pdv-m`).set({ tipo: 'pdv', ativo: true, vinculoUserId: 'u-operador' });
+    await db.doc(`installations/${installId}/dispositivos/uid-consulta-m`).set({ tipo: 'consulta', ativo: true, vinculoUserId: 'u-gerente' });
+    await db.doc(`installations/${installId}/mesas_ao_vivo/atual`).set({ mesas: [{ id: 'm1', numero: '1' }] });
+    await db.doc(`installations/${installId}/comandas_mesa/m1`).set({ pessoas: [{ numero: 1, nome: 'Ana' }] });
+  });
+}
+
+function comandoMesa(uid, extra = {}) {
+  return {
+    dispositivoUid: uid, status: 'novo', tipo: 'lancar', criadoEm: serverTs(), criadoEmCelularMs: Date.now(), appVersao: 'mesas-1',
+    mesaId: 'm1', itens: [{ produtoId: 'p1', quantidade: 1, pessoaNumero: 1, observacao: 'sem gelo' }], ...extra,
+  };
+}
+
+test('mesas: garçom e PDV móvel leem mesas e comanda; consulta remota, estranho e desktop não', SK, async () => {
+  await setupTestEnv();
+  await setupMesas('install-ME1');
+  for (const uid of ['uid-garcom-m', 'uid-pdv-m']) {
+    const db = testEnv.authenticatedContext(uid).firestore();
+    await assertSucceeds(db.doc('installations/install-ME1/mesas_ao_vivo/atual').get());
+    await assertSucceeds(db.doc('installations/install-ME1/comandas_mesa/m1').get());
+  }
+  for (const db of [testEnv.authenticatedContext('uid-consulta-m').firestore(), testEnv.authenticatedContext('uid-estranho').firestore(), semLogin()]) {
+    await assertFails(db.doc('installations/install-ME1/comandas_mesa/m1').get());
+    await assertFails(db.doc('installations/install-ME1/mesas_ao_vivo/atual').get());
+  }
+  // Só o computador publica.
+  await assertSucceeds(semLogin().doc('installations/install-ME1/comandas_mesa/m2').set({ pessoas: [] }));
+  await assertSucceeds(semLogin().doc('installations/install-ME1/comandas_mesa/m2').delete());
+  await assertFails(testEnv.authenticatedContext('uid-garcom-m').firestore().doc('installations/install-ME1/comandas_mesa/m1').set({ pessoas: [] }));
+});
+
+test('mesas: módulo desligado ou celular revogado perde a leitura', SK, async () => {
+  await setupTestEnv();
+  await setupMesas('install-ME2', { appGarcom: false });
+  await assertFails(testEnv.authenticatedContext('uid-garcom-m').firestore().doc('installations/install-ME2/comandas_mesa/m1').get());
+  await assertSucceeds(testEnv.authenticatedContext('uid-pdv-m').firestore().doc('installations/install-ME2/comandas_mesa/m1').get());
+  await semRegras((db) => db.doc('installations/install-ME2/dispositivos/uid-pdv-m').update({ ativo: false }));
+  await assertFails(testEnv.authenticatedContext('uid-pdv-m').firestore().doc('installations/install-ME2/comandas_mesa/m1').get());
+});
+
+test('comandos_mesa: celular de mesa cria com a hora do servidor; formato fora do combinado é recusado', SK, async () => {
+  await setupTestEnv();
+  await setupMesas('install-ME3');
+  const garcom = testEnv.authenticatedContext('uid-garcom-m').firestore();
+  const col = 'installations/install-ME3/comandos_mesa';
+  await assertSucceeds(garcom.doc(`${col}/c1`).set(comandoMesa('uid-garcom-m')));
+  await assertSucceeds(testEnv.authenticatedContext('uid-pdv-m').firestore().doc(`${col}/c2`).set(comandoMesa('uid-pdv-m', {
+    tipo: 'receber', itens: null, grupos: ['p1', 'mesa'], valorEsperado: 30, pagamentos: [{ metodo: 'pix', valor: 30 }],
+  })));
+  await assertSucceeds(garcom.doc(`${col}/c3`).set(comandoMesa('uid-garcom-m', { tipo: 'receber', itens: null, grupos: 'tudo', valorEsperado: 30, pagamentos: [] })));
+  await assertSucceeds(garcom.doc(`${col}/c4`).set(comandoMesa('uid-garcom-m', { tipo: 'cancelar_item', itens: null, itemId: 'i1', autorizadorId: 'u-gerente', pinCifrado: 'A'.repeat(344) })));
+  // Recusados.
+  await assertFails(garcom.doc(`${col}/r1`).set(comandoMesa('uid-garcom-m', { criadoEm: new Date(Date.now() - 3600000) })), 'hora inventada pelo celular');
+  await assertFails(garcom.doc(`${col}/r2`).set(comandoMesa('uid-garcom-m', { tipo: 'apagar_mesa' })));
+  await assertFails(garcom.doc(`${col}/r3`).set(comandoMesa('uid-garcom-m', { pin: '1234' })), 'campo fora da lista (PIN em claro)');
+  await assertFails(garcom.doc(`${col}/r4`).set(comandoMesa('uid-garcom-m', { status: 'feito' })));
+  await assertFails(garcom.doc(`${col}/r5`).set(comandoMesa('uid-outro')));
+  await assertFails(garcom.doc(`${col}/r6`).set(comandoMesa('uid-garcom-m', { itens: Array.from({ length: 101 }, () => ({ produtoId: 'p' })) })));
+  await assertFails(garcom.doc(`${col}/r7`).set(comandoMesa('uid-garcom-m', { observacao: 'x'.repeat(201) })));
+  await assertFails(garcom.doc(`${col}/r8`).set(comandoMesa('uid-garcom-m', { valorEsperado: '30' })));
+  await assertFails(garcom.doc(`${col}/r9`).set(comandoMesa('uid-garcom-m', { grupos: 'metade' })));
+  await assertFails(testEnv.authenticatedContext('uid-consulta-m').firestore().doc(`${col}/r10`).set(comandoMesa('uid-consulta-m')));
+});
+
+test('comandos_mesa: só o dono lê; só o computador responde e apaga; o celular não muda o pedido', SK, async () => {
+  await setupTestEnv();
+  await setupMesas('install-ME4');
+  const garcom = testEnv.authenticatedContext('uid-garcom-m').firestore();
+  const ref = 'installations/install-ME4/comandos_mesa/c1';
+  await assertSucceeds(garcom.doc(ref).set(comandoMesa('uid-garcom-m')));
+  await assertSucceeds(garcom.doc(ref).get());
+  await assertFails(testEnv.authenticatedContext('uid-pdv-m').firestore().doc(ref).get());
+  await assertFails(garcom.doc(ref).update({ status: 'feito' }));
+  await assertFails(garcom.doc(ref).delete());
+  const desktop = semLogin();
+  await assertSucceeds(desktop.collection('installations/install-ME4/comandos_mesa').where('status', '==', 'novo').get());
+  await assertSucceeds(desktop.doc(ref).update({ status: 'feito', resultado: { lancados: 1 }, respondidoEm: serverTs() }));
+  await assertFails(desktop.doc(ref).update({ itens: [] }));
+  await assertSucceeds(desktop.doc(ref).delete());
+});

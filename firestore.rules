@@ -734,6 +734,88 @@ service cloud.firestore {
       allow delete: if request.auth == null;
     }
 
+    // --------------------------------------------------------------
+    // Mesas pelo celular (garçom e operador) -- ver
+    // electron/services/mesaCelularService.js e pwa-mobile/src/mesas.
+    // Celular de garçom OU de PDV móvel, ativo, com o módulo pago do tipo
+    // dele. Se o PDV móvel está com "Mesas" desligado é o computador que
+    // recusa os comandos (mesma divisão de pedidos_garcom).
+    function dispositivoDeMesa(installId) {
+      let dRef = /databases/$(database)/documents/installations/$(installId)/dispositivos/$(request.auth.uid);
+      return exists(dRef)
+        && get(dRef).data.tipo in ['garcom', 'pdv']
+        && get(dRef).data.ativo == true
+        && moduloAtivo(installId, moduloDoTipoDePareamento(get(dRef).data.tipo));
+    }
+
+    function listaOpcional(dados, campo, max) {
+      return !dados.keys().hasAny([campo]) || dados[campo] == null || (dados[campo] is list && dados[campo].size() <= max);
+    }
+
+    // Mesas da loja e comanda de cada mesa ocupada: têm o nome das pessoas
+    // da mesa (dado pessoal), então só celular pareado e ativo lê. Só o
+    // computador publica (sem login, mesmo nível de confiança de
+    // status_ao_vivo).
+    match /installations/{installId}/mesas_ao_vivo/{docId} {
+      allow read: if request.auth != null && dispositivoDeMesa(installId);
+      allow write: if request.auth == null;
+    }
+    match /installations/{installId}/comandas_mesa/{mesaId} {
+      allow read: if request.auth != null && dispositivoDeMesa(installId);
+      allow write: if request.auth == null;
+    }
+
+    // Comandos do celular para a mesa: o celular cria, o computador aplica
+    // (conferindo de novo o celular e o papel atual do usuário) e responde
+    // no mesmo documento. `criadoEm` tem de ser a hora do servidor -- é por
+    // ela que o computador descarta comando que chegou atrasado. O PIN de
+    // gerente nunca vai em claro: `pinCifrado` só o computador abre.
+    match /installations/{installId}/comandos_mesa/{comandoId} {
+      allow create: if request.auth != null
+        && request.resource.data.dispositivoUid == request.auth.uid
+        && request.resource.data.status == 'novo'
+        && request.resource.data.criadoEm == request.time
+        && request.resource.data.tipo in ['abrir', 'lancar', 'adicionar_pessoa', 'renomear_pessoa', 'remover_pessoa',
+             'mover_item', 'observacao_item', 'cancelar_item', 'limpar_mesa', 'juntar', 'separar', 'transferir',
+             'taxa_servico', 'receber', 'meu_turno']
+        && request.resource.data.keys().hasOnly([
+             'dispositivoUid', 'status', 'tipo', 'criadoEm', 'criadoEmCelularMs', 'appVersao', 'mesaId', 'itens', 'pessoas',
+             'nome', 'numero', 'itemId', 'pessoaNumero', 'observacao', 'motivo', 'autorizadorId', 'pinCifrado', 'mesaIds',
+             'destinoId', 'percentual', 'grupos', 'valorEsperado', 'pagamentos'])
+        && textoCurto(request.resource.data, 'mesaId', 80)
+        && textoCurto(request.resource.data, 'nome', 40)
+        && textoCurto(request.resource.data, 'itemId', 80)
+        && textoCurto(request.resource.data, 'observacao', 200)
+        && textoCurto(request.resource.data, 'motivo', 200)
+        && textoCurto(request.resource.data, 'autorizadorId', 80)
+        && textoCurto(request.resource.data, 'pinCifrado', 1024)
+        && textoCurto(request.resource.data, 'destinoId', 80)
+        && textoCurto(request.resource.data, 'appVersao', 40)
+        && numeroOpcional(request.resource.data, 'criadoEmCelularMs')
+        && numeroOpcional(request.resource.data, 'pessoas')
+        && numeroOpcional(request.resource.data, 'numero')
+        && numeroOpcional(request.resource.data, 'pessoaNumero')
+        && numeroOpcional(request.resource.data, 'percentual')
+        && numeroOpcional(request.resource.data, 'valorEsperado')
+        && listaOpcional(request.resource.data, 'itens', 100)
+        && listaOpcional(request.resource.data, 'pagamentos', 10)
+        && listaOpcional(request.resource.data, 'mesaIds', 30)
+        && (!request.resource.data.keys().hasAny(['grupos']) || request.resource.data.grupos == 'tudo'
+            || (request.resource.data.grupos is list && request.resource.data.grupos.size() <= 210))
+        && dispositivoDeMesa(installId);
+
+      // Mesmo raciocínio de pedidos_garcom: o computador escuta sem login;
+      // o celular só vê os próprios comandos (documento inexistente não
+      // revela nada).
+      allow read: if request.auth == null
+        || (request.auth != null && (resource == null || resource.data.dispositivoUid == request.auth.uid));
+
+      allow update: if request.auth == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resultado', 'erro', 'respondidoEm']);
+
+      allow delete: if request.auth == null;
+    }
+
     // O que o celular pode fazer nesta loja + "sinal de vida" do
     // servidor (ver pdvMobileConfigService.js).
     match /installations/{installId}/config_mobile/{docId} {

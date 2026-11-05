@@ -22,7 +22,8 @@ import {
  * HTML (o catálogo é gravado pela máquina sem login).
  */
 
-const FIREBASE_SDK_VERSION = '11.10.0'; // mesma de firebase-config.js
+// SDK do Firebase pelo npm (mesma versão de firebase-config.js, ver package.json),
+// carregado só quando a página abre -- fica num arquivo separado do build.
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDcfANHaWg7pDGuTZpJJYpHCFXk88DCCrk',
   authDomain: 'gerenciaai-licencas.firebaseapp.com',
@@ -47,11 +48,11 @@ function aviso(titulo, texto) {
 }
 
 async function carregar(slug) {
-  const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`);
-  const F = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`);
+  const { initializeApp } = await import('firebase/app');
+  const F = await import('firebase/firestore');
   const app = initializeApp(FIREBASE_CONFIG, 'vitrine');
   try {
-    const AC = await import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app-check.js`);
+    const AC = await import('firebase/app-check');
     AC.initializeAppCheck(app, { provider: new AC.ReCaptchaEnterpriseProvider(RECAPTCHA_ENTERPRISE_SITE_KEY), isTokenAutoRefreshEnabled: true });
   } catch { /* App Check é reforço; sem ele a leitura pública continua funcionando hoje */ }
   const db = F.getFirestore(app);

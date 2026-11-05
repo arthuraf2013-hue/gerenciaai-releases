@@ -1,9 +1,13 @@
 import { formatarMoeda, formatarQuantidade, escapeHtml, METODOS, formatarDataHora, paraData, abrirSheet } from './pdv-util.js';
 import * as S from './pdv-servidor.js';
 import { mostrarRecibo } from './pdv-recibo.js';
+import { executar } from './src/mesas/servidorMesas.js';
 
 /** Aba "Vendas": as vendas feitas por ESTE celular (finalizadas,
- * aguardando e recusadas), com o resumo do dia e o recibo de cada uma. */
+ * aguardando e recusadas), com o resumo do dia e o recibo de cada uma.
+ * No topo, "Meu turno": o que o usuário deste celular vendeu no caixa
+ * aberto do computador (balcão, mesas e o que mais tiver passado por ele),
+ * pedido na hora ao computador (mesaCelularService.js, comando meu_turno). */
 
 const STATUS = {
   novo: { rotulo: 'Aguardando', classe: 'status-pendente' },
@@ -20,9 +24,47 @@ function mesmoDiaLocal(data, ref = new Date()) {
 
 function mount(container, ctx) {
   const { loja } = ctx;
-  container.innerHTML = `<div id="lista-vendas"><p class="estado-vazio"><span class="spinner spinner-pequeno"></span> Carregando...</p></div>`;
+  container.innerHTML = `
+    <div id="meu-turno" class="meu-turno" hidden></div>
+    <div id="lista-vendas"><p class="estado-vazio"><span class="spinner spinner-pequeno"></span> Carregando...</p></div>`;
   const lista = container.querySelector('#lista-vendas');
+  const turno = container.querySelector('#meu-turno');
   let vendas = [];
+  let desmontado = false;
+
+  async function carregarTurno() {
+    turno.hidden = false;
+    turno.innerHTML = '<p class="subtexto"><span class="spinner spinner-pequeno"></span> Meu turno: perguntando ao computador...</p>';
+    try {
+      const r = await executar(loja.installId, 'meu_turno', {}, { timeoutMs: 12000 });
+      if (desmontado) return;
+      renderTurno(r);
+    } catch (err) {
+      if (desmontado) return;
+      // Computador com versão antiga (não sabe responder) ou fora do ar: some, sem atrapalhar a lista.
+      turno.innerHTML = `<p class="subtexto">Meu turno indisponível agora. <button type="button" class="btn-link-inline" id="btn-turno">Tentar de novo</button></p>`;
+      turno.querySelector('#btn-turno').addEventListener('click', carregarTurno);
+    }
+  }
+
+  function renderTurno(r) {
+    if (!r.caixaAberto) {
+      turno.innerHTML = '<p class="aviso aviso-alerta">O caixa está fechado no computador da loja.</p>';
+      return;
+    }
+    turno.innerHTML = `
+      <div class="topo-secao"><div class="subtitulo-secao">Meu turno (caixa aberto ${escapeHtml(formatarDataHora(r.caixaAbertoEm))})</div>
+        <button type="button" class="btn-link-inline" id="btn-turno">Atualizar</button></div>
+      <div class="grid-resumo">
+        <div class="cartao-metrica"><div class="rotulo-metrica">Vendi no turno</div><div class="valor-metrica">${formatarMoeda(r.total)}</div></div>
+        <div class="cartao-metrica"><div class="rotulo-metrica">Vendas</div><div class="valor-metrica">${Number(r.vendas) || 0}</div></div>
+        <div class="cartao-metrica"><div class="rotulo-metrica">Recebi nas mesas</div><div class="valor-metrica">${formatarMoeda(r.recebidoNasMesas)}</div></div>
+      </div>
+      ${(r.porMetodo || []).length ? `<div class="chips-resumo">${r.porMetodo.map((m) => `<span class="chip-info">${escapeHtml(METODOS[m.metodo]?.rotulo || m.metodo)} ${formatarMoeda(m.total)}</span>`).join('')}</div>` : ''}`;
+    turno.querySelector('#btn-turno').addEventListener('click', carregarTurno);
+  }
+
+  carregarTurno();
 
   const parar = S.observarMinhasVendas(loja.installId, ({ vendas: v, erro }) => {
     if (erro) { lista.innerHTML = `<p class="msg-erro">${escapeHtml(erro.message)}</p>`; return; }
@@ -87,7 +129,7 @@ function mount(container, ctx) {
     el.querySelector('#btn-fechar-detalhe').addEventListener('click', fechar);
   }
 
-  return () => parar();
+  return () => { desmontado = true; parar(); };
 }
 
 export { mount };

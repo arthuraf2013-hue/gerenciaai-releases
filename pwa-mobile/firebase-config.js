@@ -4,12 +4,14 @@
 // já vai embutida no instalador do desktop, então repeti-la aqui não
 // expõe nada que já não estivesse público.
 //
-// Import direto do CDN (mesmo padrão do admin-panel/index.html) -- este
-// app é 100% estático, sem passo de build, pra poder ser publicado em
-// qualquer hospedagem de arquivo estático (Firebase Hosting, Netlify,
-// GitHub Pages...) só copiando a pasta. Versão fixada (11.10.0) pra não
-// quebrar silenciosamente quando o CDN atualizar a "latest".
-const FIREBASE_SDK_VERSION = '11.10.0';
+// O SDK vem do npm (package.json, versão fixada em 11.10.0) e entra no
+// build -- antes vinha do CDN (gstatic.com), que o service worker não
+// guardava: sem internet, o app nem abria. Agora o SDK é um arquivo do
+// próprio app e fica no cache junto com o resto (ver vite.config.js).
+import { initializeApp } from 'firebase/app';
+import * as authMod from 'firebase/auth';
+import * as firestoreMod from 'firebase/firestore';
+import * as appCheckMod from 'firebase/app-check';
 
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyDcfANHaWg7pDGuTZpJJYpHCFXk88DCCrk',
@@ -19,19 +21,6 @@ const FIREBASE_CONFIG = {
   messagingSenderId: '178576716496',
   appId: '1:178576716496:web:c3bbe7d59299fd135524d5',
 };
-
-const { initializeApp } = await import(
-  `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`
-);
-const authMod = await import(
-  `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-auth.js`
-);
-const firestoreMod = await import(
-  `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`
-);
-const appCheckMod = await import(
-  `https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app-check.js`
-);
 
 const app = initializeApp(FIREBASE_CONFIG);
 
@@ -47,7 +36,10 @@ const app = initializeApp(FIREBASE_CONFIG);
 // (nem quebra nada) -- o app continua exatamente como hoje, sem token
 // de App Check anexado nas chamadas ao Firestore.
 const RECAPTCHA_ENTERPRISE_SITE_KEY = '6Lfl46otAAAAAOm70sNp8ZCdAqTZma6acynM4Dle';
-if (RECAPTCHA_ENTERPRISE_SITE_KEY && RECAPTCHA_ENTERPRISE_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
+// Teste de ponta a ponta com os emuladores do Firebase (build com
+// VITE_FIREBASE_EMULADOR=1, ver README): nada aqui roda no app publicado.
+const EMULADOR = import.meta.env.VITE_FIREBASE_EMULADOR === '1';
+if (!EMULADOR && RECAPTCHA_ENTERPRISE_SITE_KEY && RECAPTCHA_ENTERPRISE_SITE_KEY !== 'PREENCHA_AQUI_DEPOIS_DE_REGISTRAR') {
   appCheckMod.initializeAppCheck(app, {
     provider: new appCheckMod.ReCaptchaEnterpriseProvider(RECAPTCHA_ENTERPRISE_SITE_KEY),
     isTokenAutoRefreshEnabled: true,
@@ -67,6 +59,11 @@ const db = firestoreMod.initializeFirestore(app, {
     tabManager: firestoreMod.persistentSingleTabManager({}),
   }),
 });
+
+if (EMULADOR) {
+  authMod.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  firestoreMod.connectFirestoreEmulator(db, '127.0.0.1', 8080);
+}
 
 export { app, auth, db };
 export const authFns = authMod;

@@ -1,48 +1,76 @@
-// Service worker mínimo -- só cuida de dois trabalhos:
-//  1) deixar o app instalável (PWA) e abrir instantaneamente mesmo com
-//     internet ruim (cache do "app shell": HTML/CSS/JS, não dado).
-//  2) nada de fila de pedido offline aqui -- isso já é resolvido pelo
-//     cache local persistente do Firestore (ver firebase-config.js).
+// Service worker do app do celular. Este arquivo é um MODELO: o build
+// (vite.config.js, gerarServiceWorker) troca __ARQUIVOS__ pela lista exata
+// dos arquivos de dist/ e __VERSAO__ por um hash do conteúdo deles, e grava
+// o resultado em dist/sw.js. Não registre este arquivo direto (no `npm run
+// dev` o app nem registra service worker).
 //
-// Estratégia network-first pros arquivos do app: tenta buscar a versão
-// nova primeiro (pra nunca travar numa versão velha depois de um
-// deploy), cai pro cache só se a rede falhar (offline de verdade).
-// Nunca intercepta chamada pro Firestore/Firebase -- só os arquivos
-// deste mesmo diretório.
+// O que ele faz:
+//  1) guarda o app inteiro no aparelho na instalação (inclusive o SDK do
+//     Firebase, que agora faz parte do build) -- o app abre sem internet;
+//  2) arquivos com hash no nome (assets/*) nunca mudam: vêm do cache;
+//  3) a página (HTML) tenta a rede primeiro, pra nunca ficar presa numa
+//     versão velha, e cai no cache se estiver sem internet;
+//  4) versão nova NÃO assume sozinha: fica esperando até a pessoa tocar em
+//     "Atualizar" (app.js) -- trocar de versão no meio de uma venda ou de
+//     um pedido perderia o que está na tela.
+// Nunca intercepta chamada de outro endereço (Firestore, Firebase Auth):
+// a fila offline dos pedidos é do próprio SDK do Firestore (IndexedDB).
 
-const CACHE = 'gerenciaai-garcom-v5'; // v5: aba Produtos do PDV móvel (pdv-gestao.js)
-const ARQUIVOS_SHELL = [
-  './', './index.html', './styles.css', './app.js', './firebase-config.js',
-  './store.js', './pairing.js', './garcom.js', './consulta.js', './manifest.webmanifest', './icons.js',
-  './pdv.js', './pdv-venda.js', './pdv-historico.js', './pdv-servidor.js', './pdv-scanner.js',
-  './pdv-recibo.js', './pdv-util.js', './painel-loja.js', './pdv-gestao.js',
-];
+const VERSAO = '__VERSAO__';
+const CACHE = `gerenciaai-app-${VERSAO}`;
+const ARQUIVOS = __ARQUIVOS__;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ARQUIVOS_SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE).then((cache) => cache.addAll(ARQUIVOS.map((url) => new Request(url, { cache: 'reload' }))))
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((chaves) => Promise.all(chaves.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+    caches.keys()
+      .then((chaves) => Promise.all(chaves.filter((k) => k.startsWith('gerenciaai-') && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data === 'atualizar') self.skipWaiting();
+});
+
+function ehPagina(request) {
+  return request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html');
+}
+
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return; // nunca mexe em chamada externa (Firestore, CDN do Firebase)
-  if (event.request.method !== 'GET') return;
+  const { request } = event;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (ehPagina(request)) {
+    event.respondWith(
+      fetch(request)
+        .then((resposta) => {
+          if (resposta.ok) {
+            const copia = resposta.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copia)).catch(() => {});
+          }
+          return resposta;
+        })
+        .catch(() => caches.match(request, { ignoreSearch: true })
+          .then((salva) => salva || caches.match('./index.html')))
+    );
+    return;
+  }
 
   event.respondWith(
-    fetch(event.request)
-      .then((resposta) => {
+    caches.match(request).then((salva) => salva || fetch(request).then((resposta) => {
+      if (resposta.ok) {
         const copia = resposta.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copia));
-        return resposta;
-      })
-      .catch(() => caches.match(event.request).then((cache) => cache || caches.match('./index.html')))
+        caches.open(CACHE).then((cache) => cache.put(request, copia)).catch(() => {});
+      }
+      return resposta;
+    }))
   );
 });

@@ -515,9 +515,11 @@ salao_beleza). Treinamento em PDF também é por perfil — 9 arquivos em
 
 ## App do celular (garçom + consulta remota) e `pwa-mobile/`
 
-`pwa-mobile/` é um segundo app, **fora do Electron** — um PWA estático
-(sem passo de build, Firebase importado de CDN) publicado à parte (ver
-`pwa-mobile/README.md`). Ele fala com o desktop só através do mesmo
+`pwa-mobile/` é um segundo app, **fora do Electron** — um PWA com build
+próprio (Vite; `npm --prefix pwa-mobile install`/`run build`/`test`; o SDK do
+Firebase vem do npm para o app abrir sem internet; `dist/sw.js` é gerado com a
+lista de arquivos) publicado à parte (ver `pwa-mobile/README.md`). Testes do PWA
+ficam em `pwa-mobile/tests` (fora do `npm test` da raiz). Ele fala com o desktop só através do mesmo
 projeto Firebase central de licenciamento (`gerenciaai-licencas`, ver
 `licenseService.js`) — nunca direto com o SQLite. Vínculo celular↔loja
 é por código de 6 dígitos (gerado em Configurações → Celular), nunca
@@ -572,6 +574,32 @@ e grava o resultado em `mobile_gestao_pedidos` na MESMA transação (reentrega n
 aplica duas vezes). Pedido com mais de 10 min é descartado (o celular avisa a
 pessoa nesse prazo). A regra do Firestore confere
 `config_mobile/pdv.gestaoLiberadaPara`. Operador nunca.
+
+**Painel de mesas** (garçom e operador, `pwa-mobile/src/mesas/`, React; lado
+do computador `electron/services/mesaCelularService.js`): o computador publica
+`mesas_ao_vivo/atual` e `comandas_mesa/{mesaPrincipalId}` só quando muda (ciclo
+de 3 s + sinal de vida de 30 s se há mesa; só com celular de mesa pareado) e
+aplica `comandos_mesa/{id}` (um por ação) conferindo o celular e o papel ATUAL
+do usuário, pelos MESMOS serviços da tela (`tableService`, `saleService`), com o
+resultado em `mobile_comandos_mesa` na mesma transação (migração 5). Regras:
+- Erro de ação é `ErroComando` dentro de um savepoint (desfaz só a ação e grava o
+  erro). Exceção: `cancelar_item` devolve `{ falha }` sem lançar, para não
+  desfazer a tentativa de PIN errado (auditoria + bloqueio).
+- PIN de gerente vem cifrado (RSA-OAEP/SHA-256, chave em `celular_chaves`); nunca
+  aceite PIN em claro do Firestore.
+- Só `lancar` vale atrasado (fila offline, até 12 h); o resto é recusado se a hora
+  do servidor (`criadoEm` == `request.time` nas regras) estiver longe da do
+  celular ou do processamento.
+- `receber` usa `calcularConta` (grupos por pessoa + 'mesa'; soma dos grupos =
+  total a pagar, arredondado sem ficar abaixo do que `finalizeSale` exige),
+  grava `payments.detalhes.grupos` (`origem: 'pdv_movel'`, entra no caixa daqui)
+  e, conta paga, finaliza + `releaseTable` (`concluirConta`, idempotente).
+- Tirar pessoa e mudar taxa de serviço com pagamento na conta: só pelo computador
+  (o pagamento por pessoa guarda o número da pessoa).
+- `saleService.addItem` só soma numa linha `pendente`, não impressa
+  (`enviado_cozinha = 0`) e sem observação; `observacao` no addItem = linha nova.
+O PWA cai no fluxo antigo (garçom embutido) se `mesas_ao_vivo` não existe ou a
+leitura é negada -- computador ou regras antigas continuam funcionando.
 
 **PDV mobile autônomo** (`mobile/`, app Android com Capacitor + SQLite
 nativo, `tipo = 'pdv_mobile_autonomo'`): vende sozinho, sem computador,

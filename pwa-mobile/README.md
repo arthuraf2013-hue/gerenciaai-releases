@@ -1,8 +1,18 @@
 # App do celular (garçom + consulta remota)
 
-PWA estático (sem passo de build, sem framework) que dá acesso pelo
-celular a duas coisas, pareadas por um código de 6 dígitos gerado no
+PWA (Vite + React no painel de mesas, JS puro no resto) que dá acesso pelo
+celular a estas coisas, pareadas por um código de 6 dígitos gerado no
 desktop (Configurações → Celular):
+
+- **Painel de mesas** (garçom e operador): mesas da loja ao vivo, comanda
+  de cada mesa separada por pessoa, "Lançar para" (cada item já nasce da
+  pessoa), observação por item, status da cozinha (aguardando / preparando
+  / pronto), pessoas com nome, mover item, cancelar item (com PIN de
+  gerente quando a loja exige) e marcar mesa limpa. No celular do operador
+  (PDV móvel) também: juntar, separar e transferir mesas e **fechar a
+  conta** (mesa inteira ou por pessoa, várias formas, troco, QR do Pix).
+  Lançar itens funciona sem internet (vai quando a conexão volta). Ver
+  "Painel de mesas" abaixo.
 
 - **Garçom**: monta um pedido a partir do catálogo da loja e manda pra
   `installations/{installId}/pedidos_garcom` — o desktop converte em
@@ -24,40 +34,102 @@ desktop (Configurações → Celular):
   está vinculado — suporta mais de uma loja no mesmo celular (dono de
   rede com várias unidades).
 
-## Por que sem build
+## Build (desde a versão 2)
 
-O resto do app (Electron + Vite + React) já tem um passo de build; este
-não tem de propósito, pra poder ser publicado em QUALQUER hospedagem de
-arquivo estático — Firebase Hosting, Netlify, GitHub Pages, ou só
-copiar a pasta pra um servidor — sem precisar instalar Node nem rodar
-`npm install` em lugar nenhum. Firebase é importado direto de um CDN
-(`https://www.gstatic.com/firebasejs/...`, mesma técnica do
-`admin-panel/index.html` já existente).
+Antes era 100% estático, sem build, com o Firebase vindo do CDN. Mudou
+porque o service worker não guardava o CDN: **sem internet o app nem
+abria**. Agora o SDK do Firebase vem do npm e entra no build, e o service
+worker guarda o app inteiro no aparelho.
+
+O resultado continua sendo arquivo estático (`dist/`), que qualquer
+hospedagem aceita -- só que agora quem publica precisa de Node 22+:
+
+```bash
+cd pwa-mobile
+npm install        # só na primeira vez (ou quando mudar o package.json)
+npm run build      # gera dist/
+npm test           # lógica + telas do painel de mesas (jsdom)
+npm run dev        # desenvolvimento (sem service worker)
+```
+
+Teste de ponta a ponta (dois celulares no Chrome + emuladores do Firebase +
+serviços do computador): ver `e2e/README.md` na raiz. Usa `npm run build:e2e`
+(app ligado nos emuladores) e `npm run preview:e2e`.
+
+`vite.config.js` gera `dist/sw.js` a partir de `sw.js` (modelo) com a lista
+exata dos arquivos e uma versão tirada do conteúdo: nunca mais trocar
+número de cache à mão. Versão nova não assume sozinha: o app mostra
+"Versão nova do app pronta · Atualizar" e só troca quando a pessoa toca
+(nunca no meio de uma venda ou de um pedido).
 
 ## Arquivos
 
 - `index.html` / `styles.css` — casca do app.
 - `app.js` — bootstrap: autenticação anônima + decide qual tela mostrar
   (pareamento, garçom ou consulta) com base no que está salvo em
-  `localStorage` (ver `store.js`).
+  `localStorage` (ver `store.js`); registra o service worker e mostra o
+  aviso de versão nova.
 - `pairing.js` — troca o código de 6 dígitos por um vínculo permanente.
-- `garcom.js` / `consulta.js` — telas do garçom e da consulta remota.
+- `garcom.js` / `consulta.js` — telas do garçom e da consulta remota. O
+  garçom ganha a aba "Mesas" (painel novo) quando o computador publica as
+  mesas; com ela, "Novo pedido" vira "Balcão" (pedido sem mesa).
 - `painel-loja.js` — o painel da loja (resumo do dia, histórico com
   gráficos, formas de pagamento, mais vendidos, por operador, mesas,
   pedidos, agregação do grupo), usado pela consulta remota e pela aba
   "Painel" do PDV móvel — uma fonte só, os dois mostram os mesmos números.
 - `pdv.js` — casca do PDV móvel (abas, indicador de conexão, config da
-  loja); `pdv-venda.js` (vender), `pdv-historico.js` (vendas),
-  `pdv-recibo.js`, `pdv-scanner.js` (câmera via BarcodeDetector),
+  loja); `pdv-venda.js` (vender), `pdv-historico.js` (vendas + "Meu
+  turno"), `pdv-recibo.js`, `pdv-scanner.js` (câmera via BarcodeDetector),
   `pdv-servidor.js` (tudo que fala com o computador via Firestore),
   `pdv-util.js`.
+- `src/mesas/` — painel de mesas em React: `PainelMesas.jsx` (estado e
+  navegação, com o "voltar" do celular), `TelaMesas`, `TelaComanda`,
+  `TelaLancar`, `TelaConta`, `comum.jsx`, `logica.js` (regras de tela,
+  sem React), `servidorMesas.js` (Firestore), `montar.jsx` (ponte com as
+  telas em JS puro), `mesas.css`.
 - `firebase-config.js` — inicializa o Firebase (mesmo projeto único do
   Electron, `gerenciaai-licencas`) com cache local persistente — é isso
   que dá a "fila offline" do garçom sem precisar escrever fila nenhuma
   à mão: um pedido criado sem internet fica no cache local e sincroniza
   sozinho quando a conexão voltar.
-- `manifest.webmanifest` / `sw.js` / `icons/` — deixam o app instalável
-  (PWA) na tela inicial do celular.
+- `public/manifest.webmanifest`, `public/icons/` — copiados como estão
+  para `dist/`; `sw.js` — modelo do service worker (ver Build).
+- `tests/` — `logica.test.js` e `telas.test.js` (o painel de verdade num
+  DOM de mentira, com o servidor trocado por `tests/apoio/servidorFalso.js`).
+
+## Painel de mesas
+
+Lado do computador: `electron/services/mesaCelularService.js`.
+
+- **Publicação** (computador → celular, só quando muda; sinal de vida a
+  cada 30 s se a loja tem mesa): `mesas_ao_vivo/atual` (todas as mesas +
+  caixa aberto, formas de pagamento liberadas, quem pode autorizar, chave
+  pública do PIN) e `comandas_mesa/{mesaPrincipalId}` (itens com pessoa,
+  observação e status da cozinha, pessoas e a conta por pessoa). Só
+  celular pareado e ativo lê (tem nome das pessoas da mesa).
+- **Comandos** (celular → computador): `comandos_mesa/{id}`, um
+  documento por ação (`lancar`, `abrir`, `adicionar_pessoa`,
+  `renomear_pessoa`, `remover_pessoa`, `mover_item`, `observacao_item`,
+  `cancelar_item`, `limpar_mesa`, `juntar`, `separar`, `transferir`,
+  `taxa_servico`, `receber`, `meu_turno`). O computador confere o celular
+  e o papel ATUAL do usuário, aplica pelos mesmos serviços da tela do
+  computador e responde no mesmo documento. Cada comando vale uma vez
+  (reentrega devolve o resultado guardado).
+- **Sem internet**: só "lançar" (o SDK guarda e envia depois, até 12 h;
+  a tela mostra "na fila"). O resto precisa do computador respondendo e é
+  recusado se chegar atrasado.
+- **PIN do gerente** (cancelar item de conta que já tem pagamento): vai
+  cifrado com a chave pública do computador (RSA-OAEP); no Firestore nunca
+  fica em claro. PIN errado conta para o bloqueio, igual no computador.
+- **Receber**: entra no caixa aberto do computador (igual à venda do PDV
+  móvel). Por pessoa: cada pagamento guarda de quem era
+  (`payments.detalhes.grupos`); a taxa de serviço e o desconto são
+  divididos na proporção de cada um. Conta toda paga: a venda finaliza e a
+  mesa vai para "aguardando limpeza".
+- **Compatibilidade**: se o computador ainda não publica as mesas
+  (GerenciaAI do computador antigo ou regras do Firestore antigas), o app
+  continua exatamente como antes (aba Mesas do PDV volta para o fluxo do
+  garçom embutido).
 
 ## Publicando
 
@@ -66,6 +138,8 @@ copiar a pasta pra um servidor — sem precisar instalar Node nem rodar
 ```bash
 npm install -g firebase-tools
 firebase login
+# uma vez: dependências do app do celular
+npm --prefix pwa-mobile install
 # cria um SITE de hosting novo dentro do projeto gerenciaai-licencas
 # (o hosting padrão pode já estar em uso por outra coisa -- um site
 # nomeado evita qualquer conflito):
@@ -74,9 +148,12 @@ firebase target:apply hosting garcom gerenciaai-garcom
 firebase deploy --only hosting:garcom
 ```
 
-Isso publica em `https://gerenciaai-garcom.web.app` (ou o domínio que
-você configurar). **Antes do primeiro deploy**, publique também as
-regras e o índice do Firestore (ver raiz do repositório):
+O `firebase.json` da raiz publica `pwa-mobile/dist` e roda o build antes
+(`predeploy`). Isso publica em `https://gerenciaai-garcom.web.app` (ou o
+domínio que você configurar). **Antes do primeiro deploy** (e sempre que
+`firestore.rules` mudar -- o painel de mesas precisa das regras novas),
+publique também as regras e o índice do Firestore (ver raiz do
+repositório):
 
 ```bash
 firebase deploy --only firestore:rules,firestore:indexes
@@ -98,27 +175,25 @@ com "Não foi possível conectar agora" na hora de digitar o código
 
 ### Outras opções
 
-Qualquer hospedagem de arquivo estático funciona -- é só copiar a pasta
-`pwa-mobile/` inteira (mantendo os caminhos relativos). Netlify: arraste
-a pasta pro painel. GitHub Pages: publique esta pasta como a raiz do
-site. Em qualquer uma delas, as regras e o índice do Firestore acima
-continuam precisando ser publicados separadamente (via `firebase
-deploy --only firestore:rules,firestore:indexes` ou pelo Console).
+Qualquer hospedagem de arquivo estático funciona -- é só rodar
+`npm run build` e copiar a pasta `pwa-mobile/dist/` inteira (os caminhos
+são relativos). Netlify: arraste a pasta `dist` pro painel. GitHub Pages:
+publique `dist` como a raiz do site. Em qualquer uma delas, as regras e o
+índice do Firestore acima continuam precisando ser publicados
+separadamente (via `firebase deploy --only firestore:rules,firestore:indexes`
+ou pelo Console).
 
 ## Testando localmente
 
-Como é 100% estático, qualquer servidor HTTP simples funciona (não pode
-ser `file://` direto -- módulos ES e o service worker exigem
-http/https):
-
 ```bash
 cd pwa-mobile
-python3 -m http.server 8080
-# ou: npx serve .
+npm run dev            # http://localhost:5173 (sem service worker)
+npm run build && npm run preview   # o app como vai ser publicado
 ```
 
-Abra `http://localhost:8080` no celular (mesma rede Wi-Fi) ou no
-Chrome DevTools em modo responsivo no computador.
+Para abrir no celular na mesma rede Wi-Fi: `npm run dev -- --host` e use o
+endereço que aparecer. Obs.: o PIN de gerente é cifrado com WebCrypto, que
+só existe em https ou em `localhost`.
 
 ## Módulos pagos (Consulta remota, App do garçom)
 

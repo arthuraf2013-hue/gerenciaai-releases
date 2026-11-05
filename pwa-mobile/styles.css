@@ -650,3 +650,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .modal-caixa .rotulo { margin-bottom: -4px; }
 .modal-caixa select.campo { appearance: auto; }
 .modal-caixa p.subtexto:empty { display: none; }
+
+/* Aviso de versão nova do app (app.js) */
+.aviso-atualizacao {
+  position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 40;
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--color-surface); border: 1px solid var(--color-primary); box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  font-weight: 600; max-width: 456px; margin: 0 auto;
+}
+.aviso-atualizacao span { flex: 1; }
+.btn-pequeno { min-height: 36px; padding: 6px 14px; font-size: 14px; }
+body.modo-pdv .aviso-atualizacao { bottom: calc(var(--altura-nav) + 12px + env(safe-area-inset-bottom)); }
+.meu-turno { margin-bottom: 16px; }

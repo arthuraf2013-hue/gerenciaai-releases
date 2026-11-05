@@ -1,5 +1,6 @@
 import { auth, db, firestoreFns } from './firebase-config.js';
 import { icon } from './icons.js';
+import { montarPainelMesas, observarPainelDisponivel } from './src/mesas/montar.jsx';
 
 const formatarMoeda = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); // Number(): o dado vem do Firestore; uma string passaria direto pro HTML
 
@@ -17,6 +18,14 @@ const formatarMoeda = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: '
  * pdv.js): sem cabeçalho/menu próprios (o PDV já tem os dele) e sem o
  * sinal de vida (o PDV já manda) -- o resto do fluxo é exatamente o
  * mesmo do app do garçom.
+ *
+ * Aba "Mesas" (app do garçom, não embutido): o painel novo
+ * (src/mesas/PainelMesas.jsx -- comanda ao vivo, lançar por pessoa,
+ * observação por item). Só aparece quando o computador da loja publica as
+ * mesas (GerenciaAI do computador atualizado + regras publicadas + mesa
+ * cadastrada); senão o app continua exatamente como antes. Com o painel
+ * ligado, "Novo pedido" vira "Balcão" (pedido sem mesa: retirada/entrega) -- a mesa se
+ * lança pelo painel, que separa por pessoa.
  */
 function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja, embutido = false }) {
   let status = { catalogoProdutos: [], mesas: [], nomeNegocio: loja.nomeNegocio, perfilAtivo: null };
@@ -24,7 +33,10 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
   let categoriaAtiva = 'todas';
   let busca = '';
   const carrinho = new Map(); // productId (ou 'avulso-N' pra item fora do catálogo) -> { produto, quantidade }
-  let abaAtiva = 'novo'; // 'novo' | 'meus-pedidos'
+  let abaAtiva = 'novo'; // 'mesas' | 'novo' | 'meus-pedidos'
+  let painelDisponivel = false; // computador publica as mesas (aba "Mesas")
+  let escolheuAba = false;
+  let desmontarPainel = null;
 
   root.innerHTML = `
     <div class="${embutido ? 'garcom-embutido' : 'app-shell'}">
@@ -39,6 +51,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
       <div id="menu-topo" class="menu-suspenso" hidden></div>`}
 
       <nav class="abas">
+        <button class="aba" data-aba="mesas" hidden>Mesas</button>
         <button class="aba ativa" data-aba="novo">Novo pedido</button>
         <button class="aba" data-aba="meus-pedidos">Meus pedidos</button>
       </nav>
@@ -52,9 +65,8 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
   if (!embutido) montarMenuTopo();
   root.querySelectorAll('.aba').forEach((btn) => {
     btn.addEventListener('click', () => {
-      abaAtiva = btn.dataset.aba;
-      root.querySelectorAll('.aba').forEach((b) => b.classList.toggle('ativa', b === btn));
-      renderAbaAtiva();
+      escolheuAba = true;
+      trocarAba(btn.dataset.aba);
     });
   });
 
@@ -110,9 +122,48 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
     }
   }
 
+  function trocarAba(aba) {
+    abaAtiva = aba;
+    root.querySelectorAll('.aba').forEach((b) => b.classList.toggle('ativa', b.dataset.aba === aba));
+    renderAbaAtiva();
+  }
+
   function renderAbaAtiva() {
-    if (abaAtiva === 'novo') renderNovoPedido();
+    root.querySelector('#conteudo-aba')?.classList.toggle('conteudo-painel-mesas', abaAtiva === 'mesas');
+    if (abaAtiva !== 'mesas' && desmontarPainel) { desmontarPainel(); desmontarPainel = null; }
+    if (abaAtiva === 'mesas') renderPainelMesas();
+    else if (abaAtiva === 'novo') renderNovoPedido();
     else renderMeusPedidos();
+  }
+
+  // ---------- Aba "Mesas" (painel novo) ----------
+
+  function renderPainelMesas() {
+    const conteudo = root.querySelector('#conteudo-aba');
+    const flutuante = root.querySelector('#carrinho-flutuante');
+    if (flutuante) flutuante.hidden = true;
+    if (desmontarPainel) return;
+    conteudo.innerHTML = '';
+    desmontarPainel = montarPainelMesas(conteudo, { loja, modo: 'garcom', aoSemPainel: () => definirPainel(false) });
+  }
+
+  /** O computador passou (ou deixou) de publicar as mesas. */
+  function definirPainel(disponivel) {
+    if (disponivel === painelDisponivel) return;
+    painelDisponivel = disponivel;
+    const aba = root.querySelector('.aba[data-aba="mesas"]');
+    const abaNovo = root.querySelector('.aba[data-aba="novo"]');
+    if (aba) aba.hidden = !disponivel;
+    if (abaNovo) abaNovo.textContent = disponivel ? 'Balcão' : 'Novo pedido';
+    if (disponivel) {
+      mesaSelecionada = null;
+      if (!escolheuAba) trocarAba('mesas');
+      else if (abaAtiva === 'novo') renderNovoPedido();
+    } else if (abaAtiva === 'mesas') {
+      trocarAba('novo');
+    } else if (abaAtiva === 'novo') {
+      renderNovoPedido();
+    }
   }
 
   // ---------- Aba "novo pedido" ----------
@@ -122,7 +173,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
     const categorias = ['todas', ...new Set(status.catalogoProdutos.map((p) => p.categoria).filter(Boolean))];
 
     conteudo.innerHTML = `
-      ${status.perfilAtivo === 'restaurante' ? renderSeletorMesa() : ''}
+      ${status.perfilAtivo === 'restaurante' && !painelDisponivel ? renderSeletorMesa() : ''}
       <div class="busca-produtos">
         <input id="input-busca" type="search" placeholder="Buscar produto..." value="${escapeHtml(busca)}" />
       </div>
@@ -139,7 +190,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
     });
     conteudo.querySelector('#btn-item-avulso').addEventListener('click', abrirModalItemAvulso);
 
-    if (status.perfilAtivo === 'restaurante') {
+    if (status.perfilAtivo === 'restaurante' && !painelDisponivel) {
       conteudo.querySelectorAll('[data-mesa]').forEach((btn) => {
         btn.addEventListener('click', () => {
           if (btn.disabled) return;
@@ -445,9 +496,13 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja,
 
   renderNovoPedido();
 
+  const pararDisponibilidade = embutido ? null : observarPainelDisponivel(loja.installId, definirPainel);
+
   return () => {
     pararEscutaStatus();
     if (pararEscutaMeusPedidos) pararEscutaMeusPedidos();
+    if (pararDisponibilidade) pararDisponibilidade();
+    if (desmontarPainel) { desmontarPainel(); desmontarPainel = null; }
   };
 }
 

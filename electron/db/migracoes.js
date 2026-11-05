@@ -262,6 +262,48 @@ const MIGRACOES = [
       `);
     },
   },
+  {
+    versao: 5,
+    nome: 'celular: comandos da mesa (garçom/operador) e chave para o PIN de autorização',
+    up(db) {
+      // Cada comando do celular (lançar itens, pessoas, mover, cancelar,
+      // juntar, receber...) vale UMA vez: o resultado fica aqui, na mesma
+      // transação do que ele mudou (ver mesaCelularService.js). Reentrega do
+      // Firestore devolve o resultado guardado em vez de aplicar de novo.
+      //
+      // celular_chaves: par RSA gerado neste computador. A pública vai para o
+      // celular, que cifra com ela o PIN do gerente antes de gravar no
+      // Firestore; só este computador abre (a privada nunca sai daqui).
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS mobile_comandos_mesa (
+          id         TEXT PRIMARY KEY,
+          device_id  TEXT NOT NULL,
+          usuario_id TEXT,
+          tipo       TEXT NOT NULL,
+          table_id   TEXT,
+          sale_id    TEXT,
+          ok         INTEGER NOT NULL DEFAULT 0,
+          resultado  TEXT,
+          erro       TEXT,
+          criado_em  TEXT NOT NULL DEFAULT (NOW_SYNCED())
+        );
+        CREATE INDEX IF NOT EXISTS idx_mobile_comandos_mesa_device ON mobile_comandos_mesa(device_id, criado_em);
+        CREATE TABLE IF NOT EXISTS celular_chaves (
+          id            TEXT PRIMARY KEY,
+          chave_publica TEXT NOT NULL,
+          chave_privada TEXT NOT NULL,
+          criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+        );
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_mobile_comandos_mesa_device;
+        DROP TABLE IF EXISTS mobile_comandos_mesa;
+        DROP TABLE IF EXISTS celular_chaves;
+      `);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

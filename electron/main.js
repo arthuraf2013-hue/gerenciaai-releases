@@ -242,6 +242,11 @@ app.whenReady().then(() => {
     // catálogo publicado, cliente, Pix) e config/sinal de vida pro celular.
     // Ver pdvMobileSyncService.js.
     require('./services/pdvMobileSyncService').iniciarPdvMobile();
+    // Mesas pelo celular (garçom e operador): comanda ao vivo de cada mesa e
+    // os comandos que chegam do celular (lançar por pessoa, mover, juntar,
+    // receber...). Só publica se houver celular de mesa pareado. Ver
+    // mesaCelularService.js.
+    require('./services/mesaCelularService').iniciar();
     // Celular PDV mobile autônomo que foi migrado pra cá e virou TERMINAL
     // deste computador (decidido na Central): recebe as vendas feitas
     // nele (mesmo offline, chegam quando a rede volta) e publica o

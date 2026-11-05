@@ -7,6 +7,7 @@ import * as telaVenda from './pdv-venda.js';
 import * as telaHistorico from './pdv-historico.js';
 import * as telaGestao from './pdv-gestao.js';
 import * as garcom from './garcom.js';
+import { montarPainelMesas } from './src/mesas/montar.jsx';
 import * as painelLoja from './painel-loja.js';
 import { auth } from './firebase-config.js';
 
@@ -135,7 +136,7 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     if (aba === 'vender') desmontarAba = telaVenda.mount(conteudo, ctx) || (() => {});
     else if (aba === 'vendas') desmontarAba = telaHistorico.mount(conteudo, ctx) || (() => {});
     else if (aba === 'produtos') desmontarAba = telaGestao.mount(conteudo, ctx) || (() => {});
-    else if (aba === 'mesas') desmontarAba = garcom.mount(conteudo, { loja, lojas, embutido: true }) || (() => {});
+    else if (aba === 'mesas') desmontarAba = montarMesas(conteudo);
     else if (aba === 'painel') {
       desmontarAba = painelLoja.mount(conteudo, {
         loja,
@@ -144,6 +145,25 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
     }
     else desmontarAba = montarAjustes();
     renderNav();
+  }
+
+  /** Aba Mesas: o painel novo (comanda ao vivo, lançar por pessoa, fechar a
+   * conta -- src/mesas). Se o computador ainda não publica as mesas
+   * (GerenciaAI do computador desatualizado, regras antigas), volta para o
+   * fluxo antigo do garçom embutido, igual a antes. */
+  function montarMesas(alvo) {
+    let desmontar = null;
+    let usandoAntigo = false;
+    const voltarParaAntigo = () => {
+      if (usandoAntigo) return;
+      usandoAntigo = true;
+      if (desmontar) desmontar();
+      alvo.innerHTML = '';
+      desmontar = garcom.mount(alvo, { loja, lojas, embutido: true }) || (() => {});
+    };
+    alvo.innerHTML = ''; // a aba anterior (ex.: Vender) deixa o HTML dela aqui
+    desmontar = montarPainelMesas(alvo, { loja, modo: 'pdv', aoSemPainel: voltarParaAntigo });
+    return () => { if (desmontar) desmontar(); };
   }
 
   /** Garante que a aba ativa continua permitida depois de uma mudança na
