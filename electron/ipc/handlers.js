@@ -416,6 +416,12 @@ function registerIpcHandlers() {
   safeHandle('table:updatePeople', (_e, { tableId, pessoas }) => tableService.updateTablePeople({ tableId, pessoas }));
   safeHandle('table:desocupar', (_e, payload) => tableService.desocuparMesa(payload));
   safeHandle('table:montarLinkPedido', (_e, payload) => tableService.montarLinkPedidoMesa(payload));
+  // Mesas unidas e pessoas nomeadas (currentOperatorId vem sempre da sessão).
+  safeHandle('table:juntar', (_e, payload) => tableService.juntarMesas(payload || {}));
+  safeHandle('table:separar', (_e, payload) => tableService.separarMesa(payload || {}));
+  safeHandle('table:adicionarPessoa', (_e, payload) => tableService.adicionarPessoa(payload || {}));
+  safeHandle('table:renomearPessoa', (_e, payload) => tableService.renomearPessoa(payload || {}));
+  safeHandle('table:removerPessoa', (_e, payload) => tableService.removerPessoa(payload || {}));
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));

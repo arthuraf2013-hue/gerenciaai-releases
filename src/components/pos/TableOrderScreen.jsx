@@ -13,6 +13,7 @@ import { usePromptModal } from '../../hooks/usePromptModal';
 import { PromptModal } from '../common/PromptModal';
 import { playBeep } from '../../utils/sound';
 import Icon from '../common/Icon';
+import { DropdownMenu, DropdownMenuItem } from '../common/DropdownMenu';
 
 function playErrorBeep() {
   try {
@@ -60,18 +61,39 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   useEscToClose(() => setEditandoObs(null), !!editandoObs);
   const [showTransferir, setShowTransferir] = useState(false);
   useEscToClose(() => setShowTransferir(false), showTransferir);
-  const [mostrarDivisao, setMostrarDivisao] = useState(false);
   const [mesasLivres, setMesasLivres] = useState([]);
   const [transferError, setTransferError] = useState('');
   const [showCustomItemBuilder, setShowCustomItemBuilder] = useState(false);
+  // Pessoas da comanda (vagas 1..N, com nome opcional) e grupo de mesas unidas.
+  const [pessoasLista, setPessoasLista] = useState([]);
+  const [grupo, setGrupo] = useState(null); // { principal, unidas: [] } | null
+  const [showJuntar, setShowJuntar] = useState(false);
+  useEscToClose(() => setShowJuntar(false), showJuntar);
+  const [mesasParaJuntar, setMesasParaJuntar] = useState([]);
+  const [juntarSelecionadas, setJuntarSelecionadas] = useState([]);
+  const [juntarError, setJuntarError] = useState('');
+  const [juntando, setJuntando] = useState(false);
+  // Para quem os próximos itens vão (null = sem pessoa). Escolhe uma vez e
+  // vai tocando nos produtos -- sem escolher a pessoa item por item.
+  const [pessoaAtiva, setPessoaAtiva] = useState(null);
 
-  useEffect(() => {
-    window.pdv.table.getCart({ saleId }).then((cart) => {
-      setItems(cart.items || []);
-      setTotal(cart.total || 0);
-      setTaxaServicoPercentual(cart.taxaServicoPercentual || 0);
-    });
-  }, [saleId]);
+  const aplicarPessoas = useCallback((lista) => {
+    const pessoasDaComanda = Array.isArray(lista) ? lista : [];
+    setPessoasLista(pessoasDaComanda);
+    setPessoasAtual(pessoasDaComanda.length || null);
+    setPessoaAtiva((atual) => (atual && atual <= pessoasDaComanda.length ? atual : null));
+  }, []);
+
+  const recarregarComanda = useCallback(async () => {
+    const cart = await window.pdv.table.getCart({ saleId });
+    setItems(cart.items || []);
+    setTotal(cart.total || 0);
+    setTaxaServicoPercentual(cart.taxaServicoPercentual || 0);
+    aplicarPessoas(cart.pessoas);
+    setGrupo(cart.grupo || null);
+  }, [saleId, aplicarPessoas]);
+
+  useEffect(() => { recarregarComanda(); }, [recarregarComanda]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -83,7 +105,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     const quantidade = Math.max(1, Number(pendingQty) || 1);
     const result = await window.pdv.sale.addItem({
       saleId, productId: product.id, locationId: LOCATION_ID,
-      quantidade, operadorId: currentUser.id, deviceId: DEVICE_ID,
+      quantidade, operadorId: currentUser.id, deviceId: DEVICE_ID, pessoaNumero: pessoaAtiva,
     });
     if (!result.ok) {
       setFeedback({ message: result.error, type: 'error' });
@@ -98,6 +120,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       }
       return [...prev, {
         id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
+        pessoaNumero: pessoaAtiva,
       }];
     });
     playBeep();
@@ -105,15 +128,18 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     // ativas), não de um incremento local — ver saleService.recalcularTotal.
     setTotal(result.novoTotal);
     setPendingQty('1');
-    setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
+    const destino = pessoasLista.find((p) => p.numero === pessoaAtiva);
+    setFeedback({ message: `${product.nome} adicionado${destino ? ` para ${destino.nome || `Pessoa ${destino.numero}`}` : ''}.`, type: 'success' });
   }
 
   /** Item personalizado já foi gravado no backend pelo CustomItemBuilder —
    * aqui só reflete no carrinho da mesa, igual addProductToCart faz
    * depois de um addItem normal. */
   function handleCustomItemAdded(result) {
+    if (pessoaAtiva) window.pdv.sale.setItemPerson({ saleItemId: result.itemId, pessoaNumero: pessoaAtiva });
     setItems((prev) => [...prev, {
       id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
+      pessoaNumero: pessoaAtiva,
     }]);
     setTotal(result.novoTotal); // recalculado no backend — ver addProductToCart
     setShowCustomItemBuilder(false);
@@ -144,7 +170,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     playErrorBeep();
   }, [addProductToCart]);
 
-  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder });
+  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder && !showJuntar && !promptState });
 
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
@@ -247,10 +273,76 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     const novoValor = Number(pessoasInput);
     if (!novoValor || novoValor < 1) return;
     const result = await window.pdv.table.updatePeople({ tableId, pessoas: novoValor });
-    if (result.ok) {
-      setPessoasAtual(novoValor);
-      setEditandoPessoas(false);
+    if (!result.ok) {
+      setFeedback({ message: result.error, type: 'error' });
+      return;
     }
+    aplicarPessoas(result.pessoas);
+    setEditandoPessoas(false);
+  }
+
+  // ---- pessoas nomeadas (sem limite) ----
+  const rotuloPessoa = (p) => (p.nome ? `${p.numero} · ${p.nome}` : `Pessoa ${p.numero}`);
+
+  async function adicionarPessoa() {
+    const nomeDigitado = await promptAsync('Nome da nova pessoa (opcional):', '', { placeholder: 'Ex: Ana' });
+    if (nomeDigitado === null) return;
+    const result = await window.pdv.table.adicionarPessoa({ tableId, nome: nomeDigitado });
+    if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
+    aplicarPessoas(result.pessoas);
+  }
+
+  async function renomearPessoa(pessoa) {
+    const nomeDigitado = await promptAsync(`Nome da pessoa ${pessoa.numero} (vazio apaga o nome):`, pessoa.nome || '', { placeholder: 'Ex: Ana' });
+    if (nomeDigitado === null) return;
+    const result = await window.pdv.table.renomearPessoa({ tableId, numero: pessoa.numero, nome: nomeDigitado });
+    if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
+    aplicarPessoas(result.pessoas);
+  }
+
+  async function removerPessoa(pessoa) {
+    const result = await window.pdv.table.removerPessoa({ tableId, numero: pessoa.numero });
+    if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
+    // Itens dessa pessoa voltaram para "não atribuído" e as seguintes subiram um número.
+    setPessoaAtiva(null);
+    await recarregarComanda();
+    setFeedback({ message: `${rotuloPessoa(pessoa)} removida. Os itens dela ficaram sem pessoa.`, type: 'success' });
+  }
+
+  // ---- juntar e separar mesas ----
+  async function abrirJuntar() {
+    setJuntarError('');
+    setJuntarSelecionadas([]);
+    const list = await window.pdv.table.list({ locationId: window.APP_LOCATION_ID });
+    const idsDoGrupo = new Set([tableId, grupo?.principal?.id, ...(grupo?.unidas || []).map((m) => m.id)].filter(Boolean));
+    setMesasParaJuntar(Array.isArray(list)
+      ? list.filter((t) => !idsDoGrupo.has(t.id) && !t.unida_a_mesa_id && (t.status === 'livre' || t.status === 'ocupada'))
+      : []);
+    setShowJuntar(true);
+  }
+
+  async function confirmarJuntar() {
+    if (juntarSelecionadas.length === 0) return setJuntarError('Escolha pelo menos uma mesa.');
+    setJuntando(true);
+    const result = await window.pdv.table.juntar({ tableId, mesaIds: juntarSelecionadas, currentOperatorId: currentUser.id });
+    setJuntando(false);
+    if (!result.ok) return setJuntarError(result.error);
+    await recarregarComanda();
+    setShowJuntar(false);
+    setFeedback({ message: 'Mesas unidas. A conta agora é uma só.', type: 'success' });
+  }
+
+  async function separarMesa(mesa) {
+    const result = await window.pdv.table.separar({ tableId: mesa.id, currentOperatorId: currentUser.id });
+    if (!result.ok) return setJuntarError(result.error);
+    if (mesa.id === tableId) {
+      // Esta tela era a da mesa separada: ela não tem mais comanda.
+      setShowJuntar(false);
+      onFechar();
+      return;
+    }
+    await recarregarComanda();
+    setFeedback({ message: `${mesa.nome || `Mesa ${mesa.numero}`} separada. O consumo continua nesta comanda.`, type: 'success' });
   }
 
   async function handleImprimirComanda() {
@@ -290,15 +382,16 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   const itensAtivos = items.filter((i) => !i.cancelado);
 
-  const divisaoPorPessoa = Object.values(
-    itensAtivos.reduce((acc, item) => {
-      const pessoa = item.pessoaNumero || 0; // 0 = não atribuído
-      const subtotalItem = item.precoUnitario * item.quantidade;
-      if (!acc[pessoa]) acc[pessoa] = { pessoa, subtotal: 0 };
-      acc[pessoa].subtotal += subtotalItem;
-      return acc;
-    }, {})
-  ).sort((a, b) => a.pessoa - b.pessoa);
+  // Comanda agrupada por pessoa: quem tem item, quem ainda não tem, e "Sem pessoa".
+  const numerosValidos = new Set(pessoasLista.map((p) => p.numero));
+  const gruposComItens = pessoasLista
+    .map((p) => ({ numero: p.numero, pessoa: p, itens: itensAtivos.filter((i) => i.pessoaNumero === p.numero) }))
+    .filter((g) => g.itens.length > 0);
+  const pessoasSemItens = pessoasLista.filter((p) => !itensAtivos.some((i) => i.pessoaNumero === p.numero));
+  const itensSemPessoa = itensAtivos.filter((i) => !i.pessoaNumero || !numerosValidos.has(i.pessoaNumero));
+  const subtotal = (lista) => lista.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
+  const nomeCurto = (p) => p.nome || `Pessoa ${p.numero}`;
+  const podeEditarPreco = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
 
   async function atribuirPessoa(itemId, valor) {
     const pessoaNumero = valor ? Number(valor) : null;
@@ -307,134 +400,165 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }
 
 
+  function renderItem(item) {
+    return (
+      <li
+        key={item.id}
+        className={selectedItemId === item.id ? 'mesa-item mesa-item-selecionado' : 'mesa-item'}
+        onClick={() => setSelectedItemId(item.id)}
+      >
+        <span className="mesa-item-nome">
+          {item.nome} × {item.quantidade}
+          {item.observacao && <span className="mesa-item-obs"><Icon name="warning" size={12} /> {item.observacao}</span>}
+        </span>
+        <span className="mesa-item-preco">{(item.precoUnitario * item.quantidade).toFixed(2)}</span>
+        <DropdownMenu label="⋯">
+          {pessoasLista.filter((p) => p.numero !== item.pessoaNumero).map((p) => (
+            <DropdownMenuItem key={p.numero} onClick={() => atribuirPessoa(item.id, p.numero)}>Mover para {nomeCurto(p)}</DropdownMenuItem>
+          ))}
+          {item.pessoaNumero && <DropdownMenuItem onClick={() => atribuirPessoa(item.id, '')}>Tirar da pessoa</DropdownMenuItem>}
+          <DropdownMenuItem onClick={() => abrirEdicaoObs(item)}>{item.observacao ? 'Editar observação' : 'Observação'}</DropdownMenuItem>
+          {podeEditarPreco && <DropdownMenuItem onClick={() => handleEditarPrecoItem(item)}>Editar preço</DropdownMenuItem>}
+          <DropdownMenuItem danger onClick={() => requestCancelItem(item.id)}>Cancelar item</DropdownMenuItem>
+        </DropdownMenu>
+      </li>
+    );
+  }
+
   return (
-    <div className="pos-screen">
+    <div className="pos-screen mesa-tela">
       <header className="pos-header">
-        <h1>{nome || `Mesa ${numero}`}</h1>
-        <div className="pos-header-right">
-          {pessoas ? (
-            <button type="button" className="pos-operator pos-operator-editable" onClick={abrirEdicaoPessoas} title="Editar número de pessoas">
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{pessoas} pessoa(s) <Icon name="edit" size={13} /></span>
-            </button>
-          ) : (
-            <button type="button" className="pos-operator pos-operator-editable" onClick={abrirEdicaoPessoas}>
-              + Informar nº de pessoas
-            </button>
+        <h1>
+          {grupo?.principal ? (grupo.principal.nome || `Mesa ${grupo.principal.numero}`) : (nome || `Mesa ${numero}`)}
+          {grupo?.unidas?.length > 0 && (
+            <span className="mesa-unidas-titulo"> + {grupo.unidas.map((m) => m.nome || `Mesa ${m.numero}`).join(' + ')}</span>
           )}
-          <button className="close-cash-btn" onClick={abrirTransferencia}>Transferir mesa</button>
-          <button className="close-cash-btn" onClick={requestDesocupar} title="Libera a mesa sem precisar fechar a conta — para mesa aberta por engano, ou cliente que foi embora">
-            Desocupar
+        </h1>
+        <div className="pos-header-right">
+          <button className="close-cash-btn" onClick={abrirJuntar}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="link" size={15} /> {grupo?.unidas?.length > 0 ? `Mesas unidas (${grupo.unidas.length})` : 'Juntar mesas'}
+            </span>
           </button>
-          <button className="close-cash-btn" onClick={handleImprimirComanda}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" />
-            </svg>
-            Comanda p/ cozinha
+          <button className="close-cash-btn" onClick={handleImprimirComanda} title="Imprimir a comanda para a cozinha">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Cozinha</span>
           </button>
+          <DropdownMenu label="Mais">
+            <DropdownMenuItem onClick={abrirEdicaoPessoas}>Número de pessoas ({pessoas || 0})</DropdownMenuItem>
+            {!(grupo?.unidas?.length > 0) && <DropdownMenuItem onClick={abrirTransferencia}>Transferir mesa</DropdownMenuItem>}
+            <DropdownMenuItem danger onClick={requestDesocupar}>Desocupar mesa</DropdownMenuItem>
+          </DropdownMenu>
           <button className="close-cash-btn" onClick={onFechar}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="arrowLeft" size={15} /> Voltar às mesas</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="arrowLeft" size={15} /> Mesas</span>
           </button>
         </div>
       </header>
 
-      <div className="pos-search-row">
-        <div className="qty-stepper" title="Quantidade do próximo item">
-          <input
-            type="text" inputMode="numeric" className="qty-stepper-input"
-            value={pendingQty}
-            onChange={(e) => { if (/^\d*$/.test(e.target.value)) setPendingQty(e.target.value); }}
-          />
-          <div className="qty-stepper-buttons">
-            <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
-              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
-            <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
-              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
-          </div>
-        </div>
-        <ProductSearchBox onSelect={addProductToCart} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
-      </div>
-
       {feedback && <p className={feedback.type === 'error' ? 'modal-error' : 'io-message'} style={{ margin: '8px 24px' }}>{feedback.message}</p>}
 
-      <CategoryProductBrowser onSelectProduct={addProductToCart} />
-
-      <div className="cart-list-mesa-wrapper">
-      <ul className="cart-list">
-        {itensAtivos.map((item) => (
-          <li
-            key={item.id}
-            className={`cart-item-mesa ${selectedItemId === item.id ? 'cart-item-selected' : ''}`}
-            onClick={() => setSelectedItemId(item.id)}
-          >
-            <div className="cart-item-mesa-topo">
-              <span className="cart-item-mesa-nome">{item.nome} × {item.quantidade}</span>
-              <span className="cart-item-mesa-preco">R$ {(item.precoUnitario * item.quantidade).toFixed(2)}</span>
+      <div className="mesa-corpo">
+        <section className="mesa-catalogo" aria-label="Produtos">
+          <div className="pos-search-row">
+            <div className="qty-stepper" title="Quantidade do próximo item">
+              <input
+                type="text" inputMode="numeric" className="qty-stepper-input"
+                value={pendingQty}
+                onChange={(e) => { if (/^\d*$/.test(e.target.value)) setPendingQty(e.target.value); }}
+              />
+              <div className="qty-stepper-buttons">
+                <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
+                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+                <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
+                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+              </div>
             </div>
-            {item.observacao && (
-              <div className="cart-item-obs" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <Icon name="warning" size={13} /> {item.observacao}
+            <ProductSearchBox onSelect={addProductToCart} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
+          </div>
+          <CategoryProductBrowser onSelectProduct={addProductToCart} />
+        </section>
+
+        <aside className="mesa-comanda" aria-label="Comanda">
+          <div className="mesa-lancar-para">
+            <span className="mesa-lancar-titulo">Lançar para</span>
+            <div className="mesa-lancar-opcoes">
+              <button type="button" className={`mesa-chip mesa-chip-sem${pessoaAtiva === null ? ' mesa-chip-ativo' : ''}`} onClick={() => setPessoaAtiva(null)}>
+                Sem pessoa
+              </button>
+              {pessoasLista.map((p) => (
+                <button
+                  key={p.numero} type="button"
+                  className={`mesa-chip${pessoaAtiva === p.numero ? ' mesa-chip-ativo' : ''}`}
+                  onClick={() => setPessoaAtiva(p.numero)}
+                >
+                  {nomeCurto(p)}
+                </button>
+              ))}
+              <button type="button" className="mesa-chip mesa-chip-adicionar" onClick={adicionarPessoa} title="Adicionar pessoa">
+                <Icon name="add" size={13} /> Pessoa
+              </button>
+            </div>
+          </div>
+
+          <div className="mesa-comanda-lista">
+            {itensAtivos.length === 0 && pessoasLista.length === 0 && (
+              <p className="empty-state">Nenhum item lançado ainda. Escolha a pessoa em "Lançar para" e toque nos produtos.</p>
+            )}
+
+            {gruposComItens.map((g) => (
+              <div key={g.numero} className={`mesa-grupo${pessoaAtiva === g.numero ? ' mesa-grupo-ativo' : ''}`}>
+                <div className="mesa-grupo-cabecalho">
+                  <button type="button" className="mesa-grupo-nome" onClick={() => setPessoaAtiva(g.numero)} title="Lançar os próximos itens para esta pessoa">
+                    {nomeCurto(g.pessoa)}
+                  </button>
+                  <button type="button" className="mesa-icone" onClick={() => renomearPessoa(g.pessoa)} aria-label={`Renomear ${nomeCurto(g.pessoa)}`} title="Dar ou trocar o nome">
+                    <Icon name="edit" size={13} />
+                  </button>
+                  <button type="button" className="mesa-icone" onClick={() => removerPessoa(g.pessoa)} aria-label={`Remover ${nomeCurto(g.pessoa)}`} title="Remover pessoa (os itens ficam sem pessoa)">
+                    <Icon name="close" size={13} />
+                  </button>
+                  <span className="mesa-grupo-subtotal">R$ {subtotal(g.itens).toFixed(2)}</span>
+                </div>
+                <ul className="mesa-grupo-itens">{g.itens.map(renderItem)}</ul>
+              </div>
+            ))}
+
+            {pessoasSemItens.length > 0 && (
+              <div className="mesa-sem-itens">
+                {pessoasSemItens.map((p) => (
+                  <span key={p.numero} className={`mesa-sem-itens-pessoa${pessoaAtiva === p.numero ? ' mesa-sem-itens-ativa' : ''}`}>
+                    <button type="button" className="mesa-grupo-nome" onClick={() => setPessoaAtiva(p.numero)}>{nomeCurto(p)}</button>
+                    <button type="button" className="mesa-icone" onClick={() => renomearPessoa(p)} aria-label={`Renomear ${nomeCurto(p)}`}><Icon name="edit" size={12} /></button>
+                    <button type="button" className="mesa-icone" onClick={() => removerPessoa(p)} aria-label={`Remover ${nomeCurto(p)}`}><Icon name="close" size={12} /></button>
+                  </span>
+                ))}
+                <span className="mesa-sem-itens-rotulo">sem itens</span>
               </div>
             )}
-            <div className="cart-item-mesa-controles">
-              {pessoas > 1 && (
-                <select
-                  value={item.pessoaNumero || ''}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => atribuirPessoa(item.id, e.target.value)}
-                  className="cart-item-pessoa"
-                >
-                  <option value="">Não atribuído</option>
-                  {Array.from({ length: pessoas }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>Pessoa {n}</option>
-                  ))}
-                </select>
-              )}
-              <button className="btn-link" onClick={(e) => { e.stopPropagation(); abrirEdicaoObs(item); }}>
-                {item.observacao ? 'Editar obs.' : '+ Observação'}
-              </button>
-              {['gerente', 'admin', 'suporte'].includes(currentUser.role) && (
-                <button className="btn-link" onClick={(e) => { e.stopPropagation(); handleEditarPrecoItem(item); }}>
-                  Editar preço
-                </button>
-              )}
-              <button className="btn-link-danger" onClick={(e) => { e.stopPropagation(); requestCancelItem(item.id); }}>
-                Cancelar
-              </button>
+
+            {itensSemPessoa.length > 0 && (
+              <div className={`mesa-grupo mesa-grupo-sem-pessoa${pessoaAtiva === null ? ' mesa-grupo-ativo' : ''}`}>
+                <div className="mesa-grupo-cabecalho">
+                  <span className="mesa-grupo-nome">Sem pessoa</span>
+                  <span className="mesa-grupo-subtotal">R$ {subtotal(itensSemPessoa).toFixed(2)}</span>
+                </div>
+                <ul className="mesa-grupo-itens">{itensSemPessoa.map(renderItem)}</ul>
+              </div>
+            )}
+          </div>
+
+          <footer className="mesa-comanda-rodape">
+            <div className="pos-total">
+              Total: <strong>R$ {total.toFixed(2)}</strong>
+              {pessoas > 0 && <span className="mesa-por-pessoa">R$ {(total / pessoas).toFixed(2)} por pessoa ({pessoas})</span>}
             </div>
-          </li>
-        ))}
-        {itensAtivos.length === 0 && <p className="empty-state">Nenhum item lançado nessa mesa ainda.</p>}
-      </ul>
+            <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => setShowPayment(true)}>
+              Ir para pagamento
+            </button>
+          </footer>
+        </aside>
       </div>
-
-      {pessoas > 1 && itensAtivos.length > 0 && (
-        <div className="screen-section-box">
-          <button type="button" className="btn-link" onClick={() => setMostrarDivisao((v) => !v)}>
-            {mostrarDivisao ? 'Esconder' : 'Ver'} divisão por pessoa
-          </button>
-          {mostrarDivisao && (
-            <ul className="payment-list" style={{ marginTop: 8 }}>
-              {divisaoPorPessoa.map(({ pessoa, subtotal }) => (
-                <li key={pessoa}>{pessoa === 0 ? 'Não atribuído' : `Pessoa ${pessoa}`}: R$ {subtotal.toFixed(2)}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <footer className="pos-footer">
-        <div className="pos-total">
-          Total: <strong>R$ {total.toFixed(2)}</strong>
-          {pessoas > 0 && <span style={{ marginLeft: 12, fontSize: 13, color: 'var(--color-text-muted)' }}>
-            (R$ {(total / pessoas).toFixed(2)} por pessoa, {pessoas} pessoa{pessoas > 1 ? 's' : ''})
-          </span>}
-        </div>
-        <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => setShowPayment(true)}>
-          Ir para pagamento
-        </button>
-      </footer>
 
       {showPayment && (
         <div className="modal-overlay">
@@ -550,6 +674,64 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               <button type="button" className="btn-secondary" onClick={() => setShowTransferir(false)}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showJuntar && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal-card">
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="link" size={18} /> Juntar mesas a {grupo?.principal ? (grupo.principal.nome || `Mesa ${grupo.principal.numero}`) : (nome || `Mesa ${numero}`)}
+            </h2>
+            <p className="screen-hint" style={{ margin: '0 0 10px' }}>
+              Mesa ocupada: os itens e as pessoas dela entram nesta comanda. Mesa livre: só fica unida.
+              A conta passa a ser uma só, e fechar a conta libera todas.
+            </p>
+            {grupo?.unidas?.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <strong style={{ fontSize: 13 }}>Já unidas</strong>
+                {grupo.unidas.map((m) => (
+                  <div key={m.id} className="mesa-juntar-linha">
+                    <span>{m.nome || `Mesa ${m.numero}`}</span>
+                    <button type="button" className="btn-link" onClick={() => separarMesa(m)} title="O consumo continua nesta comanda; a mesa fica aguardando limpeza">
+                      Separar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {mesasParaJuntar.length === 0 ? (
+              <p className="empty-state">Nenhuma mesa livre ou ocupada disponível para juntar.</p>
+            ) : (
+              <div>
+                {mesasParaJuntar.map((t) => (
+                  <label key={t.id} className="mesa-juntar-linha">
+                    <input
+                      type="checkbox"
+                      checked={juntarSelecionadas.includes(t.id)}
+                      onChange={(e) => {
+                        setJuntarError('');
+                        setJuntarSelecionadas((prev) => (e.target.checked ? [...prev, t.id] : prev.filter((id) => id !== t.id)));
+                      }}
+                    />
+                    <span>
+                      {t.nome || `Mesa ${t.numero}`} · {t.status === 'livre' ? 'livre' : `ocupada · R$ ${(t.total_atual || 0).toFixed(2)}${t.pessoas ? ` · ${t.pessoas} pessoa(s)` : ''}${t.mesas_unidas ? ` · com Mesa ${t.mesas_unidas}` : ''}`}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {juntarError && <p className="modal-error">{juntarError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setShowJuntar(false)}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Fechar</span>
+              </button>
+              {mesasParaJuntar.length > 0 && (
+                <button type="button" className="btn-primary" disabled={juntando} onClick={confirmarJuntar}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="link" size={15} /> {juntando ? 'Juntando...' : 'Juntar mesas'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -206,6 +206,62 @@ const MIGRACOES = [
       for (const c of ['vitrine_slug', 'canal_ref', 'canal']) dropColuna(db, 'bot_orders', c);
     },
   },
+  {
+    versao: 3,
+    nome: 'restaurante: mesas unidas e nomes das pessoas da comanda',
+    up(db) {
+      // Mesa unida aponta para a principal do grupo (ver tableService.juntarMesas).
+      // Sem REFERENCES de propósito: o SQLite não deixa o down() remover uma
+      // coluna citada numa chave estrangeira.
+      addColuna(db, 'restaurant_tables', 'unida_a_mesa_id', 'TEXT');
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_restaurant_tables_unida ON restaurant_tables(unida_a_mesa_id);
+        CREATE TABLE IF NOT EXISTS sale_people (
+          id        TEXT PRIMARY KEY,
+          sale_id   TEXT NOT NULL REFERENCES sales(id),
+          numero    INTEGER NOT NULL CHECK (numero >= 1),
+          nome      TEXT,
+          criado_em TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          UNIQUE (sale_id, numero)
+        );
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP TABLE IF EXISTS sale_people;
+        DROP INDEX IF EXISTS idx_restaurant_tables_unida;
+      `);
+      dropColuna(db, 'restaurant_tables', 'unida_a_mesa_id');
+    },
+  },
+  {
+    versao: 4,
+    nome: 'restaurante: mesas de cada venda guardadas para o histórico',
+    up(db) {
+      // Ao fechar a conta, a mesa limpa o sale_id -- sem isto a venda não
+      // lembra de qual mesa veio. Foto tirada na finalização (saleService.
+      // registrarMesasDaVenda), com a principal e as unidas.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sale_mesas (
+          id        TEXT PRIMARY KEY,
+          sale_id   TEXT NOT NULL REFERENCES sales(id),
+          table_id  TEXT,
+          numero    TEXT NOT NULL,
+          nome      TEXT,
+          principal INTEGER NOT NULL DEFAULT 0,
+          criado_em TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          UNIQUE (sale_id, table_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sale_mesas_sale ON sale_mesas(sale_id);
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_sale_mesas_sale;
+        DROP TABLE IF EXISTS sale_mesas;
+      `);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

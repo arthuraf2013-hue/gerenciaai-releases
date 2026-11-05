@@ -227,7 +227,7 @@ export function RestaurantTables() {
             return (
             <div
               key={t.id}
-              className={`table-card table-card-${t.status}`}
+              className={`table-card table-card-${t.status}${t.unida_a_mesa_id ? ' table-card-unida' : ''}`}
               onClick={() => handleClickMesa(t)}
             >
               <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
@@ -246,8 +246,14 @@ export function RestaurantTables() {
                   <Icon name={RESERVA_BADGE[reservasPorMesa[t.id].status]?.icon} size={13} /> {RESERVA_BADGE[reservasPorMesa[t.id].status]?.texto}
                 </span>
               )}
-              {t.status === 'ocupada' && (
+              {t.status === 'ocupada' && t.unida_a_mesa_id && (
+                <span className="table-card-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="link" size={13} /> Unida à {t.unida_a_nome || `Mesa ${t.unida_a_numero}`}
+                </span>
+              )}
+              {t.status === 'ocupada' && !t.unida_a_mesa_id && (
                 <span className="table-card-status">
+                  {t.mesas_unidas && <><strong>Com Mesa {t.mesas_unidas}</strong><br /></>}
                   Ocupada{t.pessoas ? ` — ${t.pessoas} pessoa(s)` : ''} — R$ {(t.total_atual || 0).toFixed(2)}
                   {tempo && (
                     <><br /><span className={tempo.longa ? 'table-card-tempo-longo' : ''}>{tempo.texto}</span></>

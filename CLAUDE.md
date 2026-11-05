@@ -132,6 +132,35 @@ desta máquina, no prazo). A máquina só aceita produto `DEMO-` com o preço DE
 `bot_orders.canal = 'vitrine_demo'` (índice único em `canal, canal_ref`: não duplica). Segmento novo:
 chave igual em `vitrineDemoCatalogos.js` e `SEGMENTOS_DEMO` (admin-panel).
 
+## Restaurante: mesas unidas e pessoas nomeadas
+
+`tableService.juntarMesas`/`separarMesa` + `adicionarPessoa`/`renomearPessoa`/`removerPessoa`
+(migração 3: `restaurant_tables.unida_a_mesa_id` e `sale_people`). Não quebrar:
+- a PRINCIPAL é dona da comanda; cada unida tem `unida_a_mesa_id` = principal, o mesmo
+  `sale_id` e status `ocupada`, sempre apontando DIRETO para a principal (juntar achata
+  grupos). Toda consulta que liga mesa a comanda por `sale_id` filtra
+  `unida_a_mesa_id IS NULL`, senão o item aparece uma vez por mesa (ver kitchenService);
+  total de mesa unida conta 0 em qualquer soma (ver liveStatusSyncService);
+- juntar mesa ocupada move `sale_items.sale_id` e renumera `pessoa_numero` depois das
+  pessoas da principal; a comanda vazia é cancelada com motivo. NUNCA edita
+  `stock_movements` (o movimento continua citando a comanda onde o item foi lançado);
+  recusa comanda com pagamento, desconto, pontos ou Pix em andamento;
+- fechar conta, desocupar e `releaseTable` por qualquer mesa liberam o grupo inteiro;
+  transferir exige separar antes; separar não leva itens (consumo fica na principal);
+- pessoas = vagas 1..N da comanda; `sale_people` guarda só o NOME. N = maior entre
+  `restaurant_tables.pessoas`, maior nome e maior `pessoa_numero` ativo -- nunca some
+  quem tem item ou nome (`updateTablePeople` recusa diminuir abaixo disso); remover
+  devolve os itens para "não atribuído" e sobe as seguintes. Testes: `mesasUnidas.test.js`.
+- a venda guarda as mesas em `sale_mesas` (migração 4), gravadas por
+  `saleService.registrarMesasDaVenda` na finalização, ao desocupar e ao juntar -- depois
+  disso a mesa limpa o `sale_id`. Fluxo novo que encerre comanda de mesa chama a mesma
+  função ANTES de liberar a mesa. O Histórico usa `mesa_rotulo` e agrupa os itens por
+  `pessoa_numero` + `sale_people` (`historicoMesas.test.js`).
+- `saleService.addItem` aceita `pessoaNumero` e só soma quantidade com a linha do MESMO
+  produto E da MESMA pessoa (`pessoa_numero IS ?`); sem pessoa (PDV, garçom) soma só com
+  linha sem pessoa. Não voltar a juntar por produto apenas: o suco da Ana e o da Bia
+  viravam uma linha só e a conta por pessoa ficava impossível.
+
 ## Demonstração completa (só suporte)
 
 `demoDataService.js` + `demoDataCatalogos.js` (11 perfis) + `DemonstracaoSuporte.jsx`.

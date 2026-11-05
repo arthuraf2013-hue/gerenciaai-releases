@@ -185,6 +185,25 @@ function listRecentlySold({ locationId, limit = 12, modo = 'recente' }) {
  * dataInicio/dataFim no formato 'YYYY-MM-DD' (inclusive nos dois lados).
  * Já traz os métodos de pagamento usados em cada venda.
  */
+/** Guarda as mesas (principal e unidas) que estão com esta comanda agora.
+ * Chamado na finalização (e ao desocupar/juntar, em tableService): depois
+ * disso a mesa limpa o sale_id e a venda não saberia mais de onde veio.
+ * Idempotente (UNIQUE sale_id + table_id). */
+function registrarMesasDaVenda(db, saleId) {
+  db.prepare(
+    `INSERT OR IGNORE INTO sale_mesas (id, sale_id, table_id, numero, nome, principal)
+     SELECT lower(hex(randomblob(16))), ?, t.id, t.numero, t.nome, CASE WHEN t.unida_a_mesa_id IS NULL THEN 1 ELSE 0 END
+     FROM restaurant_tables t WHERE t.sale_id = ?`
+  ).run(saleId, saleId);
+}
+
+/** "Mesa 3 + 4" (principal primeiro, depois as unidas em ordem numérica). */
+function rotuloDasMesas(mesas) {
+  const ordenadas = [...mesas].sort((a, b) => (b.principal - a.principal)
+    || (Number(a.numero) - Number(b.numero)) || String(a.numero).localeCompare(String(b.numero)));
+  return ordenadas.map((m, i) => m.nome || (i === 0 ? `Mesa ${m.numero}` : m.numero)).join(' + ');
+}
+
 function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = false }) {
   const db = getDb();
   // Sargable: compara direto com os limites UTC do intervalo local pedido
@@ -195,7 +214,7 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
   // idx_sales_location_data_efetiva (índice de expressão sobre
   // COALESCE(finalizada_em, criado_em)) resolve isso direto.
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
-  return db.prepare(
+  const vendas = db.prepare(
     `SELECT s.*, u.nome as operador_nome,
        COALESCE(s.finalizada_em, s.criado_em) as data_efetiva,
        (SELECT COUNT(*) FROM sale_items si WHERE si.sale_id = s.id AND si.cancelado = 0) as total_itens,
@@ -215,6 +234,19 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
        ${incluirOcultas ? '' : 'AND s.oculta_historico = 0'}
      ORDER BY data_efetiva DESC`
   ).all(locationId, inicioUtc, fimUtcExclusivo);
+
+  // Mesas de cada venda (restaurante) no MESMO intervalo, numa consulta só.
+  const mesasPorVenda = new Map();
+  const mesas = db.prepare(
+    `SELECT sm.sale_id, sm.numero, sm.nome, sm.principal FROM sale_mesas sm
+     JOIN sales s ON s.id = sm.sale_id
+     WHERE s.location_id = ? AND COALESCE(s.finalizada_em, s.criado_em) >= ? AND COALESCE(s.finalizada_em, s.criado_em) < ?`
+  ).all(locationId, inicioUtc, fimUtcExclusivo);
+  for (const m of mesas) {
+    if (!mesasPorVenda.has(m.sale_id)) mesasPorVenda.set(m.sale_id, []);
+    mesasPorVenda.get(m.sale_id).push(m);
+  }
+  return vendas.map((v) => ({ ...v, mesa_rotulo: mesasPorVenda.has(v.id) ? rotuloDasMesas(mesasPorVenda.get(v.id)) : null }));
 }
 
 /**
@@ -416,8 +448,14 @@ function setServiceCharge(saleId, percentual) {
  * (requisito: vendas diminuem estoque diretamente, não só no fechamento).
  * Roda em transação: se o movimento de estoque falhar, o item não é gravado.
  */
-function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId }) {
+function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero }) {
   const db = getDb();
+
+  // Pessoa da mesa (opcional): o item já nasce dela, e só soma quantidade
+  // com uma linha da MESMA pessoa -- o suco da Ana e o da Bia são linhas
+  // diferentes. Sem pessoa (PDV, garçom) = só soma com linha sem pessoa.
+  const pessoa = pessoaNumero == null || pessoaNumero === '' ? null : Number(pessoaNumero);
+  if (pessoa !== null && !(Number.isInteger(pessoa) && pessoa >= 1)) return { ok: false, error: 'Pessoa inválida.' };
 
   const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
@@ -451,8 +489,8 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // na linha existente em vez de criar uma linha nova — bipar o mesmo
   // item duas vezes deve virar "produto x2", não duas linhas separadas.
   const itemExistente = db.prepare(
-    `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0`
-  ).get(saleId, productId);
+    `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0 AND pessoa_numero IS ?`
+  ).get(saleId, productId, pessoa);
 
   // Preço a usar pra atualizar sales.total (e pro que a tela usa pra
   // atualizar o total exibido): numa linha nova é o preço de venda
@@ -475,8 +513,8 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       itemId = randomUUID();
       quantidadeTotal = quantidade;
       db.prepare(
-        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)`
-      ).run(itemId, saleId, productId, quantidade, precoDeVenda);
+        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, pessoa_numero) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(itemId, saleId, productId, quantidade, precoDeVenda, pessoa);
     }
 
     if (!ehServico) {
@@ -846,6 +884,7 @@ function finalizeSale(saleId) {
       db.prepare('UPDATE sales SET total = total + ? WHERE id = ?').run(valorTaxaServico, saleId);
     }
     db.prepare(`UPDATE sales SET status = 'finalizada', finalizada_em = NOW_SYNCED() WHERE id = ?`).run(saleId);
+    registrarMesasDaVenda(db, saleId);
 
     if (valorFiado > 0) {
       customerService.registrarDivida({ customerId: sale.customer_id, valor: valorFiado, saleId, operadorId: sale.operador_id });
@@ -1136,8 +1175,10 @@ function needsManagerAuthForCancel(saleId) {
 function getSaleItemsDetail(saleId) {
   const db = getDb();
   return db.prepare(
-    `SELECT si.id, COALESCE(si.nome_personalizado, p.nome) as nome, si.quantidade, si.preco_unitario, si.cancelado, si.observacao
+    `SELECT si.id, COALESCE(si.nome_personalizado, p.nome) as nome, si.quantidade, si.preco_unitario, si.cancelado, si.observacao,
+            si.pessoa_numero, sp.nome as pessoa_nome
      FROM sale_items si JOIN products p ON p.id = si.product_id
+     LEFT JOIN sale_people sp ON sp.sale_id = si.sale_id AND sp.numero = si.pessoa_numero
      WHERE si.sale_id = ? ORDER BY si.criado_em`
   ).all(saleId);
 }
@@ -1430,7 +1471,7 @@ module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
   addItem, addCustomItem, addPayment, getPaymentState, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
-  getSaleItemsDetail, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
+  getSaleItemsDetail, registrarMesasDaVenda, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
   tentarFinalizarVendasPendentesDeEstoque, contarVendasPendentesDeEstoque, listVendasPendentesDeEstoque, getStatusPendenteEstoque,
   cancelarVendaAbertaPeloSistema,
 };

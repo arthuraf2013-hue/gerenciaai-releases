@@ -23,12 +23,16 @@ function listActiveItems(locationId) {
   const db = getDb();
   return db.prepare(
     `SELECT si.id, si.sale_id, si.quantidade, si.observacao, si.status_preparo, si.criado_em, si.pessoa_numero,
+            sp.nome as pessoa_nome,
             COALESCE(si.nome_personalizado, p.nome) as nome,
             rt.numero as mesa_numero, rt.nome as mesa_nome
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
-     LEFT JOIN restaurant_tables rt ON rt.sale_id = s.id
+     -- Só a mesa PRINCIPAL: com mesas unidas, várias apontam para a mesma
+     -- comanda e o item apareceria uma vez por mesa do grupo.
+     LEFT JOIN restaurant_tables rt ON rt.sale_id = s.id AND rt.unida_a_mesa_id IS NULL
+     LEFT JOIN sale_people sp ON sp.sale_id = si.sale_id AND sp.numero = si.pessoa_numero
      WHERE s.location_id = ? AND s.status = 'aberta' AND si.cancelado = 0
        AND si.status_preparo IN ('pendente', 'preparando')
      ORDER BY si.criado_em ASC`

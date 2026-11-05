@@ -27,6 +27,28 @@ const NFCE_STATUS_LABEL = {
 
 
 
+/** Itens ativos agrupados pela pessoa da mesa (com subtotal), ou null se
+ * nenhum item foi atribuído a uma pessoa -- aí o histórico mostra a lista simples. */
+function agruparPorPessoa(itens) {
+  const ativos = itens.filter((i) => !i.cancelado);
+  if (!ativos.some((i) => i.pessoa_numero)) return null;
+  const grupos = new Map();
+  for (const item of ativos) {
+    const numero = item.pessoa_numero || 0;
+    if (!grupos.has(numero)) grupos.set(numero, { numero, nome: item.pessoa_nome || null, itens: [], subtotal: 0 });
+    const grupo = grupos.get(numero);
+    grupo.itens.push(item);
+    grupo.subtotal += item.preco_unitario * item.quantidade;
+  }
+  // Pessoas em ordem; "Sem pessoa" por último.
+  return [...grupos.values()].sort((a, b) => (a.numero || Infinity) - (b.numero || Infinity));
+}
+
+function rotuloDaPessoa(grupo) {
+  if (!grupo.numero) return 'Sem pessoa';
+  return grupo.nome || `Pessoa ${grupo.numero}`;
+}
+
 function formatMetodos(str) {
   if (!str) return '—';
   return str.split(',').map((m) => METODO_LABEL[m] || m).join(', ');
@@ -242,6 +264,9 @@ export function SalesHistory({ onDevolver }) {
     () => (clienteSelecionado ? sales.filter((s) => s.customer_id === clienteSelecionado.id) : sales),
     [sales, clienteSelecionado]
   );
+  // Coluna "Mesa" só aparece quando o período tem alguma venda de mesa.
+  const temMesa = useMemo(() => salesFiltradas.some((s) => s.mesa_rotulo), [salesFiltradas]);
+  const colunas = temMesa ? 8 : 7;
   const pdvsDisponiveis = useMemo(
     () => (vendasDoGrupo ? [...new Set(vendasDoGrupo.map((v) => v.locationNome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : []),
     [vendasDoGrupo]
@@ -427,7 +452,7 @@ export function SalesHistory({ onDevolver }) {
       ) : (
         <table className="data-table">
           <thead>
-            <tr><th>Data/hora</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th><th></th></tr>
+            <tr><th>Data/hora</th>{temMesa && <th>Mesa</th>}<th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th><th></th></tr>
           </thead>
           <tbody>
             {salesFiltradas.map((s) => (
@@ -439,6 +464,7 @@ export function SalesHistory({ onDevolver }) {
                   title="Clique pra ver os produtos dessa venda"
                 >
                   <td>{new Date(s.data_efetiva + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })}</td>
+                  {temMesa && <td>{s.mesa_rotulo || '—'}</td>}
                   <td>{s.operador_nome}</td>
                   <td>{vendaExpandidaId === s.id ? '▾' : '▸'} {s.total_itens}</td>
                   <td>R$ {s.total.toFixed(2)}</td>
@@ -473,11 +499,27 @@ export function SalesHistory({ onDevolver }) {
                 </tr>
                 {vendaExpandidaId === s.id && (
                   <tr>
-                    <td colSpan={7} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
+                    <td colSpan={colunas} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
                       {!itensPorVenda[s.id] ? (
                         <p className="screen-hint" style={{ margin: '8px 0' }}>Carregando itens...</p>
                       ) : itensPorVenda[s.id].filter((item) => !item.cancelado).length === 0 ? (
                         <p className="screen-hint" style={{ margin: '8px 0' }}>Nenhum item vendido de verdade nessa venda (tudo foi cancelado).</p>
+                      ) : agruparPorPessoa(itensPorVenda[s.id]) ? (
+                        <div className="historico-pessoas">
+                          {agruparPorPessoa(itensPorVenda[s.id]).map((grupo) => (
+                            <div key={grupo.numero} className={`historico-pessoa${grupo.numero ? '' : ' historico-pessoa-sem'}`}>
+                              <strong>{rotuloDaPessoa(grupo)} · R$ {grupo.subtotal.toFixed(2)}</strong>
+                              <ul>
+                                {grupo.itens.map((item) => (
+                                  <li key={item.id}>
+                                    {item.nome} × {item.quantidade} — R$ {(item.preco_unitario * item.quantidade).toFixed(2)}
+                                    {item.observacao && ` — ${item.observacao}`}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
                       ) : (
                         <ul className="payment-list" style={{ margin: '8px 0' }}>
                           {itensPorVenda[s.id].filter((item) => !item.cancelado).map((item) => (

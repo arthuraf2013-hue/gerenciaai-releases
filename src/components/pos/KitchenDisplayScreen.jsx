@@ -105,7 +105,7 @@ export function KitchenDisplayScreen() {
                       </span>
                     </div>
                     {item.pessoa_numero && (
-                      <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Pessoa {item.pessoa_numero}</span>
+                      <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{item.pessoa_nome || `Pessoa ${item.pessoa_numero}`}</span>
                     )}
                     {item.observacao && (
                       <span style={{ fontSize: 13, color: 'var(--color-danger, #c0392b)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="warning" size={13} /> {item.observacao}</span>

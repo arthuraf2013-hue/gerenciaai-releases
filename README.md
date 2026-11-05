@@ -6323,3 +6323,37 @@ A trava está na política do IPC (`PAPEL_POR_CANAL`), não só na tela.
 
 **Travas.** Só carrega em banco sem nenhuma venda, sem caixa aberto e fora de grupo
 multi-PDV; confirmação digitada (DEMONSTRAÇÃO); telefones fictícios com DDD 00.
+
+## Restaurante: juntar mesas e dar nome a cada pessoa
+
+**Juntar mesas.** Na comanda, "Juntar mesas" une outras mesas a ela, que vira a
+principal. Mesa livre só fica unida; mesa ocupada traz os itens e as pessoas dela
+(renumeradas depois das da principal), e a comanda dela, vazia, é cancelada com o
+motivo. A conta passa a ser uma só: fechar a conta ou desocupar por qualquer mesa
+libera o grupo inteiro. "Separar" tira uma mesa do grupo, e o consumo continua na
+principal: não dá para saber com segurança qual item era de qual mesa. Transferir
+exige separar antes. Recusa mesa reservada, aguardando limpeza, unida a outro grupo,
+ou com pagamento, desconto, pontos ou Pix em andamento.
+
+**Por que os movimentos de estoque não mudam.** O livro-razão nunca é editado: o
+movimento da venda continua citando a comanda onde o item foi lançado, e um estorno
+futuro sai pela comanda principal. O saldo do produto é o mesmo.
+
+**Pessoas nomeadas, sem limite.** Antes, a escolha da pessoa do item ia só até o número
+de pessoas informado e mostrava "Pessoa N". Agora cada comanda tem uma lista de pessoas
+com nome opcional: adicionar, renomear e remover (os itens de quem sai voltam para "não
+atribuído"). O nome aparece na escolha do item, na divisão da conta e no painel da cozinha.
+
+**Dois cuidados que vieram junto.** O painel da cozinha ligava item à mesa pela comanda
+e, com mesas unidas, repetiria cada item; agora liga só à principal. O status ao vivo do
+celular manda total 0 para a mesa unida, para o consumo não ser somado duas vezes.
+
+## Histórico: mesa de cada venda e consumo por pessoa
+
+Ao fechar a conta, a mesa limpa o `sale_id`, então a venda finalizada não sabia mais de
+qual mesa tinha vindo. Agora a finalização guarda as mesas da comanda (principal e unidas)
+em `sale_mesas`; desocupar e juntar fazem o mesmo para a comanda cancelada. O Histórico
+ganha a coluna "Mesa" (só aparece quando o período tem venda de mesa, ex.: "Mesa 3 + 4")
+e, ao abrir uma venda, mostra os itens separados por pessoa, com o nome e o subtotal de
+cada uma, e um grupo "Sem pessoa" para o que não foi atribuído. Vendas fechadas antes desta
+versão não têm a mesa registrada; os nomes por pessoa aparecem nelas se tinham sido dados.

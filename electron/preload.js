@@ -117,6 +117,11 @@ contextBridge.exposeInMainWorld('pdv', {
     updatePeople: invoke('table:updatePeople'),
     desocupar: invoke('table:desocupar'),
     montarLinkPedido: invoke('table:montarLinkPedido'),
+    juntar: invoke('table:juntar'),
+    separar: invoke('table:separar'),
+    adicionarPessoa: invoke('table:adicionarPessoa'),
+    renomearPessoa: invoke('table:renomearPessoa'),
+    removerPessoa: invoke('table:removerPessoa'),
   },
   ingredient: {
     list: invoke('ingredient:list'),

@@ -126,9 +126,12 @@ async function publicarStatusAoVivo() {
     let mesas = [];
     if (profile?.id === 'restaurante') {
       const tableService = require('./tableService');
+      // Mesa unida a outra: total 0 (a comanda é uma só, já contada na
+      // principal) -- senão o celular somaria o mesmo consumo duas vezes.
       mesas = tableService.listTables(locationId).map((t) => ({
         numero: t.numero, nome: t.nome || null, status: t.status, pessoas: t.pessoas || null,
-        totalAtual: t.total_atual || 0, abertaEm: t.aberta_em || null,
+        totalAtual: t.unida_a_mesa_id ? 0 : (t.total_atual || 0), abertaEm: t.aberta_em || null,
+        unidaA: t.unida_a_numero || null,
       }));
     }
 
