@@ -222,6 +222,44 @@ async def main():
         ok('"Meu turno" mostra R$ 34,50 recebidos nas mesas')
         await o.screenshot(path=FOTOS + 'e2e-5-meu-turno.png', full_page=True)
 
+        # ---------- mesas unidas: a principal mostra o grupo, o caixa separa pelo cartão da unida ----------
+        def mesa(e, n):
+            return next(m for m in e['mesas'] if m['numero'] == n)
+        assert pc('/juntar?principal=3&outra=4')['ok']
+        await o.locator('.nav-item[data-aba="mesas"]').click()
+        await expect(o.get_by_role('button', name=re.compile(r'^Mesa 3 \+ 4'))).to_contain_text('unida com 4', timeout=20000)
+        await expect(o.get_by_role('button', name=re.compile(r'^Mesa 4'))).to_contain_text('unida à mesa 3')
+        ok('principal mostra "Mesa 3 + 4 · unida com 4"; a 4 mostra "unida à mesa 3"')
+        await o.get_by_role('button', name=re.compile(r'^Mesa 4')).click()
+        await expect(o.get_by_role('button', name=re.compile(r'^Abrir a comanda \(Mesa 3 \+ 4\)'))).to_be_visible(timeout=10000)
+        await o.wait_for_timeout(500)  # folha terminando de subir
+        await o.screenshot(path=FOTOS + 'e2e-6-unida-opcoes.png', full_page=True)
+        await o.get_by_role('button', name=re.compile('^Separar a Mesa 4')).click()
+        await esperar('caixa separou a mesa 4 pelo cartão dela', lambda e: mesa(e, '4')['status'] == 'aguardando_limpeza'
+                      and mesa(e, '4')['unida_a'] is None and mesa(e, '3')['status'] == 'ocupada')
+        await expect(o.get_by_role('button', name=re.compile(r'^Mesa 4'))).to_contain_text('limpeza', timeout=20000)
+        await o.get_by_role('button', name=re.compile(r'^Mesa 4')).click()
+        await o.get_by_role('button', name='Marcar como limpa').click()
+        await esperar('mesa 4 livre de novo', lambda e: mesa(e, '4')['status'] == 'livre')
+
+        # garçom: tocar na unida abre direto a comanda do grupo
+        assert pc('/juntar?principal=3&outra=4')['ok']
+        await expect(g.get_by_role('button', name=re.compile(r'^Mesa 4'))).to_contain_text('unida à mesa 3', timeout=20000)
+        await g.get_by_role('button', name=re.compile(r'^Mesa 4')).click()
+        await expect(g.locator('.pm-barra')).to_contain_text('Mesa 3', timeout=20000)
+        assert await g.get_by_role('button', name=re.compile('^Separar')).count() == 0
+        ok('garçom: tocar na mesa 4 abre a comanda da mesa 3, sem separar')
+
+        # grupo quebrado no banco (como o do cliente): o computador conserta e o celular não fica preso
+        pc('/quebrar-grupo?principal=3')
+        await esperar('computador conserta a mesa 4 (sai do grupo, vai para limpeza)', lambda e: mesa(e, '4')['unida_a'] is None
+                      and mesa(e, '4')['status'] == 'aguardando_limpeza' and mesa(e, '3')['status'] == 'livre')
+        await expect(o.get_by_role('button', name=re.compile(r'^Mesa 4'))).to_contain_text('limpeza', timeout=20000)
+        await expect(o.get_by_role('button', name=re.compile(r'^Mesa 3'))).to_contain_text('livre')
+        await expect(o.get_by_text('unida à mesa')).to_have_count(0)
+        ok('celular mostra a mesa 4 em limpeza e a 3 livre -- nada de "unida" sem grupo')
+        await o.screenshot(path=FOTOS + 'e2e-7-grupo-consertado.png', full_page=True)
+
         e = pc('/estado')
         erros_cmd = [c for c in e['comandos'] if not c['ok']]
         print('\n'.join(passos))

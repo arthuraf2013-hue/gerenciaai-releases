@@ -187,7 +187,43 @@ test('tela de mesas: status, mesa unida e totais', async () => {
   assert.match(t, /R\$\s?47,00/);
   assert.match(t, /Mesa 3.*limpeza/);
   assert.match(t, /unida à mesa 2/);
+  assert.match(t, /Mesa 2 \+ 4\s*unida com 4/, 'a principal mostra com quem está unida');
   assert.match(t, /1 ocupada · 1 livre/);
+});
+
+test('mesa unida: garçom cai direto na comanda do grupo; operador escolhe abrir ou separar', async () => {
+  prepararLoja();
+  await montar({ modo: 'garcom' });
+  await clicar(botao('Mesa 4'));
+  assert.ok(document.querySelector('[aria-label="Voltar para as mesas"]'), 'abriu a comanda da principal');
+  assert.match(texto(), /Ana.*R\$\s?30,00/);
+  await desmontar();
+
+  prepararLoja();
+  await montar({ modo: 'pdv' });
+  await clicar(botao('Mesa 4'));
+  assert.ok(temBotao('Abrir a comanda (Mesa 2 + 4)'));
+  await clicar(botao('Separar a Mesa 4'));
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'separar', campos: { mesaId: 'm4' } });
+  assert.ok(toasts.some((t) => /Mesa 4 separada/.test(t.texto)));
+});
+
+test('mesa unida a uma mesa que não está com a comanda: não trava, oferece separar', async () => {
+  const mesas = docMesas();
+  mesas.mesas = mesas.mesas.map((m) => (m.id === 'm2' ? { ...m, status: 'livre', unidas: [], total: 0, restante: 0 } : m));
+  prepararLoja({ mesas, comandas: {} });
+  await montar({ modo: 'garcom' });
+  await clicar(botao('Mesa 4'));
+  assert.equal(temBotao('Abrir a comanda'), false);
+  assert.ok(botao('Para separar, peça ao caixa').disabled);
+  await desmontar();
+
+  prepararLoja({ mesas, comandas: {} });
+  await montar({ modo: 'pdv' });
+  await clicar(botao('Mesa 4'));
+  assert.equal(temBotao('Abrir a comanda'), false);
+  await clicar(botao('Separar a Mesa 4'));
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'separar', campos: { mesaId: 'm4' } });
 });
 
 test('o computador não publica as mesas: o painel avisa para usar a tela antiga', async () => {

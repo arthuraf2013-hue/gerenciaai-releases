@@ -213,6 +213,24 @@ test('juntar, separar e transferir: só operador para cima', () => {
   assert.equal(ctx.db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(ctx.mesa3).status, 'ocupada');
 });
 
+test('mesa unida a uma mesa livre (grupo quebrado): a publicação conserta antes de mandar para o celular', () => {
+  const ctx = loja();
+  executar(comando('lancar', { mesaId: ctx.mesa2, itens: [{ produtoId: ctx.suco, quantidade: 1 }] }));
+  assert.ifError(executar(comando('juntar', { mesaId: ctx.mesa2, mesaIds: [ctx.mesa1] }, 'uid-caixa')).erro);
+  const saleId = ctx.db.prepare('SELECT sale_id FROM restaurant_tables WHERE id = ?').get(ctx.mesa2).sale_id;
+  // Como na foto: a 1 diz "unida à mesa 2", a 2 está livre e a comanda já foi fechada.
+  ctx.db.prepare(`UPDATE sales SET status = 'finalizada' WHERE id = ?`).run(saleId);
+  ctx.db.prepare(`UPDATE restaurant_tables SET status = 'livre', sale_id = NULL, pessoas = NULL WHERE id = ?`).run(ctx.mesa2);
+
+  const lista = mesas.montarMesas(ctx.db, ctx.locationId);
+  const um = lista.find((m) => m.id === ctx.mesa1);
+  assert.equal(um.unidaA, null);
+  assert.equal(um.status, 'aguardando_limpeza');
+  assert.equal(lista.find((m) => m.id === ctx.mesa2).status, 'livre');
+  assert.ifError(executar(comando('limpar_mesa', { mesaId: ctx.mesa1 })).erro);
+  assert.equal(ctx.db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(ctx.mesa1).status, 'livre');
+});
+
 test('conta por pessoa: taxa de serviço proporcional e a soma fecha com o total', () => {
   const ctx = loja();
   executar(comando('lancar', { mesaId: ctx.mesa1, pessoas: 2, itens: [

@@ -163,6 +163,89 @@ test('separar: a mesa sai do grupo e o consumo continua na principal', () => {
   assert.equal(tableService.separarMesa({ tableId: mesas['3'], currentOperatorId: adminId }).ok, false, 'a principal não se separa de si mesma');
 });
 
+// Grupo quebrado (banco antigo, backup restaurado, edição manual): a unida
+// aponta para uma principal que já não segura a comanda do grupo.
+function quebrarGrupo(db, principalId, { status = 'livre' } = {}) {
+  db.prepare('UPDATE restaurant_tables SET status = ?, sale_id = NULL, pessoas = NULL WHERE id = ?').run(status, principalId);
+}
+
+test('unida a uma mesa livre, com a comanda já fechada: vai para limpeza e sai do grupo', () => {
+  const { db, mesas, abrir, lancar, mesa, picanha, adminId, locationId } = ambiente();
+  const saleId = abrir('3', 2);
+  lancar(saleId, picanha);
+  tableService.juntarMesas({ tableId: mesas['3'], mesaIds: [mesas['4']], currentOperatorId: adminId });
+  db.prepare(`UPDATE sales SET status = 'finalizada' WHERE id = ?`).run(saleId);
+  quebrarGrupo(db, mesas['3']);
+
+  const lista = tableService.listTables(locationId);
+  const quatro = lista.find((t) => t.numero === '4');
+  assert.equal(quatro.status, 'aguardando_limpeza');
+  assert.equal(quatro.unida_a_mesa_id, null);
+  assert.equal(quatro.sale_id, null);
+  assert.equal(lista.find((t) => t.numero === '3').mesas_unidas, null, 'a 3 não mostra mais a 4 como unida');
+  const auditoria = db.prepare(`SELECT motivo FROM audit_log WHERE tipo_evento = 'mesa_separada'`).all();
+  assert.equal(auditoria.length, 1);
+  assert.match(auditoria[0].motivo, /Mesa 4 separada automaticamente.*Mesa 3/);
+  assert.equal(tableService.markCleaned(mesas['4']).ok, true);
+  assert.equal(mesa('4').status, 'livre');
+});
+
+test('unida com a comanda ainda aberta e sem principal: vira a principal da comanda (nada some)', () => {
+  const { db, mesas, abrir, lancar, mesa, picanha, adminId, locationId } = ambiente();
+  const saleId = abrir('3', 2);
+  lancar(saleId, picanha);
+  tableService.juntarMesas({ tableId: mesas['3'], mesaIds: [mesas['4']], currentOperatorId: adminId });
+  quebrarGrupo(db, mesas['3']);
+
+  assert.equal(tableService.repararMesasUnidas(db, locationId), 1);
+  assert.equal(mesa('4').status, 'ocupada');
+  assert.equal(mesa('4').sale_id, saleId);
+  assert.equal(mesa('4').unida_a_mesa_id, null);
+  assert.equal(tableService.getTableCart(saleId).items.length, 1);
+  assert.equal(tableService.openTable({ tableId: mesas['4'], locationId, operadorId: adminId }).saleId, saleId);
+});
+
+test('grupo não achatado (unida de unida) passa a apontar para a principal de verdade', () => {
+  const { db, mesas, abrir, mesa, adminId, locationId } = ambiente();
+  const saleId = abrir('3', 2);
+  tableService.juntarMesas({ tableId: mesas['3'], mesaIds: [mesas['4'], mesas['5']], currentOperatorId: adminId });
+  db.prepare('UPDATE restaurant_tables SET unida_a_mesa_id = ? WHERE id = ?').run(mesas['4'], mesas['5']);
+
+  assert.equal(tableService.repararMesasUnidas(db, locationId), 1);
+  assert.equal(mesa('5').unida_a_mesa_id, mesas['3']);
+  assert.equal(mesa('5').sale_id, saleId);
+  assert.equal(db.prepare(`SELECT COUNT(*) c FROM audit_log WHERE tipo_evento = 'mesa_separada'`).get().c, 0);
+});
+
+test('grupo certo não é mexido; abrir a principal livre não puxa unida perdida para a comanda nova', () => {
+  const { db, mesas, abrir, mesa, adminId, locationId, operadorId } = ambiente();
+  const antiga = abrir('3', 2);
+  tableService.juntarMesas({ tableId: mesas['3'], mesaIds: [mesas['4']], currentOperatorId: adminId });
+  assert.equal(tableService.repararMesasUnidas(db, locationId), 0);
+
+  db.prepare(`UPDATE sales SET status = 'cancelada' WHERE id = ?`).run(antiga);
+  quebrarGrupo(db, mesas['3']);
+  const nova = tableService.openTable({ tableId: mesas['3'], locationId, operadorId }).saleId;
+  assert.notEqual(nova, antiga);
+  assert.equal(mesa('4').unida_a_mesa_id, null);
+  assert.equal(mesa('4').status, 'aguardando_limpeza');
+  assert.equal(tableService.getTableCart(nova).grupo.unidas.length, 0);
+});
+
+test('principal excluída ou unida em status fora de ocupada também é consertada', () => {
+  const { db, mesas, abrir, mesa, adminId, locationId } = ambiente();
+  abrir('3', 2);
+  tableService.juntarMesas({ tableId: mesas['3'], mesaIds: [mesas['4'], mesas['5']], currentOperatorId: adminId });
+  db.prepare(`UPDATE restaurant_tables SET status = 'reservada', sale_id = NULL WHERE id = ?`).run(mesas['5']);
+  db.prepare('DELETE FROM restaurant_tables WHERE id = ?').run(mesas['3']);
+
+  assert.equal(tableService.repararMesasUnidas(db, locationId), 2);
+  assert.equal(mesa('5').status, 'reservada', 'só sai do grupo');
+  assert.equal(mesa('5').unida_a_mesa_id, null);
+  assert.equal(mesa('4').unida_a_mesa_id, null);
+  assert.equal(mesa('4').status, 'ocupada', 'a comanda aberta ficou com a 4');
+});
+
 test('pessoas: sem limite, com nome, e remover devolve os itens para não atribuído', () => {
   const { mesas, abrir, lancar, mesa, picanha, suco } = ambiente();
   const saleId = abrir('3', 2);

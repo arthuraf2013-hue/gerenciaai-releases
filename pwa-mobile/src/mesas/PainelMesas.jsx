@@ -130,6 +130,15 @@ export default function PainelMesas({ loja, modo, aoSemPainel }) {
     }
   };
 
+  const separarMesa = async (m) => {
+    try {
+      await executar(loja.installId, 'separar', { mesaId: m.id });
+      mostrarToast(`${m.nome || `Mesa ${m.numero}`} separada.`);
+    } catch (err) {
+      mostrarToast(err.message, 'erro');
+    }
+  };
+
   const enviarItens = (mesaId, { itens, itensTela }, pessoasAoAbrir) => {
     filaRef.current?.lancar({ mesaId, itens, itensTela, pessoas: pessoasAoAbrir || null });
     mostrarToast(online ? 'Pedido enviado.' : 'Sem internet: o pedido ficou guardado e vai assim que a conexão voltar.');
@@ -167,7 +176,9 @@ export default function PainelMesas({ loja, modo, aoSemPainel }) {
           agora={agora}
           aoAbrirComanda={(id) => ir({ tipo: 'comanda', mesaId: id })}
           aoAbrirMesaLivre={abrirMesaLivre}
+          podeOrganizar={podeOrganizar}
           aoMarcarLimpa={marcarLimpa}
+          aoSepararMesa={separarMesa}
           aoVerEnvios={() => setVerEnvios(true)}
         />
       )}

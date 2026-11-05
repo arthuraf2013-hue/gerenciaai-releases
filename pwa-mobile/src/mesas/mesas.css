@@ -47,7 +47,11 @@
 .pm-mesa-limpeza { border-style: dashed; color: var(--color-text-muted); background: var(--color-surface2); }
 .pm-mesa-reservada { background: var(--color-warning-bg); border-color: transparent; }
 .pm-mesa-reservada .pm-mesa-nome, .pm-mesa-reservada .pm-mesa-info { color: var(--color-warning-text); }
-.pm-mesa-unida { background: var(--color-surface2); min-height: 64px; }
+.pm-mesa-unida { background: var(--color-surface2); min-height: 64px; border-style: dashed; }
+.pm-mesa-grupo {
+  font-size: 11px; font-weight: 700; color: var(--color-primary); background: rgba(15, 110, 99, 0.12);
+  border-radius: 999px; padding: 1px 8px;
+}
 .pm-mesa-escolhida { outline: 2px solid var(--color-primary); outline-offset: 1px; }
 .pm-grade-escolha { max-height: 50vh; overflow-y: auto; padding: 2px; }
 

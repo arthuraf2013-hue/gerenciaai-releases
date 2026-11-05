@@ -9,17 +9,32 @@ const FILTROS = [
 ];
 
 /** Tela inicial: todas as mesas da loja, por status. */
-export default function TelaMesas({ mesas, meuUsuarioId, envios, online, agora, aoAbrirComanda, aoAbrirMesaLivre, aoMarcarLimpa, aoVerEnvios }) {
+export default function TelaMesas({
+  mesas, meuUsuarioId, envios, online, agora, podeOrganizar = false,
+  aoAbrirComanda, aoAbrirMesaLivre, aoMarcarLimpa, aoSepararMesa, aoVerEnvios,
+}) {
   const [filtro, setFiltro] = useState('todas');
   const [livreEscolhida, setLivreEscolhida] = useState(null);
   const [limpezaEscolhida, setLimpezaEscolhida] = useState(null);
+  const [unidaEscolhida, setUnidaEscolhida] = useState(null);
   const lista = filtrarMesas(mesas, filtro, meuUsuarioId);
   const contagem = contarPorStatus(mesas);
   const naFila = envios.filter((e) => e.situacao !== 'erro').length;
   const comErro = envios.filter((e) => e.situacao === 'erro').length;
 
+  const principalDe = (m) => {
+    const p = mesas.find((x) => x.id === m.unidaA);
+    // Só é grupo de verdade se a principal estiver com a comanda aberta.
+    return p && !p.unidaA && p.status === 'ocupada' ? p : null;
+  };
+
   const tocar = (m) => {
-    if (m.unidaA) return aoAbrirComanda(m.unidaA);
+    if (m.unidaA) {
+      // Garçom vai direto para a comanda do grupo; o caixa escolhe entre
+      // abrir a comanda e separar a mesa.
+      if (!podeOrganizar && principalDe(m)) return aoAbrirComanda(m.unidaA);
+      return setUnidaEscolhida(m);
+    }
     if (m.status === 'ocupada') return aoAbrirComanda(m.id);
     if (m.status === 'aguardando_limpeza') return setLimpezaEscolhida(m);
     return setLivreEscolhida(m);
@@ -65,6 +80,32 @@ export default function TelaMesas({ mesas, meuUsuarioId, envios, online, agora, 
           aoConfirmar={(pessoas) => { const m = livreEscolhida; setLivreEscolhida(null); aoAbrirMesaLivre(m, pessoas); }}
         />
       )}
+      {unidaEscolhida && (() => {
+        const m = unidaEscolhida;
+        const principal = principalDe(m);
+        const fechar = () => setUnidaEscolhida(null);
+        return (
+          <Opcoes
+            titulo={`${rotuloMesa(m)} · unida à mesa ${m.unidaANumero || '?'}`}
+            aoFechar={fechar}
+            opcoes={[
+              principal && {
+                chave: 'abrir', rotulo: `Abrir a comanda (${rotuloMesaComUnidas(principal)})`,
+                detalhe: 'As mesas unidas têm uma comanda só',
+                aoEscolher: () => { fechar(); aoAbrirComanda(principal.id); },
+              },
+              podeOrganizar && {
+                chave: 'separar', rotulo: `Separar a ${rotuloMesa(m)}`,
+                detalhe: principal ? `O consumo continua na comanda da ${rotuloMesa(principal)}; a mesa vai para limpeza` : 'A mesa sai do grupo e vai para limpeza',
+                aoEscolher: () => { fechar(); aoSepararMesa?.(m); },
+              },
+              !podeOrganizar && {
+                chave: 'aviso', rotulo: 'Para separar, peça ao caixa', detalhe: 'Separar mesas é com o caixa ou o gerente', desabilitada: true,
+              },
+            ]}
+          />
+        );
+      })()}
       {limpezaEscolhida && (
         <Opcoes
           titulo={rotuloMesa(limpezaEscolhida)}
@@ -91,6 +132,9 @@ function CartaoMesa({ mesa: m, agora, aoTocar }) {
     return (
       <button type="button" className={`pm-mesa pm-mesa-ocupada${m.pago > 0 ? ' pm-mesa-pagando' : ''}`} onClick={aoTocar}>
         <span className="pm-mesa-nome">{rotuloMesaComUnidas(m)}</span>
+        {(m.unidas || []).length > 0 && (
+          <span className="pm-mesa-grupo">unida com {(m.unidas || []).map((u) => (typeof u === 'string' ? u : u.numero)).join(', ')}</span>
+        )}
         <span className="pm-mesa-info">
           {m.pessoas ? `${m.pessoas} pessoa${m.pessoas > 1 ? 's' : ''}` : 'aberta'}{m.abertaEm ? ` · ${tempoDesde(m.abertaEm, agora)}` : ''}
         </span>

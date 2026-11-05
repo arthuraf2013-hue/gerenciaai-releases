@@ -147,6 +147,11 @@ chave igual em `vitrineDemoCatalogos.js` e `SEGMENTOS_DEMO` (admin-panel).
   recusa comanda com pagamento, desconto, pontos ou Pix em andamento;
 - fechar conta, desocupar e `releaseTable` por qualquer mesa liberam o grupo inteiro;
   transferir exige separar antes; separar não leva itens (consumo fica na principal);
+- grupo quebrado (unida apontando para principal que não existe, não está ocupada ou
+  tem outra comanda) é consertado por `repararMesasUnidas` antes de listar (computador
+  e publicação do celular), abrir e juntar: unida com comanda ABERTA que ninguém segura
+  vira principal dela; senão vai para limpeza; tudo com auditoria `mesa_separada`.
+  Mesa fora de `ocupada` (limpa, reserva cancelada) nunca guarda `unida_a_mesa_id`;
 - pessoas = vagas 1..N da comanda; `sale_people` guarda só o NOME. N = maior entre
   `restaurant_tables.pessoas`, maior nome e maior `pessoa_numero` ativo -- nunca some
   quem tem item ou nome (`updateTablePeople` recusa diminuir abaixo disso); remover

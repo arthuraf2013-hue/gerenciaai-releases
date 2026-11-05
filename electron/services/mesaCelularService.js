@@ -390,6 +390,9 @@ function montarComanda(db, principal) {
 
 /** Lista de mesas publicada para o celular (tela inicial). */
 function montarMesas(db, locationId) {
+  // Mesa "unida" a uma mesa que já não está com a comanda do grupo ficaria
+  // presa no celular (sem comanda para abrir, sem ter de onde separar).
+  require('./tableService').repararMesasUnidas(db, locationId);
   const mesas = db.prepare(
     `SELECT t.*, s.criado_em AS aberta_em, s.operador_id AS aberta_por_id, u.nome AS aberta_por_nome
      FROM restaurant_tables t

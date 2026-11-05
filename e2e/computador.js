@@ -69,9 +69,27 @@ async function main() {
         ).run(url.searchParams.get('status'), url.searchParams.get('nome'));
         return json(res, { ok: true, mudou: r.changes });
       }
+      // Junta a mesa `outra` à `principal` (abre a principal se precisar).
+      if (url.pathname === '/juntar') {
+        const porNumero = (n) => db.prepare('SELECT * FROM restaurant_tables WHERE numero = ?').get(n);
+        const principal = porNumero(url.searchParams.get('principal'));
+        if (principal.status !== 'ocupada') tableService.openTable({ tableId: principal.id, locationId: ctx.locationId, operadorId: ctx.operadorId, pessoas: 2 });
+        return json(res, tableService.juntarMesas({ tableId: principal.id, mesaIds: [porNumero(url.searchParams.get('outra')).id], currentOperatorId: ctx.gerenteId }));
+      }
+      // Simula o banco que o cliente tinha: a principal ficou livre (comanda
+      // fechada) e a unida continuou apontando para ela.
+      if (url.pathname === '/quebrar-grupo') {
+        const principal = db.prepare('SELECT * FROM restaurant_tables WHERE numero = ?').get(url.searchParams.get('principal'));
+        db.prepare(`UPDATE sales SET status = 'cancelada' WHERE id = ?`).run(principal.sale_id);
+        db.prepare(`UPDATE restaurant_tables SET status = 'livre', sale_id = NULL, pessoas = NULL WHERE id = ?`).run(principal.id);
+        return json(res, { ok: true });
+      }
       if (url.pathname === '/estado') {
         return json(res, {
-          mesas: db.prepare('SELECT numero, status, sale_id, pessoas FROM restaurant_tables ORDER BY numero').all(),
+          mesas: db.prepare(
+            `SELECT t.numero, t.status, t.sale_id, t.pessoas, p.numero AS unida_a
+             FROM restaurant_tables t LEFT JOIN restaurant_tables p ON p.id = t.unida_a_mesa_id ORDER BY t.numero`
+          ).all(),
           vendas: db.prepare('SELECT id, status, operador_id, total, taxa_servico_percentual FROM sales').all(),
           itens: db.prepare(
             `SELECT p.nome, si.quantidade, si.pessoa_numero, si.observacao, si.status_preparo, si.cancelado, si.sale_id

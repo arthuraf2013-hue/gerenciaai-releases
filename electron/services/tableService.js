@@ -39,6 +39,84 @@ function rotuloMesa(t) {
   return t.nome || `Mesa ${t.numero}`;
 }
 
+/**
+ * Conserta mesa "unida" que perdeu o grupo: a principal não existe mais, não
+ * está ocupada, está com outra comanda, ou a própria unida não está ocupada.
+ * Nenhum caminho atual deixa isso (fechar, desocupar, transferir e separar
+ * soltam o grupo inteiro), mas banco antigo, restauração de backup ou edição
+ * manual podem deixar -- e aí a mesa fica presa: aparece "unida" a uma mesa
+ * livre, sem comanda para abrir e sem ter de onde separar.
+ *   - unida apontando para outra unida (grupo não achatado): passa a apontar
+ *     para a principal de verdade, se ela estiver com a mesma comanda;
+ *   - unida ocupada com uma comanda ABERTA que nenhuma outra mesa segura:
+ *     vira a principal dessa comanda (nunca deixa comanda aberta sem mesa);
+ *   - unida ocupada sem comanda aberta: vai para "aguardando limpeza";
+ *   - unida em outro status: só sai do grupo.
+ * Roda antes de listar e antes de abrir/juntar; só escreve se achar algo.
+ * Devolve quantas mesas consertou.
+ */
+function repararMesasUnidas(db, locationId = null) {
+  const suspeitas = db.prepare(
+    `SELECT t.*, p.id AS p_id, p.status AS p_status, p.sale_id AS p_sale_id, p.unida_a_mesa_id AS p_unida
+     FROM restaurant_tables t
+     LEFT JOIN restaurant_tables p ON p.id = t.unida_a_mesa_id
+     WHERE t.unida_a_mesa_id IS NOT NULL
+       AND (? IS NULL OR t.location_id = ?)
+       AND (p.id IS NULL OR p.unida_a_mesa_id IS NOT NULL OR p.status != 'ocupada' OR p.sale_id IS NULL
+            OR t.status != 'ocupada' OR t.sale_id IS NULL OR t.sale_id != p.sale_id)`
+  ).all(locationId, locationId);
+  if (suspeitas.length === 0) return 0;
+
+  let consertadas = 0;
+  db.transaction(() => {
+    for (const t of suspeitas) {
+      const atual = mesaPorId(db, t.id);
+      if (!atual?.unida_a_mesa_id) continue; // já consertada nesta passada
+
+      // Grupo não achatado: a principal da principal segura a mesma comanda.
+      if (t.p_unida && atual.status === 'ocupada' && atual.sale_id) {
+        const raiz = mesaPorId(db, t.p_unida);
+        if (raiz && !raiz.unida_a_mesa_id && raiz.status === 'ocupada' && raiz.sale_id === atual.sale_id) {
+          db.prepare('UPDATE restaurant_tables SET unida_a_mesa_id = ?, pessoas = NULL WHERE id = ?').run(raiz.id, atual.id);
+          consertadas += 1;
+          continue;
+        }
+      }
+
+      const antiga = t.p_id ? mesaPorId(db, t.p_id) : null;
+      let destino;
+      if (atual.status === 'ocupada' && atual.sale_id) {
+        const venda = db.prepare('SELECT status FROM sales WHERE id = ?').get(atual.sale_id);
+        const outraSegura = db.prepare(
+          `SELECT 1 FROM restaurant_tables WHERE sale_id = ? AND id != ? AND unida_a_mesa_id IS NULL AND status = 'ocupada'`
+        ).get(atual.sale_id, atual.id);
+        if (venda?.status === 'aberta' && !outraSegura) {
+          db.prepare('UPDATE restaurant_tables SET unida_a_mesa_id = NULL WHERE id = ?').run(atual.id);
+          destino = 'ficou com a comanda dela';
+        } else {
+          db.prepare(
+            `UPDATE restaurant_tables SET status = 'aguardando_limpeza', sale_id = NULL, pessoas = NULL, unida_a_mesa_id = NULL WHERE id = ?`
+          ).run(atual.id);
+          destino = 'foi para aguardando limpeza';
+        }
+      } else {
+        const status = atual.status === 'ocupada' ? 'aguardando_limpeza' : atual.status;
+        db.prepare(
+          'UPDATE restaurant_tables SET status = ?, sale_id = NULL, pessoas = NULL, unida_a_mesa_id = NULL WHERE id = ?'
+        ).run(status, atual.id);
+        destino = status === 'aguardando_limpeza' ? 'foi para aguardando limpeza' : 'saiu do grupo';
+      }
+      registrarAuditoria(db, {
+        tipo: 'mesa_separada', saleId: atual.sale_id, solicitanteId: null,
+        motivo: `${rotuloMesa(atual)} separada automaticamente: estava unida a ${antiga ? rotuloMesa(antiga) : 'uma mesa que não existe mais'}, que não estava com a comanda do grupo (${destino})`,
+      });
+      consertadas += 1;
+    }
+  })();
+  if (consertadas > 0) console.warn(`[tableService] ${consertadas} mesa(s) unida(s) sem grupo consertada(s).`);
+  return consertadas;
+}
+
 function registrarAuditoria(db, { tipo, saleId, solicitanteId, motivo }) {
   const existe = solicitanteId && db.prepare('SELECT id FROM users WHERE id = ?').get(solicitanteId);
   db.prepare(
@@ -93,6 +171,7 @@ function numeroDePessoaValido(numero, total) {
 /** Lista as mesas de um local, com o total atual da comanda (se ocupada). */
 function listTables(locationId) {
   const db = getDb();
+  repararMesasUnidas(db, locationId);
   const mesas = db.prepare(
     `SELECT t.*, s.total as total_atual, s.criado_em as aberta_em,
             p.numero as unida_a_numero, p.nome as unida_a_nome
@@ -141,6 +220,7 @@ function deleteTable(tableId) {
  * aguardando limpeza. */
 function openTable({ tableId, locationId, operadorId, pessoas }) {
   const db = getDb();
+  repararMesasUnidas(db);
   const table = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(tableId);
   if (!table) return { ok: false, error: 'Mesa não encontrada.' };
 
@@ -206,7 +286,7 @@ function markCleaned(tableId) {
   const table = db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(tableId);
   if (!table) return { ok: false, error: 'Mesa não encontrada.' };
   if (table.status !== 'aguardando_limpeza') return { ok: false, error: 'Essa mesa não está aguardando limpeza.' };
-  db.prepare(`UPDATE restaurant_tables SET status = 'livre' WHERE id = ?`).run(tableId);
+  db.prepare(`UPDATE restaurant_tables SET status = 'livre', sale_id = NULL, pessoas = NULL, unida_a_mesa_id = NULL WHERE id = ?`).run(tableId);
   return { ok: true };
 }
 
@@ -227,7 +307,7 @@ function cancelReservation(tableId) {
   const table = db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(tableId);
   if (!table) return { ok: false, error: 'Mesa não encontrada.' };
   if (table.status !== 'reservada') return { ok: false, error: 'Essa mesa não está reservada.' };
-  db.prepare(`UPDATE restaurant_tables SET status = 'livre', reservado_para = NULL WHERE id = ?`).run(tableId);
+  db.prepare(`UPDATE restaurant_tables SET status = 'livre', reservado_para = NULL, unida_a_mesa_id = NULL WHERE id = ?`).run(tableId);
   return { ok: true };
 }
 
@@ -386,6 +466,7 @@ async function montarLinkPedidoMesa({ tableId }) {
  */
 function juntarMesas({ tableId, mesaIds, currentOperatorId } = {}) {
   const db = getDb();
+  repararMesasUnidas(db);
   const base = mesaPorId(db, tableId);
   if (!base) return { ok: false, error: 'Mesa não encontrada.' };
   const principal = principalDe(db, base);
@@ -549,7 +630,7 @@ function removerPessoa({ tableId, numero } = {}) {
 }
 
 module.exports = {
-  listTables, createTable, deleteTable, openTable, getTableCart, releaseTable,
+  listTables, createTable, deleteTable, openTable, getTableCart, releaseTable, repararMesasUnidas,
   markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,
   existeMesa, montarLinkPedidoMesa,
   juntarMesas, separarMesa, adicionarPessoa, renomearPessoa, removerPessoa,
