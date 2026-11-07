@@ -239,6 +239,13 @@ contextBridge.exposeInMainWorld('pdv', {
     reimprimir: invoke('cozinha:reimprimir'),
     imprimirPedido: invoke('cozinha:imprimirPedido'),
   },
+  // alert/confirm pelo diálogo do Electron (o do Chromium trava a digitação
+  // no Windows -- ver registrarDialogosNativos em main.js). Síncronos, como
+  // os originais; src/main.jsx troca window.alert/confirm por estes.
+  dialogo: {
+    alerta: (mensagem) => { ipcRenderer.sendSync('dialogo:nativo', { tipo: 'alert', mensagem: String(mensagem ?? '') }); },
+    confirmar: (mensagem) => ipcRenderer.sendSync('dialogo:nativo', { tipo: 'confirm', mensagem: String(mensagem ?? '') }) === true,
+  },
   chamada: {
     // Uma senha mudou (criada, chamada, entregue...): devolve a função que para de ouvir.
     onMudou: (callback) => {

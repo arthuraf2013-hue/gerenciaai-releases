@@ -87,6 +87,11 @@ function createWindow() {
   });
 
   win.once('ready-to-show', () => win.show());
+  // Windows: depois de um diálogo (salvar arquivo, impressão, aviso) a
+  // janela volta ao primeiro plano mas a PÁGINA pode ficar sem o foco do
+  // teclado -- os campos de texto param de aceitar digitação até trocar de
+  // janela. Devolver o foco à página sempre que a janela ganha foco resolve.
+  win.on('focus', () => { if (!win.isDestroyed()) win.webContents.focus(); });
 
   // A sessão real desta janela (ver sessionService.js) vive só enquanto a
   // janela existe -- sem isso, um webContents.id reciclado pelo Chromium
@@ -176,6 +181,8 @@ app.whenReady().then(() => {
   getDb(); // garante schema criado e seed aplicado antes de atender a janela
   timeService.startAutoSync(); // sincroniza com a internet assim que possível, e a cada 15 min
   require('./ipc/handlers').registerIpcHandlers();
+  // alert()/confirm() da interface pelo diálogo do Electron (ver dialogoNativo.js).
+  require('./dialogoNativo').registrarDialogosNativos();
 
   // Tem que existir antes da PRIMEIRA mensagem da janela -- a tela de
   // atualização obrigatória (UpdateGate) pode disparar uma checagem de

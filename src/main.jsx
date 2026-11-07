@@ -3,6 +3,14 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import { aplicarModoLeve } from './utils/modoLeve';
 
+// alert()/confirm() nativos do Chromium travam a digitação no Windows depois
+// de fechar (bug do Electron). Usa o diálogo do Electron no lugar, que
+// devolve o foco à página (ver registrarDialogosNativos em electron/main.js).
+if (window.pdv?.dialogo) {
+  window.alert = (mensagem) => window.pdv.dialogo.alerta(mensagem);
+  window.confirm = (mensagem) => window.pdv.dialogo.confirmar(mensagem);
+}
+
 window.APP_DEVICE_ID = window.APP_DEVICE_ID || (() => {
   let id = localStorage.getItem('deviceId');
   if (!id) {
