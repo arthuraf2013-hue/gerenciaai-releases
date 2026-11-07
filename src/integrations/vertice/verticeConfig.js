@@ -6,10 +6,12 @@
 // Enquanto `projectId` estiver vazio, a aba Configurações → Vértice explica
 // que a integração ainda não foi ativada neste build e nada é carregado.
 export const VERTICE_FIREBASE_CONFIG = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  appId: '',
+  apiKey: 'AIzaSyC_jEusdUXEY1xEpiZe8ArkVMDWrAAGx-8',
+  authDomain: 'vertice-7ffa0.firebaseapp.com',
+  projectId: 'vertice-7ffa0',
+  storageBucket: 'vertice-7ffa0.firebasestorage.app',
+  messagingSenderId: '124691310670',
+  appId: '1:124691310670:web:81b4b1b9cacd15f29b3b1f',
 };
 
 export function verticeConfigurado(config = VERTICE_FIREBASE_CONFIG) {

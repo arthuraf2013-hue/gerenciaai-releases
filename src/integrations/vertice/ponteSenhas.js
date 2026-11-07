@@ -15,15 +15,19 @@ export function acoesParaVertice(lista, enviados) {
   const acoes = [];
   const atual = new Map();
   const add = (c, status) => atual.set(c.id, { c, status });
+  // "Pronto" muda a cada vez que a senha é chamada (De novo): a chave inclui o horário da chamada,
+  // para o Vértice receber de novo e a TV repetir o aviso.
+  const chaveDe = (status, c) => (status === 'ready' ? `ready|${c.chamadoEm || ''}|${c.vezesChamada || 0}` : status);
   for (const c of lista?.preparando || []) add(c, 'preparing');
   for (const c of lista?.prontas || []) add(c, 'ready');
   for (const c of lista?.entregues || []) add(c, 'delivered');
   for (const [id, { c, status }] of atual) {
-    if (enviados.get(id) === status) continue;
-    acoes.push({ tipo: status, venda: { id, number: c.numero, customerName: c.nome || null, createdAt: c.criadoEm ? `${String(c.criadoEm).replace(' ', 'T')}Z` : undefined } });
+    const chave = chaveDe(status, c);
+    if (enviados.get(id) === chave) continue;
+    acoes.push({ tipo: status, chave, venda: { id, number: c.numero, customerName: c.nome || null, createdAt: c.criadoEm ? `${String(c.criadoEm).replace(' ', 'T')}Z` : undefined } });
   }
   for (const id of lista?.canceladas || []) {
-    if (enviados.get(id) && enviados.get(id) !== 'cancelled') acoes.push({ tipo: 'cancelled', venda: { id } });
+    if (enviados.get(id) && enviados.get(id) !== 'cancelled') acoes.push({ tipo: 'cancelled', chave: 'cancelled', venda: { id } });
   }
   return acoes;
 }
@@ -45,7 +49,7 @@ export function iniciarPonteSenhas(vx) {
         else if (a.tipo === 'ready') vx.orderReady(a.venda);
         else if (a.tipo === 'delivered') vx.orderDelivered(a.venda);
         else if (a.tipo === 'cancelled') vx.orderCancelled(a.venda);
-        enviados.set(a.venda.id, a.tipo);
+        enviados.set(a.venda.id, a.chave);
       } catch (err) {
         console.warn('[vertice] pedido não enviado', err?.message || err);
       }

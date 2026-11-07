@@ -21,12 +21,25 @@ test('Vértice: primeira sincronização manda tudo; depois só o que mudou', as
   const a1 = acoesParaVertice(lista, enviados);
   assert.deepEqual(a1.map((a) => [a.tipo, a.venda.id]), [['preparing', 's43'], ['ready', 's42'], ['delivered', 's41']]);
   assert.deepEqual(a1[0].venda, { id: 's43', number: 43, customerName: 'Bruno', createdAt: '2026-11-07T12:00:00Z' });
-  for (const a of a1) enviados.set(a.venda.id, a.tipo);
+  for (const a of a1) enviados.set(a.venda.id, a.chave);
   assert.deepEqual(acoesParaVertice(lista, enviados), [], 'nada mudou, nada vai');
   // 43 ficou pronta; 40 tinha sido enviada e foi cancelada (39 nunca foi: não apaga à toa).
   enviados.set('s40', 'preparing');
   const a2 = acoesParaVertice({ ...lista, preparando: [], prontas: [...lista.prontas, lista.preparando[0]] }, enviados);
   assert.deepEqual(a2.map((a) => [a.tipo, a.venda.id]), [['ready', 's43'], ['cancelled', 's40']]);
+});
+
+test('Vértice: senha chamada de novo é reenviada (a TV repete o aviso)', async () => {
+  const { acoesParaVertice } = await ponte();
+  const enviados = new Map();
+  const chamada1 = { prontas: [{ id: 's42', numero: 42, nome: 'Ana', chamadoEm: '2026-11-07 12:00:00', vezesChamada: 1 }] };
+  const a1 = acoesParaVertice(chamada1, enviados);
+  assert.deepEqual(a1.map((a) => a.tipo), ['ready']);
+  enviados.set('s42', a1[0].chave);
+  assert.deepEqual(acoesParaVertice(chamada1, enviados), [], 'mesma chamada, nada vai de novo');
+  const chamada2 = { prontas: [{ id: 's42', numero: 42, nome: 'Ana', chamadoEm: '2026-11-07 12:20:00', vezesChamada: 2 }] };
+  const a2 = acoesParaVertice(chamada2, enviados);
+  assert.deepEqual(a2.map((a) => [a.tipo, a.venda.id]), [['ready', 's42']], 'chamou de novo: manda de novo');
 });
 
 test('Vértice: integração só liga com o projeto do Vértice configurado', async () => {
