@@ -41,7 +41,8 @@ const HEARTBEAT_MS = 5 * 60 * 1000;
  * @param {boolean} [opts.sendFullName] false (padrão): envia só "Maria S." (LGPD: o mínimo necessário)
  * @param {boolean} [opts.emulator]     true para testar com os emuladores locais do Firebase
  */
-export function createVerticeSync({ firebaseConfig, terminal = 'Caixa', appVersion = '', sendFullName = false, emulator = false } = {}) {
+export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Caixa', appVersion = '', sendFullName = false, emulator = false } = {}) {
+  let terminal = String(terminalName || 'Caixa').slice(0, 40);
   const existing = getApps().find((a) => a.name === APP_NAME);
   const app = existing || initializeApp(firebaseConfig, APP_NAME);
   // Em hot reload o app já existe: reaproveita Auth e Firestore em vez de inicializar de novo.
@@ -56,8 +57,13 @@ export function createVerticeSync({ firebaseConfig, terminal = 'Caixa', appVersi
     connectFirestoreEmulator(db, '127.0.0.1', 8080);
   }
 
-  /** @type {{status:'starting'|'unpaired'|'pairing'|'paired'|'error', code?:string, expiresAt?:number, companyName?:string, unitId?:string|null, error?:string}} */
-  let state = { status: 'starting' };
+  /**
+   * @type {{status:'starting'|'unpaired'|'pairing'|'paired'|'error', code?:string, expiresAt?:number,
+   *   companyName?:string, unitId?:string|null, error?:string, terminal?:string,
+   *   pending?:number, lastSentAt?:number|null, lastError?:string|null}}
+   * pending = pedidos aguardando confirmação do servidor (sem internet eles ficam na fila).
+   */
+  let state = { status: 'starting', terminal, pending: 0, lastSentAt: null, lastError: null };
   const subs = new Set();
   const set = (patch) => {
     state = { ...state, ...patch };
@@ -189,6 +195,25 @@ export function createVerticeSync({ firebaseConfig, terminal = 'Caixa', appVersi
     return doc(db, 'companies', device.companyId, 'orders', `${uid}_${String(saleId).replace(/[/]/g, '-')}`);
   }
 
+  /** Acompanha cada envio: quantos estão na fila, o último que chegou e o último erro. */
+  function track(promise) {
+    set({ pending: state.pending + 1 });
+    promise.then(
+      () => set({ pending: Math.max(0, state.pending - 1), lastSentAt: Date.now(), lastError: null }),
+      (e) => {
+        console.warn('[vertice] pedido não enviado', e.code || e);
+        const denied = e.code === 'permission-denied';
+        set({
+          pending: Math.max(0, state.pending - 1),
+          lastError: denied
+            ? 'O Vértice recusou o pedido. Confira se este caixa ainda está conectado em Empresa › Integrações.'
+            : 'Não foi possível enviar o pedido ao Vértice.',
+        });
+      },
+    );
+    return promise;
+  }
+
   /** Grava o pedido. Não espera a internet: o Firestore enfileira e envia depois. */
   function upsert(sale, status, extra) {
     const ref = orderRef(sale.id);
@@ -204,11 +229,13 @@ export function createVerticeSync({ firebaseConfig, terminal = 'Caixa', appVersi
       expireAt: Timestamp.fromMillis(Date.now() + ORDER_TTL_MS),
       ...extra,
     };
-    if (!sentCreated.has(ref.id)) {
-      base.createdAt = sale.createdAt ? Timestamp.fromMillis(new Date(sale.createdAt).getTime()) : serverTimestamp();
-      sentCreated.add(ref.id);
-    }
-    setDoc(ref, base, { merge: true }).catch((e) => console.warn('[vertice] pedido não enviado', e.code || e));
+    // A hora da venda (se o GerenciaAI informar) é estável: pode ir em todo envio.
+    // Sem ela, marca a hora do servidor só no primeiro envio desta sessão.
+    const created = sale.createdAt ? new Date(sale.createdAt).getTime() : NaN;
+    if (Number.isFinite(created)) base.createdAt = Timestamp.fromMillis(created);
+    else if (!sentCreated.has(ref.id)) base.createdAt = serverTimestamp();
+    sentCreated.add(ref.id);
+    track(setDoc(ref, base, { merge: true }));
     return ref.id;
   }
 
@@ -234,7 +261,26 @@ export function createVerticeSync({ firebaseConfig, terminal = 'Caixa', appVersi
     /** Venda cancelada: apaga o pedido. */
     async orderCancelled(sale) {
       if (!device) return;
-      await deleteDoc(orderRef(sale.id)).catch(() => {});
+      await track(deleteDoc(orderRef(sale.id))).catch(() => {});
+    },
+
+    /** Troca o nome do caixa mostrado no painel (ex.: quando o usuário renomeia o PDV). */
+    setTerminal(name) {
+      terminal = String(name || 'Caixa').slice(0, 40);
+      set({ terminal });
+      heartbeat();
+    },
+
+    /**
+     * Pedido de teste: aparece como pronto nas TVs desta unidade por 1 minuto e depois sai.
+     * Use no botão "Enviar pedido de teste" da tela de configurações.
+     */
+    sendTestOrder() {
+      if (!device) throw new Error('Conecte o caixa ao Vértice primeiro.');
+      const sale = { id: `teste-${Date.now()}`, number: 'TESTE', customerName: 'Pedido de teste' };
+      const id = upsert(sale, 'ready', { readyAt: serverTimestamp() });
+      setTimeout(() => upsert(sale, 'delivered', { deliveredAt: serverTimestamp() }), 60_000);
+      return id;
     },
 
     /** Desconecta este caixa. Peça também para remover em Empresa › Integrações no painel. */
