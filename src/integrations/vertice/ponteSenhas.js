@@ -14,6 +14,17 @@
 
 const isoUtc = (s) => (s ? `${String(s).replace(' ', 'T')}${/Z$/.test(String(s)) ? '' : 'Z'}` : undefined);
 
+/**
+ * Hora da chamada para o Vértice. O banco guarda só até o segundo; somar o número da chamada em
+ * milissegundos separa dois "De novo" no mesmo segundo (senão a TV acharia que é a mesma chamada).
+ * Exportada pra teste.
+ */
+export function horaDaChamada(c) {
+  const ms = Date.parse(isoUtc(c?.chamadoEm) || '');
+  if (!Number.isFinite(ms)) return undefined;
+  return new Date(ms + ((Number(c.vezesChamada) || 0) % 1000)).toISOString();
+}
+
 /** Ações para levar o Vértice ao estado atual. Pura -- exportada pra teste. */
 export function acoesParaVertice(lista, enviados) {
   const acoes = [];
@@ -29,7 +40,7 @@ export function acoesParaVertice(lista, enviados) {
     const chave = chaveDe(status, c);
     if (enviados.get(id) === chave) continue;
     const venda = { id, number: c.numero, customerName: c.nome || null, createdAt: isoUtc(c.criadoEm) };
-    if (status === 'ready' && c.chamadoEm) venda.readyAt = isoUtc(c.chamadoEm);
+    if (status === 'ready' && c.chamadoEm) venda.readyAt = horaDaChamada(c);
     acoes.push({ tipo: status, chave, venda });
   }
   for (const id of lista?.canceladas || []) {

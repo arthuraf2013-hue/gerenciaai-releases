@@ -41,10 +41,21 @@ test('Vértice: senha chamada de novo é reenviada (a TV repete o aviso)', async
   const a2 = acoesParaVertice(chamada2, enviados);
   assert.deepEqual(a2.map((a) => [a.tipo, a.venda.id]), [['ready', 's42']], 'chamou de novo: manda de novo');
   // A hora da chamada vai junto: a TV repete o aviso só quando ela muda.
-  assert.equal(a1[0].venda.readyAt, '2026-11-07T12:00:00Z');
-  assert.equal(a2[0].venda.readyAt, '2026-11-07T12:20:00Z');
+  assert.equal(a1[0].venda.readyAt, '2026-11-07T12:00:00.001Z');
+  assert.equal(a2[0].venda.readyAt, '2026-11-07T12:20:00.002Z');
   // App reaberto (cache vazio): reenvia a MESMA hora -- a TV não anuncia de novo.
-  assert.equal(acoesParaVertice(chamada2, new Map())[0].venda.readyAt, '2026-11-07T12:20:00Z');
+  assert.equal(acoesParaVertice(chamada2, new Map())[0].venda.readyAt, '2026-11-07T12:20:00.002Z');
+});
+
+test('Vértice: "De novo" apertado duas vezes no mesmo segundo ainda conta como duas chamadas', async () => {
+  const { acoesParaVertice } = await ponte();
+  const enviados = new Map();
+  const vez = (n) => ({ prontas: [{ id: 's7', numero: 7, chamadoEm: '2026-11-07 19:05:10', vezesChamada: n }] });
+  const a1 = acoesParaVertice(vez(3), enviados);
+  enviados.set('s7', a1[0].chave);
+  const a2 = acoesParaVertice(vez(4), enviados);
+  assert.equal(a2.length, 1, 'a segunda chamada vai para o Vértice');
+  assert.notEqual(a2[0].venda.readyAt, a1[0].venda.readyAt, 'e com outra hora: a TV avisa de novo');
 });
 
 test('Vértice: módulo usa a hora da chamada no readyAt (cópia igual à do repositório do Vértice)', () => {
