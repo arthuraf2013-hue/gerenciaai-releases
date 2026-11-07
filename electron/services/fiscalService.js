@@ -4,11 +4,13 @@ const fs = require('fs');
 const { getDb } = require('../db/database');
 const timeService = require('./timeService');
 const secrets = require('./secretsService');
-const { gerarXmlNFCe } = require('./nfceXmlService');
+const { gerarXmlNFCe, inserirInfNFeSupl, compactarXml, semDeclaracao } = require('./nfceXmlService');
 const { carregarCertificado } = require('./nfceCertificateService');
-const { assinarXmlNFCe, assinarXmlEvento, assinarXmlInutilizacao } = require('./nfceSignatureService');
+const { assinarXmlNFCe, assinarXmlEvento, assinarXmlInutilizacao, assinarTexto } = require('./nfceSignatureService');
 const { enviarNFCe, enviarEventoNFCe, enviarInutilizacaoNFCe } = require('./nfceTransmissionService');
-const { montarConteudoQrCode, montarUrlQrCode } = require('./nfceQrCodeService');
+const {
+  montarConteudoQrCode, montarConteudoQrCodeContingencia, montarUrlQrCodeDeConteudo, urlQrCodeDaUf, urlChaveDaUf,
+} = require('./nfceQrCodeService');
 const { gerarXmlCancelamento } = require('./nfceEventoService');
 const { gerarXmlInutilizacao } = require('./nfceInutilizacaoService');
 
@@ -39,6 +41,10 @@ function getFiscalConfigPublic() {
     ...safe,
     temCertificadoConfigurado: !!config.certificado_path,
     temCscConfigurado: !!config.csc_token,
+    // Valores usados quando o campo fica vazio (tabela por UF, ver nfceQrCodeService).
+    urlQrCodePadrao: urlQrCodeDaUf({ uf: config.uf, ambiente: config.ambiente, urlConfigurada: null }),
+    urlChavePadrao: urlChaveDaUf({ uf: config.uf, ambiente: config.ambiente, urlConfigurada: null }),
+    responsavelTecnicoConfigurado: String(responsavelTecnico()?.cnpj || '').replace(/\D/g, '').length === 14,
   };
 }
 
@@ -76,7 +82,7 @@ function updateFiscalConfig(requestingUserId, payload) {
        cnpj = ?, inscricao_estadual = ?, razao_social = ?, nome_fantasia = ?,
        regime_tributario = ?, uf = ?, municipio_codigo_ibge = ?, endereco_json = ?,
        certificado_path = ?, certificado_senha = ?, ambiente = ?, serie_nfce = ?,
-       csc_id = ?, csc_token = ?, qr_code_url = ?
+       csc_id = ?, csc_token = ?, qr_code_url = ?, url_chave = ?
      WHERE id = 'default'`
   ).run(
     payload.cnpj ?? current.cnpj,
@@ -93,7 +99,8 @@ function updateFiscalConfig(requestingUserId, payload) {
     payload.serieNfce ?? current.serie_nfce,
     payload.cscId !== undefined ? payload.cscId : current.csc_id,
     payload.cscToken !== undefined ? secrets.encrypt(payload.cscToken) : secrets.encrypt(current.csc_token),
-    payload.qrCodeUrl !== undefined ? (payload.qrCodeUrl || null) : current.qr_code_url
+    payload.qrCodeUrl !== undefined ? (payload.qrCodeUrl || null) : current.qr_code_url,
+    payload.urlChave !== undefined ? (String(payload.urlChave || '').trim() || null) : (current.url_chave ?? null)
   );
 
   return { ok: true };
@@ -180,27 +187,48 @@ async function emitirNFCe(saleId, opcoes = {}) {
   // 'cancelada' não bloqueiam: são exatamente os casos em que tentar de
   // novo é o fluxo esperado (a nota anterior não vale/não existe mais).
   const jaEmitida = db.prepare(
-    `SELECT id FROM nfce_emitidas WHERE sale_id = ? AND status IN ('pendente', 'autorizada') LIMIT 1`
+    `SELECT id FROM nfce_emitidas WHERE sale_id = ? AND status IN ('pendente', 'autorizada', 'contingencia') LIMIT 1`
   ).get(saleId);
   if (jaEmitida) {
-    return { ok: false, error: 'Esta venda já tem uma NFC-e emitida (pendente ou autorizada) — cancele a existente antes de emitir outra.' };
+    return { ok: false, error: 'Esta venda já tem uma NFC-e emitida (pendente, em contingência ou autorizada) — cancele a existente antes de emitir outra.' };
   }
 
   const items = db.prepare(
-    `SELECT si.*, p.nome, p.sku, p.codigo_barras, p.ncm, p.cfop, p.cst_csosn, p.origem_mercadoria, p.unidade
+    `SELECT si.*, p.nome, p.sku, p.codigo_barras, p.ncm, p.cest, p.cfop, p.cst_csosn, p.origem_mercadoria, p.unidade
      FROM sale_items si JOIN products p ON p.id = si.product_id
      WHERE si.sale_id = ?`
   ).all(saleId);
   const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
 
-  const numero = config.proximo_numero_nfce || 1;
-  const dataEmissao = opcoes.dataEmissao instanceof Date && !Number.isNaN(opcoes.dataEmissao.getTime())
-    ? opcoes.dataEmissao : new Date(sale.finalizada_em);
+  // Cadastro fiscal mínimo de cada item ANTES de gastar um número: NCM de
+  // 8 dígitos (00000000 só vale para serviço, que não sai em NFC-e) e CFOP
+  // de saída dentro do estado. Sem isso a SEFAZ recusa (778) e o número fica
+  // perdido até ser inutilizado.
+  const problemas = itensComCadastroFiscalIncompleto(items);
+  if (problemas.length) {
+    return {
+      ok: false,
+      error: `Cadastro fiscal incompleto: ${problemas.slice(0, 5).join('; ')}${problemas.length > 5 ? ` e mais ${problemas.length - 5}` : ''}. Corrija em Fiscal → Cadastro fiscal.`,
+    };
+  }
 
-  let xml, chaveAcesso;
+  const urlQr = urlQrCodeDaUf({ uf: config.uf, ambiente: config.ambiente, urlConfigurada: config.qr_code_url });
+  const urlChave = urlChaveDaUf({ uf: config.uf, ambiente: config.ambiente, urlConfigurada: config.url_chave });
+  if (!urlQr || !urlChave) {
+    return { ok: false, error: 'Informe em Configurações → Fiscal a URL de consulta do QR Code e a URL de consulta por chave da SEFAZ do seu estado (obrigatórias na NFC-e).' };
+  }
+
+  const numero = config.proximo_numero_nfce || 1;
+  // dhEmi = momento da emissão (a SEFAZ recusa NFC-e on-line com data de
+  // minutos atrás -- rejeição 704). `opcoes.dataEmissao` continua valendo
+  // para quem precisa informar (ex.: venda do celular terminal).
+  const dataEmissao = opcoes.dataEmissao instanceof Date && !Number.isNaN(opcoes.dataEmissao.getTime())
+    ? opcoes.dataEmissao : new Date();
+
+  let xml, chaveAcesso, avisos;
   try {
-    ({ xml, chaveAcesso } = gerarXmlNFCe({
-      config, sale, items, payments, numero, dataEmissao,
+    ({ xml, chaveAcesso, avisos } = gerarXmlNFCe({
+      config, sale, items, payments, numero, dataEmissao, respTec: responsavelTecnico(),
     }));
   } catch (err) {
     return { ok: false, error: `Erro ao montar o XML: ${err.message}` };
@@ -216,7 +244,7 @@ async function emitirNFCe(saleId, opcoes = {}) {
     if (certificado.validoAte.getTime() < Date.now()) {
       return { ok: false, error: `O certificado digital venceu em ${certificado.validoAte.toLocaleDateString('pt-BR')} — renove antes de emitir.` };
     }
-    xmlAssinado = assinarXmlNFCe(xml, certificado);
+    xmlAssinado = completarXmlParaEnvio(assinarXmlNFCe(xml, certificado), { config, certificado });
   } catch (err) {
     return { ok: false, error: `Não foi possível assinar o XML com o certificado configurado: ${err.message}` };
   }
@@ -224,17 +252,14 @@ async function emitirNFCe(saleId, opcoes = {}) {
   // Só a partir daqui grava de verdade — o XML já está assinado, e o
   // número só é incrementado depois de garantir que chegou até aqui.
   // 'electron' carregado sob demanda -- ver comentário em attachmentService.js.
-  const { app } = require('electron');
-  const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
-  fs.mkdirSync(pastaDestino, { recursive: true });
-  const xmlPath = path.join(pastaDestino, `${chaveAcesso}.xml`);
-  fs.writeFileSync(xmlPath, xmlAssinado, 'utf-8');
+  const xmlPath = gravarXml(config, chaveAcesso, xmlAssinado);
+  const qrCodeConteudo = conteudoQrDoXml(xmlAssinado);
 
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO nfce_emitidas (id, sale_id, numero, serie, chave_acesso, status, ambiente, xml_path)
-     VALUES (?, ?, ?, ?, ?, 'pendente', ?, ?)`
-  ).run(id, saleId, numero, config.serie_nfce, chaveAcesso, config.ambiente, xmlPath);
+    `INSERT INTO nfce_emitidas (id, sale_id, numero, serie, chave_acesso, status, ambiente, xml_path, qr_code_conteudo)
+     VALUES (?, ?, ?, ?, ?, 'pendente', ?, ?, ?)`
+  ).run(id, saleId, numero, config.serie_nfce, chaveAcesso, config.ambiente, xmlPath, qrCodeConteudo);
   db.prepare(`UPDATE fiscal_config SET proximo_numero_nfce = ? WHERE id = 'default'`).run(numero + 1);
 
   // Transmite pra SEFAZ — isso PODE falhar por COMUNICAÇÃO (rede fora,
@@ -258,40 +283,129 @@ async function emitirNFCe(saleId, opcoes = {}) {
     return entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao, dataEmissao });
   }
 
-  const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
-  const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso, ambiente: config.ambiente }) : null;
-  db.prepare(
-    `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
-  ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo), qrCodeConteudo, id);
+  return aplicarResultado({ db, config, id, chaveAcesso, xmlPath, xmlAssinado, resultadoTransmissao, extra: { numero, avisos } });
+}
 
+/** Itens sem NCM de 8 dígitos válido ou sem CFOP de saída interna (5xxx). */
+function itensComCadastroFiscalIncompleto(items) {
+  const problemas = [];
+  for (const i of items.filter((x) => !x.cancelado)) {
+    const ncm = String(i.ncm || '');
+    if (!/^\d{8}$/.test(ncm) || ncm === '00000000') problemas.push(`${i.nome}: sem NCM`);
+    else if (i.cfop && !/^5\d{3}$/.test(String(i.cfop))) problemas.push(`${i.nome}: CFOP ${i.cfop} não é de venda dentro do estado`);
+  }
+  return problemas;
+}
+
+/** Responsável técnico pelo sistema (grupo infRespTec). */
+function responsavelTecnico() {
+  try { return require('./nfceRespTecnico').RESPONSAVEL_TECNICO; } catch { return null; }
+}
+
+function gravarXml(config, chaveAcesso, xml) {
+  const { app } = require('electron');
+  const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
+  fs.mkdirSync(pastaDestino, { recursive: true });
+  const xmlPath = path.join(pastaDestino, `${chaveAcesso}.xml`);
+  fs.writeFileSync(xmlPath, xml, 'utf-8');
+  return xmlPath;
+}
+
+/** Conteúdo do QR (o que vem depois do "?p=") lido do infNFeSupl do XML. */
+function conteudoQrDoXml(xml) {
+  const m = String(xml).match(/<qrCode><!\[CDATA\[([^\]]*)\]\]><\/qrCode>/);
+  if (!m) return null;
+  const i = m[1].indexOf('?p=');
+  return i >= 0 ? m[1].slice(i + 3) : null;
+}
+
+const tag = (xml, nome) => (String(xml).match(new RegExp(`<${nome}>([^<]*)</${nome}>`)) || [])[1] || null;
+
+/**
+ * Deixa o XML assinado pronto para a SEFAZ: sem declaração, compacto e com o
+ * <infNFeSupl>. XML salvo antes da revisão de nov/2026 (com quebras de linha
+ * e sem infNFeSupl) é compactado e ASSINADO DE NOVO -- a assinatura cobre o
+ * texto exato, então compactar sem reassinar daria rejeição 297. Chave,
+ * número e data não mudam (a nota ainda não foi autorizada).
+ */
+function completarXmlParaEnvio(xmlAssinado, { config, certificado }) {
+  let xml = semDeclaracao(xmlAssinado);
+  const precisaReassinar = /<!--/.test(xml) || />\s+</.test(xml);
+  if (precisaReassinar) {
+    xml = xml.replace(/<infNFeSupl>[\s\S]*?<\/infNFeSupl>/, '').replace(/<Signature[\s\S]*<\/Signature>/, '');
+    xml = assinarXmlNFCe(compactarXml(xml), certificado);
+  }
+  const chaveAcesso = (xml.match(/Id="NFe(\d{44})"/) || [])[1];
+  const tpEmis = tag(xml, 'tpEmis');
+  const tpAmb = tag(xml, 'tpAmb');
+  const ambiente = tpAmb === '1' ? 'producao' : 'homologacao';
+  const urlQr = urlQrCodeDaUf({ uf: config.uf, ambiente, urlConfigurada: config.qr_code_url });
+  const urlChave = urlChaveDaUf({ uf: config.uf, ambiente, urlConfigurada: config.url_chave });
+  let conteudo;
+  if (tpEmis === '9') {
+    const dhEmi = tag(xml, 'dhEmi') || '';
+    const doc = (String(xml).match(/<dest>[\s\S]*?<(?:CPF|CNPJ)>(\d+)<\/(?:CPF|CNPJ)>/) || [])[1] || '';
+    conteudo = montarConteudoQrCodeContingencia({
+      chaveAcesso, ambiente, dia: dhEmi.slice(8, 10), vNF: tag(xml, 'vNF'), destinatario: doc,
+      assinar: (texto) => assinarTexto(texto, certificado),
+    });
+  } else {
+    conteudo = montarConteudoQrCode({ chaveAcesso, ambiente });
+  }
+  return inserirInfNFeSupl(xml, { qrCode: montarUrlQrCodeDeConteudo({ conteudo, urlConsulta: urlQr }), urlChave });
+}
+
+/** Grava o retorno da SEFAZ (autorizada/rejeitada) e, autorizada, o XML com o protocolo (nfeProc). */
+function aplicarResultado({ db, config, id, chaveAcesso, xmlPath, xmlAssinado, resultadoTransmissao, extra = {} }) {
+  const rejeicoes = require('./rejeicoesSefaz');
+  const autorizada = !!resultadoTransmissao.autorizada;
+  const motivo = autorizada ? resultadoTransmissao.motivo : rejeicoes.explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo);
+  db.prepare(
+    `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ? WHERE id = ?`
+  ).run(autorizada ? 'autorizada' : 'rejeitada', resultadoTransmissao.protocoloAutorizacao || null, autorizada ? null : motivo, id);
+  if (autorizada && xmlPath) {
+    // XML de distribuição (nfeProc = nota + protocolo): é o que o contador e
+    // o consumidor recebem. Sem o protocolo, o arquivo não prova a autorização.
+    try {
+      const prot = String(resultadoTransmissao.xmlRespostaCompleto || '').match(/<protNFe[\s\S]*?<\/protNFe>/);
+      if (prot) {
+        const proc = `<?xml version="1.0" encoding="UTF-8"?><nfeProc versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">${semDeclaracao(xmlAssinado)}${prot[0]}</nfeProc>`;
+        fs.writeFileSync(xmlPath.replace(/\.xml$/, '-procNFe.xml'), proc, 'utf-8');
+      }
+    } catch (err) {
+      console.error('[fiscal] não gravou o XML com protocolo:', err?.message || err);
+    }
+  }
+  const nfce = db.prepare('SELECT * FROM nfce_emitidas WHERE id = ?').get(id);
   return {
     ok: true, xmlGerado: true, assinado: true, transmitido: true,
-    autorizada: resultadoTransmissao.autorizada, numero, chaveAcesso, xmlPath, id,
+    autorizada, chaveAcesso, xmlPath, id,
     protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao,
-    motivo: resultadoTransmissao.autorizada ? resultadoTransmissao.motivo : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo),
-    qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
+    motivo,
+    qrCodeUrl: autorizada ? getQrCodeUrlParaNfce(nfce) : null,
+    ...extra,
   };
 }
 
 /**
  * Chamado quando a transmissão normal (tpEmis=1) falhou por
- * COMUNICAÇÃO — regenera o XML com tpEmis=9 (contingência), assina de
- * novo e grava por cima do registro 'pendente' já criado (mesmo id,
- * mesmo número — não "queima" um segundo número pra mesma venda). Não
- * tenta transmitir agora: contingência é justamente o documento sendo
- * usado SEM confirmação da SEFAZ no momento; a transmissão de verdade
- * fica pro job periódico (reenviarNFCe, chamado em loop por
- * main.js/reenviarPendentesEContingencia).
+ * COMUNICAÇÃO — regenera o XML com tpEmis=9 (contingência off-line), assina
+ * de novo e grava por cima do registro 'pendente' já criado (mesmo id,
+ * mesmo número — não "queima" um segundo número pra mesma venda). O QR Code
+ * da contingência (versão 3) leva a assinatura dos parâmetros e é impresso
+ * na hora. A transmissão de verdade fica pro job periódico (reenviarNFCe,
+ * chamado em loop por main.js/reenviarPendentesEContingencia).
  */
-function entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao, dataEmissao = new Date(sale.finalizada_em) }) {
-  let xmlContingencia, chaveContingencia, xmlAssinadoContingencia;
+function entrarEmContingencia({ db, config, certificado, sale, items, payments, numero, id, chaveAcesso, erroComunicacao, dataEmissao = new Date() }) {
+  let chaveContingencia, xmlAssinadoContingencia;
   try {
-    ({ xml: xmlContingencia, chaveAcesso: chaveContingencia } = gerarXmlNFCe({
+    const gerado = gerarXmlNFCe({
       config, sale, items, payments, numero, dataEmissao,
-      tpEmis: '9',
-      justificativaContingencia: `Falha de comunicacao com a SEFAZ no momento da venda: ${String(erroComunicacao).slice(0, 200)}`,
-    }));
-    xmlAssinadoContingencia = assinarXmlNFCe(xmlContingencia, certificado);
+      tpEmis: '9', respTec: responsavelTecnico(),
+      justificativaContingencia: `Falha de comunicacao com a SEFAZ no momento da venda: ${String(erroComunicacao).slice(0, 180)}`,
+    });
+    chaveContingencia = gerado.chaveAcesso;
+    xmlAssinadoContingencia = completarXmlParaEnvio(assinarXmlNFCe(gerado.xml, certificado), { config, certificado });
   } catch (err) {
     // Não conseguiu nem montar/assinar a versão de contingência --
     // fica como 'pendente' mesmo (já gravada acima), só sem o
@@ -302,19 +416,15 @@ function entrarEmContingencia({ db, config, certificado, sale, items, payments, 
     };
   }
 
-  const { app } = require('electron');
-  const pastaDestino = path.join(app.getPath('userData'), 'nfce', config.ambiente);
-  fs.mkdirSync(pastaDestino, { recursive: true });
-  const xmlPath = path.join(pastaDestino, `${chaveContingencia}.xml`);
-  fs.writeFileSync(xmlPath, xmlAssinadoContingencia, 'utf-8');
-
+  const xmlPath = gravarXml(config, chaveContingencia, xmlAssinadoContingencia);
   db.prepare(
-    `UPDATE nfce_emitidas SET status = 'contingencia', chave_acesso = ?, xml_path = ?, transmitida_em_contingencia = 1 WHERE id = ?`
-  ).run(chaveContingencia, xmlPath, id);
+    `UPDATE nfce_emitidas SET status = 'contingencia', chave_acesso = ?, xml_path = ?, transmitida_em_contingencia = 1, qr_code_conteudo = ? WHERE id = ?`
+  ).run(chaveContingencia, xmlPath, conteudoQrDoXml(xmlAssinadoContingencia), id);
 
   return {
     ok: true, xmlGerado: true, assinado: true, transmitido: false, contingencia: true,
     numero, chaveAcesso: chaveContingencia, xmlPath, id,
+    qrCodeUrl: getQrCodeUrlParaNfce(db.prepare('SELECT * FROM nfce_emitidas WHERE id = ?').get(id)),
     aviso: `A SEFAZ está indisponível (${erroComunicacao}) — NFC-e emitida em CONTINGÊNCIA. O documento já vale como comprovante fiscal; a confirmação com a SEFAZ acontece automaticamente assim que a conexão voltar.`,
   };
 }
@@ -323,7 +433,8 @@ function entrarEmContingencia({ db, config, certificado, sale, items, payments, 
  * 'contingencia' (já assinada, só não conseguiu falar com a SEFAZ da
  * primeira vez, ou foi emitida offline e precisa ser confirmada assim
  * que a conexão voltar — os dois casos reenviam o MESMO jeito, o
- * tpEmis já está gravado no XML salvo em disco). */
+ * tpEmis já está gravado no XML salvo em disco). XML salvo por versão
+ * antiga é completado (compacto + infNFeSupl) antes, ver completarXmlParaEnvio. */
 async function reenviarNFCe(nfceId) {
   const db = getDb();
   const nfce = db.prepare('SELECT * FROM nfce_emitidas WHERE id = ?').get(nfceId);
@@ -341,23 +452,28 @@ async function reenviarNFCe(nfceId) {
     return { ok: false, error: `Não foi possível abrir o certificado: ${err.message}` };
   }
 
-  const xmlAssinado = fs.readFileSync(nfce.xml_path, 'utf-8');
+  let xmlAssinado;
+  try {
+    const salvo = fs.readFileSync(nfce.xml_path, 'utf-8');
+    xmlAssinado = completarXmlParaEnvio(salvo, { config, certificado });
+    if (xmlAssinado !== salvo) {
+      fs.writeFileSync(nfce.xml_path, xmlAssinado, 'utf-8');
+      db.prepare('UPDATE nfce_emitidas SET qr_code_conteudo = ? WHERE id = ?').run(conteudoQrDoXml(xmlAssinado), nfceId);
+    }
+  } catch (err) {
+    return { ok: false, error: `Não foi possível preparar o XML salvo: ${err.message}` };
+  }
 
   try {
     const resultadoTransmissao = await enviarNFCe({ xmlNFeAssinado: xmlAssinado, config, certificado, idLote: nfce.numero });
     if (!resultadoTransmissao.ok) return { ok: false, error: resultadoTransmissao.error };
-
-    const novoStatus = resultadoTransmissao.autorizada ? 'autorizada' : 'rejeitada';
-    const qrCodeConteudo = resultadoTransmissao.autorizada ? montarConteudoQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: config.ambiente }) : null;
-    db.prepare(
-      `UPDATE nfce_emitidas SET status = ?, protocolo_autorizacao = ?, motivo_rejeicao = ?, qr_code_conteudo = ? WHERE id = ?`
-    ).run(novoStatus, resultadoTransmissao.protocoloAutorizacao || null, resultadoTransmissao.autorizada ? null : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo), qrCodeConteudo, nfceId);
-
-    return {
-      ok: true, autorizada: resultadoTransmissao.autorizada,
-      protocoloAutorizacao: resultadoTransmissao.protocoloAutorizacao, motivo: resultadoTransmissao.autorizada ? resultadoTransmissao.motivo : require('./rejeicoesSefaz').explicar(resultadoTransmissao.cStat, resultadoTransmissao.motivo),
-      qrCodeUrl: resultadoTransmissao.autorizada ? montarUrlQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: config.ambiente, urlConsulta: config.qr_code_url }) : null,
-    };
+    // 204 = a SEFAZ já tinha recebido esta nota (a resposta da 1ª vez se
+    // perdeu). Não é rejeição: a nota está lá -- consultar pela chave.
+    if (resultadoTransmissao.cStat === '204') {
+      return { ok: false, error: require('./rejeicoesSefaz').explicar('204', resultadoTransmissao.motivo) };
+    }
+    const r = aplicarResultado({ db, config, id: nfceId, chaveAcesso: nfce.chave_acesso, xmlPath: nfce.xml_path, xmlAssinado, resultadoTransmissao });
+    return { ok: true, autorizada: r.autorizada, protocoloAutorizacao: r.protocoloAutorizacao, motivo: r.motivo, qrCodeUrl: r.qrCodeUrl };
   } catch (err) {
     return { ok: false, error: `Transmissão falhou de novo: ${err.message}` };
   }
@@ -543,9 +659,16 @@ function getNfceMaisRecente(saleId) {
  * (ambiente, URL de consulta), não a config no momento da emissão, já
  * que a URL de consulta pode ter sido preenchida DEPOIS de emitir. */
 function getQrCodeUrlParaNfce(nfce) {
-  if (!nfce || nfce.status !== 'autorizada' || !nfce.chave_acesso) return null;
+  if (!nfce || !['autorizada', 'contingencia'].includes(nfce.status) || !nfce.chave_acesso) return null;
   const config = getFiscalConfig();
-  return montarUrlQrCode({ chaveAcesso: nfce.chave_acesso, ambiente: nfce.ambiente || config.ambiente, urlConsulta: config.qr_code_url });
+  const ambiente = nfce.ambiente || config.ambiente;
+  const urlConsulta = urlQrCodeDaUf({ uf: config.uf, ambiente, urlConfigurada: config.qr_code_url });
+  // O conteúdo gravado é o mesmo do XML (na contingência leva a assinatura);
+  // nota antiga sem ele usa o on-line.
+  const conteudo = nfce.qr_code_conteudo && nfce.qr_code_conteudo.startsWith(nfce.chave_acesso)
+    ? nfce.qr_code_conteudo
+    : (nfce.status === 'autorizada' ? montarConteudoQrCode({ chaveAcesso: nfce.chave_acesso, ambiente }) : null);
+  return montarUrlQrCodeDeConteudo({ conteudo, urlConsulta });
 }
 
 /**

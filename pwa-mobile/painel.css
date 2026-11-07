@@ -1,0 +1,45 @@
+/* Painel de senhas (TV / Vértice). Cores vêm do modelo salvo no computador
+ * (Configurações → Senhas) via variáveis; o padrão é a identidade do Vértice. */
+:root { --fundo: #141a26; --texto: #f5f1e8; --destaque: #d9a441; --preparando: #94a3b8; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--fundo); color: var(--texto); font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow: hidden; }
+.painel { height: 100vh; display: flex; flex-direction: column; }
+.painel-aviso { margin: auto; text-align: center; padding: 6vh 6vw; opacity: .85; font-size: 2.2vh; }
+.painel-aviso h1 { font-size: 4vh; margin: 0 0 1vh; }
+
+.topo { display: flex; justify-content: space-between; align-items: center; padding: 2.4vh 3vw 1.2vh; }
+.loja { font-size: 3vh; font-weight: 700; }
+.hora { font-size: 3.4vh; font-weight: 700; font-variant-numeric: tabular-nums; opacity: .9; }
+
+.corpo { flex: 1; display: grid; grid-template-columns: 1.15fr 1fr; gap: 2.4vw; padding: 1vh 3vw 2vh; min-height: 0; }
+.so-prontos .corpo { grid-template-columns: 1fr; }
+.corpo h2 { margin: 0 0 1.6vh; font-size: 2.4vh; letter-spacing: .14em; text-transform: uppercase; font-weight: 800; }
+.col-preparo h2 { color: var(--preparando); }
+.col-prontos h2 { color: var(--destaque); }
+.col-prontos { border-left: 2px solid color-mix(in srgb, var(--destaque) 70%, transparent); padding-left: 2.4vw; min-height: 0; overflow: hidden; }
+.so-prontos .col-prontos { border-left: 0; padding-left: 0; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 1.2vh; align-content: flex-start; }
+.chip { background: color-mix(in srgb, var(--texto) 9%, transparent); border-radius: 1.2vh; padding: 1vh 1.6vh; font-size: 4.4vh; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.chip small { display: block; font-size: 1.7vh; font-weight: 600; opacity: .7; margin-top: .5vh; }
+
+.prontos { display: flex; flex-direction: column; gap: 1.4vh; }
+.so-prontos .prontos { display: grid; grid-template-columns: repeat(auto-fill, minmax(22vw, 1fr)); }
+.pronto { border-radius: 1.4vh; padding: 1.6vh 2vh; background: color-mix(in srgb, var(--texto) 7%, transparent); border: 2px solid transparent; }
+.pronto b { display: block; font-size: 7vh; line-height: 1; font-variant-numeric: tabular-nums; }
+.pronto span { display: block; font-size: 2.6vh; margin-top: .6vh; opacity: .9; }
+.pronto.primeiro { border-color: var(--destaque); background: color-mix(in srgb, var(--destaque) 16%, transparent); }
+.vazio { opacity: .55; font-size: 2.2vh; margin: 0; }
+
+.rodape { padding: 1.4vh 3vw; font-size: 2vh; opacity: .75; border-top: 1px solid color-mix(in srgb, var(--destaque) 60%, transparent); }
+
+.destaque { position: fixed; inset: 0; background: color-mix(in srgb, var(--fundo) 70%, transparent); display: flex; align-items: center; justify-content: center; animation: entrar .35s ease-out; }
+.destaque .caixa { min-width: 46vw; text-align: center; padding: 4vh 4vw; border: 3px solid var(--destaque); border-radius: 2.4vh; background: var(--fundo); box-shadow: 0 2vh 8vh rgba(0,0,0,.5); }
+.destaque .rotulo { color: var(--destaque); font-size: 2.6vh; letter-spacing: .2em; font-weight: 800; text-transform: uppercase; }
+.destaque .numero { font-size: 26vh; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+.destaque .nome { font-size: 6vh; font-weight: 800; }
+.destaque .instrucao { font-size: 3vh; opacity: .8; margin-top: 1.4vh; }
+@keyframes entrar { from { opacity: 0; transform: scale(.96); } }
+@media (prefers-reduced-motion: reduce) { .destaque { animation: none; } }
+
+.ativar-som { position: fixed; right: 2vw; bottom: 2vh; border: 2px solid var(--destaque); background: var(--fundo); color: var(--texto); border-radius: 1vh; padding: 1.2vh 2vh; font-size: 2vh; font-weight: 700; cursor: pointer; }

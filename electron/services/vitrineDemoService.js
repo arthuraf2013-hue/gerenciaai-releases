@@ -274,32 +274,6 @@ async function processarPedidoRecebido(docSnap, { firestore, installId }) {
   }
 }
 
-function pararEscutaPedidos() {
-  if (estado.pararEscuta) { try { estado.pararEscuta(); } catch { /* já parada */ } }
-  estado.pararEscuta = null;
-}
-
-function iniciarEscutaPedidos() {
-  pararEscutaPedidos();
-  try {
-    const { collection, query, where, onSnapshot } = require('firebase/firestore');
-    const firestore = require('./licenseService').getLicenseFirestore();
-    const installId = require('./pdvRegistryService').getOrCreateDeviceUid();
-    estado.pararEscuta = onSnapshot(
-      query(collection(firestore, 'installations', installId, 'pedidos_vitrine'), where('status', '==', 'novo')),
-      (snap) => {
-        snap.docChanges().forEach((mudanca) => {
-          if (mudanca.type === 'removed') return;
-          processarPedidoRecebido(mudanca.doc, { firestore, installId });
-        });
-      },
-      (err) => console.error('[vitrineDemoService] escuta de pedidos da vitrine de demonstração falhou:', err)
-    );
-  } catch (err) {
-    console.error('[vitrineDemoService] não foi possível iniciar a escuta:', err);
-  }
-}
-
 // ---------- liga/desliga (Central) ----------
 
 function iniciar() {
@@ -307,13 +281,16 @@ function iniciar() {
   publicarCatalogos().catch(() => {});
   if (estado.intervalo) clearInterval(estado.intervalo);
   estado.intervalo = setInterval(() => { publicarCatalogos().catch(() => {}); }, 5 * 60 * 1000);
-  iniciarEscutaPedidos();
+  // A escuta de installations/{id}/pedidos_vitrine é UMA só para a vitrine
+  // de demonstração e a de verdade (vitrinePedidoService), que manda cada
+  // pedido para quem é dono do endereço.
+  try { require('./vitrinePedidoService').atualizarEscuta(); } catch (err) { console.error('[vitrineDemoService] escuta:', err); }
 }
 
 function parar() {
   if (estado.intervalo) clearInterval(estado.intervalo);
   estado.intervalo = null;
-  pararEscutaPedidos();
+  try { require('./vitrinePedidoService').atualizarEscuta(); } catch { /* segue */ }
   estado.hashes.clear();
 }
 
@@ -369,7 +346,7 @@ function ehMaquinaDemo() {
 }
 
 module.exports = {
-  aplicarDaInstalacao, listarDemos, publicarCatalogos, ehMaquinaDemo,
+  aplicarDaInstalacao, listarDemos, publicarCatalogos, ehMaquinaDemo, processarPedidoRecebido,
   // Exportados pra teste (parte local, sem rede).
   garantirProdutosDemo, montarCatalogoDemo, itensValidosDoPedido, criarPedidoDemo, situacaoDaDemo, observacoesDoPedido,
   CANAL, LIMITE_PEDIDOS_POR_DEMO, TELEFONE_PEDIDO,

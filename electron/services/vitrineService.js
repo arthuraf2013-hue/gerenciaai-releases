@@ -23,7 +23,9 @@ const { getDb } = require('../db/database');
 
 const LIMITE_ITENS = 1500;
 const LIMITE_BYTES = 800 * 1024; // documento do Firestore aceita até 1 MiB
-const MODOS_VALIDOS = ['retirada', 'entrega'];
+// 'local' = consumir no estabelecimento: pelo QR da mesa, entra na comanda
+// dela; sem mesa, retira no balcão pela senha.
+const MODOS_VALIDOS = ['retirada', 'entrega', 'local'];
 const SLUG_VALIDO = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/;
 
 function getRow() {
@@ -54,6 +56,11 @@ function getConfig() {
     mensagem: r.mensagem || '',
     modos: parseModos(r.modos),
     pedidoMinimo: Number(r.pedido_minimo) || 0,
+    pedidosOnline: r.pedidos_online === 1,
+    // "Pagar agora com Pix" na página (vitrinePixService). Só vale com pedido
+    // direto no sistema e Pix automático configurado.
+    pixOnline: r.pix_online === 1 && r.pedidos_online === 1,
+    pixOnlineDisponivel: (() => { try { return require('./vitrinePixService').disponivel(); } catch { return false; } })(),
     slug: r.slug || null,
     link: r.slug ? linkPublico(r.slug) : null,
     ultimaPublicacao: r.ultima_publicacao || null,
@@ -72,18 +79,203 @@ async function getConfigComQr() {
   return { ...config, qrDataUrl };
 }
 
-function linkPublico(slug) {
-  return `https://gerenciaai-garcom.web.app/loja.html?s=${encodeURIComponent(slug)}`;
+function linkPublico(slug, tokenMesa) {
+  return `https://gerenciaai-garcom.web.app/loja.html?s=${encodeURIComponent(slug)}${tokenMesa ? `&m=${encodeURIComponent(tokenMesa)}` : ''}`;
 }
 
-function saveConfig({ ativa, ocultarSemEstoque, avisoPoucasUnidades, mensagem, modos, pedidoMinimo, requestingUserId }) {
+// ---------- QR de cada mesa ----------
+// O link da mesa leva um segredo próprio (`restaurant_tables.qr_token`):
+// quem só conhece o endereço da vitrine não consegue mandar pedido "para a
+// mesa 5". A página pública recebe só o HASH do segredo -> rótulo da mesa
+// (para escrever "Mesa 5" na tela), nunca o segredo.
+const TOKEN_MESA = /^[A-Za-z0-9]{24}$/;
+
+function hashTokenMesa(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 24);
+}
+
+function garantirTokenMesa(db, tableId) {
+  const mesa = db.prepare('SELECT id, qr_token FROM restaurant_tables WHERE id = ?').get(tableId);
+  if (!mesa) return null;
+  if (mesa.qr_token && TOKEN_MESA.test(mesa.qr_token)) return mesa.qr_token;
+  for (let i = 0; i < 5; i++) {
+    const token = crypto.randomBytes(24).toString('base64').replace(/[^A-Za-z0-9]/g, '').slice(0, 24);
+    if (token.length !== 24) continue;
+    try {
+      db.prepare('UPDATE restaurant_tables SET qr_token = ? WHERE id = ?').run(token, tableId);
+      return token;
+    } catch { /* colisão do índice único: tenta outro */ }
+  }
+  return null;
+}
+
+/** Mesa pelo segredo do QR (pedido que chegou da página). */
+function mesaPeloToken(token) {
+  if (!TOKEN_MESA.test(String(token || ''))) return null;
+  return getDb().prepare('SELECT * FROM restaurant_tables WHERE qr_token = ?').get(token) || null;
+}
+
+function rotuloMesa(m) {
+  return m.nome ? String(m.nome).slice(0, 30) : `Mesa ${m.numero}`;
+}
+
+/** Link + QR de cada mesa (Configurações → Vitrine → QR das mesas). */
+async function qrDasMesas() {
+  const config = getConfig();
+  if (!config.slug) return { ok: false, error: 'A Central ainda não criou o endereço da vitrine desta loja.' };
+  const db = getDb();
+  const location = db.prepare('SELECT id FROM locations LIMIT 1').get();
+  const mesas = location ? db.prepare('SELECT id, numero, nome FROM restaurant_tables WHERE location_id = ? ORDER BY CAST(numero AS INTEGER), numero').all(location.id) : [];
+  const QRCode = require('qrcode');
+  const lista = [];
+  for (const m of mesas) {
+    const token = garantirTokenMesa(db, m.id);
+    if (!token) continue;
+    const link = linkPublico(config.slug, token);
+    let qrDataUrl = null;
+    try { qrDataUrl = await QRCode.toDataURL(link, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { qrDataUrl = null; }
+    lista.push({ tableId: m.id, numero: m.numero, rotulo: rotuloMesa(m), link, qrDataUrl });
+  }
+  if (lista.length) publicarSeMudou().catch(() => {});
+  return { ok: true, pedidosOnline: config.pedidosOnline, ativa: config.ativa, mesas: lista };
+}
+
+/** Link/QR de UMA mesa (botão de QR na tela de Mesas). null sem vitrine com pedido pelo site. */
+async function qrDaMesa(tableId) {
+  const config = getConfig();
+  if (!config.slug || !config.ativa || !config.pedidosOnline) return null;
+  const db = getDb();
+  const m = db.prepare('SELECT id, numero, nome FROM restaurant_tables WHERE id = ?').get(tableId);
+  if (!m) return null;
+  const token = garantirTokenMesa(db, m.id);
+  if (!token) return null;
+  const link = linkPublico(config.slug, token);
+  let qrDataUrl = null;
+  try { qrDataUrl = await require('qrcode').toDataURL(link, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { qrDataUrl = null; }
+  publicarSeMudou().catch(() => {});
+  return { url: link, qrCodeDataUrl: qrDataUrl, rotulo: rotuloMesa(m), vitrine: true };
+}
+
+/** Troca o QR de uma mesa (o impresso antigo para de funcionar). */
+function trocarQrDaMesa({ tableId, requestingUserId }) {
+  const db = getDb();
+  const user = db.prepare('SELECT role FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
+  if (!user || !['gerente', 'admin', 'suporte'].includes(user.role)) return { ok: false, error: 'Apenas um gerente ou administrador pode trocar o QR da mesa.' };
+  const r = db.prepare('UPDATE restaurant_tables SET qr_token = NULL WHERE id = ?').run(tableId);
+  if (!r.changes) return { ok: false, error: 'Mesa não encontrada.' };
+  garantirTokenMesa(db, tableId);
+  publicarSeMudou().catch(() => {});
+  return { ok: true };
+}
+
+// ---------- exportar QR (arquivo / impressão) ----------
+
+function nomeArquivo(texto) {
+  return String(texto || 'qr').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase().slice(0, 40) || 'qr';
+}
+
+/**
+ * Salva o QR da vitrine (ou de UMA mesa) em PNG grande, para mandar à
+ * gráfica, colar no Instagram ou imprimir. O caminho vem SEMPRE do diálogo
+ * do processo principal (nunca do renderer).
+ */
+async function salvarQrPng({ tableId } = {}) {
+  const config = getConfig();
+  if (!config.slug) return { ok: false, error: 'A Central ainda não criou o endereço da vitrine desta loja.' };
+  let link = config.link;
+  let rotulo = 'vitrine';
+  if (tableId) {
+    const db = getDb();
+    const m = db.prepare('SELECT id, numero, nome FROM restaurant_tables WHERE id = ?').get(tableId);
+    if (!m) return { ok: false, error: 'Mesa não encontrada.' };
+    const token = garantirTokenMesa(db, m.id);
+    if (!token) return { ok: false, error: 'Não consegui gerar o QR desta mesa.' };
+    link = linkPublico(config.slug, token);
+    rotulo = rotuloMesa(m);
+    publicarSeMudou().catch(() => {});
+  }
+  const { dialog } = require('electron');
+  const escolha = await dialog.showSaveDialog({
+    title: 'Salvar QR Code', defaultPath: `qr-${nomeArquivo(rotulo)}.png`, filters: [{ name: 'Imagem PNG', extensions: ['png'] }],
+  });
+  if (escolha.canceled || !escolha.filePath) return { ok: false, cancelado: true };
+  const destino = escolha.filePath.toLowerCase().endsWith('.png') ? escolha.filePath : `${escolha.filePath}.png`;
+  await require('qrcode').toFile(destino, link, { errorCorrectionLevel: 'M', margin: 2, width: 1200, type: 'png' });
+  return { ok: true, caminho: destino };
+}
+
+function escHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Folha com um cartão por mesa (QR + "Mesa 5"), em A4. Exportada pra teste. */
+function montarFolhaQrMesas({ nomeLoja, mesas, comVitrine = null }) {
+  const cartao = (titulo, sub, qr) => `
+    <div class="cartao">
+      <div class="loja">${escHtml(nomeLoja)}</div>
+      <div class="titulo">${escHtml(titulo)}</div>
+      ${qr && /^data:image\/png;base64,/.test(qr) ? `<img src="${qr}" alt="">` : ''}
+      <div class="sub">${escHtml(sub)}</div>
+    </div>`;
+  const cartoes = [
+    ...(comVitrine ? [cartao('Cardápio e pedidos', 'Aponte a câmera, escolha e retire no balcão', comVitrine)] : []),
+    ...mesas.map((m) => cartao(m.rotulo, 'Aponte a câmera, escolha e informe seu nome', m.qrDataUrl)),
+  ].join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>QR das mesas</title><style>
+    @page { size: A4; margin: 10mm; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; color: #141a26; }
+    .grade { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8mm; }
+    .cartao { border: 1.5px dashed #9aa4b2; border-radius: 4mm; padding: 6mm 4mm; text-align: center; break-inside: avoid; }
+    .loja { font-size: 12pt; color: #5c6b70; }
+    .titulo { font-size: 26pt; font-weight: 800; margin: 1mm 0 3mm; }
+    img { width: 58mm; height: 58mm; }
+    .sub { font-size: 11pt; margin-top: 2mm; }
+  </style></head><body><div class="grade">${cartoes}</div></body></html>`;
+}
+
+/** Abre a impressão (com "Salvar como PDF") dos cartões de QR das mesas. */
+async function imprimirQrMesas() {
+  const r = await qrDasMesas();
+  if (!r.ok) return r;
+  if (!r.mesas.length && !getConfig().link) return { ok: false, error: 'Nenhuma mesa cadastrada.' };
+  const config = await getConfigComQr();
+  const html = montarFolhaQrMesas({ nomeLoja: nomeDaLoja(), mesas: r.mesas, comVitrine: config.qrDataUrl || null });
+  const { BrowserWindow } = require('electron');
+  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  return new Promise((resolve) => {
+    win.webContents.print({ silent: false, printBackground: true }, (ok, motivo) => {
+      win.close();
+      resolve(ok || motivo === 'cancelled' ? { ok: true, cancelado: !ok } : { ok: false, error: `Não imprimiu (${motivo || 'erro'}).` });
+    });
+  });
+}
+
+/** hash -> rótulo, para a página pública escrever "Mesa 5". */
+function mapaPublicoDasMesas() {
+  const db = getDb();
+  const mapa = {};
+  for (const m of db.prepare('SELECT numero, nome, qr_token FROM restaurant_tables WHERE qr_token IS NOT NULL').all()) {
+    if (TOKEN_MESA.test(m.qr_token)) mapa[hashTokenMesa(m.qr_token)] = rotuloMesa(m);
+  }
+  return mapa;
+}
+
+function saveConfig({ ativa, ocultarSemEstoque, avisoPoucasUnidades, mensagem, modos, pedidoMinimo, pedidosOnline, pixOnline, requestingUserId }) {
   const db = getDb();
   const user = db.prepare('SELECT role FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
   if (!user || !['gerente', 'admin', 'suporte'].includes(user.role)) {
     return { ok: false, error: 'Apenas um gerente ou administrador pode mudar a vitrine online.' };
   }
   const listaModos = Array.isArray(modos) ? [...new Set(modos)].filter((m) => MODOS_VALIDOS.includes(m)) : [];
-  if (ativa && listaModos.length === 0) return { ok: false, error: 'Escolha pelo menos retirada na loja ou entrega.' };
+  if (ativa && listaModos.length === 0) return { ok: false, error: 'Escolha pelo menos retirada na loja, consumo no local ou entrega.' };
+  const recebePedidos = pedidosOnline !== undefined ? !!pedidosOnline : getRow().pedidos_online === 1;
+  const querPix = pixOnline !== undefined ? !!pixOnline : getRow().pix_online === 1;
+  if (querPix && !recebePedidos) return { ok: false, error: 'O Pix pelo site precisa de "Receber os pedidos direto no sistema" ligado.' };
+  if (querPix && pixOnline && !require('./vitrinePixService').disponivel()) {
+    return { ok: false, error: 'Para o cliente pagar pelo site, ligue o Pix automático (Configurações → Geral → Pix automático) com token e e-mail.' };
+  }
+  if (listaModos.includes('local') && !recebePedidos) return { ok: false, error: 'Consumo no local precisa de "Receber os pedidos direto no sistema" ligado (o pedido vai para a mesa ou ganha senha).' };
   const aviso = Number(avisoPoucasUnidades);
   if (!Number.isInteger(aviso) || aviso < 0 || aviso > 1000) return { ok: false, error: 'Aviso de "poucas unidades" precisa ser um número inteiro (0 desliga).' };
   const minimo = Number(pedidoMinimo);
@@ -91,13 +283,20 @@ function saveConfig({ ativa, ocultarSemEstoque, avisoPoucasUnidades, mensagem, m
   getRow();
   db.prepare(
     `UPDATE vitrine_config SET ativa = ?, ocultar_sem_estoque = ?, aviso_poucas_unidades = ?, mensagem = ?, modos = ?,
-       pedido_minimo = ?, atualizado_por_id = ?, atualizado_em = NOW_SYNCED() WHERE id = 'default'`
+       pedido_minimo = ?, pedidos_online = ?, pix_online = ?, atualizado_por_id = ?, atualizado_em = NOW_SYNCED() WHERE id = 'default'`
   ).run(ativa ? 1 : 0, ocultarSemEstoque ? 1 : 0, aviso, String(mensagem || '').trim().slice(0, 280), JSON.stringify(listaModos),
-    Math.round(minimo * 100) / 100, requestingUserId);
+    Math.round(minimo * 100) / 100, recebePedidos ? 1 : 0, querPix && recebePedidos ? 1 : 0, requestingUserId);
   require('./authService').registrarEventoAuditoria({
-    tipoEvento: 'vitrine_alterada', solicitanteId: requestingUserId, motivo: ativa ? 'Vitrine online ligada/ajustada' : 'Vitrine online desligada',
+    tipoEvento: 'vitrine_alterada', solicitanteId: requestingUserId,
+    motivo: ativa ? `Vitrine online ligada/ajustada${recebePedidos ? ' (pedidos direto no sistema)' : ''}` : 'Vitrine online desligada',
   });
+  // O pedido do site cai na Separação: liga a aba se estiver desligada.
+  if (ativa && recebePedidos) {
+    const bot = require('./botOrderService');
+    if (!bot.getConfig().ativo) bot.updateConfig({ ativo: true });
+  }
   publicarSeMudou().catch(() => {});
+  try { require('./vitrinePedidoService').atualizarEscuta(); } catch { /* sem rede/escuta: segue */ }
   return { ok: true, config: getConfig() };
 }
 
@@ -108,6 +307,7 @@ function aplicarDaInstalacao(dados) {
   if (slug === atual) return;
   getDb().prepare(`UPDATE vitrine_config SET slug = ?, ultimo_hash = NULL WHERE id = 'default'`).run(slug);
   publicarSeMudou().catch(() => {});
+  try { require('./vitrinePedidoService').atualizarEscuta(); } catch { /* segue */ }
 }
 
 function faixaDeEstoque(estoque, aviso) {
@@ -170,6 +370,9 @@ async function publicarSeMudou() {
       const { itens } = config.ativa ? montarCatalogo() : { itens: [] };
       const publico = {
         ativa: config.ativa, nomeLoja: nomeDaLoja(), mensagem: config.mensagem, modos: config.modos, pedidoMinimo: config.pedidoMinimo,
+        pedidosOnline: config.ativa && config.pedidosOnline,
+        mesas: config.ativa && config.pedidosOnline ? mapaPublicoDasMesas() : {},
+        pagamentoOnline: !!(config.ativa && config.pixOnline && config.pixOnlineDisponivel),
       };
       const hash = crypto.createHash('sha256').update(JSON.stringify({ publico, itens })).digest('hex');
       if (hash === getRow().ultimo_hash) return { publicado: false, motivo: 'sem_mudanca' };
@@ -203,5 +406,7 @@ function iniciarPublicacaoContinua() {
 
 module.exports = {
   getConfig, getConfigComQr, saveConfig, aplicarDaInstalacao, montarCatalogo, publicarSeMudou, iniciarPublicacaoContinua, linkPublico, faixaDeEstoque,
-  SLUG_VALIDO,
+  qrDasMesas, qrDaMesa, trocarQrDaMesa, mesaPeloToken, hashTokenMesa, mapaPublicoDasMesas, garantirTokenMesa,
+  salvarQrPng, imprimirQrMesas, montarFolhaQrMesas,
+  SLUG_VALIDO, MODOS_VALIDOS,
 };

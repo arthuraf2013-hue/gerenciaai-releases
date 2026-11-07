@@ -66,11 +66,72 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   const [pixAutoAtivo, setPixAutoAtivo] = useState(false);
   const [avisoPix, setAvisoPix] = useState('');
 
+  // Maquininha integrada (Mercado Pago Point, maquininhaService.js) e
+  // senha do balcão (chamadaService.js).
+  const [maqPronta, setMaqPronta] = useState(false);
+  const [maq, setMaq] = useState(null); // cobrança em andamento na maquininha
+  const [maqParcelas, setMaqParcelas] = useState('1');
+  const [maqEnviando, setMaqEnviando] = useState(false);
+  const [senhaNoBalcao, setSenhaNoBalcao] = useState(false);
+  const [nomeSenha, setNomeSenha] = useState('');
+  const [senha, setSenha] = useState(null);
+
   useEffect(() => {
     let ativo = true;
     window.pdv.pixAuto?.getConfig?.().then((c) => { if (ativo) setPixAutoAtivo(!!c?.ativo); }).catch(() => {});
+    window.pdv.maquininha?.getConfig?.().then((c) => { if (ativo) setMaqPronta(!!c?.pronta); }).catch(() => {});
+    window.pdv.chamada?.getConfig?.().then((c) => { if (ativo) setSenhaNoBalcao(!!(c?.ativa && c?.senhaNoBalcao)); }).catch(() => {});
     return () => { ativo = false; };
   }, []);
+
+  // Cobrança na maquininha: pergunta a cada 3 s se o cliente já pagou.
+  useEffect(() => {
+    if (!maq?.id || maq.status !== 'pendente') return;
+    let ativo = true;
+    const conferir = async () => {
+      let r = null;
+      try { r = await window.pdv.maquininha.consultar({ id: maq.id }); } catch { r = null; }
+      if (!ativo || !r?.ok) return;
+      const c = r.cobranca;
+      if (c.status === 'pago') {
+        if (r.pagamento) registrarPagamentoLocal(r.pagamento.id, maq.metodo, r.pagamento.valor);
+        else await recarregarPagamentos();
+        setMaq(null);
+        setValor('');
+        setAvisoPix(`Aprovado na maquininha${c.bandeira ? ` (${c.bandeira}${c.ultimos4 ? ` final ${c.ultimos4}` : ''})` : ''}.`);
+      } else if (c.status === 'pago_sem_venda') {
+        setMaq(null);
+        setError('A maquininha aprovou, mas a venda já estava quitada. Ficou registrado em Configurações → Geral → Maquininha para estornar.');
+      } else if (c.status !== 'pendente') {
+        setMaq(null);
+        setError(c.status === 'falhou' ? `Recusado na maquininha${c.erro ? ` (${c.erro})` : ''}. Tente outro cartão.` : 'A cobrança na maquininha foi cancelada ou venceu.');
+      } else {
+        setMaq((m) => (m ? { ...m, naMaquininha: c.naMaquininha } : m));
+      }
+    };
+    const t = setInterval(conferir, 3000);
+    return () => { ativo = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maq?.id, maq?.status]);
+
+  async function cobrarNaMaquininha() {
+    if (!estadoCarregado) return;
+    const digitado = Number(valor) || restante;
+    if (!(digitado > 0) || restante <= 0.005) return;
+    setError(''); setAvisoPix('');
+    setMaqEnviando(true);
+    const tipo = metodo === 'cartao_credito' ? 'credito' : 'debito';
+    const r = await window.pdv.maquininha.criar({ saleId, valor: Math.min(digitado, Number(restante.toFixed(2))), tipo, parcelas: tipo === 'credito' ? Number(maqParcelas) || 1 : 1 });
+    setMaqEnviando(false);
+    if (!r?.ok) { setError(r?.error || 'Não consegui mandar para a maquininha.'); return; }
+    setMaq({ ...r.cobranca, metodo });
+  }
+
+  async function cancelarMaquininha() {
+    const r = await window.pdv.maquininha.cancelar({ id: maq.id });
+    if (r?.cancelado) { setMaq(null); return; }
+    setAvisoPix(r?.aviso || r?.error || 'Cancelamento pedido à maquininha.');
+  }
 
   async function recarregarPagamentos() {
     try {
@@ -433,8 +494,9 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   async function finalizar() {
     setError('');
     setFinalizando(true);
-    const result = await window.pdv.sale.finalize({ saleId });
+    const result = await window.pdv.sale.finalize({ saleId, nomeSenha: nomeSenha.trim() || customer?.nome || undefined });
     setFinalizando(false);
+    if (result?.senha) setSenha(result.senha);
     if (!result.ok) {
       if (result.pendente) {
         // Rede caiu na checagem de estoque do grupo -- não é um erro
@@ -547,6 +609,12 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
     return (
       <div className="payment-panel">
         <p className="io-message">Venda finalizada com sucesso.</p>
+        {senha && (
+          <div className="maquininha-espera" style={{ marginBottom: 10 }}>
+            <span className="senha-numero" style={{ fontSize: 40 }}>{senha.numero}</span>
+            <span><strong>Senha do cliente{senha.nome ? `: ${senha.nome}` : ''}</strong><br /><span className="screen-hint">Sai no topo do recibo. A comanda foi para a cozinha; chame em "Senhas" quando ficar pronto.</span></span>
+          </div>
+        )}
 
         <button className="btn-secondary" onClick={handleImprimir}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Imprimir recibo</span>
@@ -698,7 +766,18 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         <strong>R$ {(!pagamentoCompleto ? restante : troco).toFixed(2)}</strong>
       </div>
 
-      {!pagamentoCompleto && !pix && (
+      {maq && (
+        <div className="maquininha-espera">
+          <span className="pix-spinner" aria-hidden="true" />
+          <span style={{ flex: 1 }}>
+            <strong>Cobrando na maquininha · R$ {Number(maq.valor).toFixed(2)} · {maq.tipo === 'credito' ? `Crédito ${maq.parcelas > 1 ? `${maq.parcelas}x` : 'à vista'}` : 'Débito'}</strong><br />
+            <span className="screen-hint">{maq.naMaquininha ? 'Na tela da maquininha: o cliente pode passar o cartão.' : 'Enviando para a maquininha...'} O pagamento entra sozinho.</span>
+          </span>
+          <button className="btn-secondary" onClick={cancelarMaquininha}><Icon name="close" size={14} /> Cancelar</button>
+        </div>
+      )}
+
+      {!pagamentoCompleto && !pix && !maq && (
         <div className="payment-input-row">
           <select value={metodo} onChange={(e) => { setMetodo(e.target.value); setError(''); }}>
             {METODOS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
@@ -725,6 +804,18 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
                 Registrar sem QR
               </button>
             </>
+          ) : maqPronta && (metodo === 'cartao_credito' || metodo === 'cartao_debito') ? (
+            <>
+              {metodo === 'cartao_credito' && (
+                <select value={maqParcelas} onChange={(e) => setMaqParcelas(e.target.value)} title="Parcelas" style={{ maxWidth: 80 }}>
+                  {Array.from({ length: 12 }, (_, i) => String(i + 1)).map((n) => <option key={n} value={n}>{n === '1' ? 'à vista' : `${n}x`}</option>)}
+                </select>
+              )}
+              <button className="btn-primary" onClick={cobrarNaMaquininha} disabled={maqEnviando}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="card" size={15} /> {maqEnviando ? 'Enviando...' : 'Cobrar na maquininha'}</span>
+              </button>
+              <button className="btn-secondary" onClick={addPayment} title="Passou em outra maquininha (não integrada): só registra o valor">Registrar sem integrar</button>
+            </>
           ) : (
             // Era btn-secondary (cinza-esverdeado, baixo contraste no
             // tema escuro) -- ficava quase invisível ao lado do campo de
@@ -737,7 +828,7 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         </div>
       )}
 
-      {!pagamentoCompleto && !pix && (
+      {!pagamentoCompleto && !pix && !maq && (
         <div className="payment-quick-values">
           <button type="button" className="quick-value-btn" onClick={handleValorExatoClick}>
             Valor exato (R$ {restante.toFixed(2)})
@@ -824,7 +915,13 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         <>
           {error && <p className="modal-error">{error}</p>}
 
-          <button className="btn-primary" disabled={!pagamentoCompleto || finalizando} onClick={finalizar}>
+          {senhaNoBalcao && !mostrarTaxaServico && (
+            <label style={{ marginBottom: 8 }}>Nome para a senha (opcional)
+              <input value={nomeSenha} maxLength={60} onChange={(e) => setNomeSenha(e.target.value)} placeholder={customer?.nome || 'Ex.: Ana'} />
+            </label>
+          )}
+
+          <button className="btn-primary" disabled={!pagamentoCompleto || finalizando || !!maq} onClick={finalizar}>
             {finalizando ? 'Finalizando...' : (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Finalizar venda</span>
             )}

@@ -1204,6 +1204,11 @@ test('comandos_mesa: celular de mesa cria com a hora do servidor; formato fora d
   })));
   await assertSucceeds(garcom.doc(`${col}/c3`).set(comandoMesa('uid-garcom-m', { tipo: 'receber', itens: null, grupos: 'tudo', valorEsperado: 30, pagamentos: [] })));
   await assertSucceeds(garcom.doc(`${col}/c4`).set(comandoMesa('uid-garcom-m', { tipo: 'cancelar_item', itens: null, itemId: 'i1', autorizadorId: 'u-gerente', pinCifrado: 'A'.repeat(344) })));
+  // Ligar a pessoa da mesa a um cliente do cadastro: procurar e ligar.
+  await assertSucceeds(garcom.doc(`${col}/c5`).set(comandoMesa('uid-garcom-m', { tipo: 'buscar_clientes', itens: null, busca: 'ana' })));
+  await assertSucceeds(garcom.doc(`${col}/c6`).set(comandoMesa('uid-garcom-m', { tipo: 'vincular_cliente', itens: null, numero: 2, clienteId: 'c1' })));
+  await assertFails(garcom.doc(`${col}/r11`).set(comandoMesa('uid-garcom-m', { tipo: 'buscar_clientes', itens: null, busca: 'a'.repeat(41) })));
+  await assertFails(garcom.doc(`${col}/r12`).set(comandoMesa('uid-garcom-m', { tipo: 'vincular_cliente', itens: null, clienteId: 'c'.repeat(81) })));
   // Recusados.
   await assertFails(garcom.doc(`${col}/r1`).set(comandoMesa('uid-garcom-m', { criadoEm: new Date(Date.now() - 3600000) })), 'hora inventada pelo celular');
   await assertFails(garcom.doc(`${col}/r2`).set(comandoMesa('uid-garcom-m', { tipo: 'apagar_mesa' })));
@@ -1232,4 +1237,67 @@ test('comandos_mesa: só o dono lê; só o computador responde e apaga; o celula
   await assertSucceeds(desktop.doc(ref).update({ status: 'feito', resultado: { lancados: 1 }, respondidoEm: serverTs() }));
   await assertFails(desktop.doc(ref).update({ itens: [] }));
   await assertSucceeds(desktop.doc(ref).delete());
+});
+
+// ---------------- pedido direto pelo site / QR da mesa, Pix antecipado, painel de senhas ----------------
+
+async function semearLoja({ slug = 'boa-hora', installId = 'pc-loja', pedidosOnline = true } = {}) {
+  await semRegras(async (db) => {
+    await db.doc(`vitrines/${slug}`).set({ clienteId: 'c1', installId, whatsapp: '81999991234', ativa: true });
+    await db.doc(`installations/${installId}/vitrine/config`).set({ ativa: true, pedidosOnline });
+  });
+  return slug;
+}
+const pedidoLoja = (slug, extra = {}) => ({
+  slug, status: 'novo', nome: 'Ana', modo: 'retirada', pagamento: 'pix_online',
+  itens: [{ produtoId: 'p1', quantidade: 1 }], criadoEm: serverTs(), ...extra,
+});
+
+test('pedido pelo site: só com "pedidos no sistema"; mesa leva o segredo e só em "comer aqui"', SK, async () => {
+  await setupTestEnv();
+  const slug = await semearLoja();
+  const col = semLogin().collection('installations/pc-loja/pedidos_vitrine');
+  await assertSucceeds(col.doc('LLLLLLLLLLLLLLLLLLL1').set(pedidoLoja(slug)));
+  await assertSucceeds(col.doc('LLLLLLLLLLLLLLLLLLL2').set(pedidoLoja(slug, { modo: 'local', pagamento: 'mesa', mesa: 'AbCdEfGhIjKlMnOpQrStUvWx' })));
+  await assertSucceeds(col.doc('LLLLLLLLLLLLLLLLLLL3').set(pedidoLoja(slug, { modo: 'local', pagamento: 'dinheiro', trocoPara: 50 })));
+  await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL4').set(pedidoLoja(slug, { modo: 'retirada', mesa: 'AbCdEfGhIjKlMnOpQrStUvWx' })));
+  await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL5').set(pedidoLoja(slug, { modo: 'local', mesa: 'curto' })));
+  await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL6').set(pedidoLoja(slug, { pagamento: 'boleto' })));
+  await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL7').set(pedidoLoja(slug, { preco: 1 })));
+  const desligada = await semearLoja({ slug: 'sem-pedidos', installId: 'pc-loja2', pedidosOnline: false });
+  await assertFails(semLogin().collection('installations/pc-loja2/pedidos_vitrine').doc('LLLLLLLLLLLLLLLLLLL8').set(pedidoLoja(desligada, { pagamento: 'pix' })));
+});
+
+test('vitrine demo: nunca aceita Pix antecipado nem pagamento "mesa"', SK, async () => {
+  await setupTestEnv();
+  const slug = await semearDemo({ slug: 'demo-lanche-x-ab12' });
+  const col = semLogin().collection('installations/pc-demo/pedidos_vitrine');
+  await assertFails(col.doc('DDDDDDDDDDDDDDDDDDD1').set(pedidoDemo(slug, { pagamento: 'pix_online' })));
+  await assertFails(col.doc('DDDDDDDDDDDDDDDDDDD2').set(pedidoDemo(slug, { pagamento: 'mesa' })));
+});
+
+test('acompanhamento do pedido: máquina publica Pix (QR em PNG) e senha; nada de link ou campo extra', SK, async () => {
+  await setupTestEnv();
+  const db = semLogin();
+  const ref = db.doc('installations/pc-loja/pedidos_vitrine_status/SSSSSSSSSSSSSSSSSSS1');
+  await assertSucceeds(ref.set({ etapa: 'pagamento', pago: false, pix: { valor: 31, copiaECola: '000201...', expiraEm: '2026-11-07T10:30:00Z', qr: 'data:image/png;base64,iVBORw0KGgo=' }, senha: null, mesa: null, atualizadoEm: serverTs() }));
+  await assertSucceeds(ref.set({ etapa: 'pronto', senha: 42, pago: true, mesa: null, atualizadoEm: serverTs() }));
+  await assertSucceeds(ref.set({ etapa: 'cancelado', motivo: 'O Pix não foi pago no prazo.', senha: null, mesa: null, pago: false, atualizadoEm: serverTs() }));
+  await assertFails(ref.set({ etapa: 'pagamento', pix: { qr: 'https://golpe.example/qr.png' }, atualizadoEm: serverTs() }));
+  await assertFails(ref.set({ etapa: 'pagamento', pix: { valor: 1, link: 'https://x' }, atualizadoEm: serverTs() }));
+  await assertFails(ref.set({ etapa: 'outra', atualizadoEm: serverTs() }));
+  await assertSucceeds(ref.get());
+  await assertFails(db.collection('installations/pc-loja/pedidos_vitrine_status').get());
+});
+
+test('painel de senhas: lê pelo token; ninguém lista; só número, nome e modelo', SK, async () => {
+  await setupTestEnv();
+  const db = semLogin();
+  const token = 'T'.repeat(32);
+  const ref = db.doc(`paineis_chamada/${token}`);
+  await assertSucceeds(ref.set({ ativo: true, nomeLoja: 'Boa Hora', modelo: { layout: 'duas_colunas' }, preparando: [{ n: 1, nome: 'Ana' }], prontos: [], ultimaChamada: null, atualizadoEm: serverTs() }));
+  await assertSucceeds(ref.get());
+  await assertFails(db.collection('paineis_chamada').get());
+  await assertFails(ref.set({ ativo: true, nomeLoja: 'x', modelo: {}, preparando: [], prontos: [], telefone: '81999990000' }));
+  await assertFails(db.doc('paineis_chamada/curto').get());
 });

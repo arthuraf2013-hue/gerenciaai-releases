@@ -12,6 +12,25 @@ function formatarPreco(valor) {
   return `R$ ${Number(valor || 0).toFixed(2).replace('.', ',')}`;
 }
 
+// Pedido do site / QR (canal 'vitrine', ver vitrinePedidoService.js).
+function origemDoPedido(p) {
+  if (p.canal === 'vitrine_demo') return 'Vitrine (demo)';
+  if (p.canal === 'vitrine') return p.mesa_numero ? 'QR da mesa' : 'Site / QR';
+  return p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual';
+}
+
+function tipoDoPedido(p) {
+  if (p.mesa_numero) return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={14} /> Mesa {p.mesa_numero}</span>;
+  if (p.tipo_entrega === 'entrega') return 'Entrega';
+  return p.consumo_local ? 'Comer aqui' : 'Retirada';
+}
+
+function SeloPagamento({ pedido }) {
+  if (pedido.pagamento_online === 'pago') return <span className="selo selo-ok">Pago no Pix</span>;
+  if (pedido.pagamento_online === 'aguardando') return <span className="selo selo-aviso">Esperando o Pix</span>;
+  return null;
+}
+
 // ---------- Busca de produto pra adicionar a um pedido novo ----------
 function BuscaProdutoParaPedido({ onEscolher }) {
   const [termo, setTermo] = useState('');
@@ -152,6 +171,10 @@ function NovoPedidoModal({ onClose, onCriado }) {
   );
 }
 
+function pedido_temSenha(detalhe) {
+  return detalhe?.pedido?.senha != null;
+}
+
 // ---------- Modal: separar um pedido existente ----------
 function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
   useEscToClose(onClose);
@@ -198,6 +221,20 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
   }
 
   const [lancandoMesa, setLancandoMesa] = useState(false);
+  const [trocandoPagamento, setTrocandoPagamento] = useState(false);
+
+  // Pix antecipado ainda não pago e o cliente prefere pagar aqui: cancela o
+  // QR no Mercado Pago (recusa se ele acabou de pagar) -- ver vitrinePixService.
+  async function handleReceberNoBalcao() {
+    if (!confirm('Cancelar o Pix deste pedido? O cliente vai pagar no balcão.')) return;
+    setErro('');
+    setTrocandoPagamento(true);
+    const r = await window.pdv.vitrinePix.receberNoBalcao({ botOrderId: orderId });
+    setTrocandoPagamento(false);
+    if (!r?.ok) { setErro(r?.error || 'Não consegui cancelar o Pix.'); }
+    carregar();
+    onAtualizado();
+  }
 
   // Pedido de mesa não passa pelo fluxo normal de separação -- entra
   // direto na comanda real da mesa (ver botOrderService.lancarPedidoNaMesa).
@@ -252,7 +289,9 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
 
   if (!detalhe) return null;
   const { pedido, itens } = detalhe;
-  const todosResolvidos = itens.length > 0 && itens.every((i) => i.status_separacao !== 'pendente');
+  // Pedido de comida com senha: "pronto" vem da cozinha, não da conferência
+  // item a item (o backend marca o que falta como separado).
+  const todosResolvidos = pedido_temSenha(detalhe) || (itens.length > 0 && itens.every((i) => i.status_separacao !== 'pendente'));
   const itensPendentes = itens.filter((i) => i.status_separacao === 'pendente').length;
 
   return (
@@ -262,7 +301,7 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
         <p className="screen-hint" style={{ margin: '0 0 4px' }}>
           {pedido.mesa_numero
             ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={15} /> Mesa {pedido.mesa_numero}</span>
-            : pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : 'Retirada no local'} · {pedido.canal === 'vitrine_demo' ? 'Vitrine (demonstração)' : pedido.cliente_telefone}
+            : pedido.tipo_entrega === 'entrega' ? `Entrega: ${pedido.endereco}` : (pedido.consumo_local ? 'Comer aqui (retira no balcão pela senha)' : 'Retirada no local')} · {['vitrine_demo', 'vitrine'].includes(pedido.canal) ? origemDoPedido(pedido) : pedido.cliente_telefone}
           {pedido.observacoes && <> · {pedido.observacoes}</>}
         </p>
 
@@ -292,6 +331,21 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
               {cadastrando ? 'Cadastrando...' : '+ Cadastrar cliente'}
             </button>
           </p>
+        )}
+
+        {(pedido.senha != null || pedido.pagamento_online) && (
+          <p style={{ margin: '0 0 10px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            {pedido.senha != null && <span className="senha-grande">Senha {pedido.senha}</span>}
+            <SeloPagamento pedido={pedido} />
+            {pedido.pagamento_online === 'aguardando' && (
+              <button type="button" className="btn-link" disabled={trocandoPagamento} onClick={handleReceberNoBalcao}>
+                {trocandoPagamento ? 'Cancelando o Pix...' : 'Cliente vai pagar no balcão'}
+              </button>
+            )}
+          </p>
+        )}
+        {pedido.pagamento_online === 'pago' && pedido.status !== 'concluido' && (
+          <p className="screen-hint" style={{ margin: '0 0 10px' }}>Já pago pelo site. Ao concluir, a venda entra como Pix (não cobre de novo).</p>
         )}
 
         {erro && <p className="modal-error">{erro}</p>}
@@ -343,7 +397,9 @@ function SepararPedidoModal({ orderId, onClose, onAtualizado }) {
                 <button className="btn-link-danger" onClick={() => { if (confirm('Cancelar este pedido?')) handleStatusPedido('cancelado'); }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar pedido</span></button>
               )}
               {pedido.status === 'novo' && (
-                <button className="btn-primary" onClick={() => handleStatusPedido('em_separacao')}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="box" size={15} /> Começar separação</span></button>
+                <button className="btn-primary" disabled={pedido.pagamento_online === 'aguardando'} title={pedido.pagamento_online === 'aguardando' ? 'Esperando o cliente pagar o Pix' : ''} onClick={() => handleStatusPedido('em_separacao')}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="box" size={15} /> {pedido.canal === 'vitrine' ? 'Aceitar pedido' : 'Começar separação'}</span>
+                </button>
               )}
               {pedido.status === 'em_separacao' && (
                 <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -397,8 +453,8 @@ export function BotOrdersScreen() {
     <div className="screen">
       <h1>Separação</h1>
       <p className="screen-hint" style={{ margin: '-6px 0 14px' }}>
-        Pedidos de retirada e entrega — hoje digitados manualmente aqui; quando o chatbot de
-        WhatsApp entrar, os pedidos fechados por ele caem direto nessa mesma fila.
+        Pedidos de retirada, entrega e da mesa: digitados aqui, do WhatsApp e do site/QR. Pedido do site
+        pagando na retirada espera você aceitar; pago no Pix já entra aceito, com senha e comanda na cozinha.
       </p>
 
       <div className="screen-actions" style={{ marginBottom: 12 }}>
@@ -414,15 +470,16 @@ export function BotOrdersScreen() {
       {pedidos !== null && pedidos.length === 0 && <p className="empty-state">Nenhum pedido por aqui.</p>}
       {pedidos && pedidos.length > 0 && (
         <table className="data-table">
-          <thead><tr><th>Cliente</th><th>Tipo</th><th>Itens</th><th>Valor</th><th>Origem</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Senha</th><th>Cliente</th><th>Tipo</th><th>Itens</th><th>Valor</th><th>Origem</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {pedidos.map((p) => (
               <tr key={p.id} className={STATUS_CLASSE[p.status]}>
-                <td>{p.cliente_nome}<br /><span className="screen-hint">{p.canal === 'vitrine_demo' ? 'pedido pela vitrine' : p.cliente_telefone}</span></td>
-                <td>{p.mesa_numero ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={14} /> Mesa {p.mesa_numero}</span> : (p.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada')}</td>
+                <td><strong style={{ fontSize: 18 }}>{p.senha ?? '—'}</strong></td>
+                <td>{p.cliente_nome}<br /><span className="screen-hint">{['vitrine_demo', 'vitrine'].includes(p.canal) ? 'pedido pelo site' : p.cliente_telefone}</span></td>
+                <td>{tipoDoPedido(p)}</td>
                 <td>{p.itensSeparados || 0}/{p.totalItens}</td>
-                <td>{formatarPreco(p.valorTotal)}</td>
-                <td>{p.canal === 'vitrine_demo' ? 'Vitrine (demo)' : (p.origem === 'whatsapp_bot' ? 'WhatsApp' : 'Manual')}</td>
+                <td>{formatarPreco(p.valorTotal)}<br /><SeloPagamento pedido={p} /></td>
+                <td>{origemDoPedido(p)}</td>
                 <td>{STATUS_LABEL[p.status]}</td>
                 <td><button className="btn-link" onClick={() => setSeparandoId(p.id)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="box" size={14} /> Ver / Separar</span></button></td>
               </tr>

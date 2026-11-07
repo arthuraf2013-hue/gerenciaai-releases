@@ -132,6 +132,46 @@ desta máquina, no prazo). A máquina só aceita produto `DEMO-` com o preço DE
 `bot_orders.canal = 'vitrine_demo'` (índice único em `canal, canal_ref`: não duplica). Segmento novo:
 chave igual em `vitrineDemoCatalogos.js` e `SEGMENTOS_DEMO` (admin-panel).
 
+**Pedido direto no sistema** (`vitrinePedidoService.js`, `pedidosOnline`): a página grava em
+`pedidos_vitrine` (nome, modo retirada/local/entrega, pagamento `pix|dinheiro|cartao|pix_online|mesa`);
+a máquina revalida tudo, usa o preço DELA e cria `bot_orders.canal = 'vitrine'`. Não quebrar:
+- nada vai para cozinha/conta sem o atendente aceitar na Separação, exceto Pix antecipado PAGO
+  (`vitrinePixService`: aceita sozinho). Enquanto `pagamento_online = 'aguardando'`, `updateOrderStatus`
+  recusa preparar/pronto/concluir;
+- QR da mesa = `restaurant_tables.qr_token` (segredo); a página só recebe o hash (`hashTokenMesa`, igual em
+  `pwa-mobile/loja-util.js`). Pela mesa o pagamento é sempre `mesa` (conta da mesa) e os itens vão para a
+  pessoa com o nome (`botOrderService.pessoaDoPedidoNaMesa`);
+- Pix do site: cobrança em `vitrine_pix_cobrancas` (uma por pedido, provedor/token do Pix automático, 30 min);
+  na conversão em venda vira `payments.metodo = 'pix'` com `detalhes.pixAutomatico` (tPag 17). Pago com o
+  pedido cancelado = `estornar` + Auditoria, nunca some;
+- acompanhamento em `pedidos_vitrine_status/{id}` (etapa, senha, pago, pix com QR em PNG). Testes:
+  `restauranteFluxo.test.js`, `pedidoSitePixEMaquininha.test.js`, `lojaPedidoDireto.test.js`, regras no emulador.
+
+## Senhas, painel de chamada e Vértice
+
+`chamadaService.js`: senha por dia LOCAL, uma por venda/pedido (índices únicos). Venda de mesa nunca tem
+senha. Balcão: `sale:finalize` chama `aposFinalizarVenda` (senha + cozinha) e nunca derruba a venda.
+- Painel por link: `paineis_chamada/{token}` (token de 32 = acesso; só número, primeiro nome e modelo) e
+  `pwa-mobile/painel.html`. `MODELO_PADRAO` igual em `chamadaService` e `pwa-mobile/painel-util.js` (teste confere).
+- Vértice nativo: `src/integrations/vertice/` -- `verticeSync.js` é CÓPIA do repositório do Vértice (não
+  editar aqui), `ponteSenhas.js` lê `chamada.listar` a cada aviso `chamada:mudou` e a cada minuto. Config do
+  projeto Firebase do Vértice em `verticeConfig.js`. Roda no renderer: a CSP (`seguranca.js`) libera só
+  firestore/identitytoolkit/securetoken.googleapis.com -- não abrir mais nada.
+
+## Cozinha e maquininha
+
+- `cozinhaService.js`: item de comanda sai UMA vez (`enviado_cozinha = 1` só depois da impressora aceitar);
+  toda tentativa fica em `cozinha_impressoes` (reimprimir sai igual). Rede = ESC/POS (`escposService.js`).
+- `maquininhaService.js` (Mercado Pago Point, API de Orders): mesmas garantias do Pix automático (token só
+  no processo principal, um pagamento por cobrança, `pago_sem_venda`). Detalhes vão para a NFC-e
+  (`detalhes.maquininha` -> card com tpIntegra 1, CNPJ da credenciadora, tBand, cAut).
+
+## NFC-e e reforma tributária
+
+XML conferido no XSD oficial (PL_009_V4 e PL_010_V1.30, sped-nfe) em 07/11/2026. O grupo IBS/CBS
+(NT 2025.002) ainda NÃO é gerado: obrigatório para Simples/MEI em 01/01/2027 e já para regime normal
+(rejeição 1115 suspensa hoje). Antes de 2027: cClassTrib/CST por produto (motor tributário) + grupo IBSCBS.
+
 ## Ficha do cliente (todos os perfis)
 
 Clicar no nome do cliente (Clientes e filtro de cliente do Histórico) abre `FichaClienteModal.jsx`
@@ -147,6 +187,10 @@ Clicar no nome do cliente (Clientes e filtro de cliente do Histórico) abre `Fic
   "costuma levar" (tamanho/cor/espécie), selos sim/não (controlado, exige receita), entregas e fiado.
   As seções do perfil aparecem mesmo vazias; as outras só com dado (`secoesDaFicha` em src/utils/fichaCliente.js).
   Testes: `fichaCliente.test.js`, `fichaClienteFormato.test.js`.
+- pessoa da mesa ligada a um cliente: `sale_people.customer_id` (migração 7), `tableService.vincularClientePessoa`
+  (PC: ícone de pessoa na comanda; celular: comandos `buscar_clientes` -- só leitura, devolve nome e fim do
+  telefone -- e `vincular_cliente`). Não muda `sales.customer_id` (quem paga: fiado/pontos). A ficha soma só o
+  consumo dessa pessoa + a taxa de serviço, sem o pagamento da mesa; juntar mesas e remover pessoa levam o vínculo.
 
 ## Restaurante: mesas unidas e pessoas nomeadas
 

@@ -146,6 +146,18 @@ function buildFiscalHtmlBlock(nfce, qrDataUrl) {
     </div>`;
   }
 
+  if (nfce.status === 'contingencia') {
+    // DANFE da contingência off-line: vale como documento fiscal, com o QR
+    // (versão 3, assinado) e o aviso exigido; a autorização vem depois.
+    return `
+    <hr>
+    <div class="center">
+      <p style="font-size:10px;font-weight:bold;margin:0 0 4px;">EMITIDA EM CONTINGÊNCIA<br>Pendente de autorização</p>
+      ${soImagemDataUrl(qrDataUrl) ? `<img src="${soImagemDataUrl(qrDataUrl)}" alt="QR Code NFC-e" style="width:120px;height:120px;" />` : ''}
+      <p style="font-size:9px;word-break:break-all;margin:4px 0;">NFC-e nº ${escHtml(nfce.numero)} série ${escHtml(nfce.serie)}<br>Chave de acesso: ${escHtml(formatarChaveAcesso(nfce.chave_acesso))}</p>
+    </div>`;
+  }
+
   const aviso = nfce.status === 'rejeitada'
     ? `NFC-e rejeitada pela SEFAZ${nfce.motivo_rejeicao ? ` (${escHtml(nfce.motivo_rejeicao)})` : ''} — este documento NÃO tem valor fiscal.`
     : 'NFC-e pendente de autorização — este documento NÃO tem valor fiscal ainda.';
@@ -155,7 +167,7 @@ function buildFiscalHtmlBlock(nfce, qrDataUrl) {
 }
 
 /** Fonte um pouco menor pro rolo de 58mm — cabe menos caractere por linha. */
-function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl) {
+function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha = null) {
   const isTermica = larguraMm === 58 || larguraMm === 80;
   const fontSize = larguraMm === 58 ? 10 : isTermica ? 11 : 12;
   const larguraCss = isTermica ? `${larguraMm}mm` : '190mm';
@@ -182,6 +194,7 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     .total { font-size: ${fontSize + 2}px; font-weight: bold; text-align: right; margin-top: 8px; }
   </style></head>
   <body>
+    ${senha ? `<div class="center" style="border:2px solid #000;padding:4px;margin-bottom:6px;"><div style="font-size:${fontSize}px;">SUA SENHA</div><div style="font-size:${fontSize * 3}px;font-weight:bold;line-height:1.1;">${escHtml(senha.numero)}</div>${senha.nome ? `<div>${escHtml(senha.nome)}</div>` : ''}<div style="font-size:${fontSize - 2}px;">Aguarde ser chamado no painel</div></div>` : ''}
     <h1>${escHtml(location.nome)}</h1>
     <p class="center">Venda ${escHtml(sale.id.slice(0, 8))} — ${new Date(sale.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
     <hr>
@@ -307,7 +320,11 @@ async function printReceipt(saleId) {
     }
   }
 
-  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl);
+  // Senha do balcão (painel de chamada) sai grande no topo do recibo.
+  let senha = null;
+  try { senha = db.prepare(`SELECT numero, nome FROM chamadas WHERE sale_id = ? AND status <> 'cancelada'`).get(saleId) || null; } catch { senha = null; }
+
+  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha);
   const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
 
   const isTermica = larguraMm === 58 || larguraMm === 80;
@@ -365,6 +382,12 @@ function printLabel({ nome, preco, codigoBarras, barcodeDataUrl }) {
  * ser preparado, com letra grande pra ler rápido numa cozinha corrida.
  */
 function printKitchenTicket(saleId, mesaLabel) {
+  // Impressora da cozinha configurada (Configurações → Cozinha): vai pra ela,
+  // só com as categorias da cozinha, e só marca como enviado se imprimiu.
+  const cozinha = require('./cozinhaService');
+  if (cozinha.getConfig().ativa) {
+    return cozinha.imprimirItensDaVenda({ saleId, rotulo: mesaLabel ? String(mesaLabel).toUpperCase() : undefined });
+  }
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };

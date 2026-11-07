@@ -302,4 +302,6 @@ function iniciarConferencia() {
 module.exports = {
   getConfig, saveConfig, testarConexao, criarCobranca, consultarCobranca, confirmarManual, cancelarCobranca, reconciliar,
   listarRecebidosSemVenda, iniciarConferencia, registrarPago, _definirProvedorParaTeste,
+  // Pix antecipado do pedido do site (vitrinePixService.js) usa a mesma conta/token.
+  tokenGuardado, provedor: (id) => fabricaDeProvedor(id || getRow().provedor),
 };

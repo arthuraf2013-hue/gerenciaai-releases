@@ -129,9 +129,14 @@ function notifyNewVitrineOrder(pedido) {
   const { Notification } = require('electron');
   if (!Notification || !Notification.isSupported()) return;
   const total = `R$ ${Number(pedido.total || 0).toFixed(2).replace('.', ',')}`;
+  const como = pedido.mesa ? pedido.mesa : (pedido.tipo === 'entrega' ? 'entrega' : (pedido.modo === 'local' ? 'comer aqui' : 'retirada'));
+  const titulo = pedido.pago ? 'Pix do pedido do site recebido'
+    : (pedido.demo === false ? 'Pedido novo pelo site / QR' : 'Pedido novo da vitrine (demonstração)');
+  const fim = pedido.pago ? 'Já aceito: senha gerada e comanda na cozinha.'
+    : (pedido.aguardandoPix ? 'Esperando o cliente pagar o Pix.' : 'Confirme na Separação.');
   const notif = new Notification({
-    title: 'Pedido novo da vitrine (demonstração)',
-    body: `${pedido.nome || 'Cliente'} · ${Number(pedido.itens) || 0} item(ns) · ${total} · ${pedido.tipo === 'entrega' ? 'entrega' : 'retirada'}. Veja na Separação.`,
+    title: titulo,
+    body: `${pedido.nome || 'Cliente'}${pedido.itens ? ` · ${Number(pedido.itens)} item(ns)` : ''} · ${total} · ${como}. ${fim}`,
     silent: false,
   });
   notif.show();

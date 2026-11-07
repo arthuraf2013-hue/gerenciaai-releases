@@ -293,3 +293,61 @@ test('fiado, entregas e reservas (pelo telefone) entram na ficha; anexos contado
   const nov = ficha.getFicha({ customerId: ana, dataInicio: '2026-11-01', dataFim: '2026-11-30' });
   assert.equal(nov.fiado.length + nov.entregas.lista.length + nov.reservas.length, 0, 'tudo isso respeita o período');
 });
+
+test('pessoa da mesa ligada ao cliente: o consumo dela (com a taxa de serviço) entra na ficha, sem o pagamento da mesa', () => {
+  const ctx = freshTestDb();
+  profileService.setActiveProfile('restaurante');
+  const ana = cliente(ctx.db);
+  const prato = createProduct(ctx.db, { nome: 'Picanha', preco: 90 });
+  const suco = createProduct(ctx.db, { nome: 'Suco', preco: 10 });
+  // Comanda da mesa (cliente da venda = outro, ou ninguém); Ana é a pessoa 2.
+  const saleId = createFinalizedSale(ctx.db, {
+    locationId: ctx.locationId, operadorId: ctx.operadorId, finalizadaEm: '2026-10-20 23:00:00',
+    itens: [{ productId: prato, quantidade: 1, preco: 90 }, { productId: suco, quantidade: 2, preco: 10 }, { productId: prato, quantidade: 1, preco: 90 }],
+    pagamentos: [['pix', 200]],
+  });
+  const itens = ctx.db.prepare('SELECT id FROM sale_items WHERE sale_id = ? ORDER BY rowid').all(saleId).map((i) => i.id);
+  ctx.db.prepare('UPDATE sale_items SET pessoa_numero = 1 WHERE id = ?').run(itens[0]);
+  ctx.db.prepare('UPDATE sale_items SET pessoa_numero = 2 WHERE id IN (?, ?)').run(itens[1], itens[2]);
+  ctx.db.prepare('UPDATE sales SET taxa_servico_percentual = 10 WHERE id = ?').run(saleId);
+  ctx.db.prepare(`INSERT INTO sale_people (id, sale_id, numero, nome, customer_id) VALUES (?, ?, 2, 'Ana', ?)`).run(randomUUID(), saleId, ana);
+  // E uma compra dela mesma no balcão.
+  venda(ctx, ana, '2026-10-25 15:00:00', [{ productId: suco, quantidade: 1, preco: 10 }]);
+
+  const r = ficha.getFicha({ customerId: ana });
+  assert.equal(r.resumo.compras, 2);
+  const mesa = r.vendas.find((v) => v.id === saleId);
+  assert.deepEqual(mesa.itens.map((i) => [i.nome, i.quantidade]), [['Suco', 2], ['Picanha', 1]], 'só o que foi dela');
+  assert.equal(mesa.total, 121, '(20 + 90) + 10% de serviço');
+  assert.deepEqual(mesa.comoPessoa, { numeros: [2], nome: 'Ana', totalDaConta: 200 });
+  assert.deepEqual(mesa.pagamentos, [], 'o pagamento é da mesa toda');
+  assert.equal(r.resumo.totalGasto, 131);
+  assert.equal(r.cliente.comprasNoTotal, 2, 'conta a mesa também');
+  assert.equal(r.cliente.primeiraCompra, '2026-10-20 23:00:00');
+
+  // Se ela também é a cliente da venda, vale a venda inteira (uma vez só).
+  ctx.db.prepare('UPDATE sales SET customer_id = ? WHERE id = ?').run(ana, saleId);
+  const r2 = ficha.getFicha({ customerId: ana });
+  assert.equal(r2.vendas.filter((v) => v.id === saleId).length, 1);
+  assert.equal(r2.vendas.find((v) => v.id === saleId).comoPessoa, null);
+  assert.equal(r2.vendas.find((v) => v.id === saleId).itens.length, 3);
+});
+
+test('mesmo cliente em duas pessoas da comanda (depois de juntar mesas): uma linha só, com o consumo das duas', () => {
+  const ctx = freshTestDb();
+  const ana = cliente(ctx.db);
+  const prato = createProduct(ctx.db, { nome: 'Prato', preco: 30 });
+  const saleId = createFinalizedSale(ctx.db, {
+    locationId: ctx.locationId, operadorId: ctx.operadorId, finalizadaEm: '2026-10-20 23:00:00',
+    itens: [{ productId: prato, quantidade: 1, preco: 30 }, { productId: prato, quantidade: 2, preco: 30 }, { productId: prato, quantidade: 5, preco: 30 }],
+    pagamentos: [['pix', 240]],
+  });
+  const itens = ctx.db.prepare('SELECT id FROM sale_items WHERE sale_id = ? ORDER BY rowid').all(saleId).map((i) => i.id);
+  itens.forEach((id, k) => ctx.db.prepare('UPDATE sale_items SET pessoa_numero = ? WHERE id = ?').run(k + 1, id));
+  ctx.db.prepare(`INSERT INTO sale_people (id, sale_id, numero, nome, customer_id) VALUES (?, ?, 1, 'Ana', ?), (?, ?, 3, 'Ana', ?)`)
+    .run(randomUUID(), saleId, ana, randomUUID(), saleId, ana);
+  const r = ficha.getFicha({ customerId: ana });
+  assert.equal(r.vendas.length, 1);
+  assert.deepEqual(r.vendas[0].comoPessoa.numeros.sort(), [1, 3]);
+  assert.equal(r.vendas[0].total, 180);
+});

@@ -34,12 +34,16 @@ function calcularDVChaveAcesso(chave43) {
 }
 
 /** Monta a chave de acesso completa de 44 dígitos. */
-function montarChaveAcesso({ uf, dataEmissao, cnpj, modelo = '65', serie, numero, tpEmis = '1', codigoNumerico }) {
+/** `aamm` (opcional): ano/mês já no fuso da UF emissora, o MESMO da dhEmi
+ * (nfceXmlService.dataDaEmissao). Sem ele, usa o relógio local da máquina. */
+function montarChaveAcesso({ uf, dataEmissao, aamm: aammInformado, cnpj, modelo = '65', serie, numero, tpEmis = '1', codigoNumerico }) {
   const cUF = CODIGO_UF[uf];
   if (!cUF) throw new Error(`UF desconhecida: "${uf}".`);
 
   const data = dataEmissao instanceof Date ? dataEmissao : new Date(dataEmissao);
-  const aamm = String(data.getFullYear()).slice(2) + String(data.getMonth() + 1).padStart(2, '0');
+  const aamm = /^\d{4}$/.test(String(aammInformado || ''))
+    ? String(aammInformado)
+    : String(data.getFullYear()).slice(2) + String(data.getMonth() + 1).padStart(2, '0');
 
   const cnpjLimpo = String(cnpj).replace(/\D/g, '').padStart(14, '0');
   if (cnpjLimpo.length !== 14) throw new Error('CNPJ precisa ter 14 dígitos.');

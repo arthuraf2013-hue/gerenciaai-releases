@@ -247,6 +247,9 @@ app.whenReady().then(() => {
     // receber...). Só publica se houver celular de mesa pareado. Ver
     // mesaCelularService.js.
     require('./services/mesaCelularService').iniciar();
+    // Impressora da cozinha automática: junta o que foi lançado nas mesas
+    // (PC, celular, QR) e imprime uma vez por mesa. Só age se estiver ligada.
+    require('./services/cozinhaService').iniciar();
     // Celular PDV mobile autônomo que foi migrado pra cá e virou TERMINAL
     // deste computador (decidido na Central): recebe as vendas feitas
     // nele (mesmo offline, chegam quando a rede volta) e publica o
@@ -311,6 +314,18 @@ app.whenReady().then(() => {
     // Pix automático: confere em segundo plano as cobranças pendentes (o
     // caixa também consulta enquanto o QR está na tela).
     require('./services/pixAutomaticoService').iniciarConferencia();
+
+    // Maquininha integrada: confere em segundo plano as cobranças pendentes.
+    require('./services/maquininhaService').iniciarConferencia();
+    // Painel de chamada (TV/signage): republica quando muda e tira do painel
+    // a senha pronta que passou do tempo. Só com o painel ligado.
+    require('./services/chamadaService').iniciar();
+    // Pedido pela vitrine / QR da mesa: escuta só com "pedidos no sistema"
+    // ligado (ou máquina de demonstração).
+    require('./services/vitrinePedidoService').atualizarEscuta();
+    // Pix antecipado do pedido do site: confere as cobranças pendentes e
+    // cancela o pedido cujo Pix venceu. Só consulta quando há pendente.
+    require('./services/vitrinePixService').iniciarConferencia();
   }
   setTimeout(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 60 * 1000);
   setInterval(() => { try { updateService.checkForUpdates(); } catch (err) { console.error('[update]', err); } }, 4 * 60 * 60 * 1000);

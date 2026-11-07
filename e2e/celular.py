@@ -266,6 +266,24 @@ async def main():
         await g.screenshot(path=FOTOS + 'e2e-8-lancar-nome.png')
         ok('tela de lançar mostra "Bia" no botão e em "Para:"')
 
+        # a Bia é cliente do cadastro: o garçom liga a pessoa da mesa a ela pelo celular
+        await g.get_by_role('button', name='Voltar para a comanda').click()
+        # 1º toque escolhe a pessoa; tocar na pessoa já escolhida abre as opções dela.
+        await g.get_by_role('radio', name='Bia', exact=True).click(timeout=20000)
+        await g.wait_for_timeout(300)
+        if await g.get_by_role('button', name=re.compile('^Ligar a um cliente do cadastro')).count() == 0:
+            await g.get_by_role('radio', name='Bia', exact=True).click()
+        await g.get_by_role('button', name=re.compile('^Ligar a um cliente do cadastro')).click()
+        await g.fill('#pm-busca-cliente', 'mari')
+        await expect(g.get_by_role('button', name=re.compile('^Mariana Teste'))).to_contain_text('terminado em 5678', timeout=20000)
+        await g.wait_for_timeout(300)
+        await g.screenshot(path=FOTOS + 'e2e-9-ligar-cliente.png')
+        await g.get_by_role('button', name=re.compile('^Mariana Teste')).click()
+        await esperar('pessoa 1 da mesa 3 ligada à cliente Mariana (o apelido "Bia" fica)', lambda e: any(
+            p['numero'] == 1 and p['customer_id'] == 'cli-mariana' and p['nome'] == 'Bia' and p['sale_id'] == mesa(e, '3')['sale_id'] for p in e['pessoas']))
+        await expect(g.locator('.pm-chip-cliente', has_text='Bia')).to_be_visible(timeout=20000)
+        ok('celular mostra a Bia marcada como cliente do cadastro')
+
         # grupo quebrado no banco (como o do cliente): o computador conserta e o celular não fica preso
         pc('/quebrar-grupo?principal=3')
         await esperar('computador conserta a mesa 4 (sai do grupo, vai para limpeza)', lambda e: mesa(e, '4')['unida_a'] is None

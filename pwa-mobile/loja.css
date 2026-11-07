@@ -79,3 +79,16 @@ button { cursor: pointer; }
 .loja-passo.pendente { color: var(--muted); }
 .loja-bola { width: 22px; height: 22px; border-radius: 11px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--primary); }
 .loja-passo.pendente .loja-bola { background: var(--surface2); color: var(--muted); }
+
+/* Pedido direto no sistema (QR da mesa, senha, Pix antecipado). */
+.loja-mesa { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; background: var(--primary); color: #fff; border-radius: 20px; padding: 5px 12px; font-weight: 700; font-size: 13px; }
+.loja-mesa::before { content: ''; width: 8px; height: 8px; border-radius: 4px; background: #fff; }
+.loja-acompanhar { width: 100%; min-height: 48px; margin: 8px 0 2px; border-radius: 12px; border: 2px solid var(--primary); background: var(--surface); color: var(--primary); font-weight: 800; }
+.loja-senha-rotulo { font-size: 13px; font-weight: 800; letter-spacing: .08em; color: var(--muted); }
+.loja-senha { font-size: 96px; line-height: 1; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; }
+.loja-senha.pronta { animation: pulsar 1s ease-in-out 3; }
+@keyframes pulsar { 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .loja-senha.pronta { animation: none; } }
+.loja-pix-qr { width: 220px; height: 220px; margin: 4px auto; background: #fff; border-radius: 10px; padding: 8px; }
+.loja-copiar { min-height: 46px; border-radius: 12px; border: 2px solid var(--primary); background: transparent; color: var(--primary); font-weight: 800; }
+.loja-selo-ok { background: #dcfce7; color: #14532d; margin: 0 auto; }

@@ -36,6 +36,7 @@ const Dashboard = lazy(() => import('../pos/Dashboard').then((m) => ({ default: 
 const CustomerList = lazy(() => import('../pos/CustomerList').then((m) => ({ default: m.CustomerList })));
 const DeliveryScreen = lazy(() => import('../pos/DeliveryScreen').then((m) => ({ default: m.DeliveryScreen })));
 const BotOrdersScreen = lazy(() => import('../pos/BotOrdersScreen').then((m) => ({ default: m.BotOrdersScreen })));
+const ChamadaScreen = lazy(() => import('../pos/ChamadaScreen').then((m) => ({ default: m.ChamadaScreen })));
 const KitchenDisplayScreen = lazy(() => import('../pos/KitchenDisplayScreen').then((m) => ({ default: m.KitchenDisplayScreen })));
 const QuotesScreen = lazy(() => import('../pos/QuotesScreen').then((m) => ({ default: m.QuotesScreen })));
 const AgendaScreen = lazy(() => import('../pos/AgendaScreen').then((m) => ({ default: m.AgendaScreen })));
@@ -87,6 +88,9 @@ const NAV_ITEMS = [
   // igual a `perfil` — não dá pra decidir isso na hora de montar esta
   // lista estática porque depende de uma configuração salva no banco.
   { id: 'botOrders', icon: 'box', label: 'Separação', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerBotDelivery: true },
+  // Senhas e painel de chamada (TV / Vértice): aparece com o painel ligado
+  // em Configurações → Senhas (ver chamadaService.js).
+  { id: 'chamada', icon: 'clock', label: 'Senhas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerChamada: true },
 
   { id: 'products', icon: 'tag', label: 'Produtos', roles: ['gerente', 'admin', 'suporte'], section: 'Cadastros' },
   { id: 'customers', icon: 'users', label: 'Clientes', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Cadastros' },
@@ -161,6 +165,7 @@ export function AppShell() {
   });
   const [trocarUsuarioAberto, setTrocarUsuarioAberto] = useState(false);
   const [botDeliveryAtivo, setBotDeliveryAtivo] = useState(false);
+  const [chamadaAtiva, setChamadaAtiva] = useState(false);
   const [pedidosSeparacaoAtivos, setPedidosSeparacaoAtivos] = useState([]);
   const [balaoSeparacaoAberto, setBalaoSeparacaoAberto] = useState(false);
   const [posicaoBalaoSeparacao, setPosicaoBalaoSeparacao] = useState({ top: 0, left: 0 });
@@ -179,6 +184,8 @@ export function AppShell() {
 
   useEffect(() => {
     window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
+    // Caixa já conectado ao Vértice: liga a ponte das senhas com as TVs.
+    import('../../integrations/vertice/verticeClient').then((m) => m.iniciarVerticeSePareado()).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -186,6 +193,7 @@ export function AppShell() {
     // se o admin ligar "Separação" nas Configurações e voltar, o item
     // já aparece no menu sem precisar reabrir o app.
     window.pdv.botOrders.getConfig().then((c) => setBotDeliveryAtivo(!!c.ativo));
+    window.pdv.chamada?.getConfig().then((c) => setChamadaAtiva(!!c?.ativa)).catch(() => setChamadaAtiva(false));
   }, [screen]);
 
   useEffect(() => {
@@ -250,6 +258,7 @@ export function AppShell() {
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(currentUser.role)) return false;
     if (item.requerBotDelivery && !botDeliveryAtivo) return false;
+    if (item.requerChamada && !chamadaAtiva) return false;
     if (!item.perfil) return true;
     const perfisPermitidos = Array.isArray(item.perfil) ? item.perfil : [item.perfil];
     return perfisPermitidos.includes(profile?.id);
@@ -472,6 +481,7 @@ export function AppShell() {
           {screen === 'settings' && <SettingsScreen />}
           {screen === 'users' && <UserManagement />}
           {screen === 'botOrders' && <BotOrdersScreen />}
+          {screen === 'chamada' && <ChamadaScreen />}
           {screen === 'kitchen' && <KitchenDisplayScreen />}
         </Suspense>
       </main>

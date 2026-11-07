@@ -65,7 +65,7 @@ test('juntar mesa ocupada: itens e pessoas com nome vêm para a principal, renum
   const carrinho = tableService.getTableCart(principal);
   assert.equal(carrinho.items.length, 2);
   assert.equal(carrinho.items.find((i) => i.id === itemDiego).pessoaNumero, 4, 'Diego era a pessoa 2 da outra mesa: vira 2 + 2');
-  assert.deepEqual(carrinho.pessoas, [
+  assert.deepEqual(carrinho.pessoas.map(({ numero, nome }) => ({ numero, nome })), [
     { numero: 1, nome: 'Ana' }, { numero: 2, nome: null }, { numero: 3, nome: null }, { numero: 4, nome: 'Diego' },
   ]);
   assert.equal(mesa('3').pessoas, 4);
@@ -310,4 +310,64 @@ test('addItem: o mesmo produto só soma na linha da mesma pessoa', () => {
   assert.deepEqual(linhas.map((l) => [l.pessoa_numero, l.quantidade]), [[null, 2], [1, 2], [2, 1]]);
   assert.equal(db.prepare('SELECT total FROM sales WHERE id = ?').get(saleId).total, 50);
   assert.equal(lancarPara(0).ok, false, 'pessoa 0 não existe');
+});
+
+// ---------------- pessoa da mesa ligada a um cliente do cadastro ----------------
+
+function novoCliente(db, nome, ativo = 1) {
+  const id = require('crypto').randomUUID();
+  db.prepare('INSERT INTO customers (id, nome, telefone, ativo) VALUES (?, ?, ?, ?)').run(id, nome, '81988887777', ativo);
+  return id;
+}
+
+test('vincular pessoa a cliente: sem nome recebe o do cadastro; apelido fica; desvincular mantém o nome', () => {
+  const { db, mesas, abrir, mesa } = ambiente();
+  const saleId = abrir('3', 3);
+  const ana = novoCliente(db, 'Ana Souza');
+  const beto = novoCliente(db, 'Roberto Lima');
+
+  let r = tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 1, customerId: ana });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.pessoas[0], { numero: 1, nome: 'Ana Souza', clienteId: ana, clienteNome: 'Ana Souza' });
+
+  tableService.renomearPessoa({ tableId: mesas['3'], numero: 2, nome: 'Betinho' });
+  r = tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 2, customerId: beto });
+  assert.deepEqual(r.pessoas[1], { numero: 2, nome: 'Betinho', clienteId: beto, clienteNome: 'Roberto Lima' }, 'apelido fica');
+
+  // Tirar o nome de quem está ligado volta para o nome do cadastro (não perde o vínculo).
+  tableService.renomearPessoa({ tableId: mesas['3'], numero: 2, nome: '' });
+  assert.deepEqual(tableService.getTableCart(saleId).pessoas[1], { numero: 2, nome: 'Roberto Lima', clienteId: beto, clienteNome: 'Roberto Lima' });
+
+  r = tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 1, customerId: null });
+  assert.deepEqual(r.pessoas[0], { numero: 1, nome: 'Ana Souza', clienteId: null, clienteNome: null });
+  assert.equal(mesa('3').pessoas, 3);
+});
+
+test('vincular: recusa cliente desativado, mesmo cliente em duas pessoas, pessoa que não existe e mesa sem comanda', () => {
+  const { db, mesas, abrir } = ambiente();
+  abrir('3', 2);
+  const ana = novoCliente(db, 'Ana');
+  const inativo = novoCliente(db, 'Velho', 0);
+  assert.match(tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 1, customerId: inativo }).error, /não encontrado/);
+  assert.equal(tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 1, customerId: ana }).ok, true);
+  assert.match(tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 2, customerId: ana }).error, /já está na Pessoa 1/);
+  assert.equal(tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 1, customerId: ana }).ok, true, 'religar na mesma pessoa pode');
+  assert.match(tableService.vincularClientePessoa({ tableId: mesas['3'], numero: 9, customerId: ana }).error, /Pessoa não encontrada/);
+  assert.match(tableService.vincularClientePessoa({ tableId: mesas['4'], numero: 1, customerId: ana }).error, /não está ocupada/);
+});
+
+test('vínculo acompanha a pessoa: juntar mesas renumera e leva junto; remover pessoa sobe as seguintes com o vínculo', () => {
+  const { db, mesas, abrir, adminId } = ambiente();
+  const principal = abrir('3', 2);
+  abrir('6', 2);
+  const ana = novoCliente(db, 'Ana');
+  const caio = novoCliente(db, 'Caio');
+  tableService.vincularClientePessoa({ tableId: mesas['6'], numero: 1, customerId: ana });
+  tableService.vincularClientePessoa({ tableId: mesas['6'], numero: 2, customerId: caio });
+  assert.equal(tableService.juntarMesas({ tableId: mesas['3'], mesaIds: [mesas['6']], currentOperatorId: adminId }).ok, true);
+  let pessoas = tableService.getTableCart(principal).pessoas;
+  assert.deepEqual(pessoas.map((p) => [p.numero, p.clienteId]), [[1, null], [2, null], [3, ana], [4, caio]]);
+  tableService.removerPessoa({ tableId: mesas['3'], numero: 3 });
+  pessoas = tableService.getTableCart(principal).pessoas;
+  assert.deepEqual(pessoas.map((p) => [p.numero, p.nome, p.clienteId]), [[1, null, null], [2, null, null], [3, 'Caio', caio]]);
 });

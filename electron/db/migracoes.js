@@ -335,6 +335,222 @@ const MIGRACOES = [
       dropColuna(db, 'sale_items', 'especificacoes_json');
     },
   },
+  {
+    versao: 7,
+    nome: 'pessoa da mesa vinculada a um cliente do cadastro',
+    up(db) {
+      // A pessoa da comanda (sale_people) pode ser um cliente cadastrado: o
+      // consumo dela entra na ficha desse cliente (fichaClienteService), sem
+      // mexer no cliente da VENDA (sales.customer_id, que é de quem paga:
+      // fiado e pontos continuam nele). Ver tableService.vincularClientePessoa.
+      addColuna(db, 'sale_people', 'customer_id', 'TEXT REFERENCES customers(id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sale_people_customer ON sale_people(customer_id);');
+    },
+    down(db) {
+      db.exec('DROP INDEX IF EXISTS idx_sale_people_customer;');
+      dropColuna(db, 'sale_people', 'customer_id');
+    },
+  },
+  {
+    versao: 8,
+    nome: 'restaurante: impressora da cozinha, senhas e painel de chamada, pedido pelo QR da mesa, maquininha',
+    up(db) {
+      // ---- Impressora da cozinha (cozinhaService.js) ----
+      // Separada da impressora do caixa (receipt_config). 'windows' = impressora
+      // instalada (pelo nome); 'rede' = térmica ESC/POS em IP:porta, sem driver.
+      // categorias_json NULL/[] = todo item vai pra cozinha.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cozinha_impressao_config (
+          id                 TEXT PRIMARY KEY DEFAULT 'default',
+          ativa              INTEGER NOT NULL DEFAULT 0,
+          tipo               TEXT NOT NULL DEFAULT 'windows' CHECK (tipo IN ('windows','rede')),
+          impressora_windows TEXT,
+          ip                 TEXT,
+          porta              INTEGER NOT NULL DEFAULT 9100,
+          largura_mm         INTEGER NOT NULL DEFAULT 80 CHECK (largura_mm IN (58,80)),
+          codepage           TEXT NOT NULL DEFAULT 'cp860' CHECK (codepage IN ('cp860','cp850','sem_acento')),
+          automatica         INTEGER NOT NULL DEFAULT 0,
+          categorias_json    TEXT,
+          copias             INTEGER NOT NULL DEFAULT 1 CHECK (copias BETWEEN 1 AND 3),
+          cortar_papel       INTEGER NOT NULL DEFAULT 1,
+          atualizado_por_id  TEXT REFERENCES users(id),
+          atualizado_em      TEXT
+        );
+        -- Cada comanda que saiu (ou tentou sair) na cozinha, com o conteúdo
+        -- exato: reimprimir sai igual, e a falha (impressora desligada) fica
+        -- visível em vez de sumir.
+        CREATE TABLE IF NOT EXISTS cozinha_impressoes (
+          id            TEXT PRIMARY KEY,
+          sale_id       TEXT,
+          bot_order_id  TEXT,
+          titulo        TEXT NOT NULL,
+          conteudo_json TEXT NOT NULL,
+          item_ids_json TEXT,
+          status        TEXT NOT NULL CHECK (status IN ('impresso','falhou')),
+          erro          TEXT,
+          tentativas    INTEGER NOT NULL DEFAULT 1,
+          criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          impresso_em   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cozinha_impressoes_criado ON cozinha_impressoes(criado_em);
+      `);
+
+      // ---- Senhas e painel de chamada (chamadaService.js) ----
+      // Numeração por dia LOCAL (timeService.hojeLocalISO). Uma senha por
+      // venda do balcão e uma por pedido (Separação/vitrine) -- índices únicos.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS chamada_config (
+          id                 TEXT PRIMARY KEY DEFAULT 'default',
+          ativa              INTEGER NOT NULL DEFAULT 0,
+          senha_no_balcao    INTEGER NOT NULL DEFAULT 0,
+          painel_token       TEXT,
+          modelo_json        TEXT,
+          minutos_no_painel  INTEGER NOT NULL DEFAULT 15,
+          ultimo_hash        TEXT,
+          atualizado_por_id  TEXT REFERENCES users(id),
+          atualizado_em      TEXT
+        );
+        CREATE TABLE IF NOT EXISTS chamadas (
+          id             TEXT PRIMARY KEY,
+          data_local     TEXT NOT NULL,
+          numero         INTEGER NOT NULL,
+          nome           TEXT,
+          origem         TEXT NOT NULL CHECK (origem IN ('balcao','pedido','manual')),
+          sale_id        TEXT,
+          bot_order_id   TEXT,
+          status         TEXT NOT NULL DEFAULT 'preparando' CHECK (status IN ('preparando','pronto','entregue','cancelada')),
+          vezes_chamada  INTEGER NOT NULL DEFAULT 0,
+          criado_por_id  TEXT,
+          criado_em      TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          pronto_em      TEXT,
+          chamado_em     TEXT,
+          entregue_em    TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chamadas_dia_numero ON chamadas(data_local, numero);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chamadas_sale ON chamadas(sale_id) WHERE sale_id IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chamadas_pedido ON chamadas(bot_order_id) WHERE bot_order_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_chamadas_status ON chamadas(status, data_local);
+      `);
+
+      // ---- Pedido pela vitrine / QR da mesa (vitrinePedidoService.js) ----
+      // pedidos_online: a página grava o pedido (o atendente confirma na
+      // Separação) em vez de abrir o WhatsApp. qr_token: segredo de cada mesa
+      // no link do QR (a página pública só recebe o hash, ver vitrineService).
+      addColuna(db, 'vitrine_config', 'pedidos_online', 'INTEGER NOT NULL DEFAULT 0');
+      addColuna(db, 'restaurant_tables', 'qr_token', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_qr_token ON restaurant_tables(qr_token) WHERE qr_token IS NOT NULL;');
+      // "Comer aqui" sem mesa (lanchonete): retira no balcão pela senha.
+      addColuna(db, 'bot_orders', 'consumo_local', 'INTEGER NOT NULL DEFAULT 0');
+
+      // ---- Maquininha integrada (maquininhaService.js) ----
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS maquininha_config (
+          id                   TEXT PRIMARY KEY DEFAULT 'default',
+          ativa                INTEGER NOT NULL DEFAULT 0,
+          provedor             TEXT NOT NULL DEFAULT 'mercadopago_point',
+          usar_token_pix       INTEGER NOT NULL DEFAULT 1,
+          token_enc            TEXT,
+          terminal_id          TEXT,
+          imprimir_no_terminal INTEGER NOT NULL DEFAULT 0,
+          atualizado_por_id    TEXT REFERENCES users(id),
+          atualizado_em        TEXT
+        );
+        CREATE TABLE IF NOT EXISTS maquininha_cobrancas (
+          id                     TEXT PRIMARY KEY,
+          sale_id                TEXT NOT NULL REFERENCES sales(id),
+          provedor               TEXT NOT NULL,
+          terminal_id            TEXT NOT NULL,
+          valor                  REAL NOT NULL,
+          tipo                   TEXT NOT NULL CHECK (tipo IN ('credito','debito','pix')),
+          parcelas               INTEGER NOT NULL DEFAULT 1,
+          status                 TEXT NOT NULL CHECK (status IN ('criando','pendente','pago','cancelado','expirado','falhou','estornado','pago_sem_venda','erro')),
+          provedor_id            TEXT,
+          provedor_pagamento_id  TEXT,
+          -- Sem REFERENCES (igual pix_cobrancas): remover o pagamento não trava aqui.
+          payment_id             TEXT,
+          detalhes_json          TEXT,
+          erro                   TEXT,
+          cancelamento_pedido    INTEGER NOT NULL DEFAULT 0,
+          ultima_consulta_ms     INTEGER,
+          expira_em              TEXT NOT NULL,
+          criado_por_id          TEXT REFERENCES users(id),
+          criado_em              TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          atualizado_em          TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_maquininha_cobrancas_status ON maquininha_cobrancas(status, expira_em);
+        CREATE INDEX IF NOT EXISTS idx_maquininha_cobrancas_sale ON maquininha_cobrancas(sale_id);
+      `);
+
+      // ---- NFC-e: endereço da consulta por chave (infNFeSupl/urlChave) ----
+      addColuna(db, 'fiscal_config', 'url_chave', 'TEXT');
+    },
+    down(db) {
+      dropColuna(db, 'fiscal_config', 'url_chave');
+      db.exec(`
+        DROP INDEX IF EXISTS idx_maquininha_cobrancas_sale;
+        DROP INDEX IF EXISTS idx_maquininha_cobrancas_status;
+        DROP TABLE IF EXISTS maquininha_cobrancas;
+        DROP TABLE IF EXISTS maquininha_config;
+        DROP INDEX IF EXISTS idx_tables_qr_token;
+        DROP INDEX IF EXISTS idx_chamadas_status;
+        DROP INDEX IF EXISTS idx_chamadas_pedido;
+        DROP INDEX IF EXISTS idx_chamadas_sale;
+        DROP INDEX IF EXISTS idx_chamadas_dia_numero;
+        DROP TABLE IF EXISTS chamadas;
+        DROP TABLE IF EXISTS chamada_config;
+        DROP INDEX IF EXISTS idx_cozinha_impressoes_criado;
+        DROP TABLE IF EXISTS cozinha_impressoes;
+        DROP TABLE IF EXISTS cozinha_impressao_config;
+      `);
+      dropColuna(db, 'bot_orders', 'consumo_local');
+      dropColuna(db, 'restaurant_tables', 'qr_token');
+      dropColuna(db, 'vitrine_config', 'pedidos_online');
+    },
+  },
+  {
+    versao: 9,
+    nome: 'vitrine: pagamento antecipado por Pix no pedido do site',
+    up(db) {
+      // pix_online: a página oferece "pagar agora com Pix" (exige Pix
+      // automático configurado). bot_orders.pagamento_online: '' = paga na
+      // retirada / na conta da mesa; 'aguardando' = QR gerado, esperando o
+      // cliente; 'pago'; 'expirado'. Pedido pago é aceito sozinho.
+      addColuna(db, 'vitrine_config', 'pix_online', 'INTEGER NOT NULL DEFAULT 0');
+      addColuna(db, 'bot_orders', 'pagamento_online', "TEXT NOT NULL DEFAULT ''");
+      db.exec(`
+        -- Cobrança Pix de um pedido do site (ainda não existe venda: a venda
+        -- só nasce quando o pedido é concluído, ver botOrderService). Uma por
+        -- pedido; o provedor/token são os do Pix automático.
+        CREATE TABLE IF NOT EXISTS vitrine_pix_cobrancas (
+          id                 TEXT PRIMARY KEY,
+          bot_order_id       TEXT NOT NULL REFERENCES bot_orders(id),
+          provedor           TEXT NOT NULL,
+          provedor_id        TEXT,
+          valor              REAL NOT NULL,
+          status             TEXT NOT NULL CHECK (status IN ('criando','pendente','pago','cancelado','expirado','erro','estornar')),
+          copia_e_cola       TEXT,
+          valor_pago         REAL,
+          expira_em          TEXT NOT NULL,
+          pago_em            TEXT,
+          ultima_consulta_ms INTEGER,
+          erro               TEXT,
+          criado_em          TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+          atualizado_em      TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_vitrine_pix_pedido ON vitrine_pix_cobrancas(bot_order_id);
+        CREATE INDEX IF NOT EXISTS idx_vitrine_pix_status ON vitrine_pix_cobrancas(status, expira_em);
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_vitrine_pix_status;
+        DROP INDEX IF EXISTS idx_vitrine_pix_pedido;
+        DROP TABLE IF EXISTS vitrine_pix_cobrancas;
+      `);
+      dropColuna(db, 'bot_orders', 'pagamento_online');
+      dropColuna(db, 'vitrine_config', 'pix_online');
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

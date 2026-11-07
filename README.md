@@ -6396,3 +6396,39 @@ sem observação; item com observação é sempre uma linha própria.
 firestore:rules`) e o app do celular, que agora tem build (`npm --prefix pwa-mobile
 install` uma vez; `firebase deploy --only hosting:garcom` roda o build sozinho). Com o
 GerenciaAI do computador antigo ou sem as regras novas, o celular continua como antes.
+
+## Senhas, painel na TV / Vértice, pedido pelo QR da mesa, Pix pelo site, cozinha e maquininha (nov/2026)
+
+**O que mudou para a loja.**
+- **Vitrine com pedido direto no sistema** (Configurações → Celular → Vitrine online): o cliente informa o
+  nome e escolhe *retirar*, *comer no local* ou *entrega*. O pedido cai na Separação; o atendente aceita
+  (evita trote). Pelo **QR da mesa** (um por mesa, com segredo próprio) o "comer aqui" entra na comanda
+  da mesa, na pessoa com o nome do cliente. QR exportável em PNG (1200 px) e folha A4 com um cartão por
+  mesa (imprimir ou salvar em PDF).
+- **Pagamento**: o cliente escolhe *pagar agora com Pix* (usa o Pix automático; pago, o pedido é aceito
+  sozinho, ganha senha e sai na cozinha; não pago em 30 min, é cancelado) ou *pagar na retirada*. Pela
+  mesa, paga na conta da mesa.
+- **Senhas** (menu Separação → Senhas; Configurações → Senhas e Vértice): retirada, "comer aqui" e, se
+  ligado, a venda do balcão ganham senha (sai no topo do recibo). Chamar = painel na TV com aviso
+  grande, som e voz; o celular do cliente vibra. Painel por link (`pwa-mobile/painel.html?p=<token>`)
+  e/ou integração nativa com o **Vértice** (código de conexão).
+- **Impressora da cozinha** (Configurações → Cozinha): separada da do caixa, Windows (USB) ou térmica na
+  rede (ESC/POS, IP:9100, acentos CP860), só as categorias marcadas, automática para as mesas.
+- **Maquininha integrada** (Mercado Pago Point, Configurações → Geral): o caixa manda a cobrança, o
+  pagamento entra sozinho com bandeira e autorização (vão para a NFC-e, `tpIntegra=1`).
+
+**Decisões.**
+- Nada vai para cozinha/conta sem o atendente aceitar, exceto pedido já pago no Pix.
+- Pix do site mora em `vitrine_pix_cobrancas` (o pedido ainda não é venda); na conclusão vira pagamento
+  `pix` com `detalhes.pixAutomatico` (tPag 17). Pago depois do cancelamento: `estornar` + Auditoria.
+- Vértice: o módulo do próprio Vértice (`src/integrations/vertice/verticeSync.js`, cópia de
+  `vertice/integrations/gerenciaai`) roda na interface, num app Firebase separado; `ponteSenhas.js`
+  traduz as senhas para pedidos do Vértice e se acerta sozinho a cada minuto. Precisa do projeto
+  Firebase do Vértice em `verticeConfig.js`; sem ele a aba explica e nada carrega. A CSP passou a
+  permitir só Firestore + login do Firebase.
+- SEFAZ (auditoria): XML de 12 cenários (dinheiro, cartão integrado, Pix do site, desconto + taxa de
+  serviço, vários pagamentos, CSOSN 500, on-line e contingência) validado no XSD oficial
+  (PL_009_V4 e PL_010_V1.30). Falta a homologação real com certificado. O grupo IBS/CBS da reforma
+  ainda NÃO é gerado: obrigatório para o Simples a partir de 01/01/2027 (rejeição hoje suspensa).
+
+**Publicar.** Regras do Firestore e o app do celular (página `painel.html` nova) junto com o app.

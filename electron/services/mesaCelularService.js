@@ -60,9 +60,10 @@ const TOLERANCIA = 0.009;
 const TIPOS = [
   'abrir', 'lancar', 'adicionar_pessoa', 'renomear_pessoa', 'remover_pessoa', 'mover_item', 'observacao_item',
   'cancelar_item', 'limpar_mesa', 'juntar', 'separar', 'transferir', 'taxa_servico', 'receber', 'meu_turno',
+  'buscar_clientes', 'vincular_cliente',
 ];
 // Leitura pura: não grava resultado (nada mudou).
-const TIPOS_SO_LEITURA = ['meu_turno'];
+const TIPOS_SO_LEITURA = ['meu_turno', 'buscar_clientes'];
 
 class ErroComando extends Error {
   constructor(mensagem, extra = null) {
@@ -359,6 +360,10 @@ function montarComanda(db, principal) {
   ).all(saleId);
   const total = totalDePessoas(db, saleId, principal.pessoas);
   const nomes = new Map(db.prepare('SELECT numero, nome FROM sale_people WHERE sale_id = ?').all(saleId).map((p) => [p.numero, p.nome]));
+  // Pessoa ligada a um cliente do cadastro (só o nome vai ao celular, nunca telefone ou documento).
+  const clientes = new Map(db.prepare(
+    `SELECT sp.numero, c.id, c.nome FROM sale_people sp JOIN customers c ON c.id = sp.customer_id WHERE sp.sale_id = ?`
+  ).all(saleId).map((p) => [p.numero, { id: p.id, nome: p.nome }]));
   const operador = venda?.operador_id ? db.prepare('SELECT nome FROM users WHERE id = ?').get(venda.operador_id) : null;
   return {
     versao: 1,
@@ -370,7 +375,12 @@ function montarComanda(db, principal) {
     abertaEm: venda?.criado_em || null,
     abertaPorId: venda?.operador_id || null,
     abertaPorNome: operador?.nome || null,
-    pessoas: Array.from({ length: total }, (_, i) => ({ numero: i + 1, nome: nomes.get(i + 1) || null })),
+    pessoas: Array.from({ length: total }, (_, i) => ({
+      numero: i + 1,
+      nome: nomes.get(i + 1) || null,
+      clienteId: clientes.get(i + 1)?.id || null,
+      clienteNome: clientes.get(i + 1)?.nome || null,
+    })),
     itens: itens.map((i) => ({
       id: i.id,
       produtoId: i.product_id,
@@ -549,6 +559,31 @@ const ACOES = {
     const r = require('./tableService').renomearPessoa({ tableId: principal.id, numero: dados.numero, nome: texto(dados.nome, 40) });
     if (!r.ok) throw new ErroComando(r.error);
     return { numero: Number(dados.numero) };
+  },
+
+  /** Liga a pessoa a um cliente do cadastro (ou desliga, sem clienteId). */
+  vincular_cliente(dados, ctx) {
+    const db = getDb();
+    const { principal } = comandaAberta(db, dados.mesaId, ctx.locationId);
+    const r = require('./tableService').vincularClientePessoa({
+      tableId: principal.id, numero: dados.numero, customerId: texto(dados.clienteId, 80) || null,
+    });
+    if (!r.ok) throw new ErroComando(r.error);
+    return { numero: Number(dados.numero) };
+  },
+
+  /** Procura cliente para ligar à pessoa da mesa. Volta só o nome e o fim do
+   * telefone (para diferenciar homônimos) -- nunca o cadastro inteiro. */
+  buscar_clientes(dados) {
+    const busca = (texto(dados.busca, 40) || '').replace(/[%_]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (busca.length < 2) throw new ErroComando('Digite pelo menos 2 letras do nome (ou números do telefone).');
+    const clientes = require('./customerService').list({ query: busca }).slice(0, 8);
+    return {
+      clientes: clientes.map((c) => {
+        const digitos = String(c.telefone || '').replace(/\D/g, '');
+        return { id: c.id, nome: c.nome, telefoneFinal: digitos.length >= 4 ? digitos.slice(-4) : null };
+      }),
+    };
   },
 
   remover_pessoa(dados, ctx) {

@@ -42,6 +42,7 @@ async function main() {
   }
   const tableService = require('../electron/services/tableService');
   for (const n of ['1', '2', '3', '4']) tableService.createTable({ locationId: ctx.locationId, numero: n });
+  db.prepare(`INSERT INTO customers (id, nome, telefone) VALUES ('cli-mariana', 'Mariana Teste', '(81) 91234-5678')`).run();
   require('../electron/services/cashService').openSession({ locationId: ctx.locationId, operadorId: ctx.gerenteId, valorAbertura: 100 });
 
   require('../electron/services/pairingService').iniciarEscutaPareamentos();
@@ -95,7 +96,7 @@ async function main() {
             `SELECT p.nome, si.quantidade, si.pessoa_numero, si.observacao, si.status_preparo, si.cancelado, si.sale_id
              FROM sale_items si JOIN products p ON p.id = si.product_id ORDER BY si.rowid`
           ).all(),
-          pessoas: db.prepare('SELECT sale_id, numero, nome FROM sale_people ORDER BY numero').all(),
+          pessoas: db.prepare('SELECT sale_id, numero, nome, customer_id FROM sale_people ORDER BY numero').all(),
           pagamentos: db.prepare('SELECT metodo, valor, detalhes FROM payments ORDER BY rowid').all(),
           dispositivos: db.prepare('SELECT id, tipo, ativo FROM paired_devices').all(),
           comandos: db.prepare('SELECT tipo, ok, erro FROM mobile_comandos_mesa ORDER BY criado_em, rowid').all(),

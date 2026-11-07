@@ -45,6 +45,22 @@ const CLIENTES_ATIVOS = 32; // os 8 últimos da lista viram "sumidos"
 const PROBABILIDADE_DE_CLIENTE = 0.55;
 const METODOS = [['pix', 35], ['dinheiro', 25], ['cartao_debito', 20], ['cartao_credito', 20]];
 
+// Vitrine da FICHA DO CLIENTE: o 1º cliente da lista ganha compras pensadas
+// para mostrar o que a ficha tem de próprio em cada perfil (especificações
+// dos produtos, receita da ótica, animal do petshop, garantia...). Cada
+// compra: [diasAtras, hora, [[codigo, quantidade], ...]]. Perfil sem lista
+// usa os três primeiros produtos do catálogo.
+const VITRINE_DA_FICHA = {
+  farmacia: [[4, 10, [['F14', 1], ['F01', 2]]], [34, 11, [['F14', 1], ['F13', 2]]], [64, 9, [['F14', 1], ['F13', 2], ['F09', 1]]]],
+  petshop: [[3, 17, [['P01', 1], ['P07', 2]]], [33, 16, [['P01', 1], ['P02', 2]]], [63, 10, [['P01', 1]]]],
+  armazem: [[2, 18, [['A07', 6], ['A09', 0.5], ['A08', 1]]], [9, 18, [['A07', 6], ['A10', 0.3]]]],
+  salao_beleza: [[12, 11, [['S04', 1], ['S03', 1]]], [41, 15, [['S01', 1], ['S07', 1]]]],
+  vestuario: [[5, 16, [['V01', 2], ['V06', 1]]], [30, 15, [['V01', 1], ['V07', 1]]], [70, 17, [['V08', 1]]], [95, 16, [['V06', 1], ['V10', 2]]]],
+  otica: [[3, 15, [['O05', 1], ['O01', 1], ['O08', 1]]], [60, 11, [['O10', 1], ['O09', 1]]]],
+  material_construcao: [[20, 9, [['M15', 1], ['M10', 1]]], [55, 10, [['M12', 4]]]],
+  restaurante: [],
+};
+
 // ---------------------------------------------------------------- caminhos
 
 let caminhosDeTeste = null;
@@ -457,6 +473,30 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
     });
     resumo.clientes = clientes.length;
 
+    // ---- mesas do restaurante (antes das vendas: o histórico guarda a mesa de cada conta)
+    const mesasPorNumero = new Map();
+    if (perfil === 'restaurante') {
+      for (let n = 1; n <= 8; n += 1) {
+        const existente = db.prepare('SELECT id FROM restaurant_tables WHERE location_id = ? AND numero = ?').get(locationId, String(n));
+        const id = existente?.id || randomUUID();
+        if (!existente) {
+          db.prepare(`INSERT INTO restaurant_tables (id, location_id, numero, status, criado_em) VALUES (?, ?, ?, 'livre', ?)`)
+            .run(id, locationId, String(n), utc(momentoLocal(DIAS_DE_HISTORICO + 5, 9, 0)));
+        }
+        mesasPorNumero.set(String(n), id);
+      }
+    }
+    const NOMES_NA_MESA = ['Lucas', 'Júlia', 'Pedro', 'Marina', 'Rafa', 'Carol', 'Diego', 'Lia'];
+    // Conta de mesa com pessoas: o cliente da venda é a pessoa 1 (ligada ao
+    // cadastro); a outra tem só o nome. Os itens se dividem entre elas.
+    const comMesa = (plano) => {
+      if (perfil !== 'restaurante' || rnd() >= 0.45) return plano;
+      const pessoas = plano.itens.length >= 2 && rnd() < 0.6
+        ? [plano.cliente ? { clienteIdx: clientes.indexOf(plano.cliente) } : { nome: escolher(NOMES_NA_MESA) }, { nome: escolher(NOMES_NA_MESA) }]
+        : [];
+      return { ...plano, mesa: { numero: String(inteiro(1, 8)), pessoas, pessoaDoItem: plano.itens.map((_, k) => (pessoas.length ? (k % 2) + 1 : null)) } };
+    };
+
     // ---- planejamento das vendas (em memória, para calcular o estoque antes)
     const agora = new Date(agoraMs);
     const momentoDaVenda = (diasAtras) => {
@@ -490,6 +530,8 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
     };
 
     const vendas = [];
+    // Restaurante: parte das contas foi numa mesa (ver comMesa).
+    const planejar = (diasAtras, clienteIdx) => comMesa(planejarVenda(diasAtras, clienteIdx));
     for (let i = 0; i < TOTAL_VENDAS; i += 1) {
       let diasAtras = inteiro(0, DIAS_DE_HISTORICO - 1);
       let clienteIdx = null;
@@ -498,23 +540,65 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
         // Clientes "sumidos": só compraram há mais de 85 dias.
         if (clienteIdx >= CLIENTES_ATIVOS) diasAtras = inteiro(85, DIAS_DE_HISTORICO - 1);
       }
-      vendas.push(planejarVenda(diasAtras, clienteIdx));
+      vendas.push(planejar(diasAtras, clienteIdx));
     }
     // Garante: todo cliente ativo comprou nos últimos 20 dias; todo sumido
     // tem ao menos uma compra antiga (senão não aparece na lista).
     for (let i = 0; i < clientes.length; i += 1) {
-      vendas.push(planejarVenda(i < CLIENTES_ATIVOS ? inteiro(1, 20) : inteiro(85, 100), i));
+      vendas.push(planejar(i < CLIENTES_ATIVOS ? inteiro(1, 20) : inteiro(85, 100), i));
     }
+
+    // ---- vitrine da ficha do cliente (o 1º da lista) e fiado
+    const planoFixo = (diasAtras, hora, clienteIdx, itensFixos) => {
+      const itens = itensFixos.map(([codigo, quantidade]) => ({ produto: porCodigo[codigo], quantidade })).filter((it) => it.produto);
+      return itens.length ? { momento: momentoLocal(diasAtras, hora, inteiro(0, 50)), cliente: clientes[clienteIdx], operadorId: operadores[0], itens } : null;
+    };
+    const vitrine = VITRINE_DA_FICHA[perfil]
+      || [[6, 10], [27, 15], [58, 11]].map(([d, h], k) => [d, h, produtos.filter((p) => !p.servico).slice(k, k + 2).map((p) => [p.codigo, 1])]);
+    for (const [diasAtras, hora, itens] of vitrine) {
+      const plano = planoFixo(diasAtras, hora, 0, itens);
+      if (plano) vendas.push(plano);
+    }
+    if (perfil === 'restaurante') {
+      // Ela jantou na mesa de outro cliente (aparece na ficha dela como "na comanda como Bia")
+      // e na própria mesa, com uma amiga.
+      const jantar = planoFixo(6, 20, 3, [['R02', 1], ['R01', 1], ['R10', 2], ['R08', 1], ['R06', 2]]);
+      if (jantar) vendas.push({ ...jantar, mesa: { numero: '4', pessoas: [{ clienteIdx: 3 }, { clienteIdx: 0, nome: 'Bia' }], pessoaDoItem: [1, 2, 1, 2, null] } });
+      const almoco = planoFixo(15, 12, 0, [['R03', 1], ['R04', 1], ['R08', 2]]);
+      if (almoco) vendas.push({ ...almoco, mesa: { numero: '2', pessoas: [{ clienteIdx: 0 }, { nome: 'Carol' }], pessoaDoItem: [1, 2, null] } });
+    }
+    // Fiado: o 1º cliente pagou metade de uma compra; o 2º ainda deve tudo.
+    vendas.push({ ...planejarVenda(18, 0), fiado: 'parcial' });
+    vendas.push({ ...planejarVenda(8, 1), fiado: 'aberto' });
     vendas.sort((a, b) => a.momento - b.momento);
     resumo.vendas = vendas.length;
     resumo.desde = diaLocal(vendas[0].momento);
     resumo.clientesSumidos = clientes.length - CLIENTES_ATIVOS;
 
+    // ---- restaurante: o salão funcionando agora (comandas abertas com pessoas,
+    // mesas unidas, cozinha preparando, mesa em limpeza e uma reservada).
+    const comandasAbertas = [];
+    if (perfil === 'restaurante') {
+      const minutosAtras = (m) => new Date(agoraMs - m * 60000);
+      const item = (codigo, quantidade, pessoa, preparo, observacao = null) => ({ produto: porCodigo[codigo], quantidade, pessoa, preparo, observacao });
+      comandasAbertas.push({
+        mesa: '1', unidas: [], aberta: minutosAtras(35), pessoas: [{ clienteIdx: 2 }, { nome: 'Pedro' }, {}],
+        itens: [item('R02', 1, 1, 'pronto', 'ao ponto'), item('R07', 1, 1, 'pronto'), item('R01', 1, 2, 'preparando'),
+          item('R08', 1, 2, 'pronto', 'sem açúcar'), item('R05', 1, null, 'pendente')],
+      });
+      comandasAbertas.push({
+        mesa: '2', unidas: ['3'], aberta: minutosAtras(70), pessoas: [{ nome: 'Júlia' }, {}, {}, {}],
+        itens: [item('R03', 1, 1, 'pronto'), item('R02', 1, 2, 'pronto'), item('R01', 2, 3, 'pronto'), item('R10', 3, 4, 'pronto'),
+          item('R09', 2, null, 'pronto'), item('R06', 2, null, 'pendente')],
+      });
+      for (const c of comandasAbertas) c.itens = c.itens.filter((it) => it.produto);
+    }
+
     // ---- estoque: uma entrada antes do histórico, cobrindo o que vai ser
     // vendido + o saldo final desejado. ~20% dos produtos terminam abaixo do
     // mínimo (alerta de estoque e previsão de ruptura).
     const vendido = new Map();
-    for (const v of vendas) for (const it of v.itens) {
+    for (const v of [...vendas, ...comandasAbertas]) for (const it of v.itens) {
       if (!it.produto.servico) vendido.set(it.produto.id, (vendido.get(it.produto.id) || 0) + it.quantidade);
     }
     const inserirMovimento = db.prepare(
@@ -542,8 +626,21 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
        VALUES (?, ?, ?, ?, 'finalizada', ?, ?, ?)`
     );
     const inserirItem = db.prepare(
-      `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, criado_em) VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, criado_em, pessoa_numero) VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
+    const inserirPessoa = db.prepare('INSERT INTO sale_people (id, sale_id, numero, nome, customer_id, criado_em) VALUES (?, ?, ?, ?, ?, ?)');
+    const inserirMesaDaVenda = db.prepare(
+      'INSERT INTO sale_mesas (id, sale_id, table_id, numero, nome, principal, criado_em) VALUES (?, ?, ?, ?, NULL, ?, ?)'
+    );
+    const inserirFiado = db.prepare(
+      'INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, sale_id, motivo, operador_id, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    /** Pessoas da comanda: nome (ou o do cadastro, se ligada a um cliente). Pessoa sem nome nem cliente não tem linha. */
+    const gravarPessoas = (saleId, pessoas, criado) => pessoas.forEach((p, k) => {
+      const cliente = p.clienteIdx != null ? clientes[p.clienteIdx] : null;
+      const nome = p.nome || (cliente ? cliente.nome.split(' ')[0] : null);
+      if (nome || cliente) inserirPessoa.run(randomUUID(), saleId, k + 1, nome, cliente?.id || null, criado);
+    });
     const inserirPagamento = db.prepare(
       `INSERT INTO payments (id, sale_id, metodo, valor, detalhes, criado_em) VALUES (?, ?, ?, ?, '{}', ?)`
     );
@@ -557,14 +654,25 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
       const total = v.itens.reduce((s, it) => s + it.quantidade * it.produto.preco, 0);
       const aPagar = Math.ceil(total * 100 - 1e-6) / 100;
       inserirVenda.run(saleId, locationId, v.operadorId, v.cliente?.id || null, total, criado, finalizada);
-      for (const it of v.itens) {
+      v.itens.forEach((it, k) => {
         const itemId = randomUUID();
-        inserirItem.run(itemId, saleId, it.produto.id, it.quantidade, it.produto.preco, criado);
+        inserirItem.run(itemId, saleId, it.produto.id, it.quantidade, it.produto.preco, criado, v.mesa?.pessoaDoItem?.[k] ?? null);
         if (!it.produto.servico) {
           inserirMovimento.run(randomUUID(), it.produto.id, locationId, 'venda', -it.quantidade, null, saleId, itemId, v.operadorId, deviceId, criado);
         }
+      });
+      if (v.mesa) {
+        inserirMesaDaVenda.run(randomUUID(), saleId, mesasPorNumero.get(v.mesa.numero) || null, v.mesa.numero, 1, finalizada);
+        gravarPessoas(saleId, v.mesa.pessoas, criado);
       }
-      if (aPagar >= 20 && rnd() < 0.15) {
+      if (v.fiado && v.cliente) {
+        inserirPagamento.run(randomUUID(), saleId, 'fiado', aPagar, finalizada);
+        inserirFiado.run(randomUUID(), v.cliente.id, 'divida', aPagar, saleId, null, v.operadorId, finalizada);
+        if (v.fiado === 'parcial') {
+          const pagoEm = new Date(Math.min(v.momento.getTime() + 6 * 86400000, agoraMs - 3600000));
+          inserirFiado.run(randomUUID(), v.cliente.id, 'pagamento', arredondar(Math.floor(aPagar / 2)), null, null, v.operadorId, utc(pagoEm));
+        }
+      } else if (aPagar >= 20 && rnd() < 0.15) {
         const parte = Math.floor(aPagar / 2);
         inserirPagamento.run(randomUUID(), saleId, 'pix', parte, finalizada);
         inserirPagamento.run(randomUUID(), saleId, 'dinheiro', arredondar(aPagar - parte), finalizada);
@@ -573,6 +681,38 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
       }
       vendasGravadas.push({ saleId, momento: v.momento, cliente: v.cliente });
     }
+
+    // ---- comandas abertas agora (restaurante)
+    for (const c of comandasAbertas) {
+      const saleId = randomUUID();
+      const aberta = utc(c.aberta);
+      const total = c.itens.reduce((t, it) => t + it.quantidade * it.produto.preco, 0);
+      db.prepare(`INSERT INTO sales (id, location_id, operador_id, status, total, criado_em) VALUES (?, ?, ?, 'aberta', ?, ?)`)
+        .run(saleId, locationId, operadores[1], total, aberta);
+      c.itens.forEach((it, k) => {
+        const itemId = randomUUID();
+        const lancado = utc(new Date(c.aberta.getTime() + (k + 1) * 4 * 60000));
+        db.prepare(
+          `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, criado_em, pessoa_numero, observacao, enviado_cozinha, status_preparo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(itemId, saleId, it.produto.id, it.quantidade, it.produto.preco, lancado, it.pessoa, it.observacao, it.preparo === 'pendente' ? 0 : 1, it.preparo);
+        if (!it.produto.servico) {
+          inserirMovimento.run(randomUUID(), it.produto.id, locationId, 'venda', -it.quantidade, null, saleId, itemId, operadores[1], deviceId, lancado);
+        }
+      });
+      gravarPessoas(saleId, c.pessoas, aberta);
+      const principalId = mesasPorNumero.get(c.mesa);
+      db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = ? WHERE id = ?`).run(saleId, c.pessoas.length, principalId);
+      for (const n of c.unidas) {
+        db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, unida_a_mesa_id = ? WHERE id = ?`).run(saleId, principalId, mesasPorNumero.get(n));
+      }
+    }
+    if (perfil === 'restaurante') {
+      db.prepare(`UPDATE restaurant_tables SET status = 'aguardando_limpeza' WHERE id = ?`).run(mesasPorNumero.get('5'));
+      db.prepare(`UPDATE restaurant_tables SET status = 'reservada', reservado_para = ? WHERE id = ?`)
+        .run(`Hoje, 20h · ${clientes[1].nome} (4 pessoas)`, mesasPorNumero.get('6'));
+    }
+    resumo.comandasAbertas = comandasAbertas.length;
 
     // ---- delivery (todos os perfis)
     const entregadores = ['Entregador 1 (demonstração)', 'Entregador 2 (demonstração)'].map((nome) => {
@@ -607,8 +747,11 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
     // ---- extras por perfil
     resumo.extras = semearExtrasDoPerfil(db, {
       perfil, catalogo, clientes, produtos, locationId, solicitante, inteiro, escolher, rnd,
-      utc, diaLocalDaqui, momentoLocal, agora,
+      utc, diaLocalDaqui, momentoLocal, agora, mesasPorNumero,
     });
+    // Quem abrir na tela de Clientes para mostrar a ficha (e quem deve no fiado).
+    resumo.clienteDaFicha = clientes[0].nome;
+    resumo.clienteDevendo = clientes[1].nome;
 
     registrarAuditoria(db, {
       tipo: 'demonstracao_carregada', solicitanteId: solicitante,
@@ -658,6 +801,22 @@ function semearExtrasDoPerfil(db, ctx) {
     const servicosUnha = produtos.filter((p) => p.servico && /cure/i.test(p.nome)).map((p) => p.nome);
     const ocupado = new Set();
     let total = 0;
+    // Agenda do cliente da ficha (o 1º): um atendimento feito, uma falta e o próximo horário.
+    const horarioFixo = (diasRel, hora, prof, servico, status) => {
+      const d = new Date(agora);
+      d.setDate(d.getDate() + diasRel);
+      const dia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      ocupado.add(`${prof.id}|${diasRel}|${hora}`);
+      db.prepare(
+        `INSERT INTO appointments (id, location_id, professional_id, customer_id, servico, data_hora_inicio, duracao_minutos, status, operador_id, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(randomUUID(), locationId, prof.id, clientes[0].id, servico, `${dia} ${String(hora).padStart(2, '0')}:00:00`, 90, status, solicitante,
+        utc(momentoLocal(Math.max(1, -diasRel + 3), 10, 0)));
+      total += 1;
+    };
+    horarioFixo(-12, 11, profissionais[1], 'Coloração', 'concluido');
+    horarioFixo(-26, 16, profissionais[2], 'Manicure', 'faltou');
+    horarioFixo(3, 15, profissionais[1], 'Hidratação', 'confirmado');
     for (let i = 0; i < 40 && total < 24; i += 1) {
       const diasRel = inteiro(-6, 7);
       const hora = inteiro(9, 17);
@@ -726,14 +885,23 @@ function semearExtrasDoPerfil(db, ctx) {
   }
 
   if (perfil === 'restaurante') {
-    let mesas = 0;
-    for (let n = 1; n <= 8; n += 1) {
-      if (db.prepare('SELECT 1 FROM restaurant_tables WHERE location_id = ? AND numero = ?').get(locationId, String(n))) continue;
-      db.prepare(`INSERT INTO restaurant_tables (id, location_id, numero, status, criado_em) VALUES (?, ?, ?, 'livre', ?)`)
-        .run(randomUUID(), locationId, String(n), utc(momentoLocal(125, 9, 0)));
-      mesas += 1;
+    extras.mesas = ctx.mesasPorNumero.size;
+    // Reservas com o telefone de clientes do cadastro (aparecem na ficha deles):
+    // uma que já aconteceu, a de hoje à noite (na mesa 6, reservada) e uma de amanhã.
+    const dia = (dias) => diaLocalDaqui(dias);
+    const reservas = [
+      [0, `${dia(-9)} 20:00:00`, 4, 'concluida', null, 'Aniversário (demonstração)'],
+      [1, `${dia(0)} 20:00:00`, 4, 'confirmada', ctx.mesasPorNumero.get('6'), null],
+      [4, `${dia(1)} 19:30:00`, 2, 'pendente', null, null],
+      [0, `${dia(5)} 13:00:00`, 6, 'confirmada', null, 'Almoço de família (demonstração)'],
+    ];
+    for (const [idx, dataHora, pessoas, status, mesaId, obs] of reservas) {
+      db.prepare(
+        `INSERT INTO reservations (id, location_id, cliente_nome, cliente_telefone, pessoas, data_hora, status, mesa_id, origem, observacoes, operador_id, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)`
+      ).run(randomUUID(), locationId, clientes[idx].nome, clientes[idx].telefone, pessoas, dataHora, status, mesaId, obs, solicitante, utc(momentoLocal(12, 10, 0)));
     }
-    extras.mesas = mesas;
+    extras.reservas = reservas.length;
   }
 
   return extras;

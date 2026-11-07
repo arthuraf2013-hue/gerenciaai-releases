@@ -49,8 +49,18 @@ function assinarXmlGenerico(xmlOriginal, { chavePrivadaPem, certificadoPem }, el
   return sig.getSignedXml();
 }
 
+/** Assina a NFC-e (referencia <infNFe>). A <Signature> fica logo depois do
+ * </infNFe>; o <infNFeSupl> entra DEPOIS, entre os dois
+ * (nfceXmlService.inserirInfNFeSupl) -- ele não faz parte da assinatura. */
 function assinarXmlNFCe(xmlNFe, certificado) {
   return assinarXmlGenerico(xmlNFe, certificado, 'infNFe');
+}
+
+/** RSA-SHA1 (PKCS#1 v1.5) em Base64 de um texto qualquer, com a chave do
+ * certificado -- usado no QR Code versão 3 da contingência off-line. */
+function assinarTexto(texto, { chavePrivadaPem }) {
+  const crypto = require('crypto');
+  return crypto.sign('sha1', Buffer.from(String(texto), 'utf-8'), chavePrivadaPem).toString('base64');
 }
 
 /** Assina o evento de cancelamento (110111) — referencia <infEvento>. */
@@ -63,4 +73,4 @@ function assinarXmlInutilizacao(xmlInut, certificado) {
   return assinarXmlGenerico(xmlInut, certificado, 'infInut');
 }
 
-module.exports = { assinarXmlNFCe, assinarXmlEvento, assinarXmlInutilizacao };
+module.exports = { assinarXmlNFCe, assinarXmlEvento, assinarXmlInutilizacao, assinarTexto };

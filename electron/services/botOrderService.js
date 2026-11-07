@@ -49,7 +49,7 @@ function formatarPrecoServico(valor) {
  * pedido fechado com o cliente (`origem: 'whatsapp_bot'`). Não mexe
  * em estoque nem em caixa — isso só acontece quando o pedido é de
  * fato separado e vira uma venda/entrega na conclusão. */
-function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tipoEntrega, endereco, observacoes, origem, itens, operadorId, mesaNumero, taxaEntrega }) {
+function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tipoEntrega, endereco, observacoes, origem, itens, operadorId, mesaNumero, taxaEntrega, consumoLocal }) {
   if (!locationId) return { ok: false, error: 'Local é obrigatório.' };
   if (!clienteNome?.trim()) return { ok: false, error: 'Informe o nome do cliente.' };
   if (!clienteTelefone?.trim()) return { ok: false, error: 'Informe o telefone do cliente.' };
@@ -79,8 +79,8 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
   const db = getDb();
   const id = randomUUID();
   const inserirPedido = db.prepare(
-    `INSERT INTO bot_orders (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, observacoes, origem, status, mesa_numero, taxa_entrega)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?)`
+    `INSERT INTO bot_orders (id, location_id, customer_id, cliente_nome, cliente_telefone, tipo_entrega, endereco, observacoes, origem, status, mesa_numero, taxa_entrega, consumo_local)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?, ?)`
   );
   const inserirItem = db.prepare(
     `INSERT INTO bot_order_items (id, bot_order_id, product_id, descricao_livre, quantidade, observacao, preco_unitario)
@@ -94,7 +94,9 @@ function createOrder({ locationId, customerId, clienteNome, clienteTelefone, tip
       tipo, tipo === 'entrega' ? endereco.trim() : null, observacoes || null,
       origem === 'whatsapp_bot' ? 'whatsapp_bot' : 'manual',
       mesaNumero ? String(mesaNumero).trim() : null,
-      taxaFinal
+      taxaFinal,
+      // "Comer aqui" sem mesa: retira no balcão pela senha (só faz sentido em retirada).
+      consumoLocal && !mesaNumero && tipo === 'retirada' ? 1 : 0
     );
     for (const item of itensValidos) {
       // Item com produto real NUNCA usa o preço que veio de quem
@@ -192,9 +194,30 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
     // entregador...), então registra como valor recebido sem detalhar
     // o método. Quem quiser reclassificar o método de pagamento pode
     // editar na tela de Histórico depois.
-    db.prepare(
-      `INSERT INTO payments (id, sale_id, metodo, valor, detalhes) VALUES (?, ?, 'outro', ?, ?)`
-    ).run(randomUUID(), saleId, total, JSON.stringify({ origem: 'pedido_separacao', observacao: 'Coletado na retirada/entrega' }));
+    // Pix pago antecipado pelo site (vitrinePixService): entra como Pix
+    // dinâmico (pixAutomatico -> tPag 17 na NFC-e); o que faltar (item
+    // acrescentado depois) segue como "coletado na retirada".
+    let restante = Math.round(total * 100) / 100;
+    const pixPago = pedido.pagamento_online === 'pago'
+      ? db.prepare(`SELECT * FROM vitrine_pix_cobrancas WHERE bot_order_id = ? AND status = 'pago'`).get(orderId)
+      : null;
+    if (pixPago) {
+      const valorPix = Math.min(Number(pixPago.valor_pago) || pixPago.valor, restante);
+      if (valorPix > 0) {
+        db.prepare(
+          `INSERT INTO payments (id, sale_id, metodo, valor, detalhes) VALUES (?, ?, 'pix', ?, ?)`
+        ).run(randomUUID(), saleId, valorPix, JSON.stringify({
+          origem: 'vitrine_pix', pixAutomatico: { provedor: pixPago.provedor, cobranca: pixPago.provedor_id },
+          ...(Number(pixPago.valor_pago) > restante + 0.005 ? { valorRecebido: Number(pixPago.valor_pago) } : {}),
+        }));
+        restante = Math.round((restante - valorPix) * 100) / 100;
+      }
+    }
+    if (restante > 0.005) {
+      db.prepare(
+        `INSERT INTO payments (id, sale_id, metodo, valor, detalhes) VALUES (?, ?, 'outro', ?, ?)`
+      ).run(randomUUID(), saleId, restante, JSON.stringify({ origem: 'pedido_separacao', observacao: 'Coletado na retirada/entrega' }));
+    }
 
     db.prepare('UPDATE bot_orders SET sale_id = ? WHERE id = ?').run(saleId, orderId);
 
@@ -275,12 +298,20 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
   // o cliente do WhatsApp achava que o item tinha sido lançado normal.
   // Agora isso volta no resultado (itensNaoLancados), pra tela avisar
   // quem lançou (auditoria, seção 4).
+  // Pedido feito pelo QR da mesa (vitrine): o cliente informou o nome --
+  // os itens vão para a PESSOA com esse nome na comanda (a conta por pessoa
+  // e a ficha do cliente já funcionam com isso). Reaproveita a pessoa de
+  // mesmo nome, ou uma vaga sem nome e sem item, ou cria uma nova.
+  const pessoaNumero = pedido.canal === 'vitrine' ? pessoaDoPedidoNaMesa(db, table.id, saleId, pedido.cliente_nome) : null;
+
   const itensNaoLancados = [];
   const lancarItens = db.transaction(() => {
     for (const item of itensComProduto) {
       const resultado = saleService.addItem({
         saleId, productId: item.product_id, locationId: pedido.location_id,
         quantidade: item.quantidade, operadorId, deviceId,
+        ...(pessoaNumero ? { pessoaNumero } : {}),
+        ...(item.observacao ? { observacao: String(item.observacao).slice(0, 200) } : {}),
       });
       if (!resultado.ok) {
         console.error('[botOrderService] item do pedido de mesa não entrou na comanda', item.id, resultado.error);
@@ -297,7 +328,60 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
     `UPDATE bot_orders SET status = 'concluido', sale_id = ?, separado_por = COALESCE(separado_por, ?), concluido_em = COALESCE(concluido_em, NOW_SYNCED()) WHERE id = ?`
   ).run(saleId, operadorId, orderId);
 
-  return { ok: true, saleId, itensNaoLancados };
+  aposMudarStatus(orderId, 'concluido');
+  // Aceito pelo atendente: os itens vão direto pra impressora da cozinha
+  // (se ligada) -- não espera o ciclo automático nem o botão da mesa.
+  imprimirNaCozinha(() => require('./cozinhaService').imprimirItensDaVenda({ saleId }));
+
+  return { ok: true, saleId, itensNaoLancados, pessoaNumero };
+}
+
+function pessoaDoPedidoNaMesa(db, tableId, saleId, nome) {
+  const limpo = String(nome || '').replace(/\s+/g, ' ').trim();
+  if (!limpo) return null;
+  try {
+    const tableService = require('./tableService');
+    const mesma = db.prepare('SELECT numero FROM sale_people WHERE sale_id = ? AND LOWER(nome) = LOWER(?)').get(saleId, limpo);
+    if (mesma) return mesma.numero;
+    const mesa = db.prepare('SELECT pessoas FROM restaurant_tables WHERE id = ?').get(tableId);
+    const total = Math.max(Number(mesa?.pessoas) || 0, 0);
+    for (let n = 1; n <= total; n++) {
+      const temNome = db.prepare('SELECT 1 FROM sale_people WHERE sale_id = ? AND numero = ?').get(saleId, n);
+      const temItem = db.prepare('SELECT 1 FROM sale_items WHERE sale_id = ? AND pessoa_numero = ? AND cancelado = 0').get(saleId, n);
+      if (!temNome && !temItem) {
+        const r = tableService.renomearPessoa({ tableId, numero: n, nome: limpo });
+        if (r.ok) return n;
+      }
+    }
+    const r = tableService.adicionarPessoa({ tableId, nome: limpo });
+    return r.ok ? r.numero : null;
+  } catch (err) {
+    console.error('[botOrderService] não consegui separar a pessoa do pedido da mesa', err?.message || err);
+    return null;
+  }
+}
+
+/** Impressão da cozinha fora do fluxo (nunca derruba a operação). */
+function imprimirNaCozinha(fn) {
+  try {
+    const cozinha = require('./cozinhaService');
+    if (!cozinha.getConfig().ativa) return;
+    Promise.resolve(fn()).then((r) => {
+      if (r && !r.ok && r.falhou) console.error('[botOrderService] impressora da cozinha:', r.error);
+    }).catch((err) => console.error('[botOrderService] impressora da cozinha:', err?.message || err));
+  } catch (err) {
+    console.error('[botOrderService] impressora da cozinha:', err?.message || err);
+  }
+}
+
+/** Senha, painel e acompanhamento do cliente (vitrine) seguem o pedido. */
+function aposMudarStatus(orderId, status, { origemChamada = false } = {}) {
+  if (!origemChamada) {
+    try { require('./chamadaService').aoMudarStatusDoPedido({ botOrderId: orderId, status }); } catch (err) {
+      console.error('[botOrderService] senha do pedido', orderId, err?.message || err);
+    }
+  }
+  try { require('./vitrinePedidoService').publicarEtapa(orderId).catch(() => {}); } catch { /* acompanhamento é extra */ }
 }
 
 /** Fila de pedidos — já vem com a contagem de itens/itens separados
@@ -308,7 +392,8 @@ function listOrders({ locationId, status } = {}) {
     SELECT o.*,
       COUNT(i.id) as totalItens,
       SUM(CASE WHEN i.status_separacao = 'separado' THEN 1 ELSE 0 END) as itensSeparados,
-      COALESCE(SUM(i.preco_unitario * i.quantidade), 0) as valorTotal
+      COALESCE(SUM(i.preco_unitario * i.quantidade), 0) as valorTotal,
+      (SELECT ch.numero FROM chamadas ch WHERE ch.bot_order_id = o.id AND ch.status <> 'cancelada') as senha
     FROM bot_orders o
     LEFT JOIN bot_order_items i ON i.bot_order_id = o.id
     WHERE o.location_id = ?`;
@@ -354,8 +439,9 @@ function getOrderWithItems(orderId) {
   ).all({ locationId: pedido.location_id, orderId });
 
   const valorTotal = itens.reduce((soma, i) => soma + (i.preco_unitario || 0) * i.quantidade, 0);
+  const senha = db.prepare(`SELECT numero FROM chamadas WHERE bot_order_id = ? AND status <> 'cancelada'`).get(orderId)?.numero ?? null;
 
-  return { ok: true, pedido: { ...pedido, valorTotal }, itens };
+  return { ok: true, pedido: { ...pedido, valorTotal, senha }, itens };
 }
 
 /** Avisa o cliente pelo WhatsApp quando o pedido fica pronto -- pra
@@ -645,11 +731,24 @@ function registrarSolicitacaoAlteracao({ orderId, texto }) {
 /** Muda o status do pedido — carimba automaticamente quando começou a
  * separação e quando foi concluído (mesma ideia do `saiu_em`/
  * `entregue_em` em deliveries). */
-function updateOrderStatus({ orderId, status, operadorId }) {
+function updateOrderStatus({ orderId, status, operadorId, origemChamada = false }) {
   if (!STATUS_PEDIDO_VALIDOS.includes(status)) return { ok: false, error: 'Status inválido.' };
   const db = getDb();
   const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
   if (!pedido) return { ok: false, error: 'Pedido não encontrado.' };
+  // Pedido de mesa não vira venda avulsa: entra na comanda (lancarPedidoNaMesa).
+  if (pedido.mesa_numero && status === 'concluido' && !pedido.sale_id) {
+    return { ok: false, error: `Use "Lançar na Mesa ${pedido.mesa_numero}" para este pedido.` };
+  }
+  if (['concluido', 'cancelado'].includes(pedido.status) && pedido.status !== status) {
+    return { ok: false, error: `Este pedido já está ${pedido.status === 'concluido' ? 'concluído' : 'cancelado'}.` };
+  }
+  // Pix antecipado do site ainda não pago: não prepara nem entrega (ver
+  // vitrinePixService -- pago, o pedido é aceito sozinho). "Receber no
+  // balcão" troca a forma de pagamento antes.
+  if (pedido.pagamento_online === 'aguardando' && ['em_separacao', 'pronto', 'concluido'].includes(status)) {
+    return { ok: false, error: 'Este pedido está esperando o cliente pagar o Pix. Use "Receber no balcão" se ele for pagar aqui.' };
+  }
 
   const sets = ['status = @status'];
   if (status === 'em_separacao') {
@@ -661,7 +760,23 @@ function updateOrderStatus({ orderId, status, operadorId }) {
   db.prepare(`UPDATE bot_orders SET ${sets.join(', ')} WHERE id = @orderId`)
     .run({ orderId, status, operadorId: operadorId || null });
 
-  if (status === 'pronto' && !pedido.mesa_numero) {
+  // Pedido de comida (com senha): "pronto" vem da cozinha, não da conferência
+  // item a item -- o que ainda estava pendente conta como separado.
+  if (status === 'pronto' && db.prepare('SELECT 1 FROM chamadas WHERE bot_order_id = ?').get(orderId)) {
+    db.prepare(`UPDATE bot_order_items SET status_separacao = 'separado' WHERE bot_order_id = ? AND status_separacao = 'pendente'`).run(orderId);
+  }
+
+  // Aceito (começou a separação/preparo): senha no painel e comanda na cozinha.
+  if (status === 'em_separacao' && pedido.status === 'novo' && !pedido.mesa_numero) {
+    if (pedido.tipo_entrega !== 'entrega') {
+      try { require('./chamadaService').criarParaPedido({ botOrderId: orderId, operadorId }); } catch (err) {
+        console.error('[botOrderService] senha do pedido', orderId, err?.message || err);
+      }
+    }
+    imprimirNaCozinha(() => require('./cozinhaService').imprimirPedido({ botOrderId: orderId }));
+  }
+
+  if (status === 'pronto' && !pedido.mesa_numero && /\d{8,}/.test(String(pedido.cliente_telefone || ''))) {
     // Fogo-e-esquece -- mesmo princípio do bloco de conversão em venda
     // logo abaixo: nunca deixa a mudança de status em si falhar por
     // causa do aviso. Pedido de mesa nunca passa por "pronto" (ver
@@ -688,13 +803,24 @@ function updateOrderStatus({ orderId, status, operadorId }) {
     // deliveryService.updateDeliveryStatus), não já na conclusão do
     // pedido (que só significa "virou venda/entrega de verdade", o
     // entregador ainda nem saiu -- ver podeReceberModificacao).
-    if (!pedido.mesa_numero && pedido.tipo_entrega !== 'entrega') {
+    if (!pedido.mesa_numero && pedido.tipo_entrega !== 'entrega' && /\d{8,}/.test(String(pedido.cliente_telefone || ''))) {
       solicitarPesquisaSatisfacao(pedido).catch((err) => {
         console.error('[botOrderService] falha ao solicitar pesquisa de satisfação', orderId, err);
       });
     }
   }
 
+  if (status === 'cancelado' && pedido.pagamento_online === 'aguardando') {
+    try { require('./vitrinePixService').aoCancelarPedido(orderId).catch(() => {}); } catch { /* segue */ }
+  }
+  if (status === 'cancelado' && pedido.pagamento_online === 'pago') {
+    require('./authService').registrarEventoAuditoria({
+      tipoEvento: 'pix_recebido_sem_venda', solicitanteId: operadorId || null,
+      motivo: `Pedido do site de ${pedido.cliente_nome} cancelado depois de pago no Pix. Devolva o valor pelo Mercado Pago.`,
+    });
+  }
+
+  aposMudarStatus(orderId, status, { origemChamada });
   return { ok: true };
 }
 

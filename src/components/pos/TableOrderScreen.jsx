@@ -7,6 +7,7 @@ import { PaymentPanel } from './PaymentPanel';
 // Só carrega quando alguém abre o montador de item personalizado (ver POSScreen).
 const CustomItemBuilder = lazy(() => import('./CustomItemBuilder').then((m) => ({ default: m.CustomItemBuilder })));
 import { ManagerAuthModal } from './ManagerAuthModal';
+import { VincularClienteModal } from './VincularClienteModal';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { usePromptModal } from '../../hooks/usePromptModal';
@@ -76,6 +77,8 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   // Para quem os próximos itens vão (null = sem pessoa). Escolhe uma vez e
   // vai tocando nos produtos -- sem escolher a pessoa item por item.
   const [pessoaAtiva, setPessoaAtiva] = useState(null);
+  // Pessoa com a janela "ligar a um cliente do cadastro" aberta.
+  const [vinculandoPessoa, setVinculandoPessoa] = useState(null);
 
   const aplicarPessoas = useCallback((lista) => {
     const pessoasDaComanda = Array.isArray(lista) ? lista : [];
@@ -172,7 +175,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     playErrorBeep();
   }, [addProductToCart]);
 
-  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder && !showJuntar && !promptState });
+  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder && !showJuntar && !promptState && !vinculandoPessoa });
 
   async function requestCancelItem(itemId) {
     const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
@@ -309,6 +312,18 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setPessoaAtiva(null);
     await recarregarComanda();
     setFeedback({ message: `${rotuloPessoa(pessoa)} removida. Os itens dela ficaram sem pessoa.`, type: 'success' });
+  }
+
+  async function vincularCliente(pessoa, customerId) {
+    const result = await window.pdv.table.vincularCliente({ tableId, numero: pessoa.numero, customerId });
+    if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
+    aplicarPessoas(result.pessoas);
+    setVinculandoPessoa(null);
+    const atual = result.pessoas.find((p) => p.numero === pessoa.numero);
+    setFeedback({
+      message: customerId ? `${nomeCurto(atual || pessoa)} ligada ao cliente ${atual?.clienteNome}.` : `${nomeCurto(atual || pessoa)} não está mais ligada a um cliente.`,
+      type: 'success',
+    });
   }
 
   // ---- juntar e separar mesas ----
@@ -514,6 +529,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                   <button type="button" className="mesa-grupo-nome" onClick={() => setPessoaAtiva(g.numero)} title="Lançar os próximos itens para esta pessoa">
                     {nomeCurto(g.pessoa)}
                   </button>
+                  <BotaoCliente pessoa={g.pessoa} rotulo={nomeCurto(g.pessoa)} aoClicar={() => setVinculandoPessoa(g.pessoa)} />
                   <button type="button" className="mesa-icone" onClick={() => renomearPessoa(g.pessoa)} aria-label={`Renomear ${nomeCurto(g.pessoa)}`} title="Dar ou trocar o nome">
                     <Icon name="edit" size={13} />
                   </button>
@@ -531,6 +547,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 {pessoasSemItens.map((p) => (
                   <span key={p.numero} className={`mesa-sem-itens-pessoa${pessoaAtiva === p.numero ? ' mesa-sem-itens-ativa' : ''}`}>
                     <button type="button" className="mesa-grupo-nome" onClick={() => setPessoaAtiva(p.numero)}>{nomeCurto(p)}</button>
+                    <BotaoCliente pessoa={p} rotulo={nomeCurto(p)} aoClicar={() => setVinculandoPessoa(p)} pequeno />
                     <button type="button" className="mesa-icone" onClick={() => renomearPessoa(p)} aria-label={`Renomear ${nomeCurto(p)}`}><Icon name="edit" size={12} /></button>
                     <button type="button" className="mesa-icone" onClick={() => removerPessoa(p)} aria-label={`Remover ${nomeCurto(p)}`}><Icon name="close" size={12} /></button>
                   </span>
@@ -601,6 +618,15 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
         </Suspense>
       )}
 
+      {vinculandoPessoa && (
+        <VincularClienteModal
+          pessoa={pessoasLista.find((p) => p.numero === vinculandoPessoa.numero) || vinculandoPessoa}
+          rotulo={nomeCurto(pessoasLista.find((p) => p.numero === vinculandoPessoa.numero) || vinculandoPessoa)}
+          onEscolher={(c) => vincularCliente(vinculandoPessoa, c.id)}
+          onDesvincular={() => vincularCliente(vinculandoPessoa, null)}
+          onFechar={() => setVinculandoPessoa(null)}
+        />
+      )}
       {editandoPessoas && (
         <div className="modal-overlay">
           <form className="modal-card" onSubmit={confirmarEdicaoPessoas}>
@@ -742,5 +768,19 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
         <PromptModal {...promptState} onConfirmar={confirmarPrompt} onCancelar={cancelarPrompt} />
       )}
     </div>
+  );
+}
+
+/** Ícone de cliente na pessoa da mesa: cheio quando ela já está ligada a um cliente do cadastro. */
+function BotaoCliente({ pessoa, rotulo, aoClicar, pequeno = false }) {
+  const ligado = !!pessoa.clienteId;
+  return (
+    <button
+      type="button" className={`mesa-icone${ligado ? ' mesa-icone-cliente' : ''}`} onClick={aoClicar}
+      aria-label={ligado ? `${rotulo}: cliente ${pessoa.clienteNome}` : `Ligar ${rotulo} a um cliente do cadastro`}
+      title={ligado ? `Cliente do cadastro: ${pessoa.clienteNome} (clique para trocar ou desligar)` : 'Ligar a um cliente do cadastro'}
+    >
+      <Icon name="user" size={pequeno ? 12 : 13} />
+    </button>
   );
 }

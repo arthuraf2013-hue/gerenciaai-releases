@@ -154,12 +154,23 @@ function mount(root, { loja, lojas, onTrocarLoja, onParearOutra, onEsquecerLoja 
   function montarMesas(alvo) {
     let desmontar = null;
     let usandoAntigo = false;
-    const voltarParaAntigo = () => {
+    const voltarParaAntigo = (motivo) => {
       if (usandoAntigo) return;
       usandoAntigo = true;
       if (desmontar) desmontar();
       alvo.innerHTML = '';
       desmontar = garcom.mount(alvo, { loja, lojas, embutido: true }) || (() => {});
+      // Diz POR QUE o painel novo não abriu (loja sem mesa cadastrada usa a tela antiga de propósito).
+      const textos = {
+        sem_publicacao: 'Painel novo de mesas indisponível: o GerenciaAI do computador precisa ser atualizado (feche e abra o programa no computador para instalar a versão nova).',
+        sem_permissao: 'Painel novo de mesas indisponível: a liberação no servidor ainda não foi publicada. Fale com o suporte.',
+      };
+      if (textos[motivo]) {
+        const aviso = document.createElement('p');
+        aviso.className = 'aviso aviso-alerta aviso-painel-mesas';
+        aviso.textContent = textos[motivo];
+        alvo.prepend(aviso);
+      }
     };
     alvo.innerHTML = ''; // a aba anterior (ex.: Vender) deixa o HTML dela aqui
     desmontar = montarPainelMesas(alvo, { loja, modo: 'pdv', aoSemPainel: voltarParaAntigo });

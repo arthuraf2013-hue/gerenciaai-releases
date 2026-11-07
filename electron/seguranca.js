@@ -63,7 +63,9 @@ const CSP_APP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  // Firestore + login anônimo do Firebase: integração com o Vértice, que roda
+  // na interface (src/integrations/vertice). Só os endereços do Google.
+  "connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com",
   "frame-src 'self' data: blob:",
   "object-src 'self'",
   "base-uri 'none'",

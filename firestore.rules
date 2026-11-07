@@ -777,11 +777,11 @@ service cloud.firestore {
         && request.resource.data.criadoEm == request.time
         && request.resource.data.tipo in ['abrir', 'lancar', 'adicionar_pessoa', 'renomear_pessoa', 'remover_pessoa',
              'mover_item', 'observacao_item', 'cancelar_item', 'limpar_mesa', 'juntar', 'separar', 'transferir',
-             'taxa_servico', 'receber', 'meu_turno']
+             'taxa_servico', 'receber', 'meu_turno', 'buscar_clientes', 'vincular_cliente']
         && request.resource.data.keys().hasOnly([
              'dispositivoUid', 'status', 'tipo', 'criadoEm', 'criadoEmCelularMs', 'appVersao', 'mesaId', 'itens', 'pessoas',
              'nome', 'numero', 'itemId', 'pessoaNumero', 'observacao', 'motivo', 'autorizadorId', 'pinCifrado', 'mesaIds',
-             'destinoId', 'percentual', 'grupos', 'valorEsperado', 'pagamentos'])
+             'destinoId', 'percentual', 'grupos', 'valorEsperado', 'pagamentos', 'busca', 'clienteId'])
         && textoCurto(request.resource.data, 'mesaId', 80)
         && textoCurto(request.resource.data, 'nome', 40)
         && textoCurto(request.resource.data, 'itemId', 80)
@@ -790,6 +790,8 @@ service cloud.firestore {
         && textoCurto(request.resource.data, 'autorizadorId', 80)
         && textoCurto(request.resource.data, 'pinCifrado', 1024)
         && textoCurto(request.resource.data, 'destinoId', 80)
+        && textoCurto(request.resource.data, 'busca', 40)
+        && textoCurto(request.resource.data, 'clienteId', 80)
         && textoCurto(request.resource.data, 'appVersao', 40)
         && numeroOpcional(request.resource.data, 'criadoEmCelularMs')
         && numeroOpcional(request.resource.data, 'pessoas')
@@ -835,42 +837,68 @@ service cloud.firestore {
         && (docId in ['catalogo', 'config'] || docId.matches('^demo_[a-z]{3,20}$'));
     }
 
-    // Vitrine de DEMONSTRAÇÃO: o prospect (página pública, sem login) grava o
-    // pedido aqui e a máquina de demonstração o transforma em pedido na
-    // Separação (vitrineDemoService.js). Só enquanto existir um endereço de
-    // demonstração criado pela Central (vitrines/{endereço} com `demo`)
-    // apontando para ESTA instalação, ativo e dentro do prazo. A máquina
-    // ainda confere tudo de novo e só aceita produto DEMO- dela, com o preço
-    // dela. A vitrine normal (pedido pelo WhatsApp) não grava nada.
+    // Pedidos gravados pela página pública da vitrine (sem login):
+    //  - vitrine de DEMONSTRAÇÃO (vitrineDemoService.js): só enquanto existir
+    //    um endereço de demonstração criado pela Central (vitrines/{endereço}
+    //    com `demo`) apontando para ESTA instalação, ativo e no prazo;
+    //  - vitrine de VERDADE com "receber os pedidos direto no sistema"
+    //    (vitrinePedidoService.js): endereço da Central apontando para esta
+    //    instalação, ativo, e o computador publicou pedidosOnline = true. Pode
+    //    levar o segredo da mesa (QR) e o modo 'local' (consumir no local).
+    // Em todos os casos a máquina confere tudo de novo, usa o preço DELA e só
+    // vai para a cozinha/conta depois do atendente aceitar na Separação.
     match /installations/{installId}/pedidos_vitrine/{pedidoId} {
-      function demoAbertaParaEstaLoja(slug) {
+      function enderecoDestaLoja(slug) {
         let caminho = /databases/$(database)/documents/vitrines/$(slug);
         return exists(caminho)
           && get(caminho).data.get('installId', null) == installId
-          && get(caminho).data.get('ativa', true) != false
+          && get(caminho).data.get('ativa', true) != false;
+      }
+      function demoAbertaParaEstaLoja(slug) {
+        let caminho = /databases/$(database)/documents/vitrines/$(slug);
+        return enderecoDestaLoja(slug)
           && get(caminho).data.get('demo', null) is map
           && get(caminho).data.demo.get('expiraEm', null) is timestamp
           && request.time < get(caminho).data.demo.expiraEm;
       }
-      function pedidoDemoValido(d) {
+      function lojaRecebePedidos(slug) {
+        let caminho = /databases/$(database)/documents/vitrines/$(slug);
+        let config = /databases/$(database)/documents/installations/$(installId)/vitrine/config;
+        return enderecoDestaLoja(slug)
+          && get(caminho).data.get('demo', null) == null
+          && exists(config)
+          && get(config).data.get('ativa', false) == true
+          && get(config).data.get('pedidosOnline', false) == true;
+      }
+      function pedidoBaseValido(d) {
         return d.keys().hasAll(['slug', 'status', 'nome', 'modo', 'pagamento', 'itens', 'criadoEm'])
-          && d.keys().hasOnly(['slug', 'status', 'nome', 'modo', 'endereco', 'pagamento', 'trocoPara', 'observacao', 'itens', 'criadoEm'])
           && d.slug is string && d.slug.matches('^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$')
           && d.status == 'novo'
           && d.nome is string && d.nome.size() >= 2 && d.nome.size() <= 60
-          && d.modo in ['retirada', 'entrega']
-          && (d.modo == 'retirada' || (d.get('endereco', null) is string && d.endereco.size() >= 6))
+          && (d.modo != 'entrega' || (d.get('endereco', null) is string && d.endereco.size() >= 6))
           && (!('endereco' in d) || (d.endereco is string && d.endereco.size() <= 200))
-          && d.pagamento in ['pix', 'dinheiro', 'cartao']
+          && d.pagamento in ['pix', 'dinheiro', 'cartao', 'pix_online', 'mesa']
           && (!('trocoPara' in d) || (d.trocoPara is number && d.trocoPara >= 0 && d.trocoPara <= 10000))
           && (!('observacao' in d) || (d.observacao is string && d.observacao.size() <= 200))
           && d.itens is list && d.itens.size() >= 1 && d.itens.size() <= 40
           && d.criadoEm == request.time;
       }
+      function pedidoDemoValido(d) {
+        return pedidoBaseValido(d)
+          && d.keys().hasOnly(['slug', 'status', 'nome', 'modo', 'endereco', 'pagamento', 'trocoPara', 'observacao', 'itens', 'criadoEm'])
+          && d.modo in ['retirada', 'entrega']
+          && d.pagamento in ['pix', 'dinheiro', 'cartao'];
+      }
+      function pedidoLojaValido(d) {
+        return pedidoBaseValido(d)
+          && d.keys().hasOnly(['slug', 'status', 'nome', 'modo', 'mesa', 'endereco', 'pagamento', 'trocoPara', 'observacao', 'itens', 'criadoEm'])
+          && d.modo in ['retirada', 'entrega', 'local']
+          && (!('mesa' in d) || (d.mesa is string && d.mesa.matches('^[A-Za-z0-9]{24}$') && d.modo == 'local'));
+      }
 
       allow create: if pedidoId.matches('^[A-Za-z0-9]{20}$')
-        && pedidoDemoValido(request.resource.data)
-        && demoAbertaParaEstaLoja(request.resource.data.slug);
+        && ((pedidoDemoValido(request.resource.data) && demoAbertaParaEstaLoja(request.resource.data.slug))
+          || (pedidoLojaValido(request.resource.data) && lojaRecebePedidos(request.resource.data.slug)));
 
       // A página acompanha o PRÓPRIO pedido pelo id (aleatório, 20 letras).
       allow get: if true;
@@ -882,6 +910,44 @@ service cloud.firestore {
         && resource.data.status == 'novo'
         && request.resource.data.status in ['recebido', 'erro']
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'erro', 'processadoEm', 'bot_order_id']);
+      allow delete: if false;
+    }
+
+    // Acompanhamento do pedido da vitrine (senha, pronto, na mesa) -- a
+    // máquina grava (vitrinePedidoService.publicarEtapa), a página lê o do
+    // próprio pedido pelo id. Ninguém lista.
+    match /installations/{installId}/pedidos_vitrine_status/{pedidoId} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if request.auth == null
+        && pedidoId.matches('^[A-Za-z0-9]{20}$')
+        && request.resource.data.keys().hasOnly(['etapa', 'senha', 'mesa', 'pago', 'pix', 'motivo', 'atualizadoEm'])
+        && request.resource.data.etapa in ['recebido', 'pagamento', 'preparando', 'pronto', 'entregue', 'saiu', 'na_mesa', 'cancelado']
+        && (request.resource.data.get('pago', false) is bool)
+        && (request.resource.data.get('motivo', null) == null || (request.resource.data.motivo is string && request.resource.data.motivo.size() <= 120))
+        // Pix antecipado: copia e cola + QR (imagem) para o cliente pagar.
+        && (request.resource.data.get('pix', null) == null || (request.resource.data.pix is map
+          && request.resource.data.pix.keys().hasOnly(['valor', 'copiaECola', 'expiraEm', 'qr', 'gerando'])
+          && (request.resource.data.pix.get('copiaECola', null) == null || (request.resource.data.pix.copiaECola is string && request.resource.data.pix.copiaECola.size() <= 600))
+          && (request.resource.data.pix.get('qr', null) == null || (request.resource.data.pix.qr is string && request.resource.data.pix.qr.size() <= 60000 && request.resource.data.pix.qr.matches('^data:image/png;base64,.*')))))
+        && (request.resource.data.get('senha', null) == null || request.resource.data.senha is int)
+        && (request.resource.data.get('mesa', null) == null || (request.resource.data.mesa is string && request.resource.data.mesa.size() <= 40));
+      allow delete: if false;
+    }
+
+    // Painel de chamada (TV / digital signage): o computador publica
+    // (chamadaService.js) e a página pwa-mobile/painel.html lê. O token de 32
+    // caracteres no caminho É o acesso (fica só no link do painel). Só número,
+    // primeiro nome e o modelo visual -- nada de valor, telefone ou item.
+    match /paineis_chamada/{token} {
+      allow get: if token.matches('^[A-Za-z0-9]{32}$');
+      allow list: if false;
+      allow create, update: if request.auth == null
+        && token.matches('^[A-Za-z0-9]{32}$')
+        && request.resource.data.keys().hasOnly(['ativo', 'nomeLoja', 'modelo', 'preparando', 'prontos', 'ultimaChamada', 'atualizadoEm'])
+        && request.resource.data.preparando is list && request.resource.data.preparando.size() <= 30
+        && request.resource.data.prontos is list && request.resource.data.prontos.size() <= 12
+        && request.resource.data.modelo is map;
       allow delete: if false;
     }
 

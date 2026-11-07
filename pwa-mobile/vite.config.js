@@ -8,9 +8,10 @@ import { fileURLToPath } from 'node:url';
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Build do app do celular (ver README.md). Duas páginas:
- *   index.html -- garçom, PDV móvel e consulta remota (instalável, offline)
- *   loja.html  -- vitrine online pública (não registra service worker)
+ * Build do app do celular (ver README.md). Três páginas:
+ *   index.html  -- garçom, PDV móvel e consulta remota (instalável, offline)
+ *   loja.html   -- vitrine online pública (não registra service worker)
+ *   painel.html -- painel de senhas para TV / Vértice (não registra service worker)
  *
  * `base: './'`: os caminhos saem relativos, então a pasta dist/ funciona em
  * qualquer hospedagem estática, na raiz ou numa subpasta.
@@ -78,6 +79,7 @@ export default defineConfig({
       input: {
         index: resolve(AQUI, 'index.html'),
         loja: resolve(AQUI, 'loja.html'),
+        painel: resolve(AQUI, 'painel.html'),
       },
     },
   },

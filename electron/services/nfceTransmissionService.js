@@ -7,19 +7,20 @@ const { getWebserviceUrls } = require('./nfceWebserviceUrls');
  * "grande", a SEFAZ processa e devolve o resultado na mesma resposta,
  * sem precisar de uma segunda chamada de consulta de recibo depois.
  */
+// O documento vai DENTRO do envelope: sem declaração <?xml?> (XML inválido
+// no meio do SOAP) e sem espaço/quebra entre as tags da mensagem (rejeição
+// 588). O envelope em si é montado já compacto.
+function documentoParaEnvelope(xml) {
+  return String(xml).replace(/^\uFEFF?\s*<\?xml[^>]*\?>\s*/, '').trim();
+}
+
 function montarEnvelopeAutorizacao(xmlNFeAssinado, idLote) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
-  <soap12:Body>
-    <nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4">
-      <enviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">
-        <idLote>${idLote}</idLote>
-        <indSinc>1</indSinc>
-        ${xmlNFeAssinado}
-      </enviNFe>
-    </nfeDadosMsg>
-  </soap12:Body>
-</soap12:Envelope>`;
+  const lote = String(Number(idLote) || 1).slice(0, 15);
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
+    + '<soap12:Body><nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4">'
+    + `<enviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><idLote>${lote}</idLote><indSinc>1</indSinc>${documentoParaEnvelope(xmlNFeAssinado)}</enviNFe>`
+    + '</nfeDadosMsg></soap12:Body></soap12:Envelope>';
 }
 
 /**
@@ -65,16 +66,37 @@ function enviarSoapComCertificado({ url, envelopeSoap, chavePrivadaPem, certific
  * depender de um parser XML completo pra isso, os campos são simples
  * o suficiente pra pegar com regex de forma confiável. */
 function extrairResultado(xmlResposta) {
-  const pegar = (tag) => {
-    const m = xmlResposta.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
+  const texto = String(xmlResposta || '');
+  // A resposta síncrona tem DOIS cStat: o do lote (104 "Lote processado",
+  // em retEnviNFe) e o da nota (100 autorizada, ou a rejeição, em
+  // protNFe/infProt). No evento é igual: 128 no lote, 135 em
+  // retEvento/infEvento. Vale o de dentro quando existe -- pegar o primeiro
+  // fazia toda nota autorizada parecer recusada.
+  const bloco = (tag) => {
+    const m = texto.match(new RegExp(`<(?:[\\w-]+:)?${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[\\w-]+:)?${tag}>`));
     return m ? m[1] : null;
   };
-  return {
-    cStat: pegar('cStat'),
-    xMotivo: pegar('xMotivo'),
-    protocoloAutorizacao: pegar('nProt'),
-    chaveAcessoRetornada: pegar('chNFe'),
+  const interno = bloco('infProt') || bloco('infEvento') || bloco('infInut');
+  const pegar = (tag, fonte) => {
+    const m = String(fonte || '').match(new RegExp(`<(?:[\\w-]+:)?${tag}>([^<]*)</(?:[\\w-]+:)?${tag}>`));
+    return m ? m[1] : null;
   };
+  const de = (tag) => (interno != null ? pegar(tag, interno) : null) ?? pegar(tag, texto);
+  return {
+    cStat: de('cStat'),
+    xMotivo: de('xMotivo'),
+    protocoloAutorizacao: de('nProt'),
+    chaveAcessoRetornada: de('chNFe'),
+    cStatLote: pegar('cStat', texto),
+  };
+}
+
+/** Texto do SOAP Fault (soap12:Reason/Text), se a resposta for um. */
+function motivoDoSoapFault(corpo) {
+  const t = String(corpo || '');
+  if (!/<(?:[\w-]+:)?Fault[\s>]/.test(t)) return null;
+  const m = t.match(/<(?:[\w-]+:)?Text[^>]*>([^<]*)<\/(?:[\w-]+:)?Text>/) || t.match(/<faultstring>([^<]*)<\/faultstring>/);
+  return (m ? m[1] : 'erro no formato da mensagem').trim().slice(0, 300);
 }
 
 /**
@@ -100,6 +122,13 @@ async function enviarNFCe({ xmlNFeAssinado, config, certificado, idLote = 1 }) {
   });
 
   if (resposta.statusCode !== 200) {
+    // SOAP Fault = a SEFAZ LEU a mensagem e recusou o formato: é recusa da
+    // nota, não falta de conexão -- não pode virar contingência (o documento
+    // sairia inválido do mesmo jeito).
+    const fault = motivoDoSoapFault(resposta.corpo);
+    if (fault) {
+      return { ok: true, autorizada: false, cStat: null, motivo: `A SEFAZ recusou a mensagem: ${fault}`, xmlRespostaCompleto: resposta.corpo };
+    }
     return {
       ok: false,
       erroComunicacao: true,
@@ -126,26 +155,18 @@ async function enviarNFCe({ xmlNFeAssinado, config, certificado, idLote = 1 }) {
  * NFC-e (carta de correção não existe pra NFC-e, mas outros eventos
  * como EPEC existem — só cancelamento está implementado por enquanto). */
 function montarEnvelopeEvento(envEventoAssinado) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
-  <soap12:Body>
-    <nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">
-      ${envEventoAssinado}
-    </nfeDadosMsg>
-  </soap12:Body>
-</soap12:Envelope>`;
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
+    + `<soap12:Body><nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">${documentoParaEnvelope(envEventoAssinado)}</nfeDadosMsg></soap12:Body>`
+    + '</soap12:Envelope>';
 }
 
 /** Envelope SOAP 1.2 pro webservice NFeInutilizacao4. */
 function montarEnvelopeInutilizacao(inutNFeAssinado) {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
-  <soap12:Body>
-    <nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4">
-      ${inutNFeAssinado}
-    </nfeDadosMsg>
-  </soap12:Body>
-</soap12:Envelope>`;
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
+    + `<soap12:Body><nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4">${documentoParaEnvelope(inutNFeAssinado)}</nfeDadosMsg></soap12:Body>`
+    + '</soap12:Envelope>';
 }
 
 /**
@@ -220,6 +241,6 @@ async function enviarInutilizacaoNFCe({ inutNFeAssinado, config, certificado }) 
 }
 
 module.exports = {
-  montarEnvelopeAutorizacao, enviarSoapComCertificado, extrairResultado, enviarNFCe,
-  enviarEventoNFCe, enviarInutilizacaoNFCe,
+  montarEnvelopeAutorizacao, montarEnvelopeEvento, montarEnvelopeInutilizacao, documentoParaEnvelope, motivoDoSoapFault,
+  enviarSoapComCertificado, extrairResultado, enviarNFCe, enviarEventoNFCe, enviarInutilizacaoNFCe,
 };

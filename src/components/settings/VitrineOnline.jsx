@@ -73,6 +73,68 @@ function DemonstracoesAtivas() {
   );
 }
 
+// QR de cada mesa (pedido pelo celular do cliente, direto na comanda da mesa).
+// O link de cada mesa leva um segredo próprio: "Trocar QR" invalida o impresso.
+function QrDasMesas({ podeTrocar }) {
+  const [dados, setDados] = useState(null);
+  const [aviso, setAviso] = useState(null);
+
+  async function carregar() {
+    const r = await window.pdv.vitrine.qrDasMesas();
+    setDados(r);
+  }
+  useEffect(() => { carregar(); }, []);
+
+  async function salvarPng(tableId) {
+    const r = await window.pdv.vitrine.salvarQrPng({ tableId });
+    if (r?.ok) setAviso({ tipo: 'ok', texto: `QR salvo em ${r.caminho}` });
+    else if (!r?.cancelado) setAviso({ tipo: 'erro', texto: r?.error || 'Não consegui salvar.' });
+  }
+  async function imprimir() {
+    const r = await window.pdv.vitrine.imprimirQrMesas();
+    if (!r?.ok) setAviso({ tipo: 'erro', texto: r?.error || 'Não consegui imprimir.' });
+  }
+  async function trocar(m) {
+    if (!confirm(`Trocar o QR da ${m.rotulo}? O QR impresso hoje para de funcionar.`)) return;
+    const r = await window.pdv.vitrine.trocarQrDaMesa({ tableId: m.tableId });
+    if (!r?.ok) { setAviso({ tipo: 'erro', texto: r?.error }); return; }
+    setAviso({ tipo: 'ok', texto: `QR da ${m.rotulo} trocado. Imprima o novo.` });
+    carregar();
+  }
+
+  if (!dados) return null;
+  if (dados.ok === false) return <p className="screen-hint">{dados.error}</p>;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h3 style={{ fontSize: 14, margin: '0 0 4px' }}>QR das mesas</h3>
+      <p className="screen-hint" style={{ margin: 0 }}>
+        Cole um em cada mesa. O cliente lê, escolhe, informa o nome e o pedido cai na Separação já com a mesa; aceito, entra na comanda na pessoa com o nome dele.
+      </p>
+      {!dados.pedidosOnline && <p className="io-message-aviso"><Icon name="warning" size={15} /> Ligue "Receber os pedidos direto no sistema" para os QRs das mesas funcionarem.</p>}
+      {dados.mesas.length === 0 ? <p className="empty-state">Nenhuma mesa cadastrada (Restaurante → Mesas).</p> : (
+        <>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+            <button type="button" className="btn-primary" onClick={imprimir}><Icon name="printer" size={15} /> Imprimir todos (ou salvar em PDF)</button>
+          </div>
+          <div className="qr-mesas">
+            {dados.mesas.map((m) => (
+              <div className="qr-mesa" key={m.tableId}>
+                <strong>{m.rotulo}</strong>
+                {m.qrDataUrl && <img src={m.qrDataUrl} alt={`QR da ${m.rotulo}`} />}
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <button type="button" className="btn-link" onClick={() => salvarPng(m.tableId)}><Icon name="export" size={13} /> PNG</button>
+                  {podeTrocar && <button type="button" className="btn-link" onClick={() => trocar(m)}><Icon name="refresh" size={13} /> Trocar</button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {aviso && <p className={aviso.tipo === 'erro' ? 'modal-error' : 'io-message'}>{aviso.texto}</p>}
+    </div>
+  );
+}
+
 export function VitrineOnline() {
   const { currentUser } = useSession();
   const [config, setConfig] = useState(null);
@@ -87,6 +149,7 @@ export function VitrineOnline() {
     setForm((f) => f || {
       ativa: c.ativa, ocultarSemEstoque: c.ocultarSemEstoque, avisoPoucasUnidades: String(c.avisoPoucasUnidades),
       mensagem: c.mensagem, modos: c.modos, pedidoMinimo: c.pedidoMinimo ? String(c.pedidoMinimo).replace('.', ',') : '',
+      pedidosOnline: !!c.pedidosOnline, pixOnline: !!c.pixOnline,
     });
   }
 
@@ -112,6 +175,12 @@ export function VitrineOnline() {
     carregar();
   }
 
+  async function salvarQrVitrine() {
+    const r = await window.pdv.vitrine.salvarQrPng({});
+    if (r?.ok) setMensagem({ tipo: 'ok', texto: `QR salvo em ${r.caminho}. Serve para cartaz, balcão e Instagram.` });
+    else if (!r?.cancelado) setMensagem({ tipo: 'erro', texto: r?.error || 'Não consegui salvar.' });
+  }
+
   async function copiarLink() {
     try { await navigator.clipboard.writeText(config.link); setMensagem({ tipo: 'ok', texto: 'Link copiado — cole na bio do Instagram, no Google e no status do WhatsApp.' }); } catch { setMensagem({ tipo: 'erro', texto: 'Não consegui copiar.' }); }
   }
@@ -120,8 +189,8 @@ export function VitrineOnline() {
     <section className="settings-section">
       <h2><Icon name="store" size={16} /> Vitrine online</h2>
       <p className="screen-hint">
-        Uma página com os seus produtos e preços para colocar no Instagram, no Google e no WhatsApp. O cliente escolhe,
-        monta o carrinho e o pedido chega no WhatsApp da loja, já escrito. Custo e quantidade exata em estoque nunca aparecem.
+        Uma página com os seus produtos e preços para colocar no Instagram, no Google, no balcão (QR) e em cada mesa. O cliente escolhe,
+        informa o nome e o pedido chega direto no sistema (ou no WhatsApp da loja). Custo e quantidade exata em estoque nunca aparecem.
       </p>
       <DemonstracoesAtivas />
       {!form && <p className="screen-hint">Carregando...</p>}
@@ -139,6 +208,7 @@ export function VitrineOnline() {
                 </p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button type="button" className="btn-secondary" onClick={copiarLink}><Icon name="link" size={15} /> Copiar link</button>
+                  <button type="button" className="btn-secondary" onClick={salvarQrVitrine}><Icon name="export" size={15} /> Salvar QR (PNG)</button>
                   <a className="btn-secondary" href={config.link} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}><Icon name="globe" size={15} /> Abrir a página</a>
                 </div>
               </div>
@@ -164,7 +234,25 @@ export function VitrineOnline() {
               <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <input type="checkbox" style={{ width: 'auto' }} checked={form.modos.includes('entrega')} onChange={(e) => alternarModo('entrega', e.target.checked)} /> Entrega
               </label>
+              <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} title="Pelo QR da mesa entra na comanda; sem mesa, ganha senha e retira no balcão">
+                <input type="checkbox" style={{ width: 'auto' }} checked={form.modos.includes('local')} onChange={(e) => {
+                  alternarModo('local', e.target.checked);
+                  if (e.target.checked) setForm((f) => ({ ...f, pedidosOnline: true }));
+                }} /> Comer no local
+              </label>
             </div>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={form.pedidosOnline} onChange={(e) => setForm((f) => ({
+                ...f, pedidosOnline: e.target.checked,
+                ...(e.target.checked ? {} : { pixOnline: false, modos: f.modos.filter((m) => m !== 'local') }),
+              }))} />
+              Receber os pedidos direto no sistema (cai na Separação, o cliente informa o nome e acompanha a senha pelo celular). Desmarcado: o pedido vai pelo WhatsApp.
+            </label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: form.pedidosOnline ? 1 : 0.55 }}>
+              <input type="checkbox" style={{ width: 'auto' }} disabled={!form.pedidosOnline} checked={form.pixOnline} onChange={(e) => setForm({ ...form, pixOnline: e.target.checked })} />
+              Cliente pode pagar agora com Pix pelo site (usa o Pix automático; pago, o pedido é aceito sozinho)
+              {config && !config.pixOnlineDisponivel && <span className="selo selo-aviso">ligue o Pix automático em Geral</span>}
+            </label>
             <div className="form-grid" style={{ marginTop: 8 }}>
               <label>
                 Mostrar "poucas unidades" com estoque até
@@ -182,6 +270,7 @@ export function VitrineOnline() {
             <button className="btn-primary" type="submit" disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar vitrine'}</button>
             {mensagem && <p className={mensagem.tipo === 'erro' ? 'modal-error' : 'io-message'}>{mensagem.texto}</p>}
           </form>
+          {config?.slug && <QrDasMesas podeTrocar={['gerente', 'admin', 'suporte'].includes(currentUser?.role)} />}
         </>
       )}
     </section>

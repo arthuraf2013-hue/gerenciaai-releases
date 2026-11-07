@@ -128,6 +128,7 @@ contextBridge.exposeInMainWorld('pdv', {
     adicionarPessoa: invoke('table:adicionarPessoa'),
     renomearPessoa: invoke('table:renomearPessoa'),
     removerPessoa: invoke('table:removerPessoa'),
+    vincularCliente: invoke('table:vincularCliente'),
   },
   ingredient: {
     list: invoke('ingredient:list'),
@@ -210,6 +211,51 @@ contextBridge.exposeInMainWorld('pdv', {
     saveConfig: invoke('vitrine:saveConfig'),
     publicarAgora: invoke('vitrine:publicarAgora'),
     listarDemos: invoke('vitrine:listarDemos'),
+    qrDasMesas: invoke('vitrine:qrDasMesas'),
+    trocarQrDaMesa: invoke('vitrine:trocarQrDaMesa'),
+    salvarQrPng: invoke('vitrine:salvarQrPng'),
+    imprimirQrMesas: invoke('vitrine:imprimirQrMesas'),
+  },
+  vitrinePix: {
+    receberNoBalcao: invoke('vitrinePix:receberNoBalcao'),
+    listarParaEstornar: invoke('vitrinePix:listarParaEstornar'),
+  },
+  maquininha: {
+    getConfig: invoke('maquininha:getConfig'),
+    saveConfig: invoke('maquininha:saveConfig'),
+    listarTerminais: invoke('maquininha:listarTerminais'),
+    ativarModoPdv: invoke('maquininha:ativarModoPdv'),
+    listarSemVenda: invoke('maquininha:listarSemVenda'),
+    criar: invoke('maquininha:criar'),
+    consultar: invoke('maquininha:consultar'),
+    cancelar: invoke('maquininha:cancelar'),
+  },
+  cozinha: {
+    getConfig: invoke('cozinha:getConfig'),
+    saveConfig: invoke('cozinha:saveConfig'),
+    listarCategorias: invoke('cozinha:listarCategorias'),
+    imprimirTeste: invoke('cozinha:imprimirTeste'),
+    listarUltimas: invoke('cozinha:listarUltimas'),
+    reimprimir: invoke('cozinha:reimprimir'),
+    imprimirPedido: invoke('cozinha:imprimirPedido'),
+  },
+  chamada: {
+    // Uma senha mudou (criada, chamada, entregue...): devolve a função que para de ouvir.
+    onMudou: (callback) => {
+      const ouvinte = (_e, evento) => callback(evento);
+      ipcRenderer.on('chamada:mudou', ouvinte);
+      return () => ipcRenderer.removeListener('chamada:mudou', ouvinte);
+    },
+    getConfig: invoke('chamada:getConfig'),
+    saveConfig: invoke('chamada:saveConfig'),
+    gerarNovoLink: invoke('chamada:gerarNovoLink'),
+    listar: invoke('chamada:listar'),
+    criarManual: invoke('chamada:criarManual'),
+    criarParaVenda: invoke('chamada:criarParaVenda'),
+    chamar: invoke('chamada:chamar'),
+    entregar: invoke('chamada:entregar'),
+    voltarParaPreparo: invoke('chamada:voltarParaPreparo'),
+    cancelar: invoke('chamada:cancelar'),
   },
   pdvMobile: {
     getConfig: invoke('pdvMobile:getConfig'),

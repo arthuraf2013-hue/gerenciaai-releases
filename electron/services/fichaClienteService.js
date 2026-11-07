@@ -129,23 +129,32 @@ function getFicha({ customerId, dataInicio = null, dataFim = null } = {}) {
   const perfil = require('./profileService').getActiveProfile();
   const rotulos = rotulosDosCampos(db, perfil?.id);
 
-  const filtros = ['s.customer_id = ?', "s.status = 'finalizada'", 's.oculta_historico = 0'];
-  const params = [customerId];
+  const filtros = ["s.status = 'finalizada'", 's.oculta_historico = 0'];
+  const params = [];
   if (comPeriodo) {
     const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
     filtros.push('s.finalizada_em >= ? AND s.finalizada_em < ?');
     params.push(inicioUtc, fimUtcExclusivo);
   }
-  const linhas = db.prepare(
-    `SELECT s.id, s.finalizada_em, s.total, s.desconto, s.desconto_gerente, s.taxa_servico_percentual,
-            u.nome AS operador_nome, l.nome AS local_nome
-     FROM sales s
-     LEFT JOIN users u ON u.id = s.operador_id
-     LEFT JOIN locations l ON l.id = s.location_id
-     WHERE ${filtros.join(' AND ')}
-     ORDER BY s.finalizada_em DESC
-     LIMIT ${LIMITE_VENDAS + 1}`
-  ).all(...params);
+  const colunasVenda = `s.id, s.finalizada_em, s.total, s.desconto, s.desconto_gerente, s.taxa_servico_percentual,
+            u.nome AS operador_nome, l.nome AS local_nome`;
+  const juncoesVenda = `LEFT JOIN users u ON u.id = s.operador_id LEFT JOIN locations l ON l.id = s.location_id`;
+  // Compras dele: a venda é dele (cliente da venda) ...
+  const proprias = db.prepare(
+    `SELECT ${colunasVenda}, NULL AS pessoa_numeros, NULL AS pessoa_nome
+     FROM sales s ${juncoesVenda}
+     WHERE s.customer_id = ? AND ${filtros.join(' AND ')}
+     ORDER BY s.finalizada_em DESC LIMIT ${LIMITE_VENDAS + 1}`
+  ).all(customerId, ...params);
+  // ... ou ele era uma PESSOA da comanda de outra venda (mesa): só o consumo dele.
+  const comoPessoa = db.prepare(
+    `SELECT ${colunasVenda}, GROUP_CONCAT(sp.numero) AS pessoa_numeros, MIN(sp.nome) AS pessoa_nome
+     FROM sale_people sp JOIN sales s ON s.id = sp.sale_id ${juncoesVenda}
+     WHERE sp.customer_id = ? AND (s.customer_id IS NULL OR s.customer_id != ?) AND ${filtros.join(' AND ')}
+     GROUP BY s.id
+     ORDER BY s.finalizada_em DESC LIMIT ${LIMITE_VENDAS + 1}`
+  ).all(customerId, customerId, ...params);
+  const linhas = [...proprias, ...comoPessoa].sort((a, b) => (a.finalizada_em < b.finalizada_em ? 1 : a.finalizada_em > b.finalizada_em ? -1 : 0));
   const truncado = linhas.length > LIMITE_VENDAS;
   const vendasRows = truncado ? linhas.slice(0, LIMITE_VENDAS) : linhas;
   const ids = vendasRows.map((v) => v.id);
@@ -205,9 +214,15 @@ function getFicha({ customerId, dataInicio = null, dataFim = null } = {}) {
   const vendas = vendasRows.map((v) => {
     const diaDaVenda = diaLocalDoUtc(v.finalizada_em);
     const pessoas = pessoasPorVenda.get(v.id) || new Map();
-    const dev = devolucoesPorVenda.get(v.id) || null;
+    // Juntar mesas pode deixar o mesmo cliente em duas pessoas da comanda: vale o consumo das duas.
+    const numerosDaPessoa = v.pessoa_numeros ? String(v.pessoa_numeros).split(',').map(Number) : null;
+    const soDaPessoa = !!numerosDaPessoa;
+    // Devolução é da venda inteira (não diz de qual pessoa): no consumo de uma
+    // pessoa da mesa, não é atribuída a ela.
+    const dev = soDaPessoa ? null : devolucoesPorVenda.get(v.id) || null;
     const devolvidoPorProduto = new Map(dev ? dev.porProduto : []);
-    const itens = (itensPorVenda.get(v.id) || []).map((i) => {
+    const itensDaVenda = (itensPorVenda.get(v.id) || []).filter((i) => !soDaPessoa || numerosDaPessoa.includes(i.pessoa_numero));
+    const itens = itensDaVenda.map((i) => {
       const guardadas = lerJson(i.especificacoes_json);
       const doCadastroAtual = i.especificacoes_json == null;
       const especificacoes = listarEspecificacoes(doCadastroAtual ? lerJson(i.custom_fields) : guardadas, rotulos);
@@ -255,13 +270,19 @@ function getFicha({ customerId, dataInicio = null, dataFim = null } = {}) {
       };
     });
     const valorDevolvido = dev ? arred2([...dev.valores.values()].reduce((s, x) => s + x, 0)) : 0;
-    const pagamentos = [...(pagamentosPorVenda.get(v.id) || new Map()).entries()]
+    // Pagamento é da conta da mesa toda: no consumo de uma pessoa não se mostra.
+    const pagamentos = soDaPessoa ? [] : [...(pagamentosPorVenda.get(v.id) || new Map()).entries()]
       .map(([metodo, valor]) => ({ metodo, rotulo: METODOS[metodo] || metodo, valor: arred2(valor) }));
+    // Consumo da pessoa = itens dela + a mesma taxa de serviço da conta (desconto da conta não é dividido).
+    const consumoDaPessoa = soDaPessoa
+      ? arred2(itens.reduce((t, i) => t + i.total, 0) * (1 + (v.taxa_servico_percentual || 0) / 100))
+      : null;
     return {
       id: v.id,
       finalizadaEm: v.finalizada_em,
-      total: arred2(v.total),
-      desconto: arred2((v.desconto || 0) + (v.desconto_gerente || 0)),
+      total: soDaPessoa ? consumoDaPessoa : arred2(v.total),
+      comoPessoa: soDaPessoa ? { numeros: numerosDaPessoa, nome: v.pessoa_nome || null, totalDaConta: arred2(v.total) } : null,
+      desconto: soDaPessoa ? 0 : arred2((v.desconto || 0) + (v.desconto_gerente || 0)),
       taxaServicoPercentual: v.taxa_servico_percentual || 0,
       valorDevolvido,
       operador: v.operador_nome || null,
@@ -283,10 +304,12 @@ function getFicha({ customerId, dataInicio = null, dataFim = null } = {}) {
     .map((p) => ({ ...p, valor: arred2(p.valor) }));
 
   // Primeira e última compra de TODO o histórico (não só do período): é o que se quer saber do cliente.
+  // Conta também as mesas em que ele era uma pessoa da comanda.
   const extremos = db.prepare(
     `SELECT MIN(finalizada_em) AS primeira, MAX(finalizada_em) AS ultima, COUNT(*) AS total
-     FROM sales WHERE customer_id = ? AND status = 'finalizada' AND oculta_historico = 0`
-  ).get(customerId);
+     FROM sales WHERE status = 'finalizada' AND oculta_historico = 0
+       AND (customer_id = ? OR id IN (SELECT sale_id FROM sale_people WHERE customer_id = ?))`
+  ).get(customerId, customerId);
 
   const extras = montarExtras(db, { cliente, comPeriodo, dataInicio, dataFim, hoje });
 

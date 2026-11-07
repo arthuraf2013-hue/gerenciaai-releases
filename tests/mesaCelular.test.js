@@ -190,7 +190,7 @@ test('pessoas: adicionar com nome, renomear, mover item, remover (sem pagamento)
   assert.equal(itensDa(ctx, ctx.mesa1)[0].observacao, 'bem passado');
   assert.ifError(executar(comando('remover_pessoa', { mesaId: ctx.mesa1, numero: 1 })).erro);
   const comanda = mesas.montarComanda(ctx.db, ctx.db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(ctx.mesa1));
-  assert.deepEqual(comanda.pessoas, [{ numero: 1, nome: 'Bia' }]);
+  assert.deepEqual(comanda.pessoas, [{ numero: 1, nome: 'Bia', clienteId: null, clienteNome: null }]);
 });
 
 test('juntar, separar e transferir: só operador para cima', () => {
@@ -237,13 +237,38 @@ test('nome dado no celular é o mesmo que o computador mostra na comanda', () =>
   assert.ifError(executar(comando('renomear_pessoa', { mesaId: ctx.mesa1, numero: 1, nome: '  Ana  Paula ' })).erro);
   assert.ifError(executar(comando('adicionar_pessoa', { mesaId: ctx.mesa1, nome: 'Caio' })).erro);
   const saleId = ctx.db.prepare('SELECT sale_id FROM restaurant_tables WHERE id = ?').get(ctx.mesa1).sale_id;
-  assert.deepEqual(tableService.getTableCart(saleId).pessoas, [
+  assert.deepEqual(tableService.getTableCart(saleId).pessoas.map(({ numero, nome }) => ({ numero, nome })), [
     { numero: 1, nome: 'Ana Paula' }, { numero: 2, nome: null }, { numero: 3, nome: 'Caio' },
   ]);
   // E o caminho de volta: nome trocado no computador chega ao celular.
   tableService.renomearPessoa({ tableId: ctx.mesa1, numero: 2, nome: 'Bia' });
   const comanda = mesas.montarComanda(ctx.db, ctx.db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(ctx.mesa1));
   assert.deepEqual(comanda.pessoas.map((p) => p.nome), ['Ana Paula', 'Bia', 'Caio']);
+});
+
+test('garçom procura cliente e liga a pessoa da mesa a ele; busca só devolve nome e fim do telefone', () => {
+  const ctx = loja();
+  const ins = ctx.db.prepare('INSERT INTO customers (id, nome, telefone, cpf, ativo) VALUES (?, ?, ?, ?, ?)');
+  ins.run('cli-ana', 'Ana Souza', '(81) 99876-5432', '52998224725', 1);
+  ins.run('cli-ana2', 'Ana Paula', null, null, 1);
+  ins.run('cli-old', 'Ana Velha', null, null, 0);
+  executar(comando('lancar', { mesaId: ctx.mesa1, pessoas: 2, itens: [{ produtoId: ctx.prato, quantidade: 1, pessoaNumero: 1 }] }));
+
+  assert.match(executar(comando('buscar_clientes', { busca: 'a' })).erro, /pelo menos 2/);
+  const r = executar(comando('buscar_clientes', { busca: 'ana' }));
+  assert.ifError(r.erro);
+  assert.deepEqual(r.resultado.clientes, [
+    { id: 'cli-ana2', nome: 'Ana Paula', telefoneFinal: null }, { id: 'cli-ana', nome: 'Ana Souza', telefoneFinal: '5432' },
+  ], 'desativado fora; sem CPF nem telefone inteiro');
+  assert.equal(ctx.db.prepare(`SELECT COUNT(*) AS n FROM mobile_comandos_mesa WHERE tipo = 'buscar_clientes'`).get().n, 0, 'busca é só leitura');
+  assert.match(executar(comando('buscar_clientes', { busca: '%%' })).erro, /pelo menos 2/, 'curinga do LIKE não vale como busca');
+
+  assert.ifError(executar(comando('vincular_cliente', { mesaId: ctx.mesa1, numero: 1, clienteId: 'cli-ana' })).erro);
+  const principal = ctx.db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(ctx.mesa1);
+  assert.deepEqual(mesas.montarComanda(ctx.db, principal).pessoas[0], { numero: 1, nome: 'Ana Souza', clienteId: 'cli-ana', clienteNome: 'Ana Souza' });
+  assert.match(executar(comando('vincular_cliente', { mesaId: ctx.mesa1, numero: 2, clienteId: 'cli-ana' })).erro, /já está na Pessoa 1/);
+  assert.ifError(executar(comando('vincular_cliente', { mesaId: ctx.mesa1, numero: 1 })).erro);
+  assert.equal(mesas.montarComanda(ctx.db, principal).pessoas[0].clienteId, null, 'sem clienteId = desligar');
 });
 
 test('avisarTelas manda "mesas:mudou" para as janelas abertas do computador', () => {
@@ -403,7 +428,7 @@ test('comanda e lista publicadas: o que o celular recebe', () => {
   assert.equal(m1.abertaPorNome, 'Garçom Teste');
   assert.equal(doc.mesas.find((m) => m.id === ctx.mesa2).status, 'livre');
   const c = comandas.get(ctx.mesa1);
-  assert.deepEqual(c.pessoas, [{ numero: 1, nome: 'Ana' }, { numero: 2, nome: null }]);
+  assert.deepEqual(c.pessoas.map(({ numero, nome }) => ({ numero, nome })), [{ numero: 1, nome: 'Ana' }, { numero: 2, nome: null }]);
   assert.equal(c.itens[0].observacao, 'gelo à parte');
   assert.equal(c.itens[0].preparo, 'pendente');
   assert.equal(c.conta.grupos[0].rotulo, 'Ana');

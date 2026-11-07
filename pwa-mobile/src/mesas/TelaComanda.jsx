@@ -62,9 +62,19 @@ export default function TelaComanda({
 
   const abrirOpcoesPessoa = (p) => setFolha({
     tipo: 'opcoes',
-    titulo: rotuloPessoa(pessoas, p.numero),
+    titulo: p.clienteId ? `${rotuloPessoa(pessoas, p.numero)} · cliente ${p.clienteNome}` : rotuloPessoa(pessoas, p.numero),
     opcoes: [
       { rotulo: p.nome ? 'Trocar o nome' : 'Dar um nome', aoEscolher: () => setFolha({ tipo: 'nome', pessoa: p }) },
+      {
+        chave: 'cliente',
+        rotulo: p.clienteId ? 'Trocar o cliente do cadastro' : 'Ligar a um cliente do cadastro',
+        detalhe: 'O consumo dela aparece na ficha do cliente',
+        aoEscolher: () => setFolha({ tipo: 'cliente', pessoa: p }),
+      },
+      p.clienteId && {
+        chave: 'desligar', rotulo: `Desligar de ${p.clienteNome}`,
+        aoEscolher: () => { setFolha(null); fazer('vincular_cliente', { numero: p.numero }, { sucesso: 'Pessoa desligada do cliente.' }); },
+      },
       p.nome && { rotulo: 'Tirar o nome', aoEscolher: () => { setFolha(null); fazer('renomear_pessoa', { numero: p.numero, nome: '' }); } },
       { rotulo: 'Tirar esta pessoa da mesa', detalhe: 'Os itens dela voltam para "Mesa"', perigo: true,
         aoEscolher: () => { setFolha(null); fazer('remover_pessoa', { numero: p.numero }, { sucesso: 'Pessoa removida.' }); } },
@@ -162,7 +172,9 @@ export default function TelaComanda({
             <div className="pm-chips" role="radiogroup" aria-label="Lançar para">
               {pessoas.map((p) => (
                 <button key={p.numero} type="button" role="radio" aria-checked={pessoaAtiva === p.numero}
-                  className={`chip${pessoaAtiva === p.numero ? ' chip-ativo' : ''}`} onClick={() => tocarChip(p.numero)}>
+                  className={`chip${pessoaAtiva === p.numero ? ' chip-ativo' : ''}${p.clienteId ? ' pm-chip-cliente' : ''}`} onClick={() => tocarChip(p.numero)}
+                  title={p.clienteId ? `Cliente do cadastro: ${p.clienteNome}` : undefined}>
+                  {p.clienteId && <Icone nome="usuario" tamanho={13} />}
                   {p.nome || `Pessoa ${p.numero}`}
                 </button>
               ))}
@@ -248,6 +260,19 @@ export default function TelaComanda({
         <PedirTexto titulo={rotuloPessoa(pessoas, folha.pessoa.numero)} rotulo="Nome" inicial={folha.pessoa.nome || ''} placeholder="Ex.: Ana"
           aoFechar={() => setFolha(null)}
           aoConfirmar={(nome) => { setFolha(null); fazer('renomear_pessoa', { numero: folha.pessoa.numero, nome }); }} />
+      )}
+      {folha?.tipo === 'cliente' && (
+        <BuscarCliente
+          loja={loja}
+          titulo={`Cliente de ${rotuloPessoa(pessoas, folha.pessoa.numero)}`}
+          atualId={folha.pessoa.clienteId}
+          aoFechar={() => setFolha(null)}
+          aoEscolher={(c) => {
+            const p = folha.pessoa;
+            setFolha(null);
+            fazer('vincular_cliente', { numero: p.numero, clienteId: c.id }, { sucesso: `Ligada a ${c.nome}.` });
+          }}
+        />
       )}
       {folha?.tipo === 'observacao' && (
         <PedirTexto titulo={folha.item.nome} rotulo="Observação para a cozinha" inicial={folha.item.observacao || ''} max={200} multilinha
@@ -337,6 +362,56 @@ function EscolherMesas({ titulo, mesas, multiplo = false, textoBotao, aoFechar, 
         </div>
       )}
       <button type="button" className="btn-primario" disabled={escolhidas.length === 0} onClick={() => aoConfirmar(escolhidas)}>{textoBotao}</button>
+    </Folha>
+  );
+}
+
+/** Procura cliente do cadastro no computador (só nome e fim do telefone voltam). */
+function BuscarCliente({ loja, titulo, atualId, aoFechar, aoEscolher }) {
+  const [busca, setBusca] = useState('');
+  const [estado, setEstado] = useState({ carregando: false, clientes: [], erro: '' });
+  const pedido = useRef(0);
+  const campo = useRef(null);
+  useEffect(() => { campo.current?.focus(); }, []);
+
+  useEffect(() => {
+    const texto = busca.trim();
+    if (texto.length < 2) { setEstado({ carregando: false, clientes: [], erro: '' }); return undefined; }
+    const meu = ++pedido.current;
+    setEstado((e) => ({ ...e, carregando: true, erro: '' }));
+    const timer = setTimeout(() => {
+      executarNoComputador(loja.installId, 'buscar_clientes', { busca: texto })
+        .then((r) => { if (meu === pedido.current) setEstado({ carregando: false, clientes: r?.clientes || [], erro: '' }); })
+        .catch((err) => { if (meu === pedido.current) setEstado({ carregando: false, clientes: [], erro: err.message }); });
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [busca, loja.installId]);
+
+  const texto = busca.trim();
+  return (
+    <Folha titulo={titulo} aoFechar={aoFechar}>
+      <div className="pm-form">
+        <label className="pm-rotulo" htmlFor="pm-busca-cliente">Nome ou telefone do cliente</label>
+        <input id="pm-busca-cliente" ref={campo} className="campo" maxLength={40} autoComplete="off" placeholder="Ex.: Ana"
+          value={busca} onChange={(e) => setBusca(e.target.value)} />
+        {texto.length > 0 && texto.length < 2 && <p className="subtexto">Digite pelo menos 2 letras.</p>}
+        {estado.carregando && <p className="subtexto"><span className="spinner spinner-pequeno" /> Procurando...</p>}
+        {estado.erro && <p className="aviso aviso-alerta">{estado.erro}</p>}
+        {!estado.carregando && !estado.erro && texto.length >= 2 && estado.clientes.length === 0 && (
+          <p className="subtexto">Nenhum cliente com esse nome. O cadastro é feito no computador.</p>
+        )}
+        {estado.clientes.length > 0 && (
+          <div className="pm-opcoes">
+            {estado.clientes.map((c) => (
+              <button key={c.id} type="button" className={`pm-opcao${c.id === atualId ? ' pm-opcao-ativa' : ''}`}
+                disabled={c.id === atualId} onClick={() => aoEscolher(c)}>
+                <span>{c.nome}</span>
+                <span className="pm-opcao-detalhe">{c.id === atualId ? 'cliente atual' : c.telefoneFinal ? `telefone terminado em ${c.telefoneFinal}` : 'sem telefone'}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </Folha>
   );
 }

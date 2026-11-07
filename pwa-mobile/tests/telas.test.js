@@ -312,6 +312,38 @@ test('garçom não vê "Fechar conta" nem juntar/transferir; operador vê', asyn
   assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'separar', campos: { mesaId: 'm4' } });
 });
 
+test('pessoa da mesa ligada a cliente do cadastro: busca no computador, liga, mostra e desliga', async () => {
+  prepararLoja();
+  servidor.estado.respostas.buscar_clientes = ({ busca }) => (busca === 'ana'
+    ? { clientes: [{ id: 'c1', nome: 'Ana Souza', telefoneFinal: '5432' }, { id: 'c2', nome: 'Ana Paula', telefoneFinal: null }] }
+    : { clientes: [] });
+  await montar();
+  await clicar(botao('Mesa 2 + 4'));
+  await clicar(botaoExato('Pessoa 2'));
+  await clicar(botaoExato('Pessoa 2'));
+  await clicar(botao('Ligar a um cliente do cadastro'));
+  await digitar(document.querySelector('#pm-busca-cliente'), 'a');
+  assert.match(texto(), /pelo menos 2 letras/);
+  await digitar(document.querySelector('#pm-busca-cliente'), 'ana');
+  await act(async () => { await new Promise((r) => setTimeout(r, 500)); });
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'buscar_clientes', campos: { busca: 'ana' } });
+  assert.match(texto(), /telefone terminado em 5432/);
+  await clicar(botao('Ana Souza'));
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'vincular_cliente', campos: { mesaId: 'm2', numero: 2, clienteId: 'c1' } });
+  assert.ok(toasts.some((t) => /Ligada a Ana Souza/.test(t.texto)));
+
+  // O computador publica a pessoa ligada: chip com o nome e o ícone; opções para trocar ou desligar.
+  await act(async () => servidor.publicarComanda('m2', { ...comandaM2(), pessoas: [{ numero: 1, nome: 'Ana' }, { numero: 2, nome: 'Ana Souza', clienteId: 'c1', clienteNome: 'Ana Souza' }] }));
+  const chip = botaoExato('Ana Souza');
+  assert.ok(chip.classList.contains('pm-chip-cliente'));
+  await clicar(chip);
+  await clicar(chip);
+  assert.match(texto(), /Ana Souza · cliente Ana Souza/);
+  assert.ok(temBotao('Trocar o cliente do cadastro'));
+  await clicar(botao('Desligar de Ana Souza'));
+  assert.deepEqual(servidor.estado.pedidos.at(-1), { tipo: 'vincular_cliente', campos: { mesaId: 'm2', numero: 2 } });
+});
+
 test('pessoas: nova pessoa com nome; tocar de novo no nome abre renomear/tirar', async () => {
   prepararLoja();
   servidor.estado.respostas.adicionar_pessoa = { numero: 3 };

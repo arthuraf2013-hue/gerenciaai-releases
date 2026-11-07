@@ -73,6 +73,7 @@
 .pm-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .pm-chips::-webkit-scrollbar { display: none; }
 .pm-chip-mais { border-style: dashed; }
+.pm-chip-cliente { display: inline-flex; align-items: center; gap: 4px; }
 .pm-dica { font-size: 12px; }
 
 .pm-grupos { display: flex; flex-direction: column; gap: 10px; }

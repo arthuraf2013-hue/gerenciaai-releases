@@ -142,6 +142,14 @@ export function DemonstracaoSuporte() {
             <Icon name="checkCircle" size={15} /> Demonstração ativa: <strong>{estado.rotulo}</strong>, carregada em {dataHora(estado.carregadaEm)}.
             {estado.resumo && ` ${estado.resumo.produtos} produtos, ${estado.resumo.clientes} clientes e ${estado.resumo.vendas} vendas desde ${estado.resumo.desde.split('-').reverse().join('/')}.`}
           </p>
+          {estado.resumo?.clienteDaFicha && (
+            <p className="screen-hint">
+              Para mostrar a ficha do cliente, abra <strong>{estado.resumo.clienteDaFicha}</strong> em Clientes (tem compras pensadas para este
+              perfil, fiado pago em parte{estado.perfil === 'restaurante' ? ' e jantar na mesa de outro cliente' : ''}).
+              {estado.resumo.clienteDevendo && <> <strong>{estado.resumo.clienteDevendo}</strong> está devendo no fiado.</>}
+              {estado.resumo.comandasAbertas > 0 && ` ${estado.resumo.comandasAbertas} mesas estão com a comanda aberta agora.`}
+            </p>
+          )}
           <p className="io-message-aviso"><Icon name="warning" size={15} /> Vendas e cadastros feitos durante a demonstração se perdem ao limpar ou trocar de perfil.</p>
           <p className="screen-hint">Cópia dos dados de antes: {estado.pontoRestauracao}</p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>

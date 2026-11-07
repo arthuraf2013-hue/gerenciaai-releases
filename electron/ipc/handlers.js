@@ -168,6 +168,10 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
   'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora', 'vitrine:listarDemos',
   'pixAuto:saveConfig', 'pixAuto:testar', 'pixAuto:listarSemVenda',
+  'vitrine:qrDasMesas', 'vitrine:trocarQrDaMesa', 'vitrine:salvarQrPng', 'vitrine:imprimirQrMesas', 'vitrinePix:listarParaEstornar',
+  'maquininha:saveConfig', 'maquininha:listarTerminais', 'maquininha:ativarModoPdv', 'maquininha:listarSemVenda',
+  'cozinha:saveConfig', 'cozinha:imprimirTeste',
+  'chamada:saveConfig', 'chamada:gerarNovoLink',
   // ERP, Fase 1 -- custo, compras e notas de entrada são gestão.
   'custoMedio:historico',
   'purchaseOrder:list', 'purchaseOrder:listAbertosDoFornecedor', 'purchaseOrder:get', 'purchaseOrder:save',
@@ -368,7 +372,16 @@ function registerIpcHandlers() {
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
   safeHandle('sale:setItemPrice', (_e, payload) => saleService.setItemPrice(payload));
   safeHandle('sale:editarHistorico', (_e, payload) => saleService.editarHistoricoVenda(payload));
-  safeHandle('sale:finalize', (_e, { saleId }) => saleService.finalizeSaleComVerificacaoDeGrupo(saleId));
+  safeHandle('sale:finalize', async (event, { saleId, nomeSenha } = {}) => {
+    const r = await saleService.finalizeSaleComVerificacaoDeGrupo(saleId);
+    // Senha no balcão (lanchonete): gera a senha e manda a comanda para a
+    // cozinha. Nunca derruba a finalização (ver chamadaService).
+    if (r?.ok) {
+      const senha = require('../services/chamadaService').aposFinalizarVenda({ saleId, nome: nomeSenha, operadorId: usuarioLogado(event) });
+      if (senha) return { ...r, senha };
+    }
+    return r;
+  });
   // Leitura simples (sem tentar nada, sem tocar rede) pra tela de
   // pagamento saber se o ciclo automático em segundo plano já resolveu
   // sozinho uma venda que ficou esperando confirmação de estoque do
@@ -422,6 +435,7 @@ function registerIpcHandlers() {
   safeHandle('table:adicionarPessoa', (_e, payload) => tableService.adicionarPessoa(payload || {}));
   safeHandle('table:renomearPessoa', (_e, payload) => tableService.renomearPessoa(payload || {}));
   safeHandle('table:removerPessoa', (_e, payload) => tableService.removerPessoa(payload || {}));
+  safeHandle('table:vincularCliente', (_e, payload) => tableService.vincularClientePessoa(payload || {}));
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));
@@ -493,6 +507,15 @@ function registerIpcHandlers() {
   safeHandle('vitrine:publicarAgora', () => require('../services/vitrineService').publicarSeMudou());
   // Vitrine de demonstração (ver vitrineDemoService.js): só na máquina marcada na Central.
   safeHandle('vitrine:listarDemos', () => require('../services/vitrineDemoService').listarDemos());
+  // QR de cada mesa (pedido pelo celular do cliente, ver vitrinePedidoService.js).
+  safeHandle('vitrine:qrDasMesas', () => require('../services/vitrineService').qrDasMesas());
+  safeHandle('vitrine:trocarQrDaMesa', (event, payload) => require('../services/vitrineService').trocarQrDaMesa({ tableId: payload?.tableId, requestingUserId: usuarioLogado(event) }));
+  // Exportar QR: PNG grande (caminho do diálogo do processo principal) e folha de cartões para imprimir/PDF.
+  safeHandle('vitrine:salvarQrPng', (_e, payload) => require('../services/vitrineService').salvarQrPng({ tableId: payload?.tableId || null }));
+  safeHandle('vitrine:imprimirQrMesas', () => require('../services/vitrineService').imprimirQrMesas());
+  // Pix antecipado do pedido do site (vitrinePixService.js).
+  safeHandle('vitrinePix:receberNoBalcao', (_e, payload) => require('../services/vitrinePixService').receberNoBalcao({ botOrderId: payload?.botOrderId }));
+  safeHandle('vitrinePix:listarParaEstornar', () => require('../services/vitrinePixService').listarParaEstornar());
   safeHandle('pdvMobile:listarVendasRecentes', (_e, payload) => require('../services/pdvMobileSyncService').listarVendasRecentes(payload || {}));
 
   // Migração de um PDV mobile AUTÔNOMO (celular que vendia sem computador)
@@ -667,6 +690,43 @@ function registerIpcHandlers() {
     id: payload?.id, operadorId: usuarioLogado(event),
   }));
   safeHandle('pixAuto:cancelar', (_e, payload) => require('../services/pixAutomaticoService').cancelarCobranca({ id: payload?.id }));
+
+  // Maquininha integrada (maquininhaService.js -- Mercado Pago Point). Mesmo
+  // desenho do Pix automático: configurar é de gestão; cobrar/consultar/
+  // cancelar é do caixa. Token nunca sai do processo principal.
+  safeHandle('maquininha:getConfig', () => require('../services/maquininhaService').getConfig());
+  safeHandle('maquininha:saveConfig', (event, payload) => require('../services/maquininhaService').saveConfig({ ...(payload || {}), requestingUserId: usuarioLogado(event) }));
+  safeHandle('maquininha:listarTerminais', (event, payload) => require('../services/maquininhaService').listarTerminais({ token: payload?.token, requestingUserId: usuarioLogado(event) }));
+  safeHandle('maquininha:ativarModoPdv', (event, payload) => require('../services/maquininhaService').ativarModoPdv({ terminalId: payload?.terminalId, requestingUserId: usuarioLogado(event) }));
+  safeHandle('maquininha:listarSemVenda', () => require('../services/maquininhaService').listarPagasSemVenda());
+  safeHandle('maquininha:criar', (event, payload) => require('../services/maquininhaService').criarCobranca({
+    saleId: payload?.saleId, valor: payload?.valor, tipo: payload?.tipo, parcelas: payload?.parcelas, operadorId: usuarioLogado(event),
+  }));
+  safeHandle('maquininha:consultar', (_e, payload) => require('../services/maquininhaService').consultarCobranca({ id: payload?.id }));
+  safeHandle('maquininha:cancelar', (_e, payload) => require('../services/maquininhaService').cancelarCobranca({ id: payload?.id }));
+
+  // Impressora da cozinha (cozinhaService.js): configurar/testar é de gestão;
+  // ver as últimas e reimprimir é de quem opera.
+  safeHandle('cozinha:getConfig', () => require('../services/cozinhaService').getConfig());
+  safeHandle('cozinha:saveConfig', (event, payload) => require('../services/cozinhaService').saveConfig({ ...(payload || {}), requestingUserId: usuarioLogado(event) }));
+  safeHandle('cozinha:listarCategorias', () => require('../services/cozinhaService').listarCategorias());
+  safeHandle('cozinha:imprimirTeste', () => require('../services/cozinhaService').imprimirTeste());
+  safeHandle('cozinha:listarUltimas', (_e, payload) => require('../services/cozinhaService').listarUltimas(payload || {}));
+  safeHandle('cozinha:reimprimir', (_e, payload) => require('../services/cozinhaService').reimprimir({ id: payload?.id }));
+  safeHandle('cozinha:imprimirPedido', (_e, payload) => require('../services/cozinhaService').imprimirPedido({ botOrderId: payload?.botOrderId, forcar: true }));
+
+  // Senhas e painel de chamada (chamadaService.js). Configurar/trocar o link
+  // é de gestão; chamar/entregar é do balcão.
+  safeHandle('chamada:getConfig', () => require('../services/chamadaService').getConfigComQr());
+  safeHandle('chamada:saveConfig', (event, payload) => require('../services/chamadaService').saveConfig({ ...(payload || {}), requestingUserId: usuarioLogado(event) }));
+  safeHandle('chamada:gerarNovoLink', (event) => require('../services/chamadaService').gerarNovoLink({ requestingUserId: usuarioLogado(event) }));
+  safeHandle('chamada:listar', () => require('../services/chamadaService').listar());
+  safeHandle('chamada:criarManual', (event, payload) => require('../services/chamadaService').criarManual({ nome: payload?.nome, operadorId: usuarioLogado(event) }));
+  safeHandle('chamada:criarParaVenda', (event, payload) => require('../services/chamadaService').criarParaVenda({ saleId: payload?.saleId, nome: payload?.nome, operadorId: usuarioLogado(event) }));
+  safeHandle('chamada:chamar', (event, payload) => require('../services/chamadaService').chamar({ id: payload?.id, operadorId: usuarioLogado(event) }));
+  safeHandle('chamada:entregar', (event, payload) => require('../services/chamadaService').entregar({ id: payload?.id, operadorId: usuarioLogado(event) }));
+  safeHandle('chamada:voltarParaPreparo', (_e, payload) => require('../services/chamadaService').voltarParaPreparo({ id: payload?.id }));
+  safeHandle('chamada:cancelar', (_e, payload) => require('../services/chamadaService').cancelar({ id: payload?.id }));
 
   // --- Relógio sincronizado (Brasília) ---
   safeHandle('time:getStatus', () => timeService.getStatus());

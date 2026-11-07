@@ -17,6 +17,7 @@ export function PixAutomaticoConfig() {
   const [mensagem, setMensagem] = useState(null);
   const [ocupado, setOcupado] = useState('');
   const [semVenda, setSemVenda] = useState([]);
+  const [doSite, setDoSite] = useState([]); // Pix do pedido do site pago depois do pedido cancelado
 
   async function carregar() {
     const c = await window.pdv.pixAuto.getConfig();
@@ -25,6 +26,8 @@ export function PixAutomaticoConfig() {
     setForm((f) => f || { ativo: c.ativo, emailPagador: c.emailPagador, validadeMin: String(c.validadeMin) });
     const l = await window.pdv.pixAuto.listarSemVenda().catch(() => []);
     setSemVenda(Array.isArray(l) ? l : []);
+    const site = await window.pdv.vitrinePix?.listarParaEstornar?.().catch(() => []);
+    setDoSite(Array.isArray(site) ? site : []);
   }
   useEffect(() => { carregar(); }, []);
 
@@ -97,6 +100,15 @@ export function PixAutomaticoConfig() {
             {semVenda.map((c) => (
               <li key={c.id}>R$ {Number(c.valor).toFixed(2).replace('.', ',')} · {dataHora(c.atualizado_em)} · cobrança {c.provedor_id || c.id.slice(0, 8)} · venda {c.venda_status || 'removida'}</li>
             ))}
+          </ul>
+        </div>
+      )}
+      {doSite.length > 0 && (
+        <div className="io-message-aviso" style={{ marginTop: 14, flexDirection: 'column', alignItems: 'flex-start' }}>
+          <strong><Icon name="warning" size={15} /> Pix do site pago em pedido cancelado ({doSite.length})</strong>
+          <span>O cliente pagou pelo site depois que o pedido foi cancelado. Devolva pelo Mercado Pago.</span>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+            {doSite.map((c) => <li key={c.id}>R$ {Number(c.valor_pago).toFixed(2).replace('.', ',')} · {c.cliente_nome || 'cliente'} · {dataHora(c.pago_em)} · cobrança {c.provedor_id || c.id.slice(0, 8)}</li>)}
           </ul>
         </div>
       )}

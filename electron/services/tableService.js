@@ -145,8 +145,14 @@ function totalDePessoas(db, saleId, pessoasDaMesa) {
 
 function listarPessoas(db, saleId, pessoasDaMesa) {
   const total = totalDePessoas(db, saleId, pessoasDaMesa);
-  const nomes = new Map(db.prepare('SELECT numero, nome FROM sale_people WHERE sale_id = ?').all(saleId).map((p) => [p.numero, p.nome]));
-  return Array.from({ length: total }, (_, i) => ({ numero: i + 1, nome: nomes.get(i + 1) || null }));
+  const linhas = new Map(db.prepare(
+    `SELECT sp.numero, sp.nome, sp.customer_id, c.nome AS cliente_nome
+     FROM sale_people sp LEFT JOIN customers c ON c.id = sp.customer_id WHERE sp.sale_id = ?`
+  ).all(saleId).map((p) => [p.numero, p]));
+  return Array.from({ length: total }, (_, i) => {
+    const p = linhas.get(i + 1);
+    return { numero: i + 1, nome: p?.nome || null, clienteId: p?.customer_id || null, clienteNome: p?.customer_id ? p.cliente_nome : null };
+  });
 }
 
 function limparNome(nome) {
@@ -430,6 +436,16 @@ async function montarLinkPedidoMesa({ tableId }) {
   const table = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(tableId);
   if (!table) return { ok: false, error: 'Mesa não encontrada.' };
 
+  // Vitrine com pedido direto no sistema: o QR abre o cardápio da loja já
+  // com a mesa (vitrineService.qrDaMesa) -- o cliente escolhe, informa o
+  // nome e o atendente confirma na Separação. Sem ela, o QR do WhatsApp.
+  try {
+    const viaVitrine = await require('./vitrineService').qrDaMesa(tableId);
+    if (viaVitrine) return { ok: true, ...viaVitrine, mensagem: null };
+  } catch (err) {
+    console.error('[tableService] QR da vitrine da mesa', err?.message || err);
+  }
+
   const whatsappBotService = require('./whatsappBotService');
   const status = whatsappBotService.getStatus();
   if (status.status !== 'conectado' || !status.numero) {
@@ -516,8 +532,8 @@ function juntarMesas({ tableId, mesaIds, currentOperatorId } = {}) {
           .run(deslocamento, origem);
         db.prepare('UPDATE sale_items SET sale_id = ? WHERE sale_id = ?').run(saleId, origem);
         db.prepare(
-          `INSERT INTO sale_people (id, sale_id, numero, nome, criado_em)
-           SELECT lower(hex(randomblob(16))), ?, numero + ?, nome, criado_em FROM sale_people WHERE sale_id = ?`
+          `INSERT INTO sale_people (id, sale_id, numero, nome, customer_id, criado_em)
+           SELECT lower(hex(randomblob(16))), ?, numero + ?, nome, customer_id, criado_em FROM sale_people WHERE sale_id = ?`
         ).run(saleId, deslocamento, origem);
         db.prepare('DELETE FROM sale_people WHERE sale_id = ?').run(origem);
         // Pedidos do garçom/WhatsApp lançados nela passam a apontar para a comanda que tem os itens.
@@ -603,8 +619,45 @@ function renomearPessoa({ tableId, numero, nome } = {}) {
        ON CONFLICT(sale_id, numero) DO UPDATE SET nome = excluded.nome`
     ).run(randomUUID(), c.saleId, n, nomeLimpo);
   } else {
-    db.prepare('DELETE FROM sale_people WHERE sale_id = ? AND numero = ?').run(c.saleId, n);
+    // Pessoa vinculada a um cliente não fica sem nome: volta para o nome do cadastro.
+    const vinculada = db.prepare(
+      `SELECT c.nome FROM sale_people sp JOIN customers c ON c.id = sp.customer_id WHERE sp.sale_id = ? AND sp.numero = ?`
+    ).get(c.saleId, n);
+    if (vinculada) {
+      db.prepare('UPDATE sale_people SET nome = ? WHERE sale_id = ? AND numero = ?').run(limparNome(vinculada.nome), c.saleId, n);
+    } else {
+      db.prepare('DELETE FROM sale_people WHERE sale_id = ? AND numero = ?').run(c.saleId, n);
+    }
   }
+  return { ok: true, pessoas: listarPessoas(db, c.saleId, c.principal.pessoas) };
+}
+
+/**
+ * Liga (ou, com customerId vazio, desliga) uma pessoa da comanda a um
+ * cliente do cadastro -- o consumo dela passa a aparecer na ficha dele. Não
+ * muda o cliente da venda (quem paga, fiado, pontos). Pessoa sem nome recebe
+ * o nome do cadastro; com nome (apelido), mantém. O mesmo cliente não fica
+ * em duas pessoas da mesma comanda.
+ */
+function vincularClientePessoa({ tableId, numero, customerId } = {}) {
+  const db = getDb();
+  const c = comandaDaMesa(db, tableId);
+  if (c.erro) return { ok: false, error: c.erro };
+  const total = totalDePessoas(db, c.saleId, c.principal.pessoas);
+  const n = numeroDePessoaValido(numero, total);
+  if (!n) return { ok: false, error: 'Pessoa não encontrada nesta mesa.' };
+  if (!customerId) {
+    db.prepare('UPDATE sale_people SET customer_id = NULL WHERE sale_id = ? AND numero = ?').run(c.saleId, n);
+    return { ok: true, pessoas: listarPessoas(db, c.saleId, c.principal.pessoas) };
+  }
+  const cliente = db.prepare('SELECT id, nome FROM customers WHERE id = ? AND ativo = 1').get(customerId);
+  if (!cliente) return { ok: false, error: 'Cliente não encontrado no cadastro (ou desativado).' };
+  const outra = db.prepare('SELECT numero FROM sale_people WHERE sale_id = ? AND customer_id = ? AND numero != ?').get(c.saleId, cliente.id, n);
+  if (outra) return { ok: false, error: `${cliente.nome} já está na Pessoa ${outra.numero} desta mesa.` };
+  db.prepare(
+    `INSERT INTO sale_people (id, sale_id, numero, nome, customer_id) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(sale_id, numero) DO UPDATE SET customer_id = excluded.customer_id, nome = COALESCE(sale_people.nome, excluded.nome)`
+  ).run(randomUUID(), c.saleId, n, limparNome(cliente.nome), cliente.id);
   return { ok: true, pessoas: listarPessoas(db, c.saleId, c.principal.pessoas) };
 }
 
@@ -633,5 +686,5 @@ module.exports = {
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable, repararMesasUnidas,
   markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,
   existeMesa, montarLinkPedidoMesa,
-  juntarMesas, separarMesa, adicionarPessoa, renomearPessoa, removerPessoa,
+  juntarMesas, separarMesa, adicionarPessoa, renomearPessoa, removerPessoa, vincularClientePessoa,
 };

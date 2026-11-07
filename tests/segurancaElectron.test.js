@@ -31,3 +31,10 @@ test('CSP da interface não permite script inline nem de fora', () => {
   assert.doesNotMatch(CSP_APP, /script-src[^;]*unsafe-(inline|eval)/);
   assert.match(CSP_APP, /base-uri 'none'/);
 });
+
+test('CSP: a interface só fala com o próprio app e com o Firestore/login do Firebase (Vértice)', () => {
+  const connect = CSP_APP.split(';').map((p) => p.trim()).find((p) => p.startsWith('connect-src'));
+  assert.deepEqual(connect.split(/\s+/).slice(1).sort(), [
+    "'self'", 'https://firestore.googleapis.com', 'https://identitytoolkit.googleapis.com', 'https://securetoken.googleapis.com',
+  ].sort());
+});

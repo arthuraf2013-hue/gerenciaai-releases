@@ -35,7 +35,7 @@ for (const perfil of Object.keys(CATALOGOS_DEMONSTRACAO)) {
     assert.equal(db.prepare(`SELECT COUNT(*) c FROM products WHERE sku LIKE 'APRES-%'`).get().c, CATALOGOS_DEMONSTRACAO[perfil].itens.length);
     assert.equal(db.prepare('SELECT COUNT(*) c FROM customers').get().c, 40);
     assert.equal(db.prepare(`SELECT COUNT(*) c FROM sales WHERE status = 'finalizada'`).get().c, resumo.vendas);
-    assert.equal(resumo.vendas, 400);
+    assert.ok(resumo.vendas > 400, '400 sorteadas + as compras da vitrine da ficha e do fiado');
 
     const negativos = db.prepare(
       `SELECT product_id, SUM(quantidade) s FROM stock_movements GROUP BY product_id HAVING s < -0.0001`
@@ -49,7 +49,7 @@ for (const perfil of Object.keys(CATALOGOS_DEMONSTRACAO)) {
 
     const divergentes = db.prepare(
       `SELECT s.id FROM sales s
-       WHERE ABS(s.total - (SELECT COALESCE(SUM(valor), 0) FROM payments p WHERE p.sale_id = s.id)) > 0.005
+       WHERE (s.status = 'finalizada' AND ABS(s.total - (SELECT COALESCE(SUM(valor), 0) FROM payments p WHERE p.sale_id = s.id)) > 0.005)
           OR ABS(s.total - (SELECT SUM(quantidade * preco_unitario) FROM sale_items i WHERE i.sale_id = s.id)) > 0.005`
     ).all();
     assert.deepEqual(divergentes, [], 'total da venda = itens = pagamentos');
@@ -59,6 +59,15 @@ for (const perfil of Object.keys(CATALOGOS_DEMONSTRACAO)) {
     assert.ok(limites.maximo <= agoraUtc, 'nenhuma venda no futuro');
     const inicio = new Date(AGORA - 125 * 86400000).toISOString().slice(0, 19).replace('T', ' ');
     assert.ok(limites.minimo >= inicio, 'histórico dentro dos últimos ~120 dias');
+
+    // Comanda aberta (restaurante) não tem pagamento; venda finalizada tem.
+    assert.equal(db.prepare(`SELECT COUNT(*) c FROM sales s WHERE s.status = 'aberta' AND EXISTS (SELECT 1 FROM payments p WHERE p.sale_id = s.id)`).get().c, 0);
+    // Especificações guardadas no item (gatilho da migração 6) e fiado batendo com os pagamentos "fiado".
+    assert.equal(db.prepare('SELECT COUNT(*) c FROM sale_items WHERE especificacoes_json IS NULL').get().c, 0);
+    const fiadoPago = db.prepare(`SELECT ROUND(COALESCE(SUM(valor), 0), 2) v FROM payments WHERE metodo = 'fiado'`).get().v;
+    const dividas = db.prepare(`SELECT ROUND(COALESCE(SUM(valor), 0), 2) v FROM customer_credit_movements WHERE tipo = 'divida'`).get().v;
+    assert.equal(dividas, fiadoPago, 'cada venda no fiado vira dívida do cliente');
+    assert.ok(dividas > 0, 'tem fiado para mostrar');
 
     // Custo gravado pelo gatilho do ERP em todo item.
     assert.equal(db.prepare('SELECT COUNT(*) c FROM sale_items WHERE custo_unitario IS NULL').get().c, 0);
@@ -116,6 +125,82 @@ test('semear: extras de cada perfil', () => {
     `SELECT professional_id, data_hora_inicio, COUNT(*) c FROM appointments GROUP BY 1, 2 HAVING c > 1`
   ).all();
   assert.deepEqual(sobrepostos, [], 'um profissional não tem dois horários iguais');
+});
+
+test('semear: o 1º cliente é a vitrine da ficha em cada perfil, e o 2º deve no fiado', () => {
+  const ficha = require('../electron/services/fichaClienteService');
+  const casos = {
+    otica: (f) => {
+      assert.ok(f.receitas.length >= 2, 'duas receitas');
+      const lente = f.vendas.flatMap((v) => v.itens).find((i) => /multifocal/i.test(i.nome));
+      assert.deepEqual(lente.especificacoes.map((e) => e.label), ['Tipo de lente', 'Grau da lente']);
+    },
+    petshop: (f) => {
+      assert.equal(f.pets[0].nome, 'Thor');
+      assert.ok(f.preferencias.find((p) => p.campo === 'especie_animal').valores[0].valor === 'Cão');
+    },
+    farmacia: (f) => assert.ok(f.vendas.flatMap((v) => v.itens).some((i) => i.especificacoes.some((e) => e.campo === 'controlado' && e.valor === true))),
+    material_construcao: (f) => {
+      assert.ok(f.vendas.flatMap((v) => v.itens).some((i) => i.garantiaAte && i.garantiaVigente));
+      assert.ok(f.orcamentos.length >= 1);
+    },
+    vestuario: (f) => assert.equal(f.preferencias.find((p) => p.campo === 'tamanho').valores[0].valor, 'M', 'costuma levar M'),
+    salao_beleza: (f) => {
+      assert.ok(f.agenda.proximos.length >= 1, 'tem próximo horário');
+      assert.ok(f.agenda.faltas >= 1);
+      assert.ok(f.vendas.some((v) => v.itens.some((i) => i.servico)));
+    },
+    restaurante: (f) => {
+      const comoPessoa = f.vendas.find((v) => v.comoPessoa);
+      assert.ok(comoPessoa, 'jantou na mesa de outro cliente');
+      assert.equal(comoPessoa.comoPessoa.nome, 'Bia');
+      assert.ok(f.reservas.length >= 2, 'reservas pelo telefone dela');
+    },
+    armazem: (f) => assert.ok(f.fiado.length >= 2),
+    padaria: (f) => assert.ok(f.vendas.length > 0),
+  };
+  for (const [perfil, conferir] of Object.entries(casos)) {
+    const { db, suporteId } = ambiente();
+    const resumo = demo.semear(db, { perfil, solicitanteId: suporteId, agoraMs: AGORA });
+    const original = Date.now;
+    Date.now = () => AGORA;
+    try {
+      const primeiro = db.prepare('SELECT id, nome FROM customers WHERE nome = ?').get(resumo.clienteDaFicha);
+      const f = ficha.getFicha({ customerId: primeiro.id });
+      assert.equal(f.ok, true, perfil);
+      assert.ok(f.fiado.some((m) => m.tipo === 'pagamento'), `${perfil}: pagou parte do fiado`);
+      conferir(f);
+      const segundo = db.prepare('SELECT id FROM customers WHERE nome = ?').get(resumo.clienteDevendo);
+      const saldo = require('../electron/services/customerService').getSaldoFiado(segundo.id);
+      assert.ok(saldo > 0, `${perfil}: o 2º cliente deve no fiado`);
+    } finally {
+      Date.now = original;
+    }
+  }
+});
+
+test('semear (restaurante): salão funcionando agora -- comandas abertas com pessoas, mesas unidas, cozinha, limpeza e reserva', () => {
+  const { db, suporteId } = ambiente();
+  const resumo = demo.semear(db, { perfil: 'restaurante', solicitanteId: suporteId, agoraMs: AGORA });
+  assert.equal(resumo.comandasAbertas, 2);
+  const mesas = Object.fromEntries(db.prepare('SELECT numero, status, sale_id, unida_a_mesa_id, pessoas, id FROM restaurant_tables').all().map((m) => [m.numero, m]));
+  assert.equal(mesas['1'].status, 'ocupada');
+  assert.equal(mesas['1'].pessoas, 3);
+  assert.equal(mesas['3'].unida_a_mesa_id, mesas['2'].id);
+  assert.equal(mesas['3'].sale_id, mesas['2'].sale_id);
+  assert.equal(mesas['5'].status, 'aguardando_limpeza');
+  assert.equal(mesas['6'].status, 'reservada');
+  // Pessoa da mesa 1 ligada a um cliente do cadastro; cozinha com item preparando e pendente.
+  const ligada = db.prepare('SELECT sp.nome, c.nome AS cliente FROM sale_people sp JOIN customers c ON c.id = sp.customer_id WHERE sp.sale_id = ?').get(mesas['1'].sale_id);
+  assert.ok(ligada && ligada.cliente.startsWith(ligada.nome));
+  const preparo = db.prepare('SELECT status_preparo, COUNT(*) c FROM sale_items WHERE sale_id IN (?, ?) GROUP BY 1').all(mesas['1'].sale_id, mesas['2'].sale_id);
+  assert.deepEqual(preparo.map((p) => p.status_preparo).sort(), ['pendente', 'preparando', 'pronto']);
+  // O conserto de mesa unida não mexe nesse grupo (está certo).
+  assert.equal(require('../electron/services/tableService').repararMesasUnidas(db), 0);
+  // Histórico: contas de mesa com a mesa gravada e pessoas.
+  assert.ok(db.prepare('SELECT COUNT(*) c FROM sale_mesas').get().c > 50);
+  assert.ok(db.prepare('SELECT COUNT(*) c FROM sale_people WHERE customer_id IS NOT NULL').get().c > 10);
+  assert.equal(db.prepare(`SELECT COUNT(*) c FROM reservations WHERE status = 'confirmada' AND mesa_id = ?`).get(mesas['6'].id).c, 1);
 });
 
 test('semear: mesma semente gera a mesma loja', () => {

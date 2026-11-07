@@ -465,12 +465,14 @@ function SecaoCompras({ ficha }) {
               <div>
                 <strong>{dataHora(v.finalizadaEm)}</strong>
                 <span className="screen-hint">
-                  {[v.mesa, v.operador && `por ${v.operador}`, v.pagamentos.map((p) => p.rotulo).join(' + '),
+                  {[v.mesa, v.comoPessoa && `na comanda como ${v.comoPessoa.nome || `Pessoa ${v.comoPessoa.numeros.join(' e ')}`}`,
+                    v.operador && `por ${v.operador}`, v.pagamentos.map((p) => p.rotulo).join(' + '),
                     v.anexos > 0 && `${v.anexos} anexo${v.anexos === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
                 </span>
               </div>
               <div className="ficha-compra-total">
                 <strong>{moeda(v.total)}</strong>
+                {v.comoPessoa && <span className="screen-hint">só o consumo desta pessoa{v.taxaServicoPercentual > 0 ? ` com ${String(v.taxaServicoPercentual).replace('.', ',')}% de serviço` : ''} · conta da mesa {moeda(v.comoPessoa.totalDaConta)}</span>}
                 {v.desconto > 0 && <span className="screen-hint">desconto {moeda(v.desconto)}</span>}
                 {v.valorDevolvido > 0 && <span className="ficha-devolvido">devolvido {moeda(v.valorDevolvido)}</span>}
               </div>
@@ -486,7 +488,7 @@ function SecaoCompras({ ficha }) {
                 <tr><th>Produto</th><th>Especificações</th><th className="num">Qtd.</th><th className="num">Unitário</th><th className="num">Total</th></tr>
               </thead>
               <tbody>
-                {v.itens.map((i) => <LinhaItem key={i.id} i={i} />)}
+                {v.itens.map((i) => <LinhaItem key={i.id} i={i} semPessoa={!!v.comoPessoa} />)}
               </tbody>
             </table>
           </article>
@@ -496,7 +498,7 @@ function SecaoCompras({ ficha }) {
   );
 }
 
-function LinhaItem({ i }) {
+function LinhaItem({ i, semPessoa = false }) {
   // Sim/não marcado vira selo (farmácia: controlado, exige receita; armazém: perecível...).
   const selos = i.especificacoes.filter((e) => e.tipo === 'boolean' && e.valor);
   const campos = i.especificacoes.filter((e) => !(e.tipo === 'boolean' && e.valor) && !(e.campo === 'garantia_meses' && i.garantiaAte));
@@ -507,7 +509,7 @@ function LinhaItem({ i }) {
         <strong>{i.nome}</strong>
         {i.servico && <span className="ficha-selo ficha-selo-servico">serviço</span>}
         {(i.categoria || i.codigo) && <div className="screen-hint">{[i.categoria, i.codigo].filter(Boolean).join(' · ')}</div>}
-        {i.pessoa && <div className="screen-hint">para {i.pessoa}</div>}
+        {i.pessoa && !semPessoa && <div className="screen-hint">para {i.pessoa}</div>}
       </td>
       <td>
         {nada && <span className="screen-hint">—</span>}

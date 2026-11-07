@@ -11,6 +11,10 @@ import { TerminaisPdvMobile } from './TerminaisPdvMobile';
 import { VitrineOnline } from './VitrineOnline';
 import { DemonstracaoSuporte } from './DemonstracaoSuporte';
 import { PixAutomaticoConfig } from './PixAutomaticoConfig';
+import { MaquininhaConfig } from './MaquininhaConfig';
+import { CozinhaConfig } from './CozinhaConfig';
+import { SenhasConfig } from './SenhasConfig';
+import { VerticeConfig } from './VerticeConfig';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
 
@@ -749,6 +753,8 @@ export function SettingsScreen() {
         <button className={aba === 'geral' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('geral')}><Icon name="home" size={15} /> Geral</button>
         <button className={aba === 'impressora' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('impressora')}><Icon name="printer" size={15} /> Impressora</button>
         <button className={aba === 'balanca' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('balanca')}><Icon name="scale" size={15} /> Balança</button>
+        <button className={aba === 'cozinha' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('cozinha')}><Icon name="cooking" size={15} /> Cozinha</button>
+        <button className={aba === 'senhas' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('senhas')}><Icon name="clock" size={15} /> Senhas e Vértice</button>
         <button className={aba === 'whatsapp' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('whatsapp')}><Icon name="chat" size={15} /> WhatsApp</button>
         <button className={aba === 'pareamento' ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setAba('pareamento')}><Icon name="link" size={15} /> Celular</button>
         {/* Única aba exclusiva do papel suporte (nem admin vê) -- ver CLAUDE.md. */}
@@ -758,6 +764,8 @@ export function SettingsScreen() {
       </div>
 
       {aba === 'suporte' && currentUser.role === 'suporte' && <DemonstracaoSuporte />}
+      {aba === 'cozinha' && <CozinhaConfig />}
+      {aba === 'senhas' && (<><SenhasConfig /><VerticeConfig /></>)}
 
       {aba === 'geral' && (
       <>
@@ -1283,6 +1291,7 @@ export function SettingsScreen() {
       </section>
 
       {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <PixAutomaticoConfig />}
+      {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <MaquininhaConfig />}
 
       <section className="settings-section">
         <h2><Icon name="star" size={16} /> Programa de fidelidade</h2>

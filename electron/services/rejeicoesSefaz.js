@@ -24,6 +24,19 @@ const CODIGOS = {
   '703': ['A data e hora da nota estão à frente do horário da SEFAZ.', 'Acerte o relógio do computador (data, hora e fuso de Brasília) e reenvie.'],
   '704': ['A nota foi emitida há tempo demais para ser enviada agora.', 'Acerte o relógio do computador; se a nota ficou em contingência por muito tempo, fale com o contador.'],
   '778': ['O NCM de um produto não existe na tabela oficial.', 'Corrija o NCM em Fiscal → Cadastro fiscal (ou no cadastro do produto) e emita de novo.'],
+  '373': ['Em homologação o primeiro item precisa da descrição de teste.', 'O sistema já faz isso; se aparecer, atualize o GerenciaAI e fale com o suporte.'],
+  '391': ['Faltaram os dados do cartão/Pix no pagamento.', 'Atualize o GerenciaAI; se continuar, fale com o suporte.'],
+  '392': ['Faltaram o CNPJ da credenciadora ou a autorização do cartão.', 'Confira a cobrança da maquininha na venda; se continuar, fale com o suporte.'],
+  '394': ['A nota foi enviada sem o QR Code.', 'Confira a URL de consulta do QR Code em Configurações → Fiscal.'],
+  '395': ['O QR Code da nota está em formato inválido.', 'Confira a URL de consulta do QR Code em Configurações → Fiscal.'],
+  '536': ['O desconto total não bate com a soma dos itens.', 'Atualize o GerenciaAI; se continuar, fale com o suporte.'],
+  '583': ['A assinatura do QR Code da contingência não confere.', 'Confira se o certificado é o mesmo que assina as notas e reenvie.'],
+  '588': ['A mensagem foi com espaços ou quebras de linha entre os campos.', 'Atualize o GerenciaAI e reenvie.'],
+  '611': ['O código de barras (GTIN) de um produto é inválido.', 'Corrija o código de barras no cadastro do produto (ou deixe em branco) e emita de novo.'],
+  '629': ['Valor do item não bate com quantidade x preço.', 'Confira o preço e a quantidade do item e emita de novo.'],
+  '865': ['Os pagamentos somam menos que o total da nota.', 'Confira os pagamentos da venda.'],
+  '878': ['O endereço de consulta por chave não é o esperado pela SEFAZ.', 'Corrija a "URL de consulta por chave" em Configurações → Fiscal (use exatamente o endereço da tabela da sua UF).'],
+  '972': ['Faltaram os dados do responsável técnico pelo sistema.', 'Fale com o suporte do GerenciaAI para preencher o responsável técnico.'],
 };
 
 function autorizado(cStat) {

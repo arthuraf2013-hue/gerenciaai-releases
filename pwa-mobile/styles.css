@@ -662,3 +662,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .btn-pequeno { min-height: 36px; padding: 6px 14px; font-size: 14px; }
 body.modo-pdv .aviso-atualizacao { bottom: calc(var(--altura-nav) + 12px + env(safe-area-inset-bottom)); }
 .meu-turno { margin-bottom: 16px; }
+.aviso-painel-mesas { margin: 12px 16px 0; }
