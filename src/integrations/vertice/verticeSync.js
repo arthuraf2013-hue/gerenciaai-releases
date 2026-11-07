@@ -255,7 +255,10 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
     /** Pedido entrou na fila de preparo. sale = { id, number, customerName?, createdAt? } */
     orderPreparing: (sale) => device && upsert(sale, 'preparing', {}),
     /** Pedido pronto: a TV mostra o número e o nome. */
-    orderReady: (sale) => device && upsert(sale, 'ready', { readyAt: serverTimestamp() }),
+    // sale.readyAt (opcional): hora em que o pedido foi CHAMADO, vinda do sistema. Com ela o
+    // reenvio do mesmo chamado não repete o aviso na TV, e chamar de novo (hora nova) repete.
+    // Sem ela, vale a hora do servidor (cada envio conta como uma chamada nova).
+    orderReady: (sale) => device && upsert(sale, 'ready', { readyAt: horaDe(sale.readyAt) || serverTimestamp() }),
     /** Cliente retirou: sai da TV. */
     orderDelivered: (sale) => device && upsert(sale, 'delivered', { deliveredAt: serverTimestamp() }),
     /** Venda cancelada: apaga o pedido. */
@@ -304,6 +307,13 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
       return s.exists() ? s.data() : null;
     },
   };
+}
+
+/** Data/ISO/ms -> Timestamp; inválido -> null. */
+function horaDe(v) {
+  if (v == null || v === '') return null;
+  const ms = typeof v === 'number' ? v : new Date(v).getTime();
+  return Number.isFinite(ms) && ms > 0 ? Timestamp.fromMillis(ms) : null;
 }
 
 function randomCode() {

@@ -592,7 +592,12 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 onFechar();
               }}
             />
-            <button className="btn-secondary" onClick={() => setShowPayment(false)}>Voltar ao pedido</button>
+            {/* Conta já paga: a mesa foi liberada no pagamento; "voltar" fecha a mesa. */}
+            <button className="btn-secondary" onClick={async () => {
+              const st = await window.pdv.sale.getPaymentState({ saleId }).catch(() => null);
+              if (st?.status === 'finalizada') { await window.pdv.table.release({ tableId }); onFechar(); return; }
+              setShowPayment(false);
+            }}>Voltar ao pedido</button>
           </div>
         </div>
       )}

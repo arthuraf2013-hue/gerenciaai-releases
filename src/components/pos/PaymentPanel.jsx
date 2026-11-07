@@ -191,6 +191,9 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         setTaxaServico(r.taxaServicoPercentual);
         setPagamentos(r.pagamentos);
         if (r.customer) setCustomer(r.customer);
+        // Venda já paga (ex.: saiu da tela antes de "Concluir"): mostra a tela de
+        // concluída em vez de deixar tentar finalizar de novo.
+        if (r.status === 'finalizada') setFinalizada(true);
       }
       setEstadoCarregado(true);
     })();
@@ -506,6 +509,9 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         setTentativasPendente(result.tentativas || 1);
         return;
       }
+      // Já estava paga (outra tela, clique duplo): segue para "concluída".
+      const estado = await window.pdv.sale.getPaymentState({ saleId }).catch(() => null);
+      if (estado?.status === 'finalizada') { setPendenteEstoqueGrupo(false); setFinalizada(true); return; }
       setPendenteEstoqueGrupo(false);
       return setError(result.error);
     }

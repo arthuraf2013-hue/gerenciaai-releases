@@ -738,6 +738,7 @@ function getPaymentState(saleId) {
 
   return {
     ok: true,
+    status: sale.status,
     total: sale.total,
     desconto: sale.desconto || 0,
     descontoGerente: sale.desconto_gerente || 0,

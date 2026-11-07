@@ -8,7 +8,11 @@
 //
 // Pedido no Vértice: id = id da senha; number = número da senha; nome = o
 // primeiro nome que a senha já guarda (o módulo do Vértice ainda reduz para
-// "Maria S." por padrão).
+// "Maria S." por padrão); readyAt = hora em que a senha foi CHAMADA. A TV
+// avisa uma vez por (pedido, readyAt): reenviar a mesma chamada (app reaberto,
+// sincronização a cada minuto) não repete o aviso; "De novo" muda a hora e repete.
+
+const isoUtc = (s) => (s ? `${String(s).replace(' ', 'T')}${/Z$/.test(String(s)) ? '' : 'Z'}` : undefined);
 
 /** Ações para levar o Vértice ao estado atual. Pura -- exportada pra teste. */
 export function acoesParaVertice(lista, enviados) {
@@ -24,7 +28,9 @@ export function acoesParaVertice(lista, enviados) {
   for (const [id, { c, status }] of atual) {
     const chave = chaveDe(status, c);
     if (enviados.get(id) === chave) continue;
-    acoes.push({ tipo: status, chave, venda: { id, number: c.numero, customerName: c.nome || null, createdAt: c.criadoEm ? `${String(c.criadoEm).replace(' ', 'T')}Z` : undefined } });
+    const venda = { id, number: c.numero, customerName: c.nome || null, createdAt: isoUtc(c.criadoEm) };
+    if (status === 'ready' && c.chamadoEm) venda.readyAt = isoUtc(c.chamadoEm);
+    acoes.push({ tipo: status, chave, venda });
   }
   for (const id of lista?.canceladas || []) {
     if (enviados.get(id) && enviados.get(id) !== 'cancelled') acoes.push({ tipo: 'cancelled', chave: 'cancelled', venda: { id } });

@@ -40,6 +40,17 @@ test('Vértice: senha chamada de novo é reenviada (a TV repete o aviso)', async
   const chamada2 = { prontas: [{ id: 's42', numero: 42, nome: 'Ana', chamadoEm: '2026-11-07 12:20:00', vezesChamada: 2 }] };
   const a2 = acoesParaVertice(chamada2, enviados);
   assert.deepEqual(a2.map((a) => [a.tipo, a.venda.id]), [['ready', 's42']], 'chamou de novo: manda de novo');
+  // A hora da chamada vai junto: a TV repete o aviso só quando ela muda.
+  assert.equal(a1[0].venda.readyAt, '2026-11-07T12:00:00Z');
+  assert.equal(a2[0].venda.readyAt, '2026-11-07T12:20:00Z');
+  // App reaberto (cache vazio): reenvia a MESMA hora -- a TV não anuncia de novo.
+  assert.equal(acoesParaVertice(chamada2, new Map())[0].venda.readyAt, '2026-11-07T12:20:00Z');
+});
+
+test('Vértice: módulo usa a hora da chamada no readyAt (cópia igual à do repositório do Vértice)', () => {
+  const fs = require('node:fs');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'integrations', 'vertice', 'verticeSync.js'), 'utf8');
+  assert.match(src, /readyAt: horaDe\(sale\.readyAt\) \|\| serverTimestamp\(\)/);
 });
 
 test('Vértice: integração só liga com o projeto do Vértice configurado', async () => {

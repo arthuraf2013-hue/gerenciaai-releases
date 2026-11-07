@@ -12,6 +12,7 @@ export function VerticeConfig() {
   const [s, setS] = useState({ status: 'starting' });
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
   const [senhasAtivas, setSenhasAtivas] = useState(true);
 
   useEffect(() => {
@@ -30,6 +31,14 @@ export function VerticeConfig() {
   async function gerar() {
     setOcupado(true); setErro('');
     try { await vx.startPairing(); } catch (e) { setErro(e.message); } finally { setOcupado(false); }
+  }
+
+  function testar() {
+    setErro(''); setAviso('');
+    try {
+      vx.sendTestOrder();
+      setAviso('Pedido "TESTE" enviado: deve aparecer como pronto nas TVs desta unidade e sair em 1 minuto.');
+    } catch (e) { setErro(e.message); }
   }
 
   async function desconectar() {
@@ -57,7 +66,17 @@ export function VerticeConfig() {
             <>
               <p className="selo selo-ok" style={{ alignSelf: 'flex-start', fontSize: 13 }}>● Conectado{s.companyName ? ` a ${s.companyName}` : ''}</p>
               <p className="screen-hint" style={{ margin: 0 }}>Para escolher em quais TVs os pedidos aparecem, use o painel do Vértice: Telas › configurar tela › Painel de pedidos.</p>
-              <button type="button" className="btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={desconectar}>Desconectar este caixa</button>
+              {/* Diagnóstico: confirma que o caixa está enviando (ex.: ao apertar "De novo" em Senhas, a hora muda). */}
+              <p className="screen-hint" style={{ margin: 0 }}>
+                Último envio ao Vértice: <strong>{s.lastSentAt ? new Date(s.lastSentAt).toLocaleTimeString('pt-BR') : 'nenhum desde que o app abriu'}</strong>
+                {s.pending > 0 && ` · ${s.pending} aguardando internet`}
+              </p>
+              {s.lastError && <p className="modal-error" style={{ margin: 0 }}>{s.lastError}</p>}
+              {aviso && <p className="io-message" style={{ margin: 0 }}>{aviso}</p>}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn-secondary" onClick={testar}>Enviar pedido de teste</button>
+                <button type="button" className="btn-secondary" onClick={desconectar}>Desconectar este caixa</button>
+              </div>
             </>
           )}
           {s.status === 'pairing' && (

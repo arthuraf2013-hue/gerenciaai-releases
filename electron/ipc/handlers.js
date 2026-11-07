@@ -377,6 +377,9 @@ function registerIpcHandlers() {
     // Senha no balcão (lanchonete): gera a senha e manda a comanda para a
     // cozinha. Nunca derruba a finalização (ver chamadaService).
     if (r?.ok) {
+      // Comanda de mesa paga: a mesa vai para "aguardando limpeza" já aqui,
+      // sem depender do botão "Concluir" da tela (ver tableService).
+      try { require('../services/tableService').liberarMesaDaVenda(saleId); } catch (err) { console.error('[mesa] liberar após pagar:', err?.message || err); }
       const senha = require('../services/chamadaService').aposFinalizarVenda({ saleId, nome: nomeSenha, operadorId: usuarioLogado(event) });
       if (senha) return { ...r, senha };
     }

@@ -35,6 +35,35 @@ function liberarGrupo(db, principalId, status) {
   ).run(status, principalId, principalId);
 }
 
+/**
+ * Mesa presa em comanda que já fechou: a venda da mesa foi finalizada (ou
+ * cancelada) mas a mesa continuou "ocupada" apontando para ela -- por
+ * exemplo, a conta foi paga e alguém clicou "Voltar ao pedido" em vez de
+ * "Concluir". Aí a mesa não limpa, e pagar de novo dá "Esta venda não está
+ * mais aberta". Paga -> "aguardando limpeza"; cancelada -> "livre".
+ * Roda antes de listar e de abrir. Devolve quantas mesas consertou.
+ */
+function repararMesasComVendaFechada(db, locationId = null) {
+  const presas = db.prepare(
+    `SELECT t.id, s.status FROM restaurant_tables t JOIN sales s ON s.id = t.sale_id
+     WHERE t.status = 'ocupada' AND t.unida_a_mesa_id IS NULL AND s.status IN ('finalizada', 'cancelada')
+       ${locationId ? 'AND t.location_id = ?' : ''}`
+  ).all(...(locationId ? [locationId] : []));
+  for (const m of presas) liberarGrupo(db, m.id, m.status === 'finalizada' ? 'aguardando_limpeza' : 'livre');
+  return presas.length;
+}
+
+/** Venda finalizada que é a comanda de uma mesa: libera a mesa (e as unidas) na hora. */
+function liberarMesaDaVenda(saleId) {
+  const db = getDb();
+  const venda = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!venda || venda.status !== 'finalizada') return { ok: true, liberou: false };
+  const mesa = db.prepare(`SELECT id FROM restaurant_tables WHERE sale_id = ? AND unida_a_mesa_id IS NULL AND status = 'ocupada'`).get(saleId);
+  if (!mesa) return { ok: true, liberou: false };
+  liberarGrupo(db, mesa.id, 'aguardando_limpeza');
+  return { ok: true, liberou: true };
+}
+
 function rotuloMesa(t) {
   return t.nome || `Mesa ${t.numero}`;
 }
@@ -177,6 +206,7 @@ function numeroDePessoaValido(numero, total) {
 /** Lista as mesas de um local, com o total atual da comanda (se ocupada). */
 function listTables(locationId) {
   const db = getDb();
+  repararMesasComVendaFechada(db, locationId);
   repararMesasUnidas(db, locationId);
   const mesas = db.prepare(
     `SELECT t.*, s.total as total_atual, s.criado_em as aberta_em,
@@ -226,6 +256,7 @@ function deleteTable(tableId) {
  * aguardando limpeza. */
 function openTable({ tableId, locationId, operadorId, pessoas }) {
   const db = getDb();
+  repararMesasComVendaFechada(db);
   repararMesasUnidas(db);
   const table = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(tableId);
   if (!table) return { ok: false, error: 'Mesa não encontrada.' };
@@ -391,6 +422,14 @@ function desocuparMesa({ tableId, locationId, currentOperatorId, candidateManage
   // Desocupar qualquer mesa de um grupo desocupa o grupo inteiro (é uma comanda só).
   const table = principalDe(db, mesaClicada);
   if (table.status !== 'ocupada' || !table.sale_id) return { ok: false, error: 'Essa mesa não está ocupada.' };
+  // Comanda que já fechou (paga ou cancelada): só solta a mesa. Nunca cancela
+  // uma venda já paga (ver repararMesasComVendaFechada).
+  const venda = db.prepare('SELECT status FROM sales WHERE id = ?').get(table.sale_id);
+  if (venda && venda.status !== 'aberta') {
+    const statusFinal = venda.status === 'finalizada' ? 'aguardando_limpeza' : 'livre';
+    liberarGrupo(db, table.id, statusFinal);
+    return { ok: true, statusFinal, autorizadoPor: null, jaFechada: true };
+  }
 
   const itensAtivos = db.prepare('SELECT COUNT(*) as c FROM sale_items WHERE sale_id = ? AND cancelado = 0').get(table.sale_id).c;
   // Antes de liberar: a venda cancelada também mostra de qual mesa veio no histórico.
@@ -684,6 +723,7 @@ function removerPessoa({ tableId, numero } = {}) {
 
 module.exports = {
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable, repararMesasUnidas,
+  repararMesasComVendaFechada, liberarMesaDaVenda,
   markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,
   existeMesa, montarLinkPedidoMesa,
   juntarMesas, separarMesa, adicionarPessoa, renomearPessoa, removerPessoa, vincularClientePessoa,
