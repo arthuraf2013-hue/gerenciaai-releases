@@ -246,6 +246,11 @@ contextBridge.exposeInMainWorld('pdv', {
     alerta: (mensagem) => { ipcRenderer.sendSync('dialogo:nativo', { tipo: 'alert', mensagem: String(mensagem ?? '') }); },
     confirmar: (mensagem) => ipcRenderer.sendSync('dialogo:nativo', { tipo: 'confirm', mensagem: String(mensagem ?? '') }) === true,
   },
+  // Integração com o Vértice: cópia da conexão do caixa guardada pelo processo principal.
+  vertice: {
+    lerConexao: invoke('vertice:lerConexao'),
+    gravarConexao: invoke('vertice:gravarConexao'),
+  },
   chamada: {
     // Uma senha mudou (criada, chamada, entregue...): devolve a função que para de ouvir.
     onMudou: (callback) => {

@@ -66,6 +66,11 @@ export function VerticeConfig() {
             <>
               <p className="selo selo-ok" style={{ alignSelf: 'flex-start', fontSize: 13 }}>● Conectado{s.companyName ? ` a ${s.companyName}` : ''}</p>
               <p className="screen-hint" style={{ margin: 0 }}>Para escolher em quais TVs os pedidos aparecem, use o painel do Vértice: Telas › configurar tela › Painel de pedidos.</p>
+              <p className="screen-hint" style={{ margin: 0 }}>
+                {s.productsCount
+                  ? `${s.productsCount} produtos disponíveis no Price do Vértice (tabelas de preço nas TVs). Preço mudou aqui, muda na TV em alguns minutos.`
+                  : 'Os produtos ativos vão para o Price do Vértice em alguns minutos (tabelas de preço nas TVs).'}
+              </p>
               {/* Diagnóstico: confirma que o caixa está enviando (ex.: ao apertar "De novo" em Senhas, a hora muda). */}
               <p className="screen-hint" style={{ margin: 0 }}>
                 Último envio ao Vértice: <strong>{s.lastSentAt ? new Date(s.lastSentAt).toLocaleTimeString('pt-BR') : 'nenhum desde que o app abriu'}</strong>

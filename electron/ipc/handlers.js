@@ -731,6 +731,11 @@ function registerIpcHandlers() {
   safeHandle('chamada:voltarParaPreparo', (_e, payload) => require('../services/chamadaService').voltarParaPreparo({ id: payload?.id }));
   safeHandle('chamada:cancelar', (_e, payload) => require('../services/chamadaService').cancelar({ id: payload?.id }));
 
+  // Vértice: cópia da conexão do caixa (login + pareamento) fora da janela, para o GerenciaAI
+  // não pedir código de novo quando o armazenamento da janela some (verticeConexaoService.js).
+  safeHandle('vertice:lerConexao', () => require('../services/verticeConexaoService').ler());
+  safeHandle('vertice:gravarConexao', (_e, payload) => require('../services/verticeConexaoService').gravar(payload));
+
   // --- Relógio sincronizado (Brasília) ---
   safeHandle('time:getStatus', () => timeService.getStatus());
   // Perfil de hardware (RAM, núcleos, modo leve automático) -- ver hardwareService.

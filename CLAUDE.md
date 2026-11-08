@@ -157,6 +157,12 @@ senha. Balcão: `sale:finalize` chama `aposFinalizarVenda` (senha + cozinha) e n
   editar aqui), `ponteSenhas.js` lê `chamada.listar` a cada aviso `chamada:mudou` e a cada minuto. Config do
   projeto Firebase do Vértice em `verticeConfig.js`. Roda no renderer: a CSP (`seguranca.js`) libera só
   firestore/identitytoolkit/securetoken.googleapis.com -- não abrir mais nada.
+- Conexão do caixa com o Vértice não pode se perder: o login anônimo + pareamento ficam também no processo
+  principal (`verticeConexaoService.js`, `userData/vertice-conexao.json`, login cifrado, `historico` dos últimos
+  20 eventos sem token). `verticeClient.js` restaura ao abrir (`precisaRestaurar`/`restaurarConexaoSalva`), então
+  instalado (app://app) e código-fonte (localhost:5173) usam o mesmo caixa. Testes: `verticeConexao.test.js`.
+- Price do Vértice: `ponteProdutos.js` manda o catálogo ativo (`products.list`) ao conectar e a cada 5 min,
+  via `vx.syncProducts` (só o que mudou; desativado some). Promoção vencida ou >= preço não vai.
 
 ## Cozinha e maquininha
 

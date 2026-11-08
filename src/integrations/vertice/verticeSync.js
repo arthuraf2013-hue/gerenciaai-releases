@@ -16,15 +16,20 @@
  *  3. A partir daí: vx.orderPreparing(venda), vx.orderReady(venda), vx.orderDelivered(venda).
  *
  * Funciona offline: o Firestore guarda os envios e manda quando a internet volta.
+ *
+ * Conexão que não se perde: a identidade do caixa é um login anônimo do Firebase guardado no
+ * armazenamento da janela. Esse armazenamento pode sumir ou ser outro (rodando pelo código-fonte
+ * a origem é http://localhost, no instalado é app://app). Por isso o app guarda uma cópia fora
+ * da janela (onConexao) e, ao abrir, restaura com restaurarConexaoSalva() antes de criar o módulo.
  */
 import { initializeApp, getApps } from 'firebase/app';
 import {
   initializeAuth, indexedDBLocalPersistence, browserLocalPersistence, signInAnonymously, onAuthStateChanged,
-  signOut, connectAuthEmulator, getAuth,
+  onIdTokenChanged, signOut, connectAuthEmulator, getAuth,
 } from 'firebase/auth';
 import {
   initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager, connectFirestoreEmulator,
-  doc, setDoc, updateDoc, deleteDoc, onSnapshot, getDoc, serverTimestamp, Timestamp,
+  doc, setDoc, updateDoc, deleteDoc, onSnapshot, getDoc, getDocFromServer, serverTimestamp, Timestamp, writeBatch,
 } from 'firebase/firestore';
 
 const APP_NAME = 'vertice';
@@ -32,6 +37,58 @@ const PAIRING_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
 const PAIRING_TTL_MS = 30 * 60 * 1000;
 const ORDER_TTL_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 5 * 60 * 1000;
+/** Limite do catálogo enviado ao Price (cabe com folga no plano grátis do Firebase). */
+const MAX_PRODUCTS = 5000;
+/** Antes de desconectar porque o servidor disse "não existe", confere de novo depois disto. */
+const CONFIRMA_REMOCAO_MS = 4000;
+
+export const MSG_REMOVIDO = 'Este caixa foi desconectado no painel do Vértice (Empresa › Integrações). Gere um código novo para conectar de novo.';
+export const MSG_LOGIN_PERDIDO = 'Este caixa perdeu o login salvo do Vértice e precisa ser conectado de novo. Gere um código novo.';
+
+/** Chave em que o Firebase Auth guarda o login (formato do SDK: firebase:authUser:<apiKey>:<app>). */
+export const chaveDoLogin = (firebaseConfig) => `firebase:authUser:${firebaseConfig?.apiKey}:${APP_NAME}`;
+
+/**
+ * A janela precisa receber a conexão salva fora dela? Sim quando há uma cópia salva e o
+ * pareamento desta janela não é do mesmo login (armazenamento apagado ou outra origem).
+ * Pura -- exportada para teste.
+ */
+export function precisaRestaurar(local, salva) {
+  if (!salva?.uid || !salva.sessao) return false;
+  try {
+    const s = JSON.parse(salva.sessao);
+    if (s?.uid !== salva.uid || !s?.stsTokenManager?.refreshToken) return false;
+  } catch {
+    return false;
+  }
+  return local?.uid !== salva.uid;
+}
+
+/**
+ * Põe a conexão salva fora da janela de volta no armazenamento dela. Chamar ANTES de
+ * createVerticeSync (o Firebase Auth lê o login ao iniciar). Apaga o login anônimo local que
+ * houver (é dele a identidade errada) e grava o salvo onde o SDK procura.
+ * @param {{ firebaseConfig: object, salva: { uid, sessao, dispositivo?, empresa? } }} opts
+ */
+export async function restaurarConexaoSalva({ firebaseConfig, salva }) {
+  if (getApps().some((a) => a.name === APP_NAME)) return false; // já iniciado nesta janela
+  await new Promise((resolve) => {
+    try {
+      const r = indexedDB.deleteDatabase('firebaseLocalStorageDb');
+      r.onsuccess = r.onerror = r.onblocked = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+  localStorage.setItem(chaveDoLogin(firebaseConfig), salva.sessao);
+  if (salva.dispositivo?.companyId) {
+    localStorage.setItem('vertice:device', JSON.stringify({ ...salva.dispositivo, uid: salva.uid }));
+    localStorage.setItem('vertice:companyName', salva.empresa || '');
+  } else {
+    localStorage.removeItem('vertice:device');
+  }
+  return true;
+}
 
 /**
  * @param {object} opts
@@ -41,7 +98,11 @@ const HEARTBEAT_MS = 5 * 60 * 1000;
  * @param {boolean} [opts.sendFullName] false (padrão): envia só "Maria S." (LGPD: o mínimo necessário)
  * @param {boolean} [opts.emulator]     true para testar com os emuladores locais do Firebase
  */
-export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Caixa', appVersion = '', sendFullName = false, emulator = false } = {}) {
+/**
+ * @param {(c: { uid: string|null, sessao: string|null, dispositivo: object|null, empresa: string, motivo: string }) => void} [opts.onConexao]
+ *   chamado quando o login ou o pareamento muda: o app guarda uma cópia fora da janela.
+ */
+export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Caixa', appVersion = '', sendFullName = false, emulator = false, onConexao } = {}) {
   let terminal = String(terminalName || 'Caixa').slice(0, 40);
   const existing = getApps().find((a) => a.name === APP_NAME);
   const app = existing || initializeApp(firebaseConfig, APP_NAME);
@@ -76,15 +137,48 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
   let offPairing = null;
   let pairingTimer = null;
   let hbTimer = null;
+  let confirmaTimer = null;
+  let offToken = null;
   const sentCreated = new Set();
+
+  /** Avisa o app (cópia fora da janela). Nunca derruba nada. */
+  function avisarConexao(motivo) {
+    if (!onConexao) return;
+    try {
+      const u = auth.currentUser;
+      onConexao({
+        uid: u?.uid || null,
+        sessao: u ? JSON.stringify(u.toJSON()) : null,
+        dispositivo: device ? { companyId: device.companyId, unitId: device.unitId ?? null } : null,
+        empresa: localStorage.getItem('vertice:companyName') || '',
+        motivo,
+      });
+    } catch (e) {
+      console.warn('[vertice] não guardei a conexão', e?.message || e);
+    }
+  }
+
+  function salvarDispositivo() {
+    localStorage.setItem('vertice:device', JSON.stringify({ ...device, uid }));
+  }
+
+  function desparear(error) {
+    device = null;
+    localStorage.removeItem('vertice:device');
+    clearInterval(hbTimer);
+    hbTimer = null;
+    if (state.status !== 'pairing') set({ status: 'unpaired', companyName: '', error });
+    avisarConexao(error ? 'desconectado' : 'sem-pareamento');
+  }
 
   async function start() {
     // Abre já conectado se pareou antes: envia (ou enfileira) pedidos mesmo sem internet.
+    let saved = null;
     try {
-      const saved = JSON.parse(localStorage.getItem('vertice:device') || 'null');
+      saved = JSON.parse(localStorage.getItem('vertice:device') || 'null');
       if (saved && !device) {
-        device = saved;
-        set({ status: 'paired', companyName: localStorage.getItem('vertice:companyName') || '', unitId: saved.unitId });
+        device = { companyId: saved.companyId, unitId: saved.unitId ?? null };
+        set({ status: 'paired', companyName: localStorage.getItem('vertice:companyName') || '', unitId: device.unitId });
       }
     } catch { /* ignore */ }
     uid = await new Promise((resolve, reject) => {
@@ -100,12 +194,21 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
         }
       });
     }).catch((e) => {
-      set({ status: 'error', error: 'Sem conexão com o Vértice. Tentando de novo…' });
+      // Já pareado: continua "conectado" (os pedidos esperam na fila); só avisa que está sem rede.
+      set(device ? { lastError: 'Sem conexão com o Vértice agora. Tentando de novo…' } : { status: 'error', error: 'Sem conexão com o Vértice. Tentando de novo…' });
       console.warn('[vertice] sem conexão', e.code || e);
       setTimeout(start, 15_000);
       return null;
     });
     if (!uid) return;
+    // O pareamento salvo é de outro login (o anônimo de antes sumiu): não adianta continuar com ele.
+    if (saved?.uid && saved.uid !== uid) {
+      console.warn('[vertice] login do caixa mudou', saved.uid, '->', uid);
+      desparear(MSG_LOGIN_PERDIDO);
+    } else if (device) salvarDispositivo();
+    // Login renovado (a cada hora) ou trocado: a cópia fora da janela acompanha.
+    offToken?.();
+    offToken = onIdTokenChanged(auth, (u) => { if (u) avisarConexao('login'); });
     subscribeDevice();
   }
 
@@ -116,23 +219,34 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
       if (snap.metadata.fromCache) return;
       const d = snap.exists() ? snap.data() : null;
       if (d && d.kind === 'integration') {
+        clearTimeout(confirmaTimer);
         const same = device && device.companyId === d.companyId && device.unitId === (d.unitId ?? null);
         device = { companyId: d.companyId, unitId: d.unitId ?? null };
-        localStorage.setItem('vertice:device', JSON.stringify(device));
+        salvarDispositivo();
         stopPairing();
         if (!same || state.status !== 'paired') {
-          set({ status: 'paired', code: null, companyName: localStorage.getItem('vertice:companyName') || '', unitId: device.unitId });
+          set({ status: 'paired', code: null, error: undefined, companyName: localStorage.getItem('vertice:companyName') || '', unitId: device.unitId });
+          avisarConexao('pareado');
         }
         if (!hbTimer) {
           heartbeat();
           hbTimer = setInterval(heartbeat, HEARTBEAT_MS);
         }
-      } else {
-        device = null;
-        localStorage.removeItem('vertice:device');
-        clearInterval(hbTimer);
-        hbTimer = null;
+      } else if (!device) {
         if (state.status !== 'pairing') set({ status: 'unpaired', companyName: '' });
+      } else {
+        // Estava conectado e o servidor diz que não está mais. Confere de novo antes de largar
+        // (uma resposta só não basta para apagar o pareamento deste caixa).
+        clearTimeout(confirmaTimer);
+        confirmaTimer = setTimeout(async () => {
+          try {
+            const again = await getDocFromServer(doc(db, 'devices', uid));
+            if (again.exists() && again.data()?.kind === 'integration') return;
+            desparear(MSG_REMOVIDO);
+          } catch (e) {
+            console.warn('[vertice] não consegui confirmar o pareamento', e.code || e); // sem rede: fica como está
+          }
+        }, CONFIRMA_REMOCAO_MS);
       }
     }, () => {
       set({ status: device ? 'paired' : 'error', error: device ? undefined : 'Não foi possível ler o pareamento.' });
@@ -151,7 +265,7 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
           code, kind: 'integration', integrationType: 'gerenciaai', uid, platform: 'gerenciaai',
           appVersion, claimed: false, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(expiresAt),
         });
-        set({ status: 'pairing', code, expiresAt });
+        set({ status: 'pairing', code, expiresAt, error: undefined });
         offPairing = onSnapshot(doc(db, 'pairings', code), (s) => {
           const p = s.data();
           if (p?.claimed) localStorage.setItem('vertice:companyName', p.companyName || '');
@@ -290,15 +404,64 @@ export function createVerticeSync({ firebaseConfig, terminal: terminalName = 'Ca
     async unpair() {
       stopPairing();
       clearInterval(hbTimer);
+      clearTimeout(confirmaTimer);
       offDevice?.();
+      offToken?.();
       device = null;
       hbTimer = null;
       localStorage.removeItem('vertice:companyName');
       localStorage.removeItem('vertice:device');
       await signOut(auth);
       uid = null;
-      set({ status: 'unpaired', code: null, companyName: '' });
+      set({ status: 'unpaired', code: null, companyName: '', error: undefined });
       await start();
+      avisarConexao('desconectado-aqui');
+    },
+
+    /**
+     * Price: envia o catálogo de produtos (nome, preço, oferta) para as tabelas de preço do Vértice.
+     * Manda só o que mudou desde o último envio; produto que sumiu (ou foi desativado) é apagado.
+     * products = [{ id, name, category?, unit?, price, promoPrice?, promoUntil? ("YYYY-MM-DD"), active? }]
+     * @returns {Promise<{ sent:number, removed:number, total:number }>}
+     */
+    async syncProducts(products = []) {
+      if (!device || !uid) return { sent: 0, removed: 0, total: 0 };
+      const cacheKey = `vertice:products:${device.companyId}:${uid}`;
+      let cache = {};
+      try { cache = JSON.parse(localStorage.getItem(cacheKey) || '{}'); } catch { /* recomeça */ }
+      const next = {};
+      const ops = [];
+      const list = products.filter((p) => p && p.id && p.name && p.active !== false).slice(0, MAX_PRODUCTS);
+      for (const p of list) {
+        const data = {
+          name: String(p.name).trim().slice(0, 80),
+          category: p.category ? String(p.category).slice(0, 40) : null,
+          unit: p.unit ? String(p.unit).slice(0, 12) : null,
+          price: Math.max(0, Math.round((Number(p.price) || 0) * 100) / 100),
+          promoPrice: Number(p.promoPrice) > 0 ? Math.round(Number(p.promoPrice) * 100) / 100 : null,
+          promoUntil: /^\d{4}-\d{2}-\d{2}/.test(String(p.promoUntil || '')) ? String(p.promoUntil).slice(0, 10) : null,
+          active: true,
+        };
+        if (!data.name) continue;
+        const id = String(p.id).replace(/[/]/g, '-');
+        const hash = JSON.stringify(data);
+        next[id] = hash;
+        if (cache[id] !== hash) ops.push({ set: true, id, data });
+      }
+      for (const id of Object.keys(cache)) if (!next[id]) ops.push({ set: false, id });
+      for (let i = 0; i < ops.length; i += 400) {
+        const b = writeBatch(db);
+        for (const o of ops.slice(i, i + 400)) {
+          const ref = doc(db, 'companies', device.companyId, 'products', `${uid}_${o.id}`);
+          if (o.set) b.set(ref, { ...o.data, integrationUid: uid, updatedAt: serverTimestamp() });
+          else b.delete(ref);
+        }
+        await track(b.commit());
+      }
+      localStorage.setItem(cacheKey, JSON.stringify(next));
+      const sent = ops.filter((o) => o.set).length;
+      set({ productsSentAt: Date.now(), productsCount: Object.keys(next).length, productsTruncated: products.length > MAX_PRODUCTS });
+      return { sent, removed: ops.length - sent, total: Object.keys(next).length };
     },
 
     /** Confere se um pedido chegou ao servidor (útil para suporte). */
