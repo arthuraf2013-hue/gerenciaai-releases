@@ -1,0 +1,3 @@
+Inter (fonte usada nos treinamentos) — Copyright 2016-2023 The Inter Project Authors.
+Distribuída sob a SIL Open Font License 1.1: https://openfontlicense.org
+Estes arquivos são um recorte só com os caracteres do português (pyftsubset).

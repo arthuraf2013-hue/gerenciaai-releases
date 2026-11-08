@@ -180,10 +180,15 @@ function converterEmVendaSeAplicavel({ orderId, operadorId }) {
       db.prepare(
         `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario) VALUES (?, ?, ?, ?, ?)`
       ).run(saleItemId, saleId, item.product_id, item.quantidade, preco);
-      db.prepare(
-        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
-         VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
-      ).run(randomUUID(), item.product_id, pedido.location_id, -Math.abs(item.quantidade), saleId, saleItemId, operadorVenda, 'bot_orders');
+      // Serviço (inclusive prato feito na hora) não tem estoque próprio --
+      // igual a saleService.addItem, só os insumos da ficha técnica descem.
+      const tipoDoProduto = db.prepare('SELECT tipo FROM products WHERE id = ?').get(item.product_id)?.tipo;
+      if (tipoDoProduto !== 'servico') {
+        db.prepare(
+          `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
+           VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
+        ).run(randomUUID(), item.product_id, pedido.location_id, -Math.abs(item.quantidade), saleId, saleItemId, operadorVenda, 'bot_orders');
+      }
       ingredientService.descontarPorVenda(item.product_id, item.quantidade, saleId);
       total += preco * item.quantidade;
     }

@@ -198,6 +198,21 @@ Clicar no nome do cliente (Clientes e filtro de cliente do Histórico) abre `Fic
   telefone -- e `vincular_cliente`). Não muda `sales.customer_id` (quem paga: fiado/pontos). A ficha soma só o
   consumo dessa pessoa + a taxa de serviço, sem o pagamento da mesa; juntar mesas e remover pessoa levam o vínculo.
 
+## Restaurante: prato feito na hora, ficha técnica e insumos
+
+- Prato feito na hora = `products.tipo = 'servico'` + `custom_fields.feito_na_hora = true`:
+  serviço já é "sempre disponível, sem estoque" em todo o sistema (vitrine, celular, alertas,
+  grupo). A ficha técnica (`dish_ingredients`) é baixada/estornada para QUALQUER tipo
+  (`saleService.addItem`, `cancelSaleItem`, `cancelSale`, orçamento, `botOrderService`); serviço
+  sem ficha não muda. Fluxo novo que lance/cancele item chama `descontarPorVenda`/`reverterPorVenda`
+  sem filtrar por tipo. Relatório do MEI: feito na hora conta como comércio.
+- `dish_ingredients.quantidade` é SEMPRE por porção e na unidade do insumo. A tela digita em g/ml e
+  para a receita inteira (`custom_fields.ficha_rendimento`) e converte em `src/utils/cozinha.js`.
+- Compra (`ingredientService.registrarCompra`) e conferência (`registrarContagem`) são transações
+  com movimento em `ingredient_stock_movements` ('entrada'/'ajuste'); nunca mexer em
+  `estoque_atual` sem movimento. Operador vem da sessão no handler.
+- "Disponível hoje" muda só a chave do `custom_fields` (`productService.setDisponivelHoje`).
+
 ## Restaurante: mesas unidas e pessoas nomeadas
 
 `tableService.juntarMesas`/`separarMesa` + `adicionarPessoa`/`renomearPessoa`/`removerPessoa`
@@ -582,7 +597,10 @@ Telas/funcionalidades específicas de perfil ficam condicionadas por
 `profile?.id === '...'` no componente (ex: aba Agenda só aparece pro
 salao_beleza). Treinamento em PDF também é por perfil — 9 arquivos em
 `public/treinamento-*.pdf`, escolhidos automaticamente por
-`TrainingPresentationModal.jsx` conforme o perfil ativo.
+`TrainingPresentationModal.jsx` conforme o perfil ativo. Os PDFs são GERADOS:
+conteúdo em `scripts/treinamentos/conteudo.cjs` (nomes de tela/botão iguais aos do
+app), visual em `modelo.cjs`, `npm run treinamentos [perfil...]`. Funcionalidade
+nova que o cliente vê = slide novo ali e PDFs gerados de novo.
 
 ## App do celular (garçom + consulta remota) e `pwa-mobile/`
 

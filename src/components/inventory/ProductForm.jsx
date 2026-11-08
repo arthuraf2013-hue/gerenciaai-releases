@@ -1,7 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProfile } from '../../context/ProfileContext';
 import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
+import { FichaTecnicaEditor, linhasParaSalvar, custoDasLinhas, linhaFichaDoInsumo } from './FichaTecnicaEditor';
+import { avaliarCmv, precoSugerido, linhaParaTela, formatarReais, lerNumero, arred } from '../../utils/cozinha';
+
+// Perfis em que o cadastro fala a língua da cozinha: prato feito na hora,
+// ficha técnica aberta, cardápio do dia e CMV.
+export const PERFIS_COZINHA = ['restaurante', 'padaria'];
+const TIPOS_PRATO_SUGERIDOS = ['Entrada', 'Prato principal', 'Prato executivo', 'Marmita', 'Porção', 'Lanche', 'Sobremesa', 'Bebida'];
+const CMV_ALVO = 30; // % do preço que o custo do prato deveria ocupar (régua comum de restaurante)
 
 let proximoIdLocalMaterial = 1;
 function novoIdLocalMaterial() {
@@ -69,10 +77,42 @@ function MaterialServicoLine({ linha, onChange, onRemover }) {
   );
 }
 
+/** Custo, CMV e lucro por porção -- a conta que o dono do restaurante faz de cabeça. */
+function ResumoDoPrato({ custo, preco, onUsarPreco }) {
+  const cmv = avaliarCmv(custo, preco);
+  const sugerido = precoSugerido(custo, CMV_ALVO);
+  if (!(custo > 0)) {
+    return (
+      <div className="resumo-prato resumo-prato-vazio">
+        <Icon name="chart" size={16} /> Monte a ficha técnica abaixo para ver o custo do prato e quanto sobra em cada venda.
+      </div>
+    );
+  }
+  const textoFaixa = { bom: 'saudável', atencao: 'atenção', alto: 'caro para o preço' };
+  return (
+    <div className="resumo-prato">
+      <div><small>Custo por porção</small><strong>{formatarReais(custo)}</strong></div>
+      <div><small>Preço</small><strong>{preco > 0 ? formatarReais(preco) : '—'}</strong></div>
+      <div className={cmv ? `cmv cmv-${cmv.faixa}` : 'cmv'}>
+        <small>Custo sobre o preço (CMV)</small>
+        <strong>{cmv ? `${cmv.percentual.toLocaleString('pt-BR')}%` : '—'}</strong>
+        {cmv && <em>{textoFaixa[cmv.faixa]}</em>}
+      </div>
+      <div><small>Sobra por venda</small><strong>{cmv ? formatarReais(cmv.lucro) : '—'}</strong></div>
+      {sugerido && (!cmv || cmv.faixa !== 'bom') && (
+        <button type="button" className="btn-secondary resumo-prato-sugestao" onClick={() => onUsarPreco(sugerido)}
+          title={`Preço para o custo ficar em ${CMV_ALVO}% do preço`}>
+          Usar {formatarReais(sugerido)} (custo em {CMV_ALVO}%)
+        </button>
+      )}
+    </div>
+  );
+}
+
 const emptyProduct = {
   id: null, sku: '', codigoBarras: '', nome: '', categoria: '', tipo: 'produto',
   preco: '', custo: '', unidade: 'un', codigoBalanca: '', estoqueMinimo: '', customFields: {},
-  ncm: '', cest: '', cfop: '', cstCsosn: '', origemMercadoria: '0',
+  ncm: '', cest: '', cfop: '', cstCsosn: '', origemMercadoria: '0', fornecedorId: null,
 };
 
 /**
@@ -97,11 +137,13 @@ export function ProductForm({ product, onSaved, onCancel }) {
   const [dicaFiscal, setDicaFiscal] = useState('');
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const [insumosDisponiveis, setInsumosDisponiveis] = useState([]);
-  const [receita, setReceita] = useState([]); // [{ ingredientId, quantidade }]
+  // Ficha técnica editada aqui e salva no mesmo "Salvar" (ver FichaTecnicaEditor).
+  const [fichaLinhas, setFichaLinhas] = useState([]);
+  const [fichaRendimento, setFichaRendimento] = useState('1');
+  const [fichaTinhaLinhas, setFichaTinhaLinhas] = useState(false); // o prato já tinha ficha salva
   const [mostrarFicha, setMostrarFicha] = useState(false);
-  const [custoCalculado, setCustoCalculado] = useState(0);
   const [margemPercentual, setMargemPercentual] = useState('');
-  const [fichaSalva, setFichaSalva] = useState('');
+  const ehCozinha = PERFIS_COZINHA.includes(profile?.id);
   const [materiaisServico, setMateriaisServico] = useState([]); // linhas do editor de materiais (tipo='servico')
   const [mostrarMateriais, setMostrarMateriais] = useState(false);
   const [materiaisSalvo, setMateriaisSalvo] = useState('');
@@ -132,12 +174,20 @@ export function ProductForm({ product, onSaved, onCancel }) {
   }
 
   useEffect(() => {
+    window.pdv.ingredient.list({}).then((list) => setInsumosDisponiveis(Array.isArray(list) ? list : []));
+  }, []);
+
+  useEffect(() => {
+    // "Duplicar" (ProductList): abre como produto NOVO, com os dados e a ficha
+    // do original -- sem código de barras/SKU (são únicos) e sem foto.
+    const origemId = product?.__duplicarDe || null;
     if (product) {
+      const custom = JSON.parse(product.custom_fields || '{}');
       setForm({
-        id: product.id,
-        sku: product.sku || '',
-        codigoBarras: product.codigo_barras || '',
-        nome: product.nome || '',
+        id: origemId ? null : product.id,
+        sku: origemId ? '' : (product.sku || ''),
+        codigoBarras: origemId ? '' : (product.codigo_barras || ''),
+        nome: origemId ? `${product.nome || ''} (cópia)` : (product.nome || ''),
         categoria: product.categoria || '',
         tipo: product.tipo || 'produto',
         preco: product.preco ?? '',
@@ -145,28 +195,42 @@ export function ProductForm({ product, onSaved, onCancel }) {
         unidade: product.unidade || 'un',
         codigoBalanca: product.codigo_balanca || '',
         estoqueMinimo: product.estoque_minimo ?? '',
-        customFields: JSON.parse(product.custom_fields || '{}'),
+        customFields: custom,
         ncm: product.ncm || '', cest: product.cest || '', cfop: product.cfop || '',
         cstCsosn: product.cst_csosn || '', origemMercadoria: product.origem_mercadoria || '0',
+        // Sem isso, salvar o formulário apagava o fornecedor do produto
+        // (productService.upsert grava fornecedor_id = o que vier, ou NULL).
+        fornecedorId: product.fornecedor_id || null,
       });
       if (product.custo > 0 && product.preco > 0) {
         setMargemPercentual((((product.preco - product.custo) / product.custo) * 100).toFixed(1));
       } else {
         setMargemPercentual('');
       }
-      if (product.foto_path) {
+      if (product.foto_path && !origemId) {
         window.pdv.products.getFotoDataUrl({ productId: product.id }).then(setFotoDataUrl);
       } else {
         setFotoDataUrl(null);
       }
-      window.pdv.products.listPriceHistory({ productId: product.id }).then((list) => {
-        setHistoricoPreco(Array.isArray(list) ? list : []);
+      if (!origemId) {
+        window.pdv.products.listPriceHistory({ productId: product.id }).then((list) => {
+          setHistoricoPreco(Array.isArray(list) ? list : []);
+        });
+      } else {
+        setHistoricoPreco([]);
+      }
+      const rendimento = Math.max(1, Number(custom.ficha_rendimento) || 1);
+      setFichaRendimento(String(rendimento));
+      window.pdv.ingredient.getRecipe({ productId: origemId || product.id }).then((list) => {
+        const linhas = (Array.isArray(list) ? list : []).map((r) => {
+          const tela = linhaParaTela({ quantidadePorPorcao: r.quantidade, unidadeBase: r.unidade, rendimento });
+          return linhaFichaDoInsumo({ id: r.ingredient_id, nome: r.nome, unidade: r.unidade, custo_unitario: r.custo_unitario },
+            { quantidade: String(tela.quantidade).replace('.', ','), unidade: tela.unidade });
+        });
+        setFichaLinhas(linhas);
+        setFichaTinhaLinhas(!origemId && linhas.length > 0);
+        setMostrarFicha(linhas.length > 0);
       });
-      window.pdv.ingredient.list({}).then((list) => setInsumosDisponiveis(Array.isArray(list) ? list : []));
-      window.pdv.ingredient.getRecipe({ productId: product.id }).then((list) => {
-        setReceita(Array.isArray(list) ? list.map((r) => ({ ingredientId: r.ingredient_id, quantidade: r.quantidade })) : []);
-      });
-      window.pdv.ingredient.computeDishCost({ productId: product.id }).then(setCustoCalculado);
       if (product.tipo === 'servico') {
         window.pdv.serviceMaterial.getMateriais({ servicoId: product.id }).then((list) => {
           setMateriaisServico(Array.isArray(list) && list.length > 0
@@ -181,13 +245,46 @@ export function ProductForm({ product, onSaved, onCancel }) {
         setMateriaisServico([]);
       }
     } else {
-      setForm(emptyProduct);
+      // Cozinha: item novo já nasce como prato feito na hora (o caso de todo
+      // dia); bebida/sobremesa com estoque é só trocar o tipo.
+      setForm(ehCozinha ? { ...emptyProduct, tipo: 'servico', customFields: { feito_na_hora: true } } : emptyProduct);
       setFotoDataUrl(null);
       setHistoricoPreco([]);
-      setReceita([]);
+      setFichaLinhas([]);
+      setFichaRendimento('1');
+      setFichaTinhaLinhas(false);
+      setMostrarFicha(false);
       setMateriaisServico([]);
     }
-  }, [product]);
+    // ehCozinha entra nas dependências: se o perfil terminar de carregar depois
+    // do formulário abrir, o item novo ainda nasce como prato feito na hora.
+  }, [product, ehCozinha]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Modo do item: prato feito na hora (serviço no banco + feito_na_hora),
+  // produto com estoque, ou serviço/taxa.
+  const feitoNaHora = form.tipo === 'servico' && form.customFields?.feito_na_hora === true;
+  const modo = feitoNaHora ? 'feito_na_hora' : form.tipo;
+  function mudarModo(novo) {
+    setForm((prev) => {
+      const customFields = { ...prev.customFields };
+      if (novo === 'feito_na_hora') customFields.feito_na_hora = true; else delete customFields.feito_na_hora;
+      return { ...prev, tipo: novo === 'produto' ? 'produto' : 'servico', customFields };
+    });
+  }
+  const fichaAplicavel = form.tipo === 'produto' || feitoNaHora;
+  const porcoes = Math.max(1, Number(lerNumero(fichaRendimento)) || 1);
+  const custoFicha = useMemo(() => custoDasLinhas(fichaLinhas, porcoes), [fichaLinhas, porcoes]);
+  const usaCustoDaFicha = fichaAplicavel && fichaLinhas.length > 0 && custoFicha > 0;
+
+  // Com ficha técnica, o custo do prato É o da ficha: acompanha cada mudança
+  // e a margem exibida acompanha junto (o preço não muda sozinho).
+  useEffect(() => {
+    if (!usaCustoDaFicha) return;
+    const custo = arred(custoFicha, 2);
+    setForm((prev) => (prev.custo === custo.toFixed(2) ? prev : { ...prev, custo: custo.toFixed(2) }));
+    const preco = Number(form.preco);
+    if (custo > 0 && preco > 0) setMargemPercentual((((preco - custo) / custo) * 100).toFixed(1));
+  }, [usaCustoDaFicha, custoFicha]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleFotoSelect() {
     setFotoBusy(true);
@@ -289,27 +386,6 @@ export function ProductForm({ product, onSaved, onCancel }) {
     setForm((prev) => ({ ...prev, customFields: { ...prev.customFields, [campo]: value } }));
   }
 
-  function adicionarLinhaReceita() {
-    setReceita((prev) => [...prev, { ingredientId: '', quantidade: '' }]);
-  }
-
-  function atualizarLinhaReceita(index, campo, valor) {
-    setReceita((prev) => prev.map((r, i) => (i === index ? { ...r, [campo]: valor } : r)));
-  }
-
-  function removerLinhaReceita(index) {
-    setReceita((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  async function salvarFichaTecnica() {
-    setFichaSalva('');
-    const itens = receita.filter((r) => r.ingredientId && Number(r.quantidade) > 0);
-    await window.pdv.ingredient.setRecipe({ productId: form.id, itens });
-    const custo = await window.pdv.ingredient.computeDishCost({ productId: form.id });
-    setCustoCalculado(custo);
-    setFichaSalva('Ficha técnica salva.');
-  }
-
   function adicionarLinhaMaterial() {
     setMateriaisServico((prev) => [...prev, linhaMaterialVazia()]);
   }
@@ -346,11 +422,20 @@ export function ProductForm({ product, onSaved, onCancel }) {
     // não bloqueiam o cadastro dele -- só os marcados aplicaA:'servico'/
     // 'ambos' (ex: tipo_servico) valem aqui. Ver camposExtrasProduto/
     // camposExtrasServico acima.
-    for (const campo of form.tipo === 'servico' ? camposExtrasServico : camposExtrasProduto) {
+    for (const campo of form.tipo === 'servico' && !feitoNaHora ? camposExtrasServico : camposExtrasProduto) {
       if (campo.obrigatorio && !form.customFields[campo.campo]) {
         return setError(`O campo "${campo.label}" é obrigatório para o perfil ${profile.nome}.`);
       }
     }
+
+    // Ficha técnica: insumo escolhido sem quantidade sumiria calado ao salvar.
+    if (fichaAplicavel) {
+      const semQtd = fichaLinhas.find((l) => !(lerNumero(l.quantidade) > 0));
+      if (semQtd) return setError(`Falta a quantidade de "${semQtd.nome}" na ficha técnica (ou tire o insumo da ficha).`);
+    }
+    const customFields = { ...form.customFields };
+    if (fichaAplicavel && fichaLinhas.length > 0 && porcoes > 1) customFields.ficha_rendimento = porcoes;
+    else delete customFields.ficha_rendimento;
 
     setSaving(true);
     const result = await window.pdv.products.upsert({
@@ -361,20 +446,31 @@ export function ProductForm({ product, onSaved, onCancel }) {
       categoria: form.categoria || null,
       tipo: form.tipo,
       preco: Number(form.preco),
-      custo: form.custo ? Number(form.custo) : 0,
+      custo: usaCustoDaFicha ? arred(custoFicha, 4) : (form.custo ? Number(form.custo) : 0),
       unidade: form.unidade || 'un',
       codigoBalanca: form.unidade === 'kg' ? (form.codigoBalanca || undefined) : undefined,
       estoqueMinimo: form.estoqueMinimo ? Number(form.estoqueMinimo) : 0,
-      customFields: form.customFields,
+      customFields,
       ncm: form.ncm || null,
       cest: form.cest || null,
       cfop: form.cfop || null,
       cstCsosn: form.cstCsosn || null,
       origemMercadoria: form.origemMercadoria || '0',
+      fornecedorId: form.fornecedorId || null,
       operadorId: currentUser.id,
     });
+    if (!result.ok) { setSaving(false); return setError(result.error); }
+
+    // Ficha técnica no mesmo salvar (prato novo também -- antes precisava
+    // salvar, reabrir e montar a ficha). Virou taxa/serviço comum: a ficha
+    // antiga sai, senão a venda continuaria baixando insumo.
+    if (fichaAplicavel && (fichaLinhas.length > 0 || fichaTinhaLinhas)) {
+      const r = await window.pdv.ingredient.setRecipe({ productId: result.id, itens: linhasParaSalvar(fichaLinhas, porcoes) });
+      if (r && r.ok === false) { setSaving(false); return setError(`O produto foi salvo, mas a ficha técnica não: ${r.error}`); }
+    } else if (!fichaAplicavel && fichaTinhaLinhas) {
+      await window.pdv.ingredient.setRecipe({ productId: result.id, itens: [] });
+    }
     setSaving(false);
-    if (!result.ok) return setError(result.error);
     onSaved(result);
   }
 
@@ -383,16 +479,37 @@ export function ProductForm({ product, onSaved, onCancel }) {
       className="product-form"
       onSubmit={handleSubmit}
     >
-      <h2>{form.id ? 'Editar produto' : 'Novo produto'}</h2>
+      <h2>{ehCozinha
+        ? (form.id ? 'Editar item do cardápio' : (product?.__duplicarDe ? 'Duplicar item do cardápio' : 'Novo item do cardápio'))
+        : (form.id ? 'Editar produto' : 'Novo produto')}</h2>
 
-      <div className="form-grid" style={{ marginBottom: 12 }}>
-        <label>Tipo
-          <select value={form.tipo} onChange={(e) => setField('tipo', e.target.value)}>
-            <option value="produto">Produto (controla estoque)</option>
-            <option value="servico">Serviço (mão de obra, taxa, consulta — sem estoque)</option>
-          </select>
-        </label>
-      </div>
+      {ehCozinha ? (
+        <div className="modo-item" role="radiogroup" aria-label="Que tipo de item é este?">
+          {[
+            { valor: 'feito_na_hora', icone: 'cooking', titulo: 'Prato feito na hora', texto: 'Não tem estoque próprio: a venda baixa os insumos da ficha técnica.' },
+            { valor: 'produto', icone: 'box', titulo: 'Produto com estoque', texto: 'Bebida, sobremesa pronta, item de revenda: conta unidades.' },
+            { valor: 'servico', icone: 'receipt', titulo: 'Taxa ou serviço', texto: 'Couvert, taxa de rolha, entrega: sem estoque e sem ficha.' },
+          ].map((op) => (
+            <button
+              type="button" key={op.valor} role="radio" aria-checked={modo === op.valor}
+              className={modo === op.valor ? 'modo-item-opcao ativo' : 'modo-item-opcao'}
+              onClick={() => mudarModo(op.valor)}
+            >
+              <Icon name={op.icone} size={20} />
+              <span><strong>{op.titulo}</strong><small>{op.texto}</small></span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="form-grid" style={{ marginBottom: 12 }}>
+          <label>Tipo
+            <select value={form.tipo} onChange={(e) => setField('tipo', e.target.value)}>
+              <option value="produto">Produto (controla estoque)</option>
+              <option value="servico">Serviço (mão de obra, taxa, consulta — sem estoque)</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       {!form.id && (
         <div style={{ marginBottom: 12 }}>
@@ -422,7 +539,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
               )}
             </>
           ) : (
-            <p className="screen-hint" style={{ margin: 0 }}>Salve o produto primeiro para adicionar uma foto.</p>
+            <p className="screen-hint" style={{ margin: 0 }}>A foto entra depois de salvar (aparece no cardápio digital e na vitrine).</p>
           )}
         </div>
       </div>
@@ -434,9 +551,10 @@ export function ProductForm({ product, onSaved, onCancel }) {
         <label>Categoria
           <input value={form.categoria} onChange={(e) => setField('categoria', e.target.value)} />
         </label>
-        <label>SKU
+        <label>{ehCozinha ? 'Código interno (opcional)' : 'SKU'}
           <input value={form.sku} onChange={(e) => setField('sku', e.target.value)} />
         </label>
+        {!feitoNaHora && (<>
         <label>Código de barras
           <input
             value={form.codigoBarras}
@@ -464,6 +582,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
             <canvas ref={barcodeCanvasRef} style={{ display: 'none' }} />
           </div>
         )}
+        </>)}
         <label>Preço de venda
           <input type="number" step="0.01" value={form.preco} onChange={(e) => handlePrecoChange(e.target.value)} required />
         </label>
@@ -485,8 +604,12 @@ export function ProductForm({ product, onSaved, onCancel }) {
             )}
           </div>
         )}
-        <label>Custo
-          <input type="number" step="0.01" value={form.custo} onChange={(e) => handleCustoChange(e.target.value)} />
+        <label>{usaCustoDaFicha ? 'Custo (calculado pela ficha técnica)' : 'Custo'}
+          <input
+            type="number" step="0.01" value={form.custo} readOnly={usaCustoDaFicha}
+            title={usaCustoDaFicha ? 'Vem da ficha técnica: mude as quantidades ou o custo dos insumos para mudar aqui.' : undefined}
+            onChange={(e) => handleCustoChange(e.target.value)}
+          />
         </label>
         <label>Margem sobre o custo (%)
           <input
@@ -523,9 +646,71 @@ export function ProductForm({ product, onSaved, onCancel }) {
         )}
       </div>
 
-      {form.tipo !== 'servico' && (
+      {fichaAplicavel && ehCozinha && (
+        <ResumoDoPrato custo={usaCustoDaFicha ? custoFicha : Number(form.custo)} preco={Number(form.preco)}
+          onUsarPreco={(v) => handlePrecoChange(v.toFixed(2))} />
+      )}
+
+      {ehCozinha && camposExtrasProduto.length > 0 && modo !== 'servico' && (
         <>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={16} /> Dados fiscais (opcional — necessário só quando a emissão de NFC-e estiver ativa)</h3>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={16} /> Cardápio</h3>
+          <div className="form-grid">
+            {camposExtrasProduto.map((campo) => (
+              campo.tipo === 'boolean' ? (
+                <label key={campo.campo} className="check-linha">
+                  <input
+                    type="checkbox" checked={!!form.customFields[campo.campo]}
+                    onChange={(e) => setCustomField(campo.campo, e.target.checked)}
+                  />
+                  {campo.campo === 'disponivel_hoje' ? 'Está no cardápio de hoje' : campo.label}
+                </label>
+              ) : (
+                <label key={campo.campo}>
+                  {campo.campo === 'tipo_prato' ? 'Seção do cardápio' : campo.label}{campo.obrigatorio ? ' *' : ''}
+                  <input
+                    type={campo.tipo === 'data' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'}
+                    list={campo.campo === 'tipo_prato' ? 'tipos-de-prato' : undefined}
+                    placeholder={campo.campo === 'tipo_prato' ? 'Prato principal, Bebida…' : undefined}
+                    value={form.customFields[campo.campo] || ''}
+                    onChange={(e) => setCustomField(campo.campo, e.target.value)}
+                  />
+                </label>
+              )
+            ))}
+            <datalist id="tipos-de-prato">
+              {TIPOS_PRATO_SUGERIDOS.map((t) => <option key={t} value={t} />)}
+            </datalist>
+          </div>
+        </>
+      )}
+
+      {fichaAplicavel && (ehCozinha || mostrarFicha) && (
+        <section className="ficha-secao">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 8px' }}>
+            <Icon name="ingredient" size={16} /> Ficha técnica (o que vai no prato)
+            {usaCustoDaFicha && <span className="ficha-total">custo por porção: {formatarReais(custoFicha)}</span>}
+          </h3>
+          <FichaTecnicaEditor
+            linhas={fichaLinhas} rendimento={fichaRendimento} insumos={insumosDisponiveis}
+            onLinhas={setFichaLinhas} onRendimento={setFichaRendimento}
+            onInsumoCriado={(novo) => setInsumosDisponiveis((prev) => [...prev, novo].sort((a, b) => a.nome.localeCompare(b.nome)))}
+          />
+        </section>
+      )}
+      {fichaAplicavel && !ehCozinha && !mostrarFicha && (
+        <button type="button" className="btn-link" style={{ alignSelf: 'flex-start', marginTop: 8 }} onClick={() => setMostrarFicha(true)}>
+          <Icon name="ingredient" size={14} /> Montar ficha técnica (insumos que este produto consome)
+        </button>
+      )}
+
+      {(form.tipo !== 'servico' || feitoNaHora) && (
+        <details className="secao-recolhivel" open={!ehCozinha || undefined}>
+          <summary>
+            <Icon name="receipt" size={16} /> Dados fiscais
+            <span className="secao-recolhivel-resumo">
+              {form.ncm ? `NCM ${form.ncm}${form.cfop ? ` · CFOP ${form.cfop}` : ''}` : 'opcional — só para emitir NFC-e'}
+            </span>
+          </summary>
           <div className="form-grid">
             <label>NCM
               <input value={form.ncm} onChange={(e) => setField('ncm', e.target.value)} onBlur={completarPeloNcm} placeholder="8 dígitos" maxLength={8} />
@@ -548,10 +733,10 @@ export function ProductForm({ product, onSaved, onCancel }) {
             </label>
           </div>
           {dicaFiscal && <p className="io-message" style={{ marginTop: 8 }}><Icon name="sparkle" size={14} /> {dicaFiscal}</p>}
-        </>
+        </details>
       )}
 
-      {form.tipo !== 'servico' && camposExtrasProduto.length > 0 && (
+      {!ehCozinha && form.tipo !== 'servico' && camposExtrasProduto.length > 0 && (
         <>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
           <div className="form-grid">
@@ -579,7 +764,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         </>
       )}
 
-      {form.tipo === 'servico' && camposExtrasServico.length > 0 && (
+      {form.tipo === 'servico' && !feitoNaHora && camposExtrasServico.length > 0 && (
         <>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
           <div className="form-grid">
@@ -609,57 +794,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
 
       {error && <p className="modal-error">{error}</p>}
 
-      {form.id && form.tipo !== 'servico' && (
-        <div style={{ gridColumn: '1 / -1', marginTop: 12 }}>
-          <button type="button" className="btn-link" onClick={() => setMostrarFicha((v) => !v)}>
-            {mostrarFicha ? 'Esconder' : 'Ver'} ficha técnica (insumos)
-            {custoCalculado > 0 && ` — custo calculado: R$ ${custoCalculado.toFixed(2)}`}
-          </button>
-          {mostrarFicha && (
-            <div style={{ marginTop: 8, border: '1px solid var(--color-border)', borderRadius: 8, padding: 12 }}>
-              <p className="screen-hint" style={{ margin: '0 0 10px' }}>
-                Insumos e quantidades que entram numa porção deste prato — usado pra calcular o custo
-                automaticamente (inclusive nos registros de desperdício). Cadastre os insumos em
-                Insumos, no menu, antes de montar a ficha aqui.
-              </p>
-              {receita.map((linha, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-                  <select
-                    value={linha.ingredientId}
-                    onChange={(e) => atualizarLinhaReceita(i, 'ingredientId', e.target.value)}
-                    style={{ flex: 2 }}
-                  >
-                    <option value="">Selecione o insumo...</option>
-                    {insumosDisponiveis.map((ins) => (
-                      <option key={ins.id} value={ins.id}>{ins.nome} ({ins.unidade})</option>
-                    ))}
-                  </select>
-                  <input
-                    type="number" step="0.01" min="0" placeholder="Quantidade"
-                    value={linha.quantidade}
-                    onChange={(e) => atualizarLinhaReceita(i, 'quantidade', e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <button type="button" className="btn-link-danger" onClick={() => removerLinhaReceita(i)}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="trash" size={14} /> Remover</span>
-                  </button>
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-                <button type="button" className="btn-secondary" onClick={adicionarLinhaReceita}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Adicionar insumo</span>
-                </button>
-                <button type="button" className="btn-secondary" onClick={salvarFichaTecnica}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar ficha técnica</span>
-                </button>
-              </div>
-              {fichaSalva && <p className="io-message" style={{ marginTop: 8 }}>{fichaSalva}</p>}
-            </div>
-          )}
-        </div>
-      )}
-
-      {form.id && form.tipo === 'servico' && (
+      {form.id && form.tipo === 'servico' && !feitoNaHora && (
         <div style={{ gridColumn: '1 / -1', marginTop: 12 }}>
           <button type="button" className="btn-link" onClick={() => setMostrarMateriais((v) => !v)}>
             {mostrarMateriais ? 'Esconder' : 'Ver'} materiais usados
@@ -699,7 +834,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Cancelar</span>
         </button>
         <button type="submit" className="btn-primary" disabled={saving}>
-          {saving ? 'Salvando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> Salvar produto</span>}
+          {saving ? 'Salvando...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="save" size={15} /> {ehCozinha ? 'Salvar' : 'Salvar produto'}</span>}
         </button>
       </div>
     </form>

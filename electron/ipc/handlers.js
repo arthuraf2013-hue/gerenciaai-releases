@@ -449,6 +449,10 @@ function registerIpcHandlers() {
   // Ajuste de estoque de insumo — mesma restrição de stock:adjust (estoque
   // de produto), separado de ingredient:upsert (edição de nome/custo).
   safeHandle('ingredient:adjustStock', (event, payload) => guardRole(event, PAPEIS_GESTAO) || ingredientService.adjustStock(payload));
+  // Compra em lote e conferência: mesmo papel do ajuste de estoque de insumo;
+  // o operador registrado é sempre o da sessão.
+  safeHandle('ingredient:registrarCompra', (event, payload) => guardRole(event, PAPEIS_GESTAO) || ingredientService.registrarCompra({ ...(payload || {}), operadorId: usuarioLogado(event) }));
+  safeHandle('ingredient:registrarContagem', (event, payload) => guardRole(event, PAPEIS_GESTAO) || ingredientService.registrarContagem({ ...(payload || {}), operadorId: usuarioLogado(event) }));
   safeHandle('ingredient:listStockMovements', (_e, { ingredientId }) => ingredientService.listStockMovements(ingredientId));
   safeHandle('ingredient:getRecipe', (_e, { productId }) => ingredientService.getRecipe(productId));
   safeHandle('ingredient:setRecipe', (_e, { productId, itens }) => ingredientService.setRecipe(productId, itens));
@@ -960,6 +964,10 @@ function registerIpcHandlers() {
   safeHandle('print:listPrinters', () => printService.listPrinters());
   safeHandle('print:testPage', () => printService.printTestPage());
   safeHandle('product:listDailyMenu', () => productService.listDailyMenu());
+  safeHandle('product:listPratosParaCardapio', () => productService.listPratosParaCardapio());
+  // Qualquer pessoa logada no caixa pode marcar "acabou" -- é rotina do turno,
+  // não cadastro (o resto do produto continua exigindo gestão).
+  safeHandle('product:setDisponivelHoje', (_e, payload) => productService.setDisponivelHoje(payload || {}));
   safeHandle('product:listServicePriceTable', () => productService.listServicePriceTable());
 
   // --- Cardápio digital (restaurante/padaria) ---

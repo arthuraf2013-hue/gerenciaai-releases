@@ -3,13 +3,19 @@ const { getDb } = require('../db/database');
 
 function list({ query } = {}) {
   const db = getDb();
-  let sql = 'SELECT * FROM ingredients WHERE ativo = 1';
+  // usado_em: em quantos pratos ATIVOS o insumo entra -- a tela mostra e usa
+  // pra avisar antes de remover um insumo que ainda está em ficha técnica.
+  let sql = `SELECT i.*,
+      (SELECT COUNT(DISTINCT di.product_id) FROM dish_ingredients di
+         JOIN products p ON p.id = di.product_id AND p.ativo = 1
+        WHERE di.ingredient_id = i.id) AS usado_em
+    FROM ingredients i WHERE i.ativo = 1`;
   const params = [];
   if (query) {
-    sql += ' AND nome LIKE ?';
+    sql += ' AND i.nome LIKE ?';
     params.push(`%${query}%`);
   }
-  sql += ' ORDER BY nome';
+  sql += ' ORDER BY i.nome';
   return db.prepare(sql).all(...params);
 }
 
@@ -84,6 +90,113 @@ function adjustStock({ ingredientId, quantidade, tipo, motivo, operadorId }) {
   tx();
 
   return { ok: true, id, estoqueAtual: estoqueDepois };
+}
+
+const arred4 = (n) => Math.round(n * 10000) / 10000;
+
+/**
+ * Compra de insumos em lote (a nota do hortifruti, a sacola do atacado):
+ * cada linha vira uma ENTRADA no estoque, com rastro de quem lançou, e
+ * -- se pedido -- o custo do insumo passa a ser o preço pago nesta compra
+ * (valor da linha ÷ quantidade), que é o que o dono do restaurante espera:
+ * "paguei mais caro no tomate, o custo do prato tem que subir junto".
+ * Tudo numa transação: ou entra a compra inteira, ou nada.
+ *
+ * @param {{ itens: { ingredientId: string, quantidade: number, valorTotal?: number }[],
+ *   atualizarCusto?: boolean, fornecedor?: string, operadorId?: string }} payload
+ */
+function registrarCompra({ itens, atualizarCusto = true, fornecedor, operadorId } = {}) {
+  const linhas = (Array.isArray(itens) ? itens : []).filter((l) => l && l.ingredientId);
+  if (linhas.length === 0) return { ok: false, error: 'Adicione pelo menos um insumo na compra.' };
+  for (const l of linhas) {
+    const qtd = Number(l.quantidade);
+    if (!(qtd > 0)) return { ok: false, error: 'Toda linha da compra precisa de uma quantidade maior que zero.' };
+    if (l.valorTotal !== undefined && l.valorTotal !== null && l.valorTotal !== ''
+      && (Number.isNaN(Number(l.valorTotal)) || Number(l.valorTotal) < 0)) {
+      return { ok: false, error: 'Valor pago inválido em uma das linhas.' };
+    }
+  }
+
+  const db = getDb();
+  const buscar = db.prepare('SELECT * FROM ingredients WHERE id = ? AND ativo = 1');
+  const atualizarEstoque = db.prepare('UPDATE ingredients SET estoque_atual = ? WHERE id = ?');
+  const atualizarCustoStmt = db.prepare('UPDATE ingredients SET custo_unitario = ? WHERE id = ?');
+  const movimento = db.prepare(
+    `INSERT INTO ingredient_stock_movements (id, ingredient_id, tipo, quantidade, estoque_antes, estoque_depois, motivo, operador_id)
+     VALUES (?, ?, 'entrada', ?, ?, ?, ?, ?)`
+  );
+  const motivo = fornecedor && String(fornecedor).trim() ? `Compra — ${String(fornecedor).trim().slice(0, 80)}` : 'Compra';
+
+  const resultado = [];
+  try {
+    db.transaction(() => {
+      for (const l of linhas) {
+        const ing = buscar.get(l.ingredientId);
+        if (!ing) throw new Error('Um dos insumos da compra não existe mais (foi removido).');
+        const qtd = Number(l.quantidade);
+        const depois = arred4(ing.estoque_atual + qtd);
+        atualizarEstoque.run(depois, ing.id);
+        movimento.run(randomUUID(), ing.id, qtd, ing.estoque_atual, depois, motivo, operadorId || null);
+        const valor = Number(l.valorTotal);
+        let custoNovo = ing.custo_unitario;
+        if (atualizarCusto && valor > 0) {
+          custoNovo = arred4(valor / qtd);
+          atualizarCustoStmt.run(custoNovo, ing.id);
+        }
+        resultado.push({ ingredientId: ing.id, estoqueAtual: depois, custoAntes: ing.custo_unitario, custoUnitario: custoNovo });
+      }
+    })();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  return { ok: true, itens: resultado };
+}
+
+/**
+ * Conferência (contagem) de estoque dos insumos: a pessoa conta o que tem
+ * na despensa e informa; a diferença para o sistema vira um AJUSTE com
+ * rastro (o relatório "consumo teórico × inventário" usa esses ajustes pra
+ * mostrar o que sumiu além da ficha técnica). Linha sem diferença não gera
+ * movimento. Tudo numa transação.
+ *
+ * @param {{ itens: { ingredientId: string, contado: number }[], operadorId?: string }} payload
+ */
+function registrarContagem({ itens, operadorId } = {}) {
+  const linhas = (Array.isArray(itens) ? itens : []).filter((l) => l && l.ingredientId && l.contado !== '' && l.contado !== null && l.contado !== undefined);
+  if (linhas.length === 0) return { ok: false, error: 'Informe a quantidade contada de pelo menos um insumo.' };
+  for (const l of linhas) {
+    const c = Number(l.contado);
+    if (Number.isNaN(c) || c < 0) return { ok: false, error: 'A quantidade contada não pode ser negativa.' };
+  }
+
+  const db = getDb();
+  const buscar = db.prepare('SELECT * FROM ingredients WHERE id = ? AND ativo = 1');
+  const atualizarEstoque = db.prepare('UPDATE ingredients SET estoque_atual = ? WHERE id = ?');
+  const movimento = db.prepare(
+    `INSERT INTO ingredient_stock_movements (id, ingredient_id, tipo, quantidade, estoque_antes, estoque_depois, motivo, operador_id)
+     VALUES (?, ?, 'ajuste', ?, ?, ?, 'Conferência de estoque', ?)`
+  );
+  let ajustados = 0;
+  let semDiferenca = 0;
+  let valorDiferenca = 0;
+  try {
+    db.transaction(() => {
+      for (const l of linhas) {
+        const ing = buscar.get(l.ingredientId);
+        if (!ing) throw new Error('Um dos insumos da conferência não existe mais (foi removido).');
+        const contado = arred4(Number(l.contado));
+        const diferenca = arred4(contado - ing.estoque_atual);
+        if (diferenca === 0) { semDiferenca += 1; continue; }
+        atualizarEstoque.run(contado, ing.id);
+        movimento.run(randomUUID(), ing.id, diferenca, ing.estoque_atual, contado, operadorId || null);
+        ajustados += 1;
+        valorDiferenca += diferenca * ing.custo_unitario;
+      }
+    })();
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  return { ok: true, ajustados, semDiferenca, valorDiferenca: Math.round(valorDiferenca * 100) / 100 };
 }
 
 /** Histórico de ajustes de um insumo — mais recente primeiro. */
@@ -269,6 +382,7 @@ function preverPorcoesPossiveisTodos() {
 
 module.exports = {
   list, upsert, deactivate, adjustStock, listStockMovements, getRecipe, setRecipe, computeDishCost,
+  registrarCompra, registrarContagem,
   descontarPorVenda, reverterPorVenda, preverPorcoesPossiveis, preverPorcoesPossiveisTodos,
   relatorioConsumoTeoricoVsReal,
 };

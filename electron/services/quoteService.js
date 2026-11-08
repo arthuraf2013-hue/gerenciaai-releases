@@ -148,9 +148,8 @@ function convertToSale({ quoteId, operadorId, deviceId }) {
       // venda nunca existiu de verdade pra ninguém, mesmo padrão de
       // "sem deixar rastro" que já valia pro estoque do produto em si.
       for (const jaAdicionado of itensAdicionados) {
-        if (!jaAdicionado.ehServico) {
-          ingredientService.reverterPorVenda(jaAdicionado.productId, jaAdicionado.quantidade, saleId);
-        }
+        // Insumos da ficha técnica (inclusive prato feito na hora, que é serviço).
+        ingredientService.reverterPorVenda(jaAdicionado.productId, jaAdicionado.quantidade, saleId);
         customItemService.reverterLinhasDoItem(jaAdicionado.saleItemId, {
           locationId: quote.location_id, saleId, saleItemId: jaAdicionado.saleItemId, operadorId, deviceId,
         });
@@ -160,12 +159,10 @@ function convertToSale({ quoteId, operadorId, deviceId }) {
       db.prepare('DELETE FROM sales WHERE id = ?').run(saleId);
       return { ok: false, error: `Não foi possível converter: ${item.nome} — ${resultado.error}` };
     }
-    const product = db.prepare('SELECT tipo FROM products WHERE id = ?').get(item.product_id);
     itensAdicionados.push({
       productId: item.product_id,
       quantidade: item.quantidade,
       saleItemId: resultado.itemId,
-      ehServico: product?.tipo === 'servico',
     });
   }
 

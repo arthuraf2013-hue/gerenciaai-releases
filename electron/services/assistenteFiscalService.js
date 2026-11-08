@@ -434,7 +434,11 @@ function relatorioMei({ locationId, competencia }) {
 
   const partesDaVenda = db.prepare(
     `SELECT s.id, (s.total - s.desconto - s.desconto_gerente) * (1 + s.taxa_servico_percentual / 100.0) AS liquido,
-       COALESCE(SUM(CASE WHEN COALESCE(p.tipo, 'produto') = 'servico' THEN si.quantidade * si.preco_unitario END), 0) AS servicos,
+       -- Prato feito na hora fica como serviço no banco (sem estoque próprio), mas é
+       -- venda de refeição (comércio/indústria para o MEI), não prestação de serviço.
+       COALESCE(SUM(CASE WHEN COALESCE(p.tipo, 'produto') = 'servico'
+         AND COALESCE(json_extract(p.custom_fields, '$.feito_na_hora'), 0) != 1
+         THEN si.quantidade * si.preco_unitario END), 0) AS servicos,
        COALESCE(SUM(si.quantidade * si.preco_unitario), 0) AS bruto,
        EXISTS (SELECT 1 FROM nfce_emitidas n WHERE n.sale_id = s.id AND n.status = 'autorizada') AS com_nf
      FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id AND si.cancelado = 0

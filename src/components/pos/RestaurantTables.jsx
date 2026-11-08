@@ -22,6 +22,12 @@ const RESERVA_BADGE = {
   confirmada: { icon: 'checkCircle', texto: 'Confirmada' },
 };
 
+/** "AAAA-MM-DDTHH:MM" → "08/11/26, 20:00"; texto que não é data aparece como veio (nunca "Invalid Date"). */
+function dataDaReserva(valor) {
+  const d = new Date(valor);
+  return Number.isNaN(d.getTime()) ? String(valor) : d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+
 export function RestaurantTables() {
   const { currentUser } = useSession();
   const [tables, setTables] = useState([]);
@@ -275,7 +281,7 @@ export function RestaurantTables() {
                 <>
                   <span className="table-card-status">
                     Reservada
-                    {t.reservado_para && <><br />{new Date(t.reservado_para).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</>}
+                    {t.reservado_para && <><br />{dataDaReserva(t.reservado_para)}</>}
                   </span>
                   <button type="button" className="table-card-action" onClick={(e) => handleCancelarReserva(t, e)}>Cancelar reserva</button>
                 </>

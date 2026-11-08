@@ -29,7 +29,7 @@ export function ConsumoTeoricoVsReal() {
       <p className="screen-hint">
         Quanto as vendas deveriam ter gasto de cada insumo pela ficha técnica, as perdas registradas e as
         correções de contagem. Correção <strong>negativa</strong> = saiu mais do que a ficha explica (porção maior,
-        desperdício não anotado, desvio). Para funcionar, conte o estoque e lance a diferença em "Ajustar estoque → Ajuste".
+        desperdício não anotado, desvio). Para funcionar, conte a despensa de vez em quando em "Conferir estoque" (o sistema lança só a diferença).
       </p>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         {PERIODOS.map((p) => (

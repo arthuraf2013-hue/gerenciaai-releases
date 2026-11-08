@@ -533,15 +533,14 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)
          VALUES (?, ?, ?, 'venda', ?, ?, ?, ?, ?)`
       ).run(movId, productId, locationId, -Math.abs(quantidade), saleId, itemId, operadorId, deviceId);
-
-      // Se o produto tiver ficha técnica (prato com insumos cadastrados),
-      // já desconta os insumos na mesma transação — mesma ideia do
-      // estoque do produto em si, "vendas diminuem estoque diretamente".
-      // Produto sem ficha técnica: não faz nada (ver ingredientService).
-      // Serviço nunca tem ficha técnica (não existe "produção" pra
-      // consumir insumo).
-      ingredientService.descontarPorVenda(productId, quantidade, saleId);
     }
+
+    // Ficha técnica (prato com insumos cadastrados): desconta os insumos na
+    // mesma transação -- "vendas diminuem estoque diretamente". Vale também
+    // para o prato FEITO NA HORA (tipo 'servico' no banco: não tem estoque
+    // próprio, quem acaba são os insumos). Sem ficha técnica não faz nada
+    // (ver ingredientService) -- serviço de salão, taxa etc. não têm ficha.
+    ingredientService.descontarPorVenda(productId, quantidade, saleId);
 
     // Serviço com materiais cadastrados: gera as linhas de consumo
     // (custom_item_lines) equivalentes à quantidade sendo adicionada
@@ -1007,12 +1006,12 @@ function cancelSaleItem({ saleId, saleItemId, locationId, currentOperatorId, can
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
          VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
       ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de item', saleId, saleItemId, currentOperatorId, autorizadoPorId, deviceId);
-
-      // Espelha o estorno de estoque do produto pros insumos da ficha
-      // técnica (se tiver) — devolve exatamente o que foi descontado
-      // no addItem original.
-      ingredientService.reverterPorVenda(item.product_id, item.quantidade, saleId);
     }
+
+    // Espelha o estorno pros insumos da ficha técnica (se tiver), inclusive
+    // do prato feito na hora (serviço) -- devolve exatamente o que o addItem
+    // original descontou.
+    ingredientService.reverterPorVenda(item.product_id, item.quantidade, saleId);
 
     // Devolve o estoque de cada insumo/produto usado como componente
     // deste item, se houver — cobre DOIS casos (ver comentário de
@@ -1110,9 +1109,9 @@ function executarCancelamentoDaVenda({ saleId, locationId, currentOperatorId, au
           `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, autorizado_por_id, device_id)
            VALUES (?, ?, ?, 'estorno', ?, ?, ?, ?, ?, ?, ?)`
         ).run(randomUUID(), item.product_id, locationId, Math.abs(item.quantidade), motivo || 'Cancelamento de venda', saleId, item.id, currentOperatorId, autorizadoPorId || null, deviceId);
-
-        ingredientService.reverterPorVenda(item.product_id, item.quantidade, saleId);
       }
+      // Insumos da ficha técnica voltam também para o prato feito na hora.
+      ingredientService.reverterPorVenda(item.product_id, item.quantidade, saleId);
 
       // Devolve o estoque de componentes deste item, se houver (item
       // personalizado OU serviço com material associado — ver

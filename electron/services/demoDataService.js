@@ -710,7 +710,9 @@ function semear(db, { perfil, solicitanteId, agoraMs = timeService.nowMs(), seme
     if (perfil === 'restaurante') {
       db.prepare(`UPDATE restaurant_tables SET status = 'aguardando_limpeza' WHERE id = ?`).run(mesasPorNumero.get('5'));
       db.prepare(`UPDATE restaurant_tables SET status = 'reservada', reservado_para = ? WHERE id = ?`)
-        .run(`Hoje, 20h · ${clientes[1].nome} (4 pessoas)`, mesasPorNumero.get('6'));
+        // Mesmo formato que a tela de Mesas grava ("AAAA-MM-DDTHH:MM", hora local):
+        // texto livre aqui aparecia como "Invalid Date" no cartão da mesa.
+        .run(`${diaLocalDaqui(0)}T20:00`, mesasPorNumero.get('6'));
     }
     resumo.comandasAbertas = comandasAbertas.length;
 
@@ -902,6 +904,49 @@ function semearExtrasDoPerfil(db, ctx) {
       ).run(randomUUID(), locationId, clientes[idx].nome, clientes[idx].telefone, pessoas, dataHora, status, mesaId, obs, solicitante, utc(momentoLocal(12, 10, 0)));
     }
     extras.reservas = reservas.length;
+
+    // Insumos e fichas técnicas (quantidade por porção, na unidade do insumo):
+    // o custo dos pratos sai da ficha e o Cardápio do dia mostra quantas
+    // porções o estoque ainda rende. O parmesão começa abaixo do mínimo.
+    const insumos = {
+      arroz: ['Arroz branco', 'kg', 6.5, 12, 3], feijao: ['Feijão carioca', 'kg', 8.9, 8, 2],
+      frango: ['Peito de frango', 'kg', 19.9, 6, 2], carne: ['Contrafilé', 'kg', 49.9, 4, 1.5],
+      batata: ['Batata', 'kg', 5.5, 15, 4], oleo: ['Óleo de soja', 'l', 8.5, 9, 2],
+      alface: ['Alface americana', 'un', 4.5, 6, 2], parmesao: ['Queijo parmesão', 'kg', 79.9, 0.3, 0.5],
+      bacon: ['Bacon', 'kg', 39.9, 1.5, 0.5], calabresa: ['Linguiça calabresa', 'kg', 29.9, 2, 0.5],
+      leiteCondensado: ['Leite condensado (lata)', 'un', 6.9, 6, 2], ovos: ['Ovos', 'un', 0.8, 60, 12],
+      laranja: ['Laranja', 'kg', 4.2, 10, 3],
+    };
+    const idInsumo = {};
+    for (const [chave, [nome, unidade, custo, estoque, minimo]] of Object.entries(insumos)) {
+      idInsumo[chave] = randomUUID();
+      db.prepare(
+        `INSERT INTO ingredients (id, nome, unidade, custo_unitario, estoque_atual, estoque_minimo, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(idInsumo[chave], nome, unidade, custo, estoque, minimo, utc(momentoLocal(9, 0, 0)));
+    }
+    const fichas = {
+      R01: { arroz: 0.15, feijao: 0.12, frango: 0.25, batata: 0.15, oleo: 0.03 },
+      R02: { arroz: 0.15, feijao: 0.12, carne: 0.2, batata: 0.15, oleo: 0.03 },
+      R03: { feijao: 0.2, bacon: 0.05, calabresa: 0.1, arroz: 0.15 },
+      R04: { alface: 0.5, parmesao: 0.03, frango: 0.08 },
+      R05: { batata: 0.5, oleo: 0.08 },
+      R06: { leiteCondensado: 0.125, ovos: 0.5 }, // receita de 1 lata + 4 ovos rende 8 fatias
+      R08: { laranja: 0.8 },
+    };
+    const porCodigo = Object.fromEntries(produtos.map((p) => [p.codigo, p]));
+    for (const [codigo, receita] of Object.entries(fichas)) {
+      const prato = porCodigo[codigo];
+      if (!prato) continue;
+      let custo = 0;
+      for (const [chave, qtd] of Object.entries(receita)) {
+        db.prepare('INSERT INTO dish_ingredients (id, product_id, ingredient_id, quantidade) VALUES (?, ?, ?, ?)')
+          .run(randomUUID(), prato.id, idInsumo[chave], qtd);
+        custo += qtd * insumos[chave][2];
+      }
+      db.prepare('UPDATE products SET custo = ? WHERE id = ?').run(Math.round(custo * 100) / 100, prato.id);
+    }
+    extras.insumos = Object.keys(insumos).length;
+    extras.fichasTecnicas = Object.keys(fichas).length;
   }
 
   return extras;

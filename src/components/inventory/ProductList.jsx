@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ProductForm } from './ProductForm';
+import { ProductForm, PERFIS_COZINHA } from './ProductForm';
+import { useProfile } from '../../context/ProfileContext';
 import { ProductThumbnail } from '../pos/ProductThumbnail';
 import { StockAdjustModal } from './StockAdjustModal';
 import { DuplicateProductsModal } from './DuplicateProductsModal';
@@ -15,6 +16,8 @@ const PAGE_SIZE = 60;
 
 export function ProductList() {
   const { currentUser } = useSession();
+  const { profile } = useProfile();
+  const ehCozinha = PERFIS_COZINHA.includes(profile?.id);
   const [products, setProducts] = useState([]);
   const [soConflitos, setSoConflitos] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
@@ -256,7 +259,7 @@ export function ProductList() {
             </DropdownMenuItem>
           </DropdownMenu>
           <button className="btn-primary" onClick={() => setEditing({})}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> Novo produto</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="add" size={15} /> {ehCozinha ? 'Novo item do cardápio' : 'Novo produto'}</span>
           </button>
         </div>
       </div>
@@ -280,8 +283,8 @@ export function ProductList() {
       <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
         {[
           { valor: 'todos', rotulo: 'Todos' },
-          { valor: 'produto', rotulo: 'Produtos' },
-          { valor: 'servico', rotulo: 'Serviços' },
+          { valor: 'produto', rotulo: ehCozinha ? 'Com estoque' : 'Produtos' },
+          { valor: 'servico', rotulo: ehCozinha ? 'Feitos na hora e taxas' : 'Serviços' },
         ].map((aba) => (
           <button
             key={aba.valor}
@@ -335,6 +338,9 @@ export function ProductList() {
                     <button className="btn-link" onClick={() => setEditing(p)}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="edit" size={14} /> Editar</span>
                     </button>
+                    <button className="btn-link" onClick={() => setEditing({ ...p, __duplicarDe: p.id })} title="Abre um cadastro novo com os mesmos dados e a mesma ficha técnica">
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="duplicate" size={14} /> Duplicar</span>
+                    </button>
                     {!ehServico && (
                       <button className="btn-link" onClick={() => setAdjusting(p)}>
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="box" size={14} /> Ajustar estoque</span>
@@ -366,6 +372,7 @@ export function ProductList() {
           <div className="modal-card modal-card-wide">
             <ProductForm
               product={editing.id ? editing : null}
+              key={editing.id ? `${editing.id}${editing.__duplicarDe ? '-dup' : ''}` : 'novo'}
               onSaved={() => { setEditing(null); reloadRef.current(); }}
               onCancel={() => setEditing(null)}
             />

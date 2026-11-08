@@ -6432,3 +6432,36 @@ GerenciaAI do computador antigo ou sem as regras novas, o celular continua como 
   ainda NÃO é gerado: obrigatório para o Simples a partir de 01/01/2027 (rejeição hoje suspensa).
 
 **Publicar.** Regras do Firestore e o app do celular (página `painel.html` nova) junto com o app.
+
+## Cadastro de pratos e insumos para o dia a dia do restaurante + treinamentos novos (nov/2026)
+
+**Prato feito na hora.** Antes, prato cadastrado como "Produto" travava a venda com "Estoque
+insuficiente" (precisava lançar estoque do prato), e como "Serviço" vendia mas não baixava os insumos
+da ficha técnica, ou seja, ficha técnica não funcionava para prato de verdade. Agora o cadastro do
+restaurante/padaria tem três tipos: **prato feito na hora** (no banco: `tipo = 'servico'` +
+`custom_fields.feito_na_hora = true`; sem estoque próprio, a venda baixa os insumos da ficha),
+**produto com estoque** e **taxa ou serviço**. `saleService.addItem`/`cancelSaleItem`/`cancelSale`,
+a conversão de orçamento e o pedido do WhatsApp passaram a baixar/estornar a ficha técnica também de
+serviço (serviço sem ficha, como corte de cabelo ou couvert, não muda nada). O relatório do MEI conta
+o prato feito na hora como comércio.
+
+**Ficha técnica no mesmo cadastro** (`FichaTecnicaEditor.jsx`): busca de insumo com teclado, criar
+insumo ali mesmo pelo preço que pagou, quantidade em g/kg/ml/l (converte sozinho), "esta receita rende
+N porções" (guardado em `custom_fields.ficha_rendimento`), custo, CMV com cor e preço sugerido para o
+custo ficar em 30%. Um "Salvar" grava o produto e a ficha, inclusive em prato novo. "Duplicar" na lista
+de produtos abre um cadastro novo com os dados e a ficha (sem código de barras/SKU). Corrigido de
+quebra: salvar o formulário apagava o fornecedor do produto.
+
+**Insumos:** "Registrar compra" (a nota inteira de uma vez, custo novo com ▲▼, opção de atualizar o
+custo), "Conferir estoque" (contagem; só a diferença vira ajuste, com valor), filtros Acabando / Fora
+das fichas, "usado em N pratos" e custo pelo preço da embalagem. **Cardápio do dia:** todos os pratos
+com liga/desliga (`product:setDisponivelHoje`, qualquer pessoa logada), seção inteira, "Tirar todos",
+porções que o estoque rende e impressão só do que está ligado. Demonstração do restaurante ganhou
+insumos e fichas técnicas; a mesa reservada da demonstração mostrava "Invalid Date" (corrigido).
+
+**Treinamentos** (`scripts/treinamentos/`, `npm run treinamentos`): os 9 PDFs por perfil foram
+refeitos do zero com tudo o que entrou desde agosto, organizados por papel (caixa, garçom, cozinha,
+gerente, dono) e com fotos das telas novas no restaurante e na padaria. Antes não havia fonte, só o
+PDF; agora o conteúdo fica em `conteudo.cjs` e o PDF é gerado pelo Electron do projeto.
+
+Testes novos: `restauranteCadastro.test.js` (9) e `cozinhaUtils.test.js` (5).

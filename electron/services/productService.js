@@ -582,6 +582,48 @@ function listDailyMenu() {
   });
 }
 
+/**
+ * Pratos para MONTAR o cardápio do dia: tudo que é prato (tem tipo de prato
+ * ou é feito na hora), com a marca de "disponível hoje" -- a tela liga e
+ * desliga ali mesmo, sem abrir o cadastro de cada um.
+ */
+function listPratosParaCardapio() {
+  const db = getDb();
+  const rows = db.prepare(
+    `SELECT id, nome, preco, custom_fields FROM products
+     WHERE ativo = 1 AND (
+       (json_extract(custom_fields, '$.tipo_prato') IS NOT NULL AND json_extract(custom_fields, '$.tipo_prato') != '')
+       OR json_extract(custom_fields, '$.feito_na_hora') = 1
+       OR json_extract(custom_fields, '$.disponivel_hoje') = 1
+     )
+     ORDER BY nome`
+  ).all();
+  return rows.map((r) => {
+    const custom = JSON.parse(r.custom_fields || '{}');
+    return { id: r.id, nome: r.nome, preco: r.preco, tipo: custom.tipo_prato || '', disponivelHoje: custom.disponivel_hoje === true };
+  });
+}
+
+/**
+ * Liga/desliga "disponível hoje" de um ou mais pratos ("acabou o feijão",
+ * "tirar tudo pra montar o de amanhã"). Mexe só nessa chave do
+ * custom_fields -- o resto do cadastro fica como está.
+ */
+function setDisponivelHoje({ productIds, disponivel } = {}) {
+  const ids = (Array.isArray(productIds) ? productIds : [productIds]).filter((id) => typeof id === 'string' && id);
+  if (ids.length === 0) return { ok: false, error: 'Nenhum prato informado.' };
+  const db = getDb();
+  const stmt = db.prepare(
+    `UPDATE products SET custom_fields = json_set(COALESCE(NULLIF(custom_fields, ''), '{}'), '$.disponivel_hoje', json(?))
+     WHERE id = ? AND ativo = 1`
+  );
+  let alterados = 0;
+  db.transaction(() => {
+    for (const id of ids) alterados += stmt.run(disponivel ? 'true' : 'false', id).changes;
+  })();
+  return { ok: true, alterados };
+}
+
 /** Todos os pratos com tipo definido (perfil Restaurante/Padaria) —
  * usado no cardápio digital, que é o cardápio permanente (diferente do
  * "disponível hoje", que muda dia a dia). */
@@ -924,4 +966,4 @@ function removerDescontoValidade(productId) {
   return { ok: true };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listFullMenu, listServicePriceTable, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };
+module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listPratosParaCardapio, setDisponivelHoje, listFullMenu, listServicePriceTable, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };
