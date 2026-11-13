@@ -6465,3 +6465,54 @@ gerente, dono) e com fotos das telas novas no restaurante e na padaria. Antes n�
 PDF; agora o conteúdo fica em `conteudo.cjs` e o PDF é gerado pelo Electron do projeto.
 
 Testes novos: `restauranteCadastro.test.js` (9) e `cozinhaUtils.test.js` (5).
+
+## Menu do seu jeito, PDV mais limpo e tela de toque (nov/2026)
+
+**Preferências por usuário** (`user_preferences`, `preferenciasService`, `prefs:get`/`prefs:set`,
+`PreferenciasContext`): cada pessoa monta o menu da esquerda (botão **Menu** no rodapé: estrela fixa no
+topo, olho esconde, setas reordenam os favoritos; tela escondida continua no Ctrl+K) e escolhe em
+**Aparência** o tamanho da letra (zoom da página pelo `webFrame`), o espaçamento (automático fica
+compacto em janela ≤1440 px), o tema e o jeito do PDV.
+
+**PDV:** cabeçalho enxuto com menu **Mais**; categorias em botões, em lista (menu suspenso) ou
+ocultas pelo botão **Categorias**; "Vendidos recentemente" pode ser escondido; **Modo foco** some com o
+menu da esquerda. Anexar receita só aparece direto na farmácia e na ótica (nos outros, em Mais).
+
+**Telas de gestão:** abas e títulos padronizados, ações de linha da lista de produtos em ícones,
+Alertas com resumo no topo e só as seções com pendência, e lista vazia que diz o próximo passo
+(`VazioGuia`). **Cadastro de produto em todos os perfis:** tipo em cartões com exemplos do ramo,
+resumo de custo/preço/margem/sobra, "Informações do ramo" com caixa de marcar e dados fiscais
+recolhidos (avisa quando falta NCM).
+
+**Tela de toque** (`ToqueContext`, `src/utils/toque.js`, `TecladoNumerico.jsx`): liga sozinha quando o
+ponteiro principal é o dedo, ou em Aparência → Tela de toque (vale para o computador, no
+`localStorage`, porque o login também precisa). Alvos de 44 px, sem seleção de texto ao segurar,
+login com um cartão por operador, quantidade com − e + lado a lado, carrinho fixo à direita no PDV e
+um **teclado de números na tela** para qualquer campo numérico do app (PIN, quantidade, valor, peso,
+preço): o primeiro número troca o valor que já estava, **Próximo** vai para o campo de número
+seguinte, e o OK do PIN entra direto. Campo de texto continua com o teclado do Windows.
+
+Treinamentos atualizados (tela de toque, menu e aparência, alertas). Testes novos:
+`preferenciasService.test.js` (2), `preferenciasUtils.test.js` (5) e `toqueUtils.test.js` (5).
+
+## Mesa: cada um paga a sua parte, − e + no carrinho, busca em cartões e janela no lugar (nov/2026)
+
+**Pagamento individual na mesa:** no grupo de cada pessoa da comanda aparece **Pagar a parte · R$ X**
+(o que ela consumiu, com desconto e taxa de serviço na mesma proporção, `src/utils/contaPorPessoa.js`).
+Abre o painel de pagamento de sempre (dinheiro com troco, cartão, Pix, maquininha) só com o valor dela;
+ao quitar, **Concluir** e a mesa continua aberta. Os pagamentos ficam marcados com a pessoa
+(`sale_person_payments`, migração 11, `sale:marcarPagamentoPessoa`); a comanda mostra "pagou R$ ..." e o
+rodapé "já pago · falta". Quem já pagou não pode ser removido da mesa, e remover outra pessoa renumera os
+pagamentos junto com os itens.
+
+**− e + em cada item** do carrinho do PDV e da comanda (`sale:ajustarQuantidade`): uma unidade por toque,
+com estoque e ficha técnica acompanhando. Só para unidade inteira, que a cozinha ainda não recebeu e sem
+componentes (personalizado, serviço com material); diminuir depois de entrar pagamento continua sendo o
+Cancelar com autorização.
+
+**Busca do PDV em cartões grandes** na tela de toque; comanda da mesa com botões de dedo e rodapé sempre à
+vista dentro da tela Restaurante. **Janela no lugar:** o GerenciaAI reabre no monitor, posição e tamanho
+(maximizado ou não) em que foi deixado (`electron/janela.js`, `janela.json` na pasta de dados).
+Preferências por usuário passaram para a migração 10 (antes no `schema.sql`).
+
+Testes novos: `contaPorPessoa.test.js` (4) e `janela.test.js` (5).

@@ -63,8 +63,8 @@ function BuscaInsumo({ insumos, jaUsados, onEscolher, onCriar, autoFocus }) {
   useEffect(() => { setDestaque(0); }, [termo]);
   useEffect(() => {
     function fora(e) { if (caixa.current && !caixa.current.contains(e.target)) setAberto(false); }
-    document.addEventListener('mousedown', fora);
-    return () => document.removeEventListener('mousedown', fora);
+    document.addEventListener('pointerdown', fora);
+    return () => document.removeEventListener('pointerdown', fora);
   }, []);
 
   function escolher(op) {

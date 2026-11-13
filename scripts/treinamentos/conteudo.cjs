@@ -29,6 +29,23 @@ const caixa = (perfil) => [
     nota: { icone: 'teclado', texto: 'Depois de adicionar, o PDV pode sugerir o que costuma sair junto ("quem compra isso, compra aquilo"). Um toque em "+ Adicionar" põe no carrinho.' },
   },
   {
+    tipo: 'imagem', kicker: 'Tela de toque', titulo: 'Vender com o dedo', papeis: ['caixa', 'garcom', 'gerente'], imagem: 'toque.jpg', larga: true, novo: true,
+    pontos: [
+      'Com monitor de toque o sistema percebe sozinho: botões maiores, **carrinho fixo à direita** com **− e +** em cada item, e a busca em cartões grandes.',
+      'Tocou num campo de número (PIN, quantidade, valor, peso)? Abre o **teclado de números** na tela. O primeiro número troca o valor que já estava lá.',
+      '**Próximo** passa para o campo seguinte; **OK** fecha. Para nome e busca, sobe o teclado do Windows.',
+      'Não reconheceu a tela? **Aparência → Tela de toque → Ligado**. Vale para o computador, para todos os usuários.',
+    ],
+  },
+  {
+    tipo: 'cards', kicker: 'Do seu jeito', titulo: 'Menu, letra e PDV do jeito de cada um', papeis: ['caixa', 'garcom', 'gerente'], novo: true,
+    cards: [
+      { icone: 'estrela', t: 'Menu da esquerda', d: 'Botão **Menu** no rodapé: a estrela fixa a tela no topo, o olho esconde o que você não usa. Tela escondida continua no Ctrl+K.', novo: true },
+      { icone: 'paleta', t: 'Aparência', d: 'Tamanho da letra, espaçamento (compacto para notebook) e tema claro ou escuro. Fica salvo no seu usuário.', novo: true },
+      { icone: 'grade', t: 'Mais espaço no PDV', d: '**Categorias** esconde os botões; em **Mais** dá para trocar por lista e esconder "Vendidos recentemente". **Modo foco** some com o menu.', novo: true },
+    ],
+  },
+  {
     tipo: 'cards', kicker: 'Receber', titulo: 'Formas de pagamento', papeis: ['caixa'],
     cards: [
       { icone: 'dinheiro', t: 'Dinheiro, cartão e fiado', d: 'Dá para dividir a conta em várias formas. Em dinheiro, o sistema calcula o troco.' },
@@ -48,7 +65,7 @@ const caixa = (perfil) => [
   {
     tipo: 'passos', kicker: 'Segurança', titulo: 'Cancelamento e devolução', papeis: ['caixa', 'gerente'],
     passos: [
-      { t: 'Antes do pagamento, cancelar item é livre', d: 'Selecione a linha do carrinho e aperte F4.' },
+      { t: 'Antes do pagamento, cancelar item é livre', d: 'Use **−** para tirar uma unidade, ou **Cancelar** na linha para tirar o item (ou selecione a linha e aperte F4).' },
       { t: 'Depois que entrou pagamento, precisa do gerente', d: 'Outra pessoa autoriza com o PIN dela. Ninguém autoriza o próprio cancelamento, nem o gerente.' },
       { t: 'Cliente voltou outro dia? É devolução', d: 'Menu Devolução: escolha a venda, os itens, e o estoque volta. Fica tudo na Auditoria.' },
     ],
@@ -125,6 +142,7 @@ const gestao = () => [
   },
   {
     tipo: 'cards', kicker: 'Antes de virar prejuízo', titulo: 'Alertas', papeis: ['caixa', 'gerente'],
+    nota: { icone: 'check', texto: 'A tela de Alertas abre com um resumo no topo e mostra só o que tem pendência. O que está em dia aparece numa linha: "Tudo certo em".' },
     cards: [
       { icone: 'alerta', t: 'Vai faltar em breve', d: 'Usa o ritmo real de venda dos últimos 30 dias e mostra em quantos dias acaba.' },
       { icone: 'grafico', t: 'Margem fora do padrão', d: 'Compara a margem com a da categoria. Pega custo que subiu e preço que não acompanhou.' },
@@ -190,9 +208,18 @@ const salaoECozinha = () => [
     tipo: 'cards', kicker: 'Comanda', titulo: 'Conta por pessoa, sem confusão', papeis: ['caixa', 'garcom'], novo: true,
     cards: [
       { icone: 'usuarios', t: 'Pessoas com nome', d: 'Cada pessoa da mesa pode ter nome. O item já nasce dela ("lançar para"), e dá para mover depois.', novo: true },
-      { icone: 'recibo', t: 'Fechar por pessoa ou a mesa', d: 'Cada um paga o seu, em formas diferentes, ou a mesa inteira. Taxa de serviço de 10% sugerida e editável.' },
+      { icone: 'recibo', t: 'Fechar por pessoa ou a mesa', d: 'Cada um paga a sua parte (e pode ir embora) ou a mesa inteira de uma vez. Taxa de serviço de 10% sugerida e editável.', novo: true },
       { icone: 'usuario', t: 'Ligar a um cliente', d: 'O ícone de pessoa liga o nome a um cliente do cadastro: o consumo vai para a ficha dele.', novo: true },
       { icone: 'chef', t: 'Observação e cozinha', d: '"Sem cebola", "ao ponto": vai junto para a cozinha. Só sai o que ainda não foi enviado.' },
+    ],
+  },
+  {
+    tipo: 'imagem', kicker: 'Pagamento individual', titulo: 'Cada um paga a sua parte', papeis: ['caixa', 'garcom'], imagem: 'parte.jpg', novo: true,
+    pontos: [
+      'No grupo da pessoa, toque em **Pagar a parte**: cobra só o que ela consumiu, já com a taxa de serviço.',
+      'Dinheiro, cartão, Pix ou maquininha, igual ao pagamento da mesa. **Concluir** e a mesa continua aberta.',
+      'Quem pagou fica com "pagou R$ ..." na comanda; no rodapé aparece quanto já entrou e quanto falta.',
+      'O resto da mesa fecha no **Ir para pagamento** de sempre. Quem já pagou não pode ser removido da mesa.',
     ],
   },
   {

@@ -58,106 +58,123 @@ export function StockAlerts() {
     );
   }
 
+  // Cada tipo de alerta numa lista: o topo mostra a contagem de todos, só os
+  // que têm algo aparecem abertos e os vazios viram uma linha "tudo certo"
+  // -- antes eram cinco seções grandes mesmo sem nada para mostrar.
+  const secoes = [
+    {
+      id: 'critico', titulo: 'Crítico', icone: 'warning', classe: 'resumo-alerta-critico', lista: criticos,
+      corpo: () => renderTabela(criticos, ''),
+    },
+    {
+      id: 'aviso', titulo: 'Aviso', icone: 'warning', classe: 'resumo-alerta-aviso', lista: avisos,
+      corpo: () => renderTabela(avisos, ''),
+    },
+    {
+      id: 'faltar', titulo: 'Vai faltar em breve', icone: 'hourglass', classe: 'resumo-alerta-aviso', lista: previsao,
+      explicacao: 'Usa o ritmo de venda real dos últimos 30 dias: pega o produto que ainda não bateu o mínimo, mas vai bater nos próximos 7 dias.',
+      corpo: () => (
+        <table className="data-table">
+          <thead><tr><th>Produto</th><th>Estoque atual</th><th>Vendendo por dia</th><th>Acaba em</th></tr></thead>
+          <tbody>
+            {previsao.map((p) => (
+              <tr key={p.id} className={p.diasRestantes <= 2 ? 'row-critical' : 'row-warning'}>
+                <td>{p.nome}</td>
+                <td>{p.estoqueAtual}</td>
+                <td>{p.velocidadeDiaria}</td>
+                <td>{p.diasRestantes === 0 ? 'hoje' : `${p.diasRestantes} dia(s)`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ),
+    },
+    {
+      id: 'margem', titulo: 'Margem fora do padrão', icone: 'chart', classe: 'resumo-alerta-aviso', lista: margem,
+      explicacao: 'Compara a margem de cada produto com a média da categoria: pega custo que subiu num abastecimento e preço que não acompanhou.',
+      corpo: () => (
+        <table className="data-table">
+          <thead><tr><th>Produto</th><th>Categoria</th><th>Margem</th><th>Média da categoria</th></tr></thead>
+          <tbody>
+            {margem.map((p) => (
+              <tr key={p.id} className={p.margemNegativa ? 'row-critical' : 'row-warning'}>
+                <td>{p.nome}</td>
+                <td>{p.categoria || '(sem categoria)'}</td>
+                <td>{p.margem}%{p.margemNegativa && ' — prejuízo'}</td>
+                <td>{p.mediaCategoria !== null ? `${p.mediaCategoria}%` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ),
+    },
+    {
+      id: 'validade', titulo: 'Descontar por validade', icone: 'tag', classe: 'resumo-alerta-aviso', lista: descontos,
+      explicacao: 'Produto vencendo logo: um clique aplica o desconto sugerido, e o preço volta sozinho depois da data.',
+      corpo: () => (
+        <table className="data-table">
+          <thead><tr><th>Produto</th><th>Vence em</th><th>Preço normal</th><th>Preço sugerido ({descontos[0].percentualSugerido}% off)</th><th></th></tr></thead>
+          <tbody>
+            {descontos.map((p) => (
+              <tr key={p.id} className="row-warning">
+                <td>{p.nome}</td>
+                <td>{new Date(p.validade + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
+                <td>R$ {p.preco.toFixed(2)}</td>
+                <td>R$ {p.precoSugerido.toFixed(2)}</td>
+                <td><button className="btn-link" onClick={() => handleAplicarDesconto(p)}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="checkCircle" size={14} /> Aplicar desconto</span>
+                </button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ),
+    },
+  ];
+  const comItens = secoes.filter((sec) => Array.isArray(sec.lista) && sec.lista.length > 0);
+  const vazias = secoes.filter((sec) => Array.isArray(sec.lista) && sec.lista.length === 0);
+  const calculando = secoes.some((sec) => sec.lista === null);
+
   return (
     <div className="screen">
-      <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Icon name="warning" size={20} /> Alertas de estoque</h1>
+      <h1><Icon name="warning" size={20} /> Alertas de estoque</h1>
       <p className="screen-hint">
-        Mesmos limiares configurados em Configurações → Perfis de negócio, que também definem a cor
-        do ícone de alerta no carrinho do PDV.
+        Os limites de crítico e aviso são os de Configurações → Perfis de negócio (os mesmos da cor do alerta no carrinho do PDV).
       </p>
 
       {loadError && <p className="modal-error">{loadError}</p>}
 
-      <section className="alert-section">
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={16} /> Crítico</h2>
-        {renderTabela(criticos, 'Nenhum produto em estado crítico.')}
-      </section>
+      <div className="resumo-alertas">
+        {secoes.map((sec) => {
+          const n = Array.isArray(sec.lista) ? sec.lista.length : null;
+          return (
+            <a key={sec.id} href={n ? `#alerta-${sec.id}` : undefined}
+              className={n ? `resumo-alerta ${sec.classe}` : 'resumo-alerta resumo-alerta-ok'}>
+              <Icon name={sec.icone} size={16} />
+              <span>{sec.titulo}</span>
+              <strong>{n === null ? '…' : n}</strong>
+            </a>
+          );
+        })}
+      </div>
 
-      <section className="alert-section">
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={16} /> Aviso</h2>
-        {renderTabela(avisos, 'Nenhum produto em aviso.')}
-      </section>
+      {comItens.map((sec) => (
+        <section className="alert-section" key={sec.id} id={`alerta-${sec.id}`}>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name={sec.icone} size={16} /> {sec.titulo} ({sec.lista.length})</h2>
+          {sec.explicacao && <p className="screen-hint" style={{ margin: '0 0 10px' }}>{sec.explicacao}</p>}
+          {sec.corpo()}
+        </section>
+      ))}
 
-      <section className="alert-section">
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={16} /> Vai faltar em breve</h2>
-        <p className="screen-hint" style={{ margin: '0 0 10px' }}>
-          Diferente dos alertas acima (que só disparam depois que o estoque já bateu o mínimo
-          configurado), isso olha o ritmo de venda real dos últimos 30 dias — pega produto de venda
-          rápida que ainda não bateu o mínimo, mas vai bater em breve no ritmo atual.
+      {calculando && <p className="empty-state">Calculando os alertas…</p>}
+      {!calculando && comItens.length === 0 && (
+        <div className="vazio-guia"><Icon name="checkCircle" size={22} /><span><strong>Nada para resolver agora.</strong> Estoque, margens e validades dentro do esperado.</span></div>
+      )}
+      {vazias.length > 0 && comItens.length > 0 && (
+        <p className="screen-hint" style={{ marginTop: 4 }}>
+          <Icon name="checkCircle" size={14} /> Tudo certo em: {vazias.map((sec) => sec.titulo).join(', ')}.
         </p>
-        {previsao === null && <p className="empty-state">Calculando...</p>}
-        {previsao !== null && previsao.length === 0 && <p className="empty-state">Nenhum produto com ruptura prevista pros próximos 7 dias.</p>}
-        {previsao !== null && previsao.length > 0 && (
-          <table className="data-table">
-            <thead><tr><th>Produto</th><th>Estoque atual</th><th>Vendendo por dia</th><th>Acaba em</th></tr></thead>
-            <tbody>
-              {previsao.map((p) => (
-                <tr key={p.id} className={p.diasRestantes <= 2 ? 'row-critical' : 'row-warning'}>
-                  <td>{p.nome}</td>
-                  <td>{p.estoqueAtual}</td>
-                  <td>{p.velocidadeDiaria}</td>
-                  <td>{p.diasRestantes === 0 ? 'hoje' : `${p.diasRestantes} dia(s)`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className="alert-section">
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="chart" size={16} /> Margem fora do padrão</h2>
-        <p className="screen-hint" style={{ margin: '0 0 10px' }}>
-          Compara a margem de cada produto com a média da própria categoria dele — pega erro de
-          precificação (ex: custo subiu num abastecimento e o preço de venda nunca foi reajustado)
-          antes que vire prejuízo acumulado sem ninguém perceber.
-        </p>
-        {margem === null && <p className="empty-state">Calculando...</p>}
-        {margem !== null && margem.length === 0 && <p className="empty-state">Nenhum produto com margem fora do padrão da categoria.</p>}
-        {margem !== null && margem.length > 0 && (
-          <table className="data-table">
-            <thead><tr><th>Produto</th><th>Categoria</th><th>Margem</th><th>Média da categoria</th></tr></thead>
-            <tbody>
-              {margem.map((p) => (
-                <tr key={p.id} className={p.margemNegativa ? 'row-critical' : 'row-warning'}>
-                  <td>{p.nome}</td>
-                  <td>{p.categoria || '(sem categoria)'}</td>
-                  <td>{p.margem}%{p.margemNegativa && ' — prejuízo'}</td>
-                  <td>{p.mediaCategoria !== null ? `${p.mediaCategoria}%` : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section className="alert-section">
-        <h2 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="tag" size={16} /> Descontar por validade</h2>
-        <p className="screen-hint" style={{ margin: '0 0 10px' }}>
-          Produto vencendo em breve — em vez de só esperar virar perda registrada em desperdício,
-          sugere um desconto agora, enquanto ainda dá tempo de vender. O preço volta sozinho pro
-          normal depois da data de validade, sem precisar mexer de novo.
-        </p>
-        {descontos === null && <p className="empty-state">Calculando...</p>}
-        {descontos !== null && descontos.length === 0 && <p className="empty-state">Nenhum produto vencendo nos próximos dias.</p>}
-        {descontos !== null && descontos.length > 0 && (
-          <table className="data-table">
-            <thead><tr><th>Produto</th><th>Vence em</th><th>Preço normal</th><th>Preço sugerido ({descontos[0].percentualSugerido}% off)</th><th></th></tr></thead>
-            <tbody>
-              {descontos.map((p) => (
-                <tr key={p.id} className="row-warning">
-                  <td>{p.nome}</td>
-                  <td>{new Date(p.validade + 'T00:00:00').toLocaleDateString('pt-BR')}</td>
-                  <td>R$ {p.preco.toFixed(2)}</td>
-                  <td>R$ {p.precoSugerido.toFixed(2)}</td>
-                  <td><button className="btn-link" onClick={() => handleAplicarDesconto(p)}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="checkCircle" size={14} /> Aplicar desconto</span>
-                  </button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      )}
     </div>
   );
 }

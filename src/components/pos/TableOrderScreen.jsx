@@ -15,6 +15,8 @@ import { PromptModal } from '../common/PromptModal';
 import { playBeep } from '../../utils/sound';
 import Icon from '../common/Icon';
 import { DropdownMenu, DropdownMenuItem } from '../common/DropdownMenu';
+import { QuantidadeDaLinha } from './QuantidadeDaLinha';
+import { valorDaPessoa, situacaoDaPessoa } from '../../utils/contaPorPessoa';
 
 function playErrorBeep() {
   try {
@@ -48,6 +50,10 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [taxaServicoPercentual, setTaxaServicoPercentual] = useState(0);
+  // Pagamento individual: descontos da conta e quanto cada pessoa já pagou.
+  const [conta, setConta] = useState({ desconto: 0, totalPago: 0, pagoPorPessoa: {} });
+  // Pessoa pagando a parte dela agora ({ numero, nome, valor }) ou null.
+  const [pagandoPessoa, setPagandoPessoa] = useState(null);
   const [pendingQty, setPendingQty] = useState('1');
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [pessoas, setPessoasAtual] = useState(pessoasIniciais);
@@ -92,6 +98,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setItems(cart.items || []);
     setTotal(cart.total || 0);
     setTaxaServicoPercentual(cart.taxaServicoPercentual || 0);
+    setConta({ desconto: cart.desconto || 0, totalPago: cart.totalPago || 0, pagoPorPessoa: cart.pagoPorPessoa || {} });
     aplicarPessoas(cart.pessoas);
     setGrupo(cart.grupo || null);
   }, [saleId, aplicarPessoas]);
@@ -120,12 +127,12 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       const existeIndex = prev.findIndex((it) => it.id === result.itemId);
       if (existeIndex >= 0) {
         const atualizado = [...prev];
-        atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal };
+        atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, ajustavel: result.ajustavel };
         return atualizado;
       }
       return [...prev, {
         id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
-        pessoaNumero: pessoaAtiva,
+        pessoaNumero: pessoaAtiva, ajustavel: result.ajustavel,
       }];
     });
     playBeep();
@@ -135,6 +142,16 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setPendingQty('1');
     const destino = pessoasLista.find((p) => p.numero === pessoaAtiva);
     setFeedback({ message: `${product.nome} adicionado${destino ? ` para ${destino.nome || `Pessoa ${destino.numero}`}` : ''}.`, type: 'success' });
+  }
+
+  async function ajustarQuantidade(item, delta) {
+    const r = await window.pdv.sale.ajustarQuantidade({
+      saleId, saleItemId: item.id, delta, locationId: LOCATION_ID, operadorId: currentUser.id, deviceId: DEVICE_ID,
+    });
+    if (!r?.ok) { setFeedback({ message: r?.error || 'Não consegui mudar a quantidade.', type: 'error' }); return; }
+    setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, quantidade: r.quantidade } : i)));
+    setTotal(r.novoTotal);
+    if (delta > 0) playBeep();
   }
 
   /** Item personalizado já foi gravado no backend pelo CustomItemBuilder —
@@ -408,6 +425,18 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   const itensSemPessoa = itensAtivos.filter((i) => !i.pessoaNumero || !numerosValidos.has(i.pessoaNumero));
   const subtotal = (lista) => lista.reduce((acc, i) => acc + i.precoUnitario * i.quantidade, 0);
   const nomeCurto = (p) => p.nome || `Pessoa ${p.numero}`;
+  const totalConta = totalDaContaMesa();
+  function totalDaContaMesa() {
+    const base = Math.max(0, total - conta.desconto);
+    return base + (taxaServicoPercentual > 0 ? base * (taxaServicoPercentual / 100) : 0);
+  }
+  /** Parte da pessoa (itens + taxa, − desconto, na proporção) e quanto ela já pagou. */
+  function parteDa(numero, itens) {
+    const valor = valorDaPessoa({ subtotalPessoa: subtotal(itens), subtotalItens: total, desconto: conta.desconto, taxaServicoPercentual });
+    const pago = conta.pagoPorPessoa[numero] || 0;
+    return { valor, pago, ...situacaoDaPessoa({ valor, pago }) };
+  }
+  const contaQuitada = conta.totalPago + 0.005 >= totalConta && totalConta > 0;
   const podeEditarPreco = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
 
   async function atribuirPessoa(itemId, valor) {
@@ -425,7 +454,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
         onClick={() => setSelectedItemId(item.id)}
       >
         <span className="mesa-item-nome">
-          {item.nome} × {item.quantidade}
+          {item.ajustavel ? <>{item.nome} <QuantidadeDaLinha item={item} onAjustar={ajustarQuantidade} /></> : <>{item.nome} × {item.quantidade}</>}
           {item.observacao && <span className="mesa-item-obs"><Icon name="warning" size={12} /> {item.observacao}</span>}
         </span>
         <span className="mesa-item-preco">{(item.precoUnitario * item.quantidade).toFixed(2)}</span>
@@ -478,16 +507,16 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
           <div className="pos-search-row">
             <div className="qty-stepper" title="Quantidade do próximo item">
               <input
-                type="text" inputMode="numeric" className="qty-stepper-input"
+                type="text" inputMode="numeric" className="qty-stepper-input" aria-label="Quantidade do próximo item" data-teclado-ancora="direita"
                 value={pendingQty}
                 onChange={(e) => { if (/^\d*$/.test(e.target.value)) setPendingQty(e.target.value); }}
               />
               <div className="qty-stepper-buttons">
-                <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
-                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <button type="button" className="qty-stepper-btn" aria-label="Uma unidade a mais" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
+                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg><span className="qty-stepper-sinal" aria-hidden="true">+</span>
                 </button>
-                <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
-                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <button type="button" className="qty-stepper-btn" aria-label="Uma unidade a menos" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
+                  <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg><span className="qty-stepper-sinal" aria-hidden="true">−</span>
                 </button>
               </div>
             </div>
@@ -538,6 +567,10 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                   </button>
                   <span className="mesa-grupo-subtotal">R$ {subtotal(g.itens).toFixed(2)}</span>
                 </div>
+                <PagamentoDaPessoa
+                  parte={parteDa(g.numero, g.itens)} nome={nomeCurto(g.pessoa)} contaQuitada={contaQuitada}
+                  onPagar={(parte) => setPagandoPessoa({ numero: g.numero, nome: nomeCurto(g.pessoa), valor: parte.valor })}
+                />
                 <ul className="mesa-grupo-itens">{g.itens.map(renderItem)}</ul>
               </div>
             ))}
@@ -571,6 +604,11 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
             <div className="pos-total">
               Total: <strong>R$ {total.toFixed(2)}</strong>
               {pessoas > 0 && <span className="mesa-por-pessoa">R$ {(total / pessoas).toFixed(2)} por pessoa ({pessoas})</span>}
+              {conta.totalPago > 0.005 && (
+                <span className="mesa-ja-pago">
+                  Já pago R$ {conta.totalPago.toFixed(2)} · falta R$ {Math.max(0, totalConta - conta.totalPago).toFixed(2)}
+                </span>
+              )}
             </div>
             <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => setShowPayment(true)}>
               Ir para pagamento
@@ -597,6 +635,35 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               const st = await window.pdv.sale.getPaymentState({ saleId }).catch(() => null);
               if (st?.status === 'finalizada') { await window.pdv.table.release({ tableId }); onFechar(); return; }
               setShowPayment(false);
+              recarregarComanda();
+            }}>Voltar ao pedido</button>
+          </div>
+        </div>
+      )}
+
+      {pagandoPessoa && (
+        <div className="modal-overlay">
+          <div className="modal-card modal-card-wide">
+            <PaymentPanel
+              saleId={saleId}
+              total={total}
+              pessoa={pagandoPessoa}
+              onPessoaPaga={async () => {
+                const nomePago = pagandoPessoa.nome;
+                setPagandoPessoa(null);
+                await recarregarComanda();
+                setFeedback({ message: `${nomePago} pagou a sua parte. A mesa continua aberta para os outros.`, type: "success" });
+              }}
+              onFinalized={async () => {
+                await window.pdv.table.release({ tableId });
+                onFechar();
+              }}
+            />
+            <button className="btn-secondary" onClick={async () => {
+              const st = await window.pdv.sale.getPaymentState({ saleId }).catch(() => null);
+              if (st?.status === 'finalizada') { await window.pdv.table.release({ tableId }); onFechar(); return; }
+              setPagandoPessoa(null);
+              recarregarComanda();
             }}>Voltar ao pedido</button>
           </div>
         </div>
@@ -787,5 +854,27 @@ function BotaoCliente({ pessoa, rotulo, aoClicar, pequeno = false }) {
     >
       <Icon name="user" size={pequeno ? 12 : 13} />
     </button>
+  );
+}
+
+/** Linha "pagar a parte" no topo do grupo da pessoa: botão, ou "Pago". */
+function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar }) {
+  if (parte.estado === 'sem-itens') return null;
+  if (parte.estado === 'paga') {
+    return (
+      <div className="mesa-pessoa-pagamento mesa-pessoa-paga">
+        <Icon name="checkCircle" size={15} /> {nome} pagou R$ {parte.pago.toFixed(2)}
+      </div>
+    );
+  }
+  if (contaQuitada) return null;
+  return (
+    <div className="mesa-pessoa-pagamento">
+      {parte.estado === 'parcial' && <span>Pagou R$ {parte.pago.toFixed(2)} · falta R$ {parte.falta.toFixed(2)}</span>}
+      <button type="button" className="btn-secondary mesa-pagar-parte" onClick={() => onPagar(parte)}
+        title="Esta pessoa paga só o que consumiu (com a taxa de serviço) e a mesa continua aberta">
+        <Icon name="money" size={15} /> {parte.estado === 'parcial' ? 'Pagar o resto' : `Pagar a parte · R$ ${parte.valor.toFixed(2)}`}
+      </button>
+    </div>
   );
 }

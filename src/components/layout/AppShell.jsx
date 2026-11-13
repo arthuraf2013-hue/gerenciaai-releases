@@ -2,6 +2,9 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { useProfile } from '../../context/ProfileContext';
+import { usePreferencias } from '../../context/PreferenciasContext';
+import { montarMenu, alternarFavorito, alternarOculto, moverFavorito } from '../../utils/preferencias';
+import { PainelAparencia } from './PainelAparencia';
 // PDV e Restaurante ficam com import estático de propósito -- ver o
 // comentário mais abaixo ("sempre montados"): eles entram na árvore desde
 // o primeiro render (só escondidos com CSS), então carregá-los sob
@@ -147,12 +150,34 @@ const NAV_ICON_COLOR = {
   trendUp: '#42a5f5',
 };
 
+// Controles pequenos do modo "Personalizar menu" (traço simples, cabem ao
+// lado do item sem disputar com o ícone colorido da tela).
+const SVG_EDICAO = {
+  estrela: <path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" />,
+  olho: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>,
+  olhoFechado: <><path d="M4 4l16 16" /><path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4M6.6 6.9C4 8.6 2.5 12 2.5 12S6 18.5 12 18.5a9 9 0 0 0 4-.9" /></>,
+  cima: <path d="m6 15 6-6 6 6" />,
+  baixo: <path d="m6 9 6 6 6-6" />,
+};
+function IconeEdicao({ nome, cheio }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill={cheio ? 'currentColor' : 'none'} stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{SVG_EDICAO[nome]}</svg>
+  );
+}
+
 export function AppShell() {
   const { currentUser, logout } = useSession();
   const { profile } = useProfile();
+  const { prefs, atualizar, restaurar } = usePreferencias();
   const [screen, setScreen] = useState('pos');
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('gerenciaai:tema') === 'escuro');
+  const [editandoMenu, setEditandoMenu] = useState(false);
+  const [aparenciaAberta, setAparenciaAberta] = useState(false);
+  const listaMenuRef = useRef(null);
+  // Ao terminar de personalizar, volta a lista ao topo (onde os favoritos
+  // estão) -- marcar itens lá embaixo deixava o menu rolado.
+  useEffect(() => { if (!editandoMenu && listaMenuRef.current) listaMenuRef.current.scrollTop = 0; }, [editandoMenu]);
   const [returnPreselectId, setReturnPreselectId] = useState(null);
   const [conflitosProdutos, setConflitosProdutos] = useState(0);
   const [secoesFechadas, setSecoesFechadas] = useState(() => {
@@ -227,8 +252,8 @@ export function AppShell() {
       if (badgeSeparacaoRef.current?.contains(e.target)) return;
       setBalaoSeparacaoAberto(false);
     }
-    document.addEventListener('mousedown', handleClickFora);
-    return () => document.removeEventListener('mousedown', handleClickFora);
+    document.addEventListener('pointerdown', handleClickFora);
+    return () => document.removeEventListener('pointerdown', handleClickFora);
   }, [balaoSeparacaoAberto]);
 
   function handleAbrirBalaoSeparacao(e) {
@@ -250,11 +275,6 @@ export function AppShell() {
     return () => clearInterval(id);
   }, [sincronizacaoAtiva]);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-    localStorage.setItem('gerenciaai:tema', darkMode ? 'escuro' : 'claro');
-  }, [darkMode]);
-
   const visibleItems = NAV_ITEMS.filter((item) => {
     if (!item.roles.includes(currentUser.role)) return false;
     if (item.requerBotDelivery && !botDeliveryAtivo) return false;
@@ -264,18 +284,26 @@ export function AppShell() {
     return perfisPermitidos.includes(profile?.id);
   });
 
+  // Menu montado por cada um (favoritos no topo, ocultos fora) -- ver
+  // src/utils/preferencias.js. Oculto continua no Ctrl+K: esconder do menu
+  // não tira acesso, só limpa a vista.
+  const menuMontado = montarMenu(visibleItems, prefs.menu);
+  const mudarMenu = (novo) => atualizar('menu', novo);
+
   // Agrupa mantendo a ordem de NAV_ITEMS — item sem `section` fica
   // solto no topo (grupo ''), o resto vira uma seção com cabeçalho.
   const grupos = [];
-  for (const item of visibleItems) {
+  if (menuMontado.favoritos.length > 0) grupos.push({ titulo: 'Favoritos', favoritos: true, itens: menuMontado.favoritos });
+  for (const item of menuMontado.resto) {
     const chave = item.section || '';
     let grupo = grupos.find((g) => g.titulo === chave);
     if (!grupo) { grupo = { titulo: chave, itens: [] }; grupos.push(grupo); }
     grupo.itens.push(item);
   }
+  if (editandoMenu && menuMontado.ocultos.length > 0) grupos.push({ titulo: 'Ocultos', ocultos: true, itens: menuMontado.ocultos });
 
   return (
-    <div className="app-shell">
+    <div className={prefs.pdv.foco && screen === 'pos' ? 'app-shell app-shell-foco' : 'app-shell'}>
       <nav className="sidebar">
         <div className="sidebar-brand">
           <img src="/logo-mark.svg" alt="" width="26" height="26" />
@@ -283,7 +311,17 @@ export function AppShell() {
         </div>
         <div className="sidebar-clock-wrap"><Clock /></div>
         <p className="sidebar-shortcut-hint">Ctrl+K: busca rápida · ?: atalhos de teclado</p>
-        <ul
+        {editandoMenu && (
+          <div className="menu-edicao-aviso">
+            <strong>Personalizando o menu</strong>
+            <span><IconeEdicao nome="estrela" /> fixa no topo · <IconeEdicao nome="olho" /> esconde. Telas escondidas continuam no Ctrl+K.</span>
+            <div>
+              <button type="button" onClick={() => { restaurar('menu'); }}>Restaurar padrão</button>
+              <button type="button" className="menu-edicao-pronto" onClick={() => setEditandoMenu(false)}>Pronto</button>
+            </div>
+          </div>
+        )}
+        <ul ref={listaMenuRef} className={editandoMenu ? 'menu-em-edicao' : undefined}
           onKeyDown={(e) => {
             // Setas pra navegar entre os itens do menu sem precisar de
             // mouse — comportamento padrão de menu, mesma ideia do
@@ -315,6 +353,8 @@ export function AppShell() {
                     aria-expanded={!fechado}
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      {grupo.favoritos && <span className="nav-section-icon" style={{ color: '#f5c542', display: 'inline-flex' }}><IconeEdicao nome="estrela" cheio /></span>}
+                      {grupo.ocultos && <span className="nav-section-icon" style={{ display: 'inline-flex' }}><IconeEdicao nome="olhoFechado" /></span>}
                       {SECTION_ICON[grupo.titulo] && (
                         <Icon
                           name={SECTION_ICON[grupo.titulo]}
@@ -336,12 +376,12 @@ export function AppShell() {
                 )}
                 {(!temSecao || !fechado) && (
                   <ul className="nav-group-list">
-                    {grupo.itens.map((item) => (
-                      <li key={item.id}>
+                    {grupo.itens.map((item, indice) => (
+                      <li key={item.id} className={grupo.ocultos ? 'nav-item-oculto' : undefined}>
                         <div style={{ display: 'flex', alignItems: 'stretch' }}>
                           <button
                             className={screen === item.id ? 'nav-item nav-item-active' : 'nav-item'}
-                            style={{ flex: 1 }}
+                            style={{ flex: 1, minWidth: 0 }}
                             onClick={() => setScreen(item.id)}
                           >
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
@@ -354,7 +394,32 @@ export function AppShell() {
                               </span>
                             )}
                           </button>
-                          {item.id === 'botOrders' && pedidosSeparacaoAtivos.length > 0 && (
+                          {editandoMenu && (
+                            <span className="menu-edicao-acoes">
+                              {grupo.favoritos && (
+                                <>
+                                  <button type="button" disabled={indice === 0} onClick={() => mudarMenu(moverFavorito(prefs.menu, item.id, -1))}
+                                    aria-label={`Subir ${item.label}`} title="Subir"><IconeEdicao nome="cima" /></button>
+                                  <button type="button" disabled={indice === grupo.itens.length - 1} onClick={() => mudarMenu(moverFavorito(prefs.menu, item.id, +1))}
+                                    aria-label={`Descer ${item.label}`} title="Descer"><IconeEdicao nome="baixo" /></button>
+                                </>
+                              )}
+                              {!grupo.ocultos && (
+                                <button type="button" className={grupo.favoritos ? 'ativo' : undefined}
+                                  onClick={() => mudarMenu(alternarFavorito(prefs.menu, item.id))}
+                                  aria-label={grupo.favoritos ? `Tirar ${item.label} dos favoritos` : `Fixar ${item.label} no topo`}
+                                  title={grupo.favoritos ? 'Tirar dos favoritos' : 'Fixar no topo'}>
+                                  <IconeEdicao nome="estrela" cheio={grupo.favoritos} />
+                                </button>
+                              )}
+                              <button type="button" onClick={() => mudarMenu(alternarOculto(prefs.menu, item.id))}
+                                aria-label={grupo.ocultos ? `Mostrar ${item.label}` : `Esconder ${item.label}`}
+                                title={grupo.ocultos ? 'Mostrar de novo' : 'Esconder do menu'}>
+                                <IconeEdicao nome={grupo.ocultos ? 'olho' : 'olhoFechado'} />
+                              </button>
+                            </span>
+                          )}
+                          {!editandoMenu && item.id === 'botOrders' && pedidosSeparacaoAtivos.length > 0 && (
                             <button
                               ref={badgeSeparacaoRef}
                               type="button"
@@ -405,21 +470,15 @@ export function AppShell() {
           </button>
 
           <div className="sidebar-footer-actions">
-            <button className="theme-toggle-btn" onClick={() => setDarkMode((v) => !v)}>
-              {darkMode ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <circle cx="12" cy="12" r="4" />
-                  <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-                </svg>
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20.8 14.3A9 9 0 1 1 9.7 3.2a7 7 0 0 0 11.1 11.1z" />
-                </svg>
-              )}
-              {darkMode ? 'Modo claro' : 'Modo escuro'}
+            <button type="button" className={aparenciaAberta ? 'theme-toggle-btn ativo' : 'theme-toggle-btn'}
+              onClick={() => setAparenciaAberta((v) => !v)} title="Tamanho da letra, densidade e tema">
+              <Icon name="palette" size={15} /> Aparência
             </button>
-
-            <button className="theme-toggle-btn theme-toggle-btn-danger" onClick={logout}>
+            <button type="button" className={editandoMenu ? 'theme-toggle-btn ativo' : 'theme-toggle-btn'}
+              onClick={() => setEditandoMenu((v) => !v)} title="Fixar favoritos no topo e esconder o que você não usa">
+              <Icon name="sliders" size={15} /> Menu
+            </button>
+            <button className="theme-toggle-btn theme-toggle-btn-danger" onClick={logout} title="Sair">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
                 <path d="M16 17l5-5-5-5" />
@@ -428,6 +487,7 @@ export function AppShell() {
               Sair
             </button>
           </div>
+          {aparenciaAberta && <PainelAparencia onClose={() => setAparenciaAberta(false)} />}
         </div>
       </nav>
       <main className="main-content">

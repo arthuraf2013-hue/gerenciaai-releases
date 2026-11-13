@@ -286,21 +286,33 @@ function getTableCart(saleId) {
   if (!sale) return { items: [], total: 0 };
 
   const items = db.prepare(
-    `SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id
+    `SELECT si.*, p.nome, p.unidade FROM sale_items si JOIN products p ON p.id = si.product_id
      WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em`
   ).all(saleId);
 
   const principal = db.prepare('SELECT * FROM restaurant_tables WHERE sale_id = ? AND unida_a_mesa_id IS NULL').get(saleId);
   const resumoMesa = (t) => ({ id: t.id, numero: t.numero, nome: t.nome || null });
 
+  // Quanto cada pessoa já pagou da parte dela (pagamento individual).
+  const pagoPorPessoa = {};
+  for (const r of db.prepare(
+    `SELECT spp.pessoa_numero AS n, SUM(p.valor) AS v FROM sale_person_payments spp
+     JOIN payments p ON p.id = spp.payment_id WHERE spp.sale_id = ? GROUP BY spp.pessoa_numero`
+  ).all(saleId)) pagoPorPessoa[r.n] = r.v;
+  const totalPago = db.prepare('SELECT COALESCE(SUM(valor), 0) AS t FROM payments WHERE sale_id = ?').get(saleId).t;
+
   return {
     total: sale.total,
     taxaServicoPercentual: sale.taxa_servico_percentual || 0,
+    desconto: (sale.desconto || 0) + (sale.desconto_gerente || 0),
+    totalPago,
+    pagoPorPessoa,
     pessoas: listarPessoas(db, saleId, principal?.pessoas),
     grupo: principal ? { principal: resumoMesa(principal), unidas: membrosDe(db, principal.id).map(resumoMesa) } : null,
     items: items.map((i) => ({
       id: i.id, nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, cancelado: false,
       observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null,
+      ajustavel: saleService.itemAjustavel(db, i, { unidade: i.unidade }),
     })),
   };
 }
@@ -709,9 +721,13 @@ function removerPessoa({ tableId, numero } = {}) {
   const total = totalDePessoas(db, c.saleId, c.principal.pessoas);
   const n = numeroDePessoaValido(numero, total);
   if (!n) return { ok: false, error: 'Pessoa não encontrada nesta mesa.' };
+  const pagou = db.prepare('SELECT COUNT(*) AS c FROM sale_person_payments WHERE sale_id = ? AND pessoa_numero = ?').get(c.saleId, n).c;
+  if (pagou > 0) return { ok: false, error: 'Esta pessoa já pagou a parte dela: não dá para removê-la da mesa.' };
   db.transaction(() => {
     db.prepare('UPDATE sale_items SET pessoa_numero = NULL WHERE sale_id = ? AND pessoa_numero = ?').run(c.saleId, n);
     db.prepare('UPDATE sale_items SET pessoa_numero = pessoa_numero - 1 WHERE sale_id = ? AND pessoa_numero > ?').run(c.saleId, n);
+    // Quem pagou continua sendo a mesma pessoa depois que as de baixo sobem um número.
+    db.prepare('UPDATE sale_person_payments SET pessoa_numero = pessoa_numero - 1 WHERE sale_id = ? AND pessoa_numero > ?').run(c.saleId, n);
     db.prepare('DELETE FROM sale_people WHERE sale_id = ? AND numero = ?').run(c.saleId, n);
     // Em dois passos por causa do UNIQUE(sale_id, numero): sobe para longe e desce de volta.
     db.prepare('UPDATE sale_people SET numero = numero + 1000000 WHERE sale_id = ? AND numero > ?').run(c.saleId, n);

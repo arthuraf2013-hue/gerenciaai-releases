@@ -119,7 +119,7 @@ export function CaixaScreen() {
             </section>
             <section className="settings-section">
               <h2><Icon name="receipt" size={16} /> Sangrias e suprimentos</h2>
-              {c.movimentos.length === 0 ? <p className="empty-state">Nenhum ainda.</p> : (
+              {c.movimentos.length === 0 ? <p className="empty-state">Nenhuma sangria ou suprimento neste caixa.</p> : (
                 <table className="data-table"><tbody>
                   {c.movimentos.map((m) => (
                     <tr key={m.id}>

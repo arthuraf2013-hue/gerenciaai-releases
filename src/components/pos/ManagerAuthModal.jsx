@@ -78,6 +78,7 @@ export function ManagerAuthModal({ title, onConfirm, onClose }) {
           <input
             type="password"
             inputMode="numeric"
+            data-teclado-enviar="Autorizar"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             autoFocus

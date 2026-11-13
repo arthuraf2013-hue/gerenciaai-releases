@@ -92,6 +92,7 @@ function getOrOpenCurrentSale({ locationId, operadorId }) {
     resumed: !!existing,
     items: items.map((i) => ({
       id: i.id, nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, cancelado: false,
+      ajustavel: itemAjustavel(db, i, db.prepare('SELECT unidade FROM products WHERE id = ?').get(i.product_id)),
     })),
   };
 }
@@ -587,7 +588,88 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // TableOrderScreen). precoUnitario continua sendo o preço já vigente
   // da linha (novo ou existente), usado só pra exibir/registrar o preço
   // do item em si, não pra fazer conta de total no front.
-  return { ok: true, itemId, precoUnitario: precoParaTotal, novoTotal, avisoReceita, alerta, quantidadeTotal };
+  const linhaFinal = db.prepare('SELECT * FROM sale_items WHERE id = ?').get(itemId);
+  return { ok: true, itemId, precoUnitario: precoParaTotal, novoTotal, avisoReceita, alerta, quantidadeTotal, ajustavel: itemAjustavel(db, linhaFinal, product) };
+}
+
+/**
+ * A linha aceita − e + no carrinho? Só unidade inteira, de produto que não
+ * é vendido por peso, que a cozinha ainda não recebeu e sem componentes
+ * (item personalizado e serviço com material descontam outra coisa por
+ * unidade -- mudar a quantidade deles é cancelar e lançar de novo).
+ */
+function itemAjustavel(db, item, product) {
+  if (!item || !product || item.cancelado) return false;
+  if (product.unidade === 'kg' || !Number.isInteger(item.quantidade) || item.quantidade < 1) return false;
+  if (item.nome_personalizado) return false;
+  if (item.enviado_cozinha || (item.status_preparo && item.status_preparo !== 'pendente')) return false;
+  return !db.prepare('SELECT 1 FROM custom_item_lines WHERE sale_item_id = ? LIMIT 1').get(item.id);
+}
+
+/**
+ * − e + do carrinho: muda a quantidade de uma linha em uma unidade, com o
+ * mesmo efeito no estoque (e na ficha técnica) de bipar mais um ou de
+ * cancelar um. Diminuir depois de entrar pagamento não passa por aqui: aí
+ * é o Cancelar, que pede autorização (ver cancelSaleItem).
+ */
+function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operadorId, deviceId }) {
+  const db = getDb();
+  const passo = Number(delta);
+  if (passo !== 1 && passo !== -1) return { ok: false, error: 'Ajuste inválido.' };
+
+  const sale = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!sale) return { ok: false, error: 'Venda não encontrada.' };
+  if (sale.status !== 'aberta') return { ok: false, error: 'Esta venda não está mais aberta.' };
+
+  const item = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND cancelado = 0').get(saleItemId, saleId);
+  if (!item) return { ok: false, error: 'Item não encontrado ou já cancelado.' };
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+  if (!itemAjustavel(db, item, product)) {
+    return { ok: false, error: 'A quantidade deste item não muda por aqui. Cancele o item e lance de novo.' };
+  }
+  const ehServico = product.tipo === 'servico';
+
+  let disponivel = null;
+  if (passo === 1) {
+    if (!product.ativo) return { ok: false, error: 'Este produto foi desativado.' };
+    if (!ehServico) {
+      disponivel = getCurrentStock(product.id, locationId);
+      if (disponivel < 1) return { ok: false, error: `Estoque insuficiente. Disponível: ${disponivel} ${product.unidade}.` };
+    }
+  } else {
+    if (item.quantidade <= 1) return { ok: false, error: 'Para tirar o último, use Cancelar.' };
+    const jaTemPagamento = db.prepare('SELECT COUNT(*) AS c FROM payments WHERE sale_id = ?').get(saleId).c > 0;
+    if (jaTemPagamento) return { ok: false, error: 'Já entrou pagamento nesta venda: para diminuir, use Cancelar no item.' };
+  }
+
+  const novaQuantidade = item.quantidade + passo;
+  let novoTotal;
+  db.transaction(() => {
+    db.prepare('UPDATE sale_items SET quantidade = ? WHERE id = ?').run(novaQuantidade, item.id);
+    if (!ehServico) {
+      db.prepare(
+        `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, device_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        randomUUID(), product.id, locationId, passo === 1 ? 'venda' : 'estorno', passo === 1 ? -1 : 1,
+        passo === 1 ? null : 'Quantidade diminuída no carrinho', saleId, item.id, operadorId, deviceId,
+      );
+    }
+    if (passo === 1) ingredientService.descontarPorVenda(product.id, 1, saleId);
+    else {
+      ingredientService.reverterPorVenda(product.id, 1, saleId);
+      db.prepare(
+        `INSERT INTO audit_log (id, tipo_evento, sale_id, sale_item_id, solicitante_id, autorizado_por_id, motivo, sucesso)
+         VALUES (?, 'reducao_item_pre_pagamento', ?, ?, ?, NULL, ?, 1)`
+      ).run(randomUUID(), saleId, item.id, operadorId || null, `${product.nome}: ${item.quantidade} → ${novaQuantidade}`);
+    }
+    novoTotal = recalcularTotal(db, saleId);
+  })();
+
+  const alerta = passo === 1 && !ehServico
+    ? computeProductAlert({ product, estoqueAtual: disponivel - 1, profile: profileService.getActiveProfile() })
+    : undefined;
+  return { ok: true, quantidade: novaQuantidade, novoTotal, ...(alerta !== undefined ? { alerta } : {}) };
 }
 
 /**
@@ -730,7 +812,11 @@ function getPaymentState(saleId) {
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
-  const pagamentos = db.prepare('SELECT id, metodo, valor FROM payments WHERE sale_id = ? ORDER BY rowid').all(saleId);
+  const pagamentos = db.prepare(
+    `SELECT p.id, p.metodo, p.valor, spp.pessoa_numero AS pessoaNumero
+     FROM payments p LEFT JOIN sale_person_payments spp ON spp.payment_id = p.id
+     WHERE p.sale_id = ? ORDER BY p.rowid`
+  ).all(saleId);
   const customer = sale.customer_id
     ? db.prepare('SELECT id, nome, pontos FROM customers WHERE id = ?').get(sale.customer_id) || null
     : null;
@@ -746,6 +832,24 @@ function getPaymentState(saleId) {
     pagamentos,
     customer,
   };
+}
+
+/**
+ * Diz de quem é um pagamento da comanda (pagamento individual na mesa: a
+ * Ana pagou a parte dela e foi embora). O pagamento em si é o de sempre
+ * (addPayment, Pix automático, maquininha); isto só guarda a pessoa.
+ */
+function marcarPagamentoPessoa({ saleId, paymentId, pessoaNumero }) {
+  const db = getDb();
+  const n = Number(pessoaNumero);
+  if (!Number.isInteger(n) || n < 1) return { ok: false, error: 'Pessoa inválida.' };
+  const pagamento = db.prepare('SELECT id FROM payments WHERE id = ? AND sale_id = ?').get(paymentId, saleId);
+  if (!pagamento) return { ok: false, error: 'Pagamento não encontrado nesta venda.' };
+  db.prepare(
+    `INSERT INTO sale_person_payments (payment_id, sale_id, pessoa_numero) VALUES (?, ?, ?)
+     ON CONFLICT(payment_id) DO UPDATE SET pessoa_numero = excluded.pessoa_numero`
+  ).run(paymentId, saleId, n);
+  return { ok: true };
 }
 
 /** Observação livre de um item (ex: "sem cebola") — some junto na
@@ -849,7 +953,10 @@ function removePayment({ paymentId, saleId, currentOperatorId, candidateManagerI
     ).run(randomUUID(), saleId, currentOperatorId || null, `${payment.metodo}: R$ ${payment.valor.toFixed(2)}${motivo ? ' — ' + motivo : ''}`);
   }
 
-  db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
+  db.transaction(() => {
+    db.prepare('DELETE FROM sale_person_payments WHERE payment_id = ?').run(paymentId);
+    db.prepare('DELETE FROM payments WHERE id = ?').run(paymentId);
+  })();
   return { ok: true, autorizadoPorId };
 }
 
@@ -1485,4 +1592,7 @@ module.exports = {
   getSaleItemsDetail, registrarMesasDaVenda, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
   tentarFinalizarVendasPendentesDeEstoque, contarVendasPendentesDeEstoque, listVendasPendentesDeEstoque, getStatusPendenteEstoque,
   cancelarVendaAbertaPeloSistema,
+  ajustarQuantidadeItem,
+  marcarPagamentoPessoa,
+  itemAjustavel,
 };

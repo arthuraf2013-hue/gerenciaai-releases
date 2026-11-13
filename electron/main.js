@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol } = require('electron');
+const { app, BrowserWindow, protocol, screen } = require('electron');
 const path = require('path');
 const { getDb } = require('./db/database');
 // ipc/handlers (que carrega TODOS os serviços do app) é carregado só
@@ -11,6 +11,8 @@ const licenseService = require('./services/licenseService');
 const errorReportService = require('./services/errorReportService');
 const reservationService = require('./services/reservationService');
 const appointmentService = require('./services/appointmentService');
+
+const janela = require('./janela');
 
 const isDev = !app.isPackaged;
 const seguranca = require('./seguranca');
@@ -65,9 +67,21 @@ if (!temOLock) {
 }
 
 function createWindow() {
+  // Abre no monitor, posição e tamanho em que a pessoa deixou da última vez
+  // (ver janela.js). Monitor desligado: abre centralizado no principal.
+  const arquivoJanela = path.join(app.getPath('userData'), 'janela.json');
+  const monitores = screen.getAllDisplays().map((d) => ({ id: d.id, bounds: d.bounds, workArea: d.workArea }));
+  const principalTela = screen.getPrimaryDisplay();
+  const pos = janela.escolherPosicao(
+    janela.lerEstado(arquivoJanela), monitores,
+    { id: principalTela.id, bounds: principalTela.bounds, workArea: principalTela.workArea },
+  );
+
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    x: pos.x,
+    y: pos.y,
+    width: pos.width,
+    height: pos.height,
     minWidth: 1024,
     minHeight: 700,
     icon: path.join(__dirname, '../build/icon.png'),
@@ -86,7 +100,18 @@ function createWindow() {
     },
   });
 
-  win.once('ready-to-show', () => win.show());
+  // Monitores com escala diferente (125% num, 100% no outro): o Windows
+  // reajusta o tamanho ao criar a janela no outro monitor -- setBounds
+  // depois de criada deixa exatamente o que foi salvo.
+  win.setBounds({ x: pos.x, y: pos.y, width: pos.width, height: pos.height });
+  janela.lembrarJanela(win, screen, arquivoJanela);
+
+  // maximize() mostra a janela na hora (antes do conteúdo): por isso só aqui.
+  win.once('ready-to-show', () => {
+    if (pos.maximized) win.maximize();
+    if (pos.fullscreen) win.setFullScreen(true);
+    win.show();
+  });
   // Windows: depois de um diálogo (salvar arquivo, impressão, aviso) a
   // janela volta ao primeiro plano mas a PÁGINA pode ficar sem o foco do
   // teclado -- os campos de texto param de aceitar digitação até trocar de

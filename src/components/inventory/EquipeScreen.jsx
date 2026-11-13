@@ -3,6 +3,7 @@ import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
 import { brl, dataBR, useModulosErp, ModuloInativo } from './erpUtils';
+import { VazioGuia } from '../common/VazioGuia';
 
 /** Equipe (ERP, gestão de pessoas): cadastro, documentos e férias. Sem cálculo de folha. */
 
@@ -53,7 +54,7 @@ export function EquipeScreen() {
         <div className="stat-card"><span>Por departamento</span><strong style={{ fontSize: 14 }}>{d.resumo.porDepartamento.map((x) => `${x.departamento}: ${x.qtd}`).join(' · ') || '—'}</strong></div>
       </div>
       <label className="nfe-opcao" style={{ marginBottom: 10 }}><input type="checkbox" checked={inativos} onChange={(e) => setInativos(e.target.checked)} /> Mostrar desligados</label>
-      {d.colaboradores.length === 0 ? <p className="empty-state">Nenhum colaborador cadastrado.</p> : (
+      {d.colaboradores.length === 0 ? <VazioGuia icone="users" titulo="Ninguém cadastrado ainda.">Toque em <strong>+ Novo colaborador</strong> para guardar contrato, salário e férias de cada pessoa.</VazioGuia> : (
         <table className="data-table">
           <thead><tr><th>Colaborador</th><th>Admissão</th><th>Férias</th><th>Documentos</th><th></th></tr></thead>
           <tbody>{d.colaboradores.map((c) => {

@@ -715,3 +715,43 @@ Ver a entrada "App do garçom + consulta remota pelo celular" no
 README.md pro raciocínio completo, e `tests/firestoreRules.test.js`
 pro que ainda falta rodar contra o emulador de verdade (não foi
 possível numa sessão sem rota de rede até o download dele).
+
+## Preferências de tela por usuário e modo toque (nov/2026)
+
+- **Preferência de USUÁRIO** (menu, PDV, letra, densidade, tema): tabela `user_preferences`
+  (`CREATE TABLE IF NOT EXISTS` no schema, não mexer em `users`), `preferenciasService.gravar`
+  mescla um nível por grupo (`null` apaga o grupo, limite 16 KB), canais `prefs:get`/`prefs:set`
+  sempre com `usuarioLogado(event)`. No renderer: `usePreferencias()` (`PreferenciasContext`);
+  lógica pura em `src/utils/preferencias.js` (testada).
+- **Letra = `webFrame.setZoomFactor`** pelo preload (`window.pdv.tela.setZoom`). NÃO usar CSS
+  `zoom` no app: desalinha popover posicionado por `getBoundingClientRect`. CSS zoom só como
+  reserva na prévia do navegador.
+- **Modo toque é do COMPUTADOR**, não do usuário: `localStorage` `gerenciaai:toque`
+  (`auto|sim|nao`), `ToqueContext` fica por fora da sessão (o login precisa dele) e põe
+  `html.modo-toque`. `auto` = `(pointer: coarse)`. Com toque ligado a densidade é sempre
+  confortável.
+- **Teclado numérico** (`TecladoNumerico.jsx`, montado uma vez no `App`): escuta `focusin` do
+  documento e abre em qualquer `<input>` de número (`campoNumerico` em `src/utils/toque.js`).
+  Escreve no campo com o setter nativo + evento `input` (o `onChange` da tela continua valendo).
+  `type="number"` não aceita "12." -- a vírgula pendente fica só no visor (`valorParaCampo`).
+  Atributos: `data-sem-teclado` (não abre), `data-teclado-enviar="Entrar"` (OK envia o form),
+  `data-teclado-ancora="direita"` (encosta na borda direita). Campo numérico novo não precisa
+  de nada para ganhar o teclado; precisa de `step` certo (sem step = inteiro).
+- CSS: regras gerais com `:where()` (especificidade zero) para não brigar com o CSS de cada
+  tela; modo toque sempre prefixado por `html.modo-toque`. "Clicar fora" de popover usa
+  `pointerdown`, não `mousedown` (toque que vira rolagem não gera mousedown).
+
+## Pagamento por pessoa, − e + e posição da janela (nov/2026)
+
+- Migrações **10** (`user_preferences`) e **11** (`sale_person_payments`: payment_id → pessoa_numero).
+  Mudança de banco nova = migração numerada em `migracoes.js`, não `schema.sql`.
+- `sale_person_payments` acompanha `sale_items.pessoa_numero`: quem mexer na numeração das pessoas
+  (removerPessoa, juntar mesas) tem que mexer aqui também. `removePayment` apaga a marca antes do
+  pagamento (foreign_keys ON). Juntar mesa com pagamento continua bloqueado.
+- PaymentPanel com `pessoa={numero,nome,valor}`: `restante` = parte da pessoa (limitado ao que falta
+  na conta); todo pagamento que entra depois de abrir (qualquer caminho) é marcado como dela pelo
+  efeito em `pagamentos`. Parte = `valorDaPessoa` (proporcional, inclui desconto e taxa).
+- `saleService.itemAjustavel` decide se a linha tem − e +; `ajustarQuantidadeItem` faz ±1 com o
+  mesmo efeito de estoque/ficha técnica de addItem/cancelSaleItem e grava `reducao_item_pre_pagamento`.
+- Janela principal: `electron/janela.js` (puro, testado) escolhe a posição; `setBounds` depois de criar
+  (DPI diferente entre monitores) e `maximize()` só no ready-to-show (senão mostra antes do conteúdo).

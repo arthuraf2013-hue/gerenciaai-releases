@@ -77,6 +77,41 @@ function MaterialServicoLine({ linha, onChange, onRemover }) {
   );
 }
 
+// O que é "produto" e "serviço" com exemplos do ramo -- a pessoa reconhece
+// o caso dela em vez de decifrar "controla estoque".
+const TIPOS_POR_PERFIL = {
+  padrao: { produto: 'Tem estoque: conta unidades, avisa quando está acabando.', servico: 'Mão de obra, taxa, entrega: sem estoque.', iconeServico: 'wrench' },
+  farmacia: { produto: 'Remédio, perfumaria, higiene: estoque, lote e validade.', servico: 'Aplicação, aferição de pressão, teste: sem estoque.', iconeServico: 'lab' },
+  petshop: { produto: 'Ração, petisco, acessório, remédio: com estoque.', servico: 'Banho, tosa, consulta: sem estoque.', iconeServico: 'paw' },
+  armazem: { produto: 'Mercadoria de prateleira ou a granel (por kg).', servico: 'Entrega, taxa: sem estoque.', iconeServico: 'truck' },
+  salao_beleza: { produto: 'Shampoo, esmalte, creme para vender.', servico: 'Corte, coloração, escova: pode descontar o material usado.', iconeServico: 'sparkle' },
+  otica: { produto: 'Armação, lente, solução, estojo: com estoque.', servico: 'Ajuste, conserto, montagem: sem estoque.', iconeServico: 'glasses' },
+  material_construcao: { produto: 'Cimento, tinta, ferramenta: com estoque.', servico: 'Corte, entrega, montagem: sem estoque.', iconeServico: 'truck' },
+  vestuario: { produto: 'Peça com tamanho e cor: com estoque.', servico: 'Ajuste, barra, conserto: sem estoque.', iconeServico: 'wrench' },
+};
+
+/** Custo, preço, margem e lucro por unidade -- o que o dono confere ao precificar. */
+function ResumoDoProduto({ custo, preco }) {
+  if (!(preco > 0) && !(custo > 0)) return null;
+  const lucro = preco - custo;
+  const margem = custo > 0 && preco > 0 ? ((preco - custo) / custo) * 100 : null;
+  const faixa = !(custo > 0) ? null : lucro < 0 ? 'alto' : margem < 15 ? 'atencao' : 'bom';
+  const texto = { bom: 'ok', atencao: 'margem baixa', alto: 'vendendo no prejuízo' };
+  return (
+    <div className="resumo-prato">
+      <div><small>Custo</small><strong>{custo > 0 ? formatarReais(custo) : '—'}</strong></div>
+      <div><small>Preço</small><strong>{preco > 0 ? formatarReais(preco) : '—'}</strong></div>
+      <div className={faixa ? `cmv cmv-${faixa}` : 'cmv'}>
+        <small>Margem sobre o custo</small>
+        <strong>{margem !== null ? `${margem.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '—'}</strong>
+        {faixa && <em>{texto[faixa]}</em>}
+      </div>
+      <div><small>Sobra por unidade</small><strong>{custo > 0 && preco > 0 ? formatarReais(lucro) : '—'}</strong></div>
+      {!(custo > 0) && <span className="ficha-dica" style={{ flexBasis: 'auto' }}>Informe o custo para ver a margem.</span>}
+    </div>
+  );
+}
+
 /** Custo, CMV e lucro por porção -- a conta que o dono do restaurante faz de cabeça. */
 function ResumoDoPrato({ custo, preco, onUsarPreco }) {
   const cmv = avaliarCmv(custo, preco);
@@ -272,6 +307,8 @@ export function ProductForm({ product, onSaved, onCancel }) {
     });
   }
   const fichaAplicavel = form.tipo === 'produto' || feitoNaHora;
+  const tiposDoPerfil = TIPOS_POR_PERFIL[profile?.id] || TIPOS_POR_PERFIL.padrao;
+  const camposDoRamo = form.tipo === 'servico' ? camposExtrasServico : camposExtrasProduto;
   const porcoes = Math.max(1, Number(lerNumero(fichaRendimento)) || 1);
   const custoFicha = useMemo(() => custoDasLinhas(fichaLinhas, porcoes), [fichaLinhas, porcoes]);
   const usaCustoDaFicha = fichaAplicavel && fichaLinhas.length > 0 && custoFicha > 0;
@@ -501,13 +538,20 @@ export function ProductForm({ product, onSaved, onCancel }) {
           ))}
         </div>
       ) : (
-        <div className="form-grid" style={{ marginBottom: 12 }}>
-          <label>Tipo
-            <select value={form.tipo} onChange={(e) => setField('tipo', e.target.value)}>
-              <option value="produto">Produto (controla estoque)</option>
-              <option value="servico">Serviço (mão de obra, taxa, consulta — sem estoque)</option>
-            </select>
-          </label>
+        <div className="modo-item modo-item-2" role="radiogroup" aria-label="Que tipo de item é este?">
+          {[
+            { valor: 'produto', icone: 'box', titulo: 'Produto', texto: tiposDoPerfil.produto },
+            { valor: 'servico', icone: tiposDoPerfil.iconeServico, titulo: 'Serviço', texto: tiposDoPerfil.servico },
+          ].map((op) => (
+            <button
+              type="button" key={op.valor} role="radio" aria-checked={form.tipo === op.valor}
+              className={form.tipo === op.valor ? 'modo-item-opcao ativo' : 'modo-item-opcao'}
+              onClick={() => setField('tipo', op.valor)}
+            >
+              <Icon name={op.icone} size={20} />
+              <span><strong>{op.titulo}</strong><small>{op.texto}</small></span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -615,7 +659,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
           <input
             type="number" step="0.1" value={margemPercentual}
             onChange={(e) => handleMargemChange(e.target.value)}
-            placeholder="Ex: 40 (calcula o preço de venda sozinho)"
+            placeholder="Ex: 40 (calcula o preço)"
             disabled={!form.custo || Number(form.custo) <= 0}
           />
         </label>
@@ -645,6 +689,37 @@ export function ProductForm({ product, onSaved, onCancel }) {
           </label>
         )}
       </div>
+
+      {!ehCozinha && (
+        <ResumoDoProduto custo={usaCustoDaFicha ? custoFicha : Number(form.custo)} preco={Number(form.preco)} />
+      )}
+
+      {!ehCozinha && camposDoRamo.length > 0 && (
+        <>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Informações do ramo <small className="titulo-ramo">{profile.nome}</small></h3>
+          <div className="form-grid">
+            {camposDoRamo.map((campo) => (
+              campo.tipo === 'boolean' ? (
+                <label key={campo.campo} className="check-linha">
+                  <input type="checkbox" checked={!!form.customFields[campo.campo]}
+                    onChange={(e) => setCustomField(campo.campo, e.target.checked)} />
+                  {campo.label}
+                </label>
+              ) : (
+                <label key={campo.campo}>
+                  {campo.label}{campo.obrigatorio ? ' *' : ''}
+                  <input
+                    type={campo.tipo === 'data' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'}
+                    value={form.customFields[campo.campo] || ''}
+                    onChange={(e) => setCustomField(campo.campo, e.target.value)}
+                    required={campo.obrigatorio}
+                  />
+                </label>
+              )
+            ))}
+          </div>
+        </>
+      )}
 
       {fichaAplicavel && ehCozinha && (
         <ResumoDoPrato custo={usaCustoDaFicha ? custoFicha : Number(form.custo)} preco={Number(form.preco)}
@@ -704,11 +779,11 @@ export function ProductForm({ product, onSaved, onCancel }) {
       )}
 
       {(form.tipo !== 'servico' || feitoNaHora) && (
-        <details className="secao-recolhivel" open={!ehCozinha || undefined}>
+        <details className="secao-recolhivel">
           <summary>
             <Icon name="receipt" size={16} /> Dados fiscais
-            <span className="secao-recolhivel-resumo">
-              {form.ncm ? `NCM ${form.ncm}${form.cfop ? ` · CFOP ${form.cfop}` : ''}` : 'opcional — só para emitir NFC-e'}
+            <span className={form.ncm ? 'secao-recolhivel-resumo' : 'secao-recolhivel-resumo secao-recolhivel-falta'}>
+              {form.ncm ? `NCM ${form.ncm}${form.cfop ? ` · CFOP ${form.cfop}` : ''}` : 'sem NCM: preencha se a loja emite NFC-e'}
             </span>
           </summary>
           <div className="form-grid">
@@ -734,62 +809,6 @@ export function ProductForm({ product, onSaved, onCancel }) {
           </div>
           {dicaFiscal && <p className="io-message" style={{ marginTop: 8 }}><Icon name="sparkle" size={14} /> {dicaFiscal}</p>}
         </details>
-      )}
-
-      {!ehCozinha && form.tipo !== 'servico' && camposExtrasProduto.length > 0 && (
-        <>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
-          <div className="form-grid">
-            {camposExtrasProduto.map((campo) => (
-              <label key={campo.campo}>
-                {campo.label}{campo.obrigatorio ? ' *' : ''}
-                {campo.tipo === 'boolean' ? (
-                  <select
-                    value={form.customFields[campo.campo] ? 'sim' : 'não'}
-                    onChange={(e) => setCustomField(campo.campo, e.target.value === 'sim')}
-                  >
-                    <option value="não">Não</option>
-                    <option value="sim">Sim</option>
-                  </select>
-                ) : (
-                  <input
-                    type={campo.tipo === 'data' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'}
-                    value={form.customFields[campo.campo] || ''}
-                    onChange={(e) => setCustomField(campo.campo, e.target.value)}
-                  />
-                )}
-              </label>
-            ))}
-          </div>
-        </>
-      )}
-
-      {form.tipo === 'servico' && !feitoNaHora && camposExtrasServico.length > 0 && (
-        <>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="clipboard" size={16} /> Campos do perfil "{profile.nome}"</h3>
-          <div className="form-grid">
-            {camposExtrasServico.map((campo) => (
-              <label key={campo.campo}>
-                {campo.label}{campo.obrigatorio ? ' *' : ''}
-                {campo.tipo === 'boolean' ? (
-                  <select
-                    value={form.customFields[campo.campo] ? 'sim' : 'não'}
-                    onChange={(e) => setCustomField(campo.campo, e.target.value === 'sim')}
-                  >
-                    <option value="não">Não</option>
-                    <option value="sim">Sim</option>
-                  </select>
-                ) : (
-                  <input
-                    type={campo.tipo === 'data' ? 'date' : campo.tipo === 'numero' ? 'number' : 'text'}
-                    value={form.customFields[campo.campo] || ''}
-                    onChange={(e) => setCustomField(campo.campo, e.target.value)}
-                  />
-                )}
-              </label>
-            ))}
-          </div>
-        </>
       )}
 
       {error && <p className="modal-error">{error}</p>}

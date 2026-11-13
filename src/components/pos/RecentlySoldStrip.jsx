@@ -3,9 +3,10 @@ import { ProductThumbnail } from './ProductThumbnail';
 import Icon from '../common/Icon';
 
 /**
- * @param {{ locationId: string, refreshKey: number, onSelectProduct: (product: object) => void }} props
+ * @param {{ locationId: string, refreshKey: number, onSelectProduct: (product: object) => void, onOcultar?: () => void }} props
+ * onOcultar: esconde a faixa para este usuário (volta pelo menu "Mais" do PDV ou em Aparência).
  */
-export function RecentlySoldStrip({ locationId, refreshKey, onSelectProduct }) {
+export function RecentlySoldStrip({ locationId, refreshKey, onSelectProduct, onOcultar }) {
   const [products, setProducts] = useState([]);
   const [config, setConfig] = useState(null);
 
@@ -27,6 +28,11 @@ export function RecentlySoldStrip({ locationId, refreshKey, onSelectProduct }) {
       <span className="recent-strip-label" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <Icon name="star" size={14} />
         {config?.modo_vendidos_recentes === 'frequente' ? 'Mais vendidos' : 'Vendidos recentemente'}
+        {onOcultar && (
+          <button type="button" className="recent-strip-ocultar" onClick={onOcultar} title="Esconder esta faixa (volta pelo menu Mais do PDV)">
+            Ocultar
+          </button>
+        )}
       </span>
       <div className="recent-strip-items">
         {products.map((p) => (

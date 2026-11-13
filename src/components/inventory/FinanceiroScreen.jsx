@@ -6,6 +6,7 @@ import Icon from '../common/Icon';
 import { CATEGORIAS_DESPESA as CATEGORIAS, CATEGORIA_LABEL, ContasAReceberTab, FluxoCaixaTab, DreTab, AjustesFinanceiroTab, BaixaComEncargos } from './FinanceiroErp';
 import { ConciliacaoTab, ComissoesTab, ContabilTab, InadimplenciaSecao, LimitesFiadoSecao, DespesasPorCentro, CentrosDeCustoSecao } from './GestaoErp';
 import { Abas, useModulosErp, ModuloInativo } from './erpUtils';
+import { VazioGuia } from '../common/VazioGuia';
 
 const ABAS = [
   { id: 'resumo', icone: 'money', rotulo: 'Resumo e despesas' },
@@ -182,7 +183,7 @@ function ResumoEDespesas() {
 
       <h2 style={{ marginTop: 24 }}><Icon name="money" size={18} /> Despesas do período</h2>
       {despesas.length === 0 ? (
-        <p className="empty-state">Nenhuma despesa lançada nesse período.</p>
+        <VazioGuia icone="receipt" titulo="Nenhuma despesa neste período.">Use <strong>Lançar despesa</strong> para aluguel, luz e fornecedores: sem elas o resultado do período fica maior do que é.</VazioGuia>
       ) : (
         <table className="data-table">
           <thead><tr><th>Data</th><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Status</th><th></th></tr></thead>

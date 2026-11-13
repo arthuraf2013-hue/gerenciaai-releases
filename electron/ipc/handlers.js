@@ -11,6 +11,7 @@ const licenseService = require('../services/licenseService');
 const messageService = require('../services/messageService');
 const tableService = require('../services/tableService');
 const ingredientService = require('../services/ingredientService');
+const preferenciasService = require('../services/preferenciasService');
 const customItemService = require('../services/customItemService');
 const serviceMaterialService = require('../services/serviceMaterialService');
 const wasteService = require('../services/wasteService');
@@ -371,6 +372,8 @@ function registerIpcHandlers() {
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
   safeHandle('sale:setItemPrice', (_e, payload) => saleService.setItemPrice(payload));
+  safeHandle('sale:ajustarQuantidade', (_e, payload) => saleService.ajustarQuantidadeItem(payload));
+  safeHandle('sale:marcarPagamentoPessoa', (_e, payload) => saleService.marcarPagamentoPessoa(payload));
   safeHandle('sale:editarHistorico', (_e, payload) => saleService.editarHistoricoVenda(payload));
   safeHandle('sale:finalize', async (event, { saleId, nomeSenha } = {}) => {
     const r = await saleService.finalizeSaleComVerificacaoDeGrupo(saleId);
@@ -964,6 +967,10 @@ function registerIpcHandlers() {
   safeHandle('print:listPrinters', () => printService.listPrinters());
   safeHandle('print:testPage', () => printService.printTestPage());
   safeHandle('product:listDailyMenu', () => productService.listDailyMenu());
+  // Preferências de tela: sempre do usuário da sessão (nunca de um id vindo
+  // do payload) -- qualquer papel, inclusive garçom, monta o próprio menu.
+  safeHandle('prefs:get', (event) => preferenciasService.ler(usuarioLogado(event)));
+  safeHandle('prefs:set', (event, mudancas) => preferenciasService.gravar(usuarioLogado(event), mudancas));
   safeHandle('product:listPratosParaCardapio', () => productService.listPratosParaCardapio());
   // Qualquer pessoa logada no caixa pode marcar "acabou" -- é rotina do turno,
   // não cadastro (o resto do produto continua exigindo gestão).

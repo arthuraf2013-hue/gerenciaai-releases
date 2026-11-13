@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { VazioGuia } from '../common/VazioGuia';
 
 const STATUS_LABEL = {
   pendente: 'Pendente',
@@ -155,7 +156,7 @@ export function ReservasScreen() {
       {erro && <p className="modal-error">{erro}</p>}
 
       {reservas === null && <p className="empty-state">Carregando...</p>}
-      {reservas !== null && reservasFiltradas.length === 0 && <p className="empty-state">Nenhuma reserva por aqui.</p>}
+      {reservas !== null && reservasFiltradas.length === 0 && <VazioGuia icone="calendar" titulo="Nenhuma reserva aqui.">Toque em <strong>+ Nova reserva</strong>. As que chegam pelo WhatsApp aparecem sozinhas.</VazioGuia>}
       {reservas !== null && reservasFiltradas.length > 0 && (
         <table className="data-table">
           <thead>

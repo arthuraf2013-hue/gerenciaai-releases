@@ -77,6 +77,7 @@ export function SwitchUserModal({ onClose, onSwitched }) {
           <input
             type="password"
             inputMode="numeric"
+            data-teclado-enviar="Entrar"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             required

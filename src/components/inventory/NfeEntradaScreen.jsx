@@ -5,6 +5,7 @@ import { ProductPicker } from './SupplyScreen';
 import Icon from '../common/Icon';
 import { brl, brlCusto, qtd, dataBR, ChipStatus } from './erpUtils';
 import { ProdutosDaNotaModal, ReajustePrecos } from './CadastroAutomatico';
+import { VazioGuia } from '../common/VazioGuia';
 
 /**
  * Entrada de mercadoria pelo XML da NF-e de compra (ERP, Fase 1).
@@ -70,7 +71,7 @@ export function NfeEntradaScreen() {
       {notas === null ? (
         <p className="empty-state">Carregando...</p>
       ) : notas.length === 0 ? (
-        <p className="empty-state">Nenhuma nota importada ainda.</p>
+        <VazioGuia icone="document" titulo="Nenhuma nota importada ainda.">Peça ao fornecedor o XML da nota (costuma vir por e-mail) e importe aqui: o sistema liga os itens aos produtos e atualiza o custo.</VazioGuia>
       ) : (
         <table className="data-table">
           <thead>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import Icon from '../common/Icon';
@@ -14,8 +14,11 @@ const METODOS = [
 
 /**
  * @param {{ saleId: string, total: number, onFinalized: () => void }} props
+ * pessoa ({ numero, nome, valor }): pagamento individual na mesa -- cobra só
+ * a parte dessa pessoa, marca os pagamentos como dela e, se ainda faltar o
+ * dos outros, termina em onPessoaPaga() com a venda aberta.
  */
-export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPendente, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0 }) {
+export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPendente, mostrarTaxaServico = false, taxaServicoPercentual: taxaInicial = 0, pessoa = null, onPessoaPaga }) {
   const { currentUser } = useSession();
   const [metodo, setMetodo] = useState('dinheiro');
   const [valor, setValor] = useState('');
@@ -136,7 +139,7 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   async function recarregarPagamentos() {
     try {
       const r = await window.pdv.sale.getPaymentState({ saleId });
-      if (r?.ok) setPagamentos(r.pagamentos);
+      if (r?.ok) setPagamentos(comPessoa(r.pagamentos));
     } catch { /* a próxima ação recarrega */ }
   }
 
@@ -174,6 +177,28 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   // "Falta" mostrava o total cheio e qualquer pagamento não-dinheiro
   // batia no erro "passa do que falta" do backend.
   const [estadoCarregado, setEstadoCarregado] = useState(false);
+  // Pagamento individual: o que já existia ao abrir não é desta pessoa; o
+  // que entrar daqui em diante (qualquer caminho: digitado, Pix automático,
+  // maquininha) é marcado como dela no banco.
+  const idsIniciais = useRef(new Set());
+  const marcando = useRef(new Set());
+  function comPessoa(lista) {
+    if (!pessoa) return lista;
+    return lista.map((p) => (!p.pessoaNumero && !idsIniciais.current.has(p.id)
+      ? { ...p, pessoaNumero: pessoa.numero, marcar: true } : p));
+  }
+  useEffect(() => {
+    for (const p of pagamentos) {
+      if (!p.marcar || marcando.current.has(p.id)) continue;
+      marcando.current.add(p.id);
+      window.pdv.sale.marcarPagamentoPessoa({ saleId, paymentId: p.id, pessoaNumero: p.pessoaNumero })
+        .then((r) => {
+          if (!r?.ok) { setError(r?.error || 'Não consegui marcar o pagamento como desta pessoa.'); return; }
+          setPagamentos((prev) => prev.map((x) => (x.id === p.id ? { ...x, marcar: false } : x)));
+        })
+        .finally(() => marcando.current.delete(p.id));
+    }
+  }, [pagamentos, saleId]);
   const [totalDb, setTotalDb] = useState(null);
   const total = totalDb ?? totalProp;
 
@@ -189,6 +214,7 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         setDescontoGerente(r.descontoGerente);
         setDescontoGerenteMotivo(r.descontoGerenteMotivo);
         setTaxaServico(r.taxaServicoPercentual);
+        idsIniciais.current = new Set(r.pagamentos.map((p) => p.id));
         setPagamentos(r.pagamentos);
         if (r.customer) setCustomer(r.customer);
         // Venda já paga (ex.: saiu da tela antes de "Concluir"): mostra a tela de
@@ -226,7 +252,10 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   const valorTaxaServico = taxaServico > 0 ? subtotalComDesconto * (taxaServico / 100) : 0;
   const totalAPagar = subtotalComDesconto + valorTaxaServico;
   const totalPago = pagamentos.reduce((acc, p) => acc + p.valor, 0);
-  const restante = Math.max(0, totalAPagar - totalPago);
+  const restanteGeral = Math.max(0, totalAPagar - totalPago);
+  // Pagando só a parte de uma pessoa: o que falta é o dela (nunca mais que o da conta).
+  const pagoPessoa = pessoa ? pagamentos.filter((p) => p.pessoaNumero === pessoa.numero).reduce((acc, p) => acc + p.valor, 0) : 0;
+  const restante = pessoa ? Math.max(0, Math.min(pessoa.valor - pagoPessoa, restanteGeral)) : restanteGeral;
   // Mesma tolerância de meio centavo usada em finalizeSale (backend) --
   // sem isso, comparar `restante > 0` direto podia deixar o botão de
   // Finalizar travado pra sempre com "Falta R$ 0,00" na tela: somar
@@ -239,6 +268,11 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   // com Pix. Com a mesma tolerância dos dois lados, front e back sempre
   // concordam se a venda está paga.
   const pagamentoCompleto = totalPago + 0.005 >= totalAPagar;
+  const pessoaQuitada = !!pessoa && restante <= 0.005;
+  const marcandoPessoa = pagamentos.some((p) => p.marcar);
+  // O que este painel tem que cobrar já foi cobrado: a parte da pessoa, ou a conta inteira.
+  const alvoPago = pessoa ? (pessoaQuitada || pagamentoCompleto) : pagamentoCompleto;
+  const metodosDisponiveis = pessoa ? METODOS.filter((m) => m.id !== 'fiado') : METODOS;
   // Enquanto ainda está digitando o valor, mostra uma prévia do troco na
   // hora — depois que o pagamento é confirmado, o campo é limpo, então
   // passa a mostrar o troco do último pagamento que de fato gerou troco
@@ -248,7 +282,10 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   const troco = valor ? trocoPreview : trocoConfirmado;
 
   function registrarPagamentoLocal(id, metodoUsado, valorAplicado) {
-    setPagamentos((prev) => [...prev, { id, metodo: metodoUsado, valor: valorAplicado }]);
+    setPagamentos((prev) => [...prev, {
+      id, metodo: metodoUsado, valor: valorAplicado,
+      pessoaNumero: pessoa ? pessoa.numero : null, marcar: !!pessoa,
+    }]);
   }
 
   async function removerPagamento(pagamento) {
@@ -677,6 +714,12 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
 
   return (
     <div className="payment-panel">
+      {pessoa ? (
+        <div className="pagamento-pessoa-topo">
+          <Icon name="user" size={18} />
+          <span><strong>Pagamento de {pessoa.nome}</strong><br /><span className="screen-hint">Só a parte desta pessoa (o que ela consumiu, com a taxa de serviço). A mesa continua aberta para os outros.</span></span>
+        </div>
+      ) : (<>
       <div className="customer-link-box">
         {customer ? (
           <div className="customer-chip">
@@ -759,17 +802,19 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         </div>
       )}
 
+      </>)}
+
       <div className="payment-summary">
-        <span>Total da venda</span>
-        <strong>R$ {totalAPagar.toFixed(2)}</strong>
+        <span>{pessoa ? `Parte de ${pessoa.nome}` : 'Total da venda'}</span>
+        <strong>R$ {(pessoa ? pessoa.valor : totalAPagar).toFixed(2)}</strong>
       </div>
       <div className="payment-summary">
-        <span>Pago</span>
-        <strong>R$ {totalPago.toFixed(2)}</strong>
+        <span>{pessoa ? 'Já pago por esta pessoa' : 'Pago'}</span>
+        <strong>R$ {(pessoa ? pagoPessoa : totalPago).toFixed(2)}</strong>
       </div>
       <div className="payment-summary highlight">
-        <span>{!pagamentoCompleto ? 'Falta' : 'Troco'}</span>
-        <strong>R$ {(!pagamentoCompleto ? restante : troco).toFixed(2)}</strong>
+        <span>{!alvoPago ? 'Falta' : 'Troco'}</span>
+        <strong>R$ {(!alvoPago ? restante : troco).toFixed(2)}</strong>
       </div>
 
       {maq && (
@@ -783,10 +828,10 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         </div>
       )}
 
-      {!pagamentoCompleto && !pix && !maq && (
+      {!alvoPago && !pix && !maq && (
         <div className="payment-input-row">
           <select value={metodo} onChange={(e) => { setMetodo(e.target.value); setError(''); }}>
-            {METODOS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+            {metodosDisponiveis.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </select>
           <input
             type="number"
@@ -834,7 +879,7 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         </div>
       )}
 
-      {!pagamentoCompleto && !pix && !maq && (
+      {!alvoPago && !pix && !maq && (
         <div className="payment-quick-values">
           <button type="button" className="quick-value-btn" onClick={handleValorExatoClick}>
             Valor exato (R$ {restante.toFixed(2)})
@@ -880,7 +925,7 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
 
       {pagamentos.length > 0 && (
         <ul className="payment-list">
-          {pagamentos.map((p) => (
+          {pagamentos.filter((p) => !pessoa || p.pessoaNumero === pessoa.numero).map((p) => (
             <li key={p.id} className="payment-list-item">
               <span>{METODOS.find((m) => m.id === p.metodo)?.label} — R$ {p.valor.toFixed(2)}</span>
               <button className="btn-link-danger" onClick={() => removerPagamento(p)}>Remover</button>
@@ -921,17 +966,29 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
         <>
           {error && <p className="modal-error">{error}</p>}
 
-          {senhaNoBalcao && !mostrarTaxaServico && (
+          {pessoa && pessoaQuitada && !pagamentoCompleto && (
+            <div className="pagamento-pessoa-ok">
+              <Icon name="checkCircle" size={18} />
+              <span>{pessoa.nome} pagou a sua parte (R$ {pagoPessoa.toFixed(2)}). A mesa continua aberta.</span>
+              <button className="btn-primary" disabled={marcandoPessoa} onClick={() => onPessoaPaga?.()}>
+                {marcandoPessoa ? 'Salvando...' : 'Concluir'}
+              </button>
+            </div>
+          )}
+
+          {senhaNoBalcao && !mostrarTaxaServico && !pessoa && (
             <label style={{ marginBottom: 8 }}>Nome para a senha (opcional)
               <input value={nomeSenha} maxLength={60} onChange={(e) => setNomeSenha(e.target.value)} placeholder={customer?.nome || 'Ex.: Ana'} />
             </label>
           )}
 
-          <button className="btn-primary" disabled={!pagamentoCompleto || finalizando || !!maq} onClick={finalizar}>
+          {(!pessoa || pagamentoCompleto) && (
+          <button className="btn-primary" disabled={!pagamentoCompleto || finalizando || !!maq || marcandoPessoa} onClick={finalizar}>
             {finalizando ? 'Finalizando...' : (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Finalizar venda</span>
             )}
           </button>
+          )}
         </>
       )}
 

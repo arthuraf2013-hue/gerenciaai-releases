@@ -50,6 +50,7 @@ const ICONS = {
   ),
   add: <><Ring /><path d="M12 7v10M7 12h10" {...LINE} /></>,
   close: <><Ring /><path d="M8 8l8 8M16 8l-8 8" {...LINE} /></>,
+  backspace: <><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z" fill="currentColor" opacity={RING} /><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z" {...LINE} /><path d="M12 9.5l5 5M17 9.5l-5 5" {...LINE} /></>,
   check: <><Ring /><path d="M7 12.5l3.3 3.3L17 9" {...LINE} /></>,
   checkCircle: (
     <>

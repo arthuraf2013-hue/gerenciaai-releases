@@ -3,6 +3,7 @@ import { useSession } from '../../context/SessionContext';
 import { ProductSearchBox } from './ProductSearchBox';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { VazioGuia } from '../common/VazioGuia';
 
 const STATUS_LABEL = { aberto: 'Aberto', convertido: 'Convertido', cancelado: 'Cancelado' };
 
@@ -151,7 +152,7 @@ export function QuotesScreen() {
       </div>
 
       {orcamentos === null && <p className="empty-state">Carregando...</p>}
-      {orcamentos !== null && orcamentos.length === 0 && <p className="empty-state">Nenhum orçamento por aqui.</p>}
+      {orcamentos !== null && orcamentos.length === 0 && (!filtroStatus || filtroStatus === 'todos' ? <VazioGuia icone="clipboard" titulo="Nenhum orçamento ainda.">Toque em <strong>+ Novo orçamento</strong>: ele não mexe em estoque nem em caixa até virar venda.</VazioGuia> : <p className="empty-state">Nenhum orçamento com esse filtro.</p>)}
       {orcamentos && orcamentos.length > 0 && (
         <table className="data-table">
           <thead><tr><th>Cliente</th><th>Total</th><th>Status</th><th>Válido até</th><th></th></tr></thead>

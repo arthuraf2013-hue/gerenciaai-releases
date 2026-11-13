@@ -334,20 +334,25 @@ export function ProductList() {
                 <td className={abaixoDoMinimo ? 'text-danger' : ''}>{estoqueAtual}</td>
                 <td>{ehServico ? '—' : p.estoque_minimo}</td>
                 <td>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  {/* Editar à vista; o resto em ícone (com nome no passar do mouse)
+                      -- quatro botões de texto por linha empurravam a tabela. */}
+                  <div className="acoes-linha">
                     <button className="btn-link" onClick={() => setEditing(p)}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="edit" size={14} /> Editar</span>
                     </button>
-                    <button className="btn-link" onClick={() => setEditing({ ...p, __duplicarDe: p.id })} title="Abre um cadastro novo com os mesmos dados e a mesma ficha técnica">
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="duplicate" size={14} /> Duplicar</span>
+                    <button type="button" className="acao-icone" onClick={() => setEditing({ ...p, __duplicarDe: p.id })}
+                      title="Duplicar: abre um cadastro novo com os mesmos dados (e a mesma ficha técnica)" aria-label={`Duplicar ${p.nome}`}>
+                      <Icon name="duplicate" size={16} />
                     </button>
                     {!ehServico && (
-                      <button className="btn-link" onClick={() => setAdjusting(p)}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="box" size={14} /> Ajustar estoque</span>
+                      <button type="button" className="acao-icone" onClick={() => setAdjusting(p)}
+                        title="Ajustar estoque (entrada, perda, correção)" aria-label={`Ajustar estoque de ${p.nome}`}>
+                        <Icon name="box" size={16} />
                       </button>
                     )}
-                    <button className="btn-link-danger" onClick={() => handleDelete(p)}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="trash" size={14} /> Excluir</span>
+                    <button type="button" className="acao-icone acao-icone-perigo" onClick={() => handleDelete(p)}
+                      title="Excluir" aria-label={`Excluir ${p.nome}`}>
+                      <Icon name="trash" size={16} />
                     </button>
                   </div>
                 </td>

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import Icon from '../common/Icon';
 import { ProductThumbnail } from './ProductThumbnail';
 
 /**
- * @param {{ onSelectProduct: (product: object) => void }} props
+ * @param {{ onSelectProduct: (product: object) => void, modo?: 'faixa'|'suspenso', onModo?: (m: string) => void }} props
+ * modo 'faixa' = botões (padrão); 'suspenso' = uma linha só com a lista de
+ * categorias -- escolha de cada usuário (PreferenciasContext).
  */
-export function CategoryProductBrowser({ onSelectProduct }) {
+export function CategoryProductBrowser({ onSelectProduct, modo = 'faixa', onModo }) {
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState(null);
   const [products, setProducts] = useState([]);
@@ -47,6 +50,19 @@ export function CategoryProductBrowser({ onSelectProduct }) {
 
   return (
     <div className="category-browser">
+      {modo === 'suspenso' ? (
+        <div className="category-suspenso">
+          <label>
+            <Icon name="tag" size={15} /> Categoria
+            <select value={activeCategory || ''} onChange={(e) => handleCategoryClick(e.target.value || activeCategory)}>
+              <option value="">{categories.length ? 'Escolha para ver os produtos…' : 'Nenhuma categoria cadastrada'}</option>
+              {categories.map((c) => <option key={c.categoria} value={c.categoria}>{c.categoria} ({c.total})</option>)}
+            </select>
+          </label>
+          {activeCategory && <button type="button" className="btn-link" onClick={() => handleCategoryClick(activeCategory)}>Fechar a grade</button>}
+          {onModo && <button type="button" className="btn-link" onClick={() => onModo('faixa')}>Ver em botões</button>}
+        </div>
+      ) : (
       <div className="category-buttons">
         {categories.map((c) => (
           <button
@@ -60,7 +76,13 @@ export function CategoryProductBrowser({ onSelectProduct }) {
         {categories.length === 0 && (
           <p className="empty-state" style={{ margin: 0 }}>Cadastre produtos com categoria para os botões aparecerem aqui.</p>
         )}
+        {onModo && categories.length > 6 && (
+          <button type="button" className="category-btn category-btn-compactar" onClick={() => onModo('suspenso')} title="Mostrar as categorias numa linha só">
+            Compactar
+          </button>
+        )}
       </div>
+      )}
 
       {activeCategory && (
         <div className={`product-grid ${tamanhoBlocos === 'compacto' ? 'product-grid-compacto' : ''}`}>

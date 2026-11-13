@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 const invoke = (channel) => (payload) => ipcRenderer.invoke(channel, payload);
 
@@ -11,6 +11,19 @@ contextBridge.exposeInMainWorld('pdv', {
     getSecurityConfig: invoke('auth:getSecurityConfig'),
     updateSecurityConfig: invoke('auth:updateSecurityConfig'),
     changeOwnPin: invoke('auth:changeOwnPin'),
+  },
+  prefs: {
+    get: invoke('prefs:get'),
+    set: invoke('prefs:set'),
+  },
+  // Tamanho da letra por usuário: zoom da própria página (igual ao Ctrl+ do
+  // navegador), que mantém certas as contas de posição dos balões -- o zoom
+  // por CSS no <html> desalinhava tour e popovers.
+  tela: {
+    setZoom: (fator) => {
+      const f = Number(fator);
+      webFrame.setZoomFactor(Number.isFinite(f) ? Math.min(1.6, Math.max(0.8, f)) : 1);
+    },
   },
   products: {
     findByBarcode: invoke('product:findByBarcode'),
@@ -92,6 +105,8 @@ contextBridge.exposeInMainWorld('pdv', {
     setItemNote: invoke('sale:setItemNote'),
     setItemPerson: invoke('sale:setItemPerson'),
     setItemPrice: invoke('sale:setItemPrice'),
+    ajustarQuantidade: invoke('sale:ajustarQuantidade'),
+    marcarPagamentoPessoa: invoke('sale:marcarPagamentoPessoa'),
     editarHistorico: invoke('sale:editarHistorico'),
     finalize: invoke('sale:finalize'),
     statusPendenteEstoque: invoke('sale:statusPendenteEstoque'),

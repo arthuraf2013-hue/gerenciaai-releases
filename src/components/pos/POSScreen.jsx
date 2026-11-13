@@ -8,6 +8,7 @@ import { PromptModal } from '../common/PromptModal';
 import { ManagerAuthModal } from './ManagerAuthModal';
 import { PaymentPanel } from './PaymentPanel';
 import { ProductSearchBox } from './ProductSearchBox';
+import { QuantidadeDaLinha } from './QuantidadeDaLinha';
 import { OpenCashScreen } from './OpenCashScreen';
 import { CategoryProductBrowser } from './CategoryProductBrowser';
 import { playBeep } from '../../utils/sound';
@@ -17,6 +18,13 @@ import { Clock } from '../layout/Clock';
 import { PosTour } from './PosTour';
 import { HomeMessageBanner } from './HomeMessageBanner';
 import Icon from '../common/Icon';
+import { DropdownMenu, DropdownMenuItem } from '../common/DropdownMenu';
+import { usePreferencias } from '../../context/PreferenciasContext';
+import { useProfile } from '../../context/ProfileContext';
+
+// Perfis em que anexar receita é rotina do balcão (fica à vista no PDV);
+// nos outros o anexo continua no menu "Mais".
+const PERFIS_ANEXO_A_VISTA = ['farmacia', 'otica'];
 
 // Janelas que só abrem sob demanda (item personalizado, anexos/receita,
 // cadastro por foto, fechamento de caixa, treinamento) carregam o
@@ -46,6 +54,11 @@ function playErrorBeep() {
 }
 
 export function POSScreen() {
+  const { prefs, atualizar } = usePreferencias();
+  const { profile } = useProfile();
+  const anexoAVista = PERFIS_ANEXO_A_VISTA.includes(profile?.id);
+  const modoCategorias = prefs.pdv.categorias;
+  const emFoco = prefs.pdv.foco;
   // Lido aqui dentro (não no topo do módulo) de propósito: o topo do módulo
   // roda durante a avaliação do grafo de imports, ANTES do bootstrap()
   // do main.jsx terminar de buscar o local real — capturar window.APP_LOCATION_ID
@@ -174,12 +187,12 @@ export function POSScreen() {
       if (existeIndex >= 0) {
         // mesmo produto já estava no carrinho — soma na linha, não duplica
         const atualizado = [...prev];
-        atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, alerta: result.alerta };
+        atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, alerta: result.alerta, ajustavel: result.ajustavel };
         return atualizado;
       }
       return [...prev, {
         id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
-        alerta: result.alerta,
+        alerta: result.alerta, ajustavel: result.ajustavel,
       }];
     });
     playBeep();
@@ -254,12 +267,12 @@ export function POSScreen() {
         const existeIndex = prev.findIndex((it) => it.id === result.itemId);
         if (existeIndex >= 0) {
           const atualizado = [...prev];
-          atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, alerta: result.alerta };
+          atualizado[existeIndex] = { ...atualizado[existeIndex], quantidade: result.quantidadeTotal, alerta: result.alerta, ajustavel: result.ajustavel };
           return atualizado;
         }
         return [...prev, {
           id: result.itemId, nome: produto.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
-          alerta: result.alerta,
+          alerta: result.alerta, ajustavel: result.ajustavel,
         }];
       });
       playBeep();
@@ -306,6 +319,24 @@ export function POSScreen() {
     setFeedback({ message: `${result.nome} adicionado.`, type: 'success' });
     playBeep();
   }, []);
+
+  // − e + na linha do carrinho (saleService.ajustarQuantidadeItem). Tirar o
+  // último é o Cancelar, que já existe na linha.
+  async function ajustarQuantidade(item, delta) {
+    const r = await window.pdv.sale.ajustarQuantidade({
+      saleId, saleItemId: item.id, delta, locationId: LOCATION_ID, operadorId: currentUser.id, deviceId: DEVICE_ID,
+    });
+    if (!r?.ok) {
+      setFeedback({ message: r?.error || 'Não consegui mudar a quantidade.', type: 'error' });
+      playErrorBeep();
+      return;
+    }
+    setItems((prev) => prev.map((i) => (i.id === item.id
+      ? { ...i, quantidade: r.quantidade, ...(r.alerta !== undefined ? { alerta: r.alerta } : {}) }
+      : i)));
+    setTotal(r.novoTotal);
+    if (delta > 0) playBeep();
+  }
 
   async function confirmarPesagemManual(e) {
     e.preventDefault();
@@ -512,17 +543,40 @@ export function POSScreen() {
   }
 
   return (
-    <div className="pos-screen">
-      <header className="pos-header">
+    <div className="pos-screen pos-screen-caixa">
+      <header className={emFoco ? 'pos-header pos-header-foco' : 'pos-header'}>
         <h1><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="cart" size={20} /> PDV</span></h1>
         <div className="pos-header-right">
           <Clock compact />
-          <span className="pos-operator">Operador: {currentUser?.nome}</span>
-          {vendasHoje !== null && <span className="pos-operator" title="Vendas finalizadas por você hoje">{vendasHoje} venda(s) hoje</span>}
-          <button className="help-btn" onClick={() => setShowTour(true)} title="Ver tutorial do PDV">?</button>
-          <button className="help-btn help-btn-training" onClick={() => setShowTraining(true)} title="Apresentação de treinamento">
-            <Icon name="graduation" size={16} />
+          <span className="pos-operator">{currentUser?.nome}</span>
+          {vendasHoje !== null && <span className="pos-operator pos-operator-vendas" title="Vendas finalizadas por você hoje">{vendasHoje} venda(s) hoje</span>}
+          <button
+            type="button" className={emFoco ? 'pos-header-btn ativo' : 'pos-header-btn'}
+            onClick={() => atualizar('pdv', { foco: !emFoco })}
+            title={emFoco ? 'Mostrar o menu da esquerda de novo' : 'Esconde o menu da esquerda e deixa só a venda na tela'}
+          >
+            <Icon name={emFoco ? 'arrowLeft' : 'search'} size={15} /> {emFoco ? 'Sair do foco' : 'Modo foco'}
           </button>
+          <div className="pos-mais">
+            <DropdownMenu label="Mais">
+              {!anexoAVista && (
+                <DropdownMenuItem onClick={() => setShowAttachments(true)}><Icon name="attachment" size={14} /> Anexar receita ou arquivo</DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => atualizar('pdv', { categorias: modoCategorias === 'oculto' ? 'faixa' : 'oculto' })}>
+                <Icon name="tag" size={14} /> {modoCategorias === 'oculto' ? 'Mostrar categorias' : 'Esconder categorias'}
+              </DropdownMenuItem>
+              {modoCategorias !== 'oculto' && (
+                <DropdownMenuItem onClick={() => atualizar('pdv', { categorias: modoCategorias === 'faixa' ? 'suspenso' : 'faixa' })}>
+                  <Icon name="sliders" size={14} /> {modoCategorias === 'faixa' ? 'Categorias em lista (ocupa uma linha)' : 'Categorias em botões'}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => atualizar('pdv', { recentes: !prefs.pdv.recentes })}>
+                <Icon name="history" size={14} /> {prefs.pdv.recentes ? 'Esconder "Vendidos recentemente"' : 'Mostrar "Vendidos recentemente"'}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowTour(true)}><Icon name="sparkle" size={14} /> Tutorial do PDV</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setShowTraining(true)}><Icon name="graduation" size={14} /> Treinamento</DropdownMenuItem>
+            </DropdownMenu>
+          </div>
           <button className="close-cash-btn" onClick={() => setShowCloseCash(true)} title="Fechar o caixa e conferir o dinheiro do turno">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="7" width="18" height="13" rx="2" />
@@ -559,23 +613,34 @@ export function POSScreen() {
         <div className="qty-stepper" title="Quantidade do próximo item — digite antes de escanear ou buscar pra adicionar várias unidades de uma vez">
           <input
             type="text" inputMode="numeric"
-            className="qty-stepper-input"
+            className="qty-stepper-input" aria-label="Quantidade do próximo item" data-teclado-ancora="direita"
             value={pendingQty}
             onChange={(e) => { if (/^\d*$/.test(e.target.value)) setPendingQty(e.target.value); }}
           />
           <div className="qty-stepper-buttons">
-            <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
-              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <button type="button" className="qty-stepper-btn" aria-label="Uma unidade a mais" onClick={() => setPendingQty((q) => String((Number(q) || 1) + 1))} tabIndex={-1}>
+              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 5L4.5 1L8 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg><span className="qty-stepper-sinal" aria-hidden="true">+</span>
             </button>
-            <button type="button" className="qty-stepper-btn" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
-              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <button type="button" className="qty-stepper-btn" aria-label="Uma unidade a menos" onClick={() => setPendingQty((q) => String(Math.max(1, (Number(q) || 1) - 1)))} tabIndex={-1}>
+              <svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="M1 1L4.5 5L8 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg><span className="qty-stepper-sinal" aria-hidden="true">−</span>
             </button>
           </div>
         </div>
         <ProductSearchBox onSelect={handleSelectProduct} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
-        <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="attachment" size={15} /> Anexar receita / arquivo</span>
+        <button
+          type="button"
+          className={modoCategorias === 'oculto' ? 'btn-secondary pos-categorias-btn' : 'btn-secondary pos-categorias-btn ativo'}
+          onClick={() => atualizar('pdv', { categorias: modoCategorias === 'oculto' ? 'faixa' : 'oculto' })}
+          title={modoCategorias === 'oculto' ? 'Mostrar as categorias' : 'Esconder as categorias (ganha espaço para o carrinho)'}
+          aria-pressed={modoCategorias !== 'oculto'}
+        >
+          <Icon name="tag" size={15} /> Categorias
         </button>
+        {anexoAVista && (
+          <button className="btn-secondary pos-attach-btn" onClick={() => setShowAttachments(true)}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="attachment" size={15} /> Anexar receita</span>
+          </button>
+        )}
       </div>
 
       <p className={`scan-feedback scan-feedback-${feedback.type}`}>
@@ -588,8 +653,16 @@ export function POSScreen() {
       </p>
 
       <div className="pos-main-scroll">
-        <CategoryProductBrowser onSelectProduct={handleSelectProduct} />
+        {modoCategorias !== 'oculto' && (
+          <CategoryProductBrowser onSelectProduct={handleSelectProduct} modo={modoCategorias}
+            onModo={(m) => atualizar('pdv', { categorias: m })} />
+        )}
 
+        {/* Na tela de toque vira a coluna da direita, sempre à vista
+            (theme.css: html.modo-toque .pos-carrinho). No mouse, segue
+            embaixo dos produtos como sempre (display: contents). */}
+        <section className="pos-carrinho" aria-label="Itens da venda">
+        <h2 className="pos-carrinho-titulo">Itens da venda {itensAtivos.length > 0 && <span>{itensAtivos.length}</span>}</h2>
         {comboLigado && sugestaoCombo && (
           <div className="combo-suggestion">
             <span>
@@ -612,7 +685,12 @@ export function POSScreen() {
               onClick={() => setSelectedItemId(item.id)}
             >
               <span className="cart-item-name">
-                {item.nome} × {item.quantidade}
+                {item.ajustavel ? (
+                  <>
+                    <span className="cart-item-nome-texto">{item.nome}</span>
+                    <QuantidadeDaLinha item={item} onAjustar={ajustarQuantidade} />
+                  </>
+                ) : <>{item.nome} × {item.quantidade}</>}
                 {item.alerta?.nivel && (
                   <span className="cart-alert-wrap">
                     <button
@@ -650,9 +728,16 @@ export function POSScreen() {
             </li>
           ))}
         </ul>
+        {itensAtivos.length === 0 && (
+          <p className="pos-carrinho-vazio">Toque num produto (ou passe o leitor) para começar a venda.</p>
+        )}
+        </section>
       </div>
 
-      <RecentlySoldStrip locationId={LOCATION_ID} refreshKey={recentRefreshKey} onSelectProduct={handleSelectProduct} />
+      {prefs.pdv.recentes && (
+        <RecentlySoldStrip locationId={LOCATION_ID} refreshKey={recentRefreshKey} onSelectProduct={handleSelectProduct}
+          onOcultar={() => atualizar('pdv', { recentes: false })} />
+      )}
 
       <footer className="pos-footer">
         <div className="pos-total">Total: <strong>R$ {total.toFixed(2)}</strong></div>

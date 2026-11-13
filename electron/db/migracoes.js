@@ -551,6 +551,49 @@ const MIGRACOES = [
       dropColuna(db, 'vitrine_config', 'pix_online');
     },
   },
+  {
+    versao: 10,
+    nome: 'preferências de tela por usuário (menu, PDV, letra, tema)',
+    up(db) {
+      // JSON livre, só o próprio usuário lê e grava (preferenciasService).
+      // Tabela à parte de propósito: `users` já foi reconstruída por
+      // migração (CHECK do role) e não sincroniza isto.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_preferences (
+          user_id       TEXT PRIMARY KEY REFERENCES users(id),
+          prefs_json    TEXT NOT NULL DEFAULT '{}',
+          atualizado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
+        );
+      `);
+    },
+    down(db) {
+      db.exec('DROP TABLE IF EXISTS user_preferences;');
+    },
+  },
+  {
+    versao: 11,
+    nome: 'restaurante: cada pessoa da mesa paga a sua parte',
+    up(db) {
+      // De quem é cada pagamento da comanda (saleService.marcarPagamentoPessoa).
+      // pessoa_numero acompanha sale_items.pessoa_numero: removerPessoa
+      // recusa quem já pagou e renumera as seguintes aqui também.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sale_person_payments (
+          payment_id    TEXT PRIMARY KEY REFERENCES payments(id),
+          sale_id       TEXT NOT NULL REFERENCES sales(id),
+          pessoa_numero INTEGER NOT NULL CHECK (pessoa_numero >= 1),
+          criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+        );
+        CREATE INDEX IF NOT EXISTS idx_sale_person_payments_sale ON sale_person_payments(sale_id, pessoa_numero);
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_sale_person_payments_sale;
+        DROP TABLE IF EXISTS sale_person_payments;
+      `);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

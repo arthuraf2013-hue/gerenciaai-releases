@@ -13,7 +13,7 @@ const STEPS = [
   {
     selector: '.category-browser',
     title: 'Categorias',
-    text: 'Clique numa categoria pra ver a grade de produtos dela. Categorias novas aparecem sozinhas assim que um produto é cadastrado com aquele nome.',
+    text: 'Clique numa categoria pra ver a grade de produtos dela. Ocupando espaço demais? O botão "Categorias", ao lado da busca, esconde e mostra a faixa; em "Mais" dá pra deixar numa linha só.',
   },
   {
     selector: '.cart-list',
@@ -38,6 +38,12 @@ const STEPS = [
     text: 'F2 finaliza a venda. F4 cancela o item selecionado no carrinho. Esc fecha qualquer janela aberta. Ajuda bastante a agilizar o dia a dia.',
   },
   {
+    selector: '.pos-mais',
+    icon: 'sliders',
+    title: 'Mais e modo foco',
+    text: '"Mais" guarda o que não precisa ficar à vista: anexar arquivo, esconder categorias e vendidos recentemente, tutorial e treinamento. "Modo foco" esconde o menu da esquerda e deixa só a venda. Tudo fica salvo para o seu usuário.',
+  },
+  {
     selector: '.help-btn-training',
     icon: 'graduation',
     title: 'Apresentação de treinamento',
@@ -57,18 +63,28 @@ const STEPS = [
 export function PosTour({ forceOpen, onClose }) {
   const [open, setOpen] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
+  const [passos, setPassos] = useState(STEPS);
   const [rect, setRect] = useState(null);
   const tooltipRef = useRef(null);
   const [tooltipHeight, setTooltipHeight] = useState(210);
 
   useEffect(() => {
+    // Só os passos cujo alvo está na tela agora: categorias escondidas,
+    // anexo no menu "Mais" e treinamento dentro dele não viram um balão
+    // apontando para o nada.
+    const visiveis = () => {
+      const lista = STEPS.filter((st) => document.querySelector(st.selector));
+      return lista.length ? lista : STEPS;
+    };
     if (forceOpen) {
+      setPassos(visiveis());
       setStepIndex(0);
       setOpen(true);
       return;
     }
     const jaViu = localStorage.getItem(TOUR_SEEN_KEY);
     if (!jaViu) {
+      setPassos(visiveis());
       setStepIndex(0);
       setOpen(true);
     }
@@ -76,7 +92,7 @@ export function PosTour({ forceOpen, onClose }) {
 
   useEffect(() => {
     if (!open) return;
-    const step = STEPS[stepIndex];
+    const step = passos[stepIndex];
     function updateRect() {
       const el = document.querySelector(step.selector);
       setRect(el ? el.getBoundingClientRect() : null);
@@ -100,7 +116,7 @@ export function PosTour({ forceOpen, onClose }) {
   }
 
   function next() {
-    if (stepIndex >= STEPS.length - 1) return finish();
+    if (stepIndex >= passos.length - 1) return finish();
     setStepIndex((i) => i + 1);
   }
 
@@ -109,7 +125,7 @@ export function PosTour({ forceOpen, onClose }) {
   }
 
   if (!open) return null;
-  const step = STEPS[stepIndex];
+  const step = passos[stepIndex];
 
   const spotlightStyle = rect ? {
     position: 'fixed',
@@ -175,7 +191,7 @@ export function PosTour({ forceOpen, onClose }) {
     <>
       <div style={spotlightStyle} />
       <div ref={tooltipRef} className="tour-tooltip" style={{ top: tooltipTop, left: tooltipLeft }}>
-        <span className="tour-step-count">{stepIndex + 1} / {STEPS.length}</span>
+        <span className="tour-step-count">{stepIndex + 1} / {passos.length}</span>
         <h3>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {step.icon && <Icon name={step.icon} size={16} />} {step.title}
@@ -189,7 +205,7 @@ export function PosTour({ forceOpen, onClose }) {
           <div style={{ display: 'flex', gap: 8 }}>
             {stepIndex > 0 && <button className="btn-secondary" onClick={prev}>Voltar</button>}
             <button className="btn-primary" onClick={next}>
-              {stepIndex === STEPS.length - 1 ? (
+              {stepIndex === passos.length - 1 ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="checkCircle" size={15} /> Concluir</span>
               ) : 'Próximo'}
             </button>

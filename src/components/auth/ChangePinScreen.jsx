@@ -43,7 +43,7 @@ export function ChangePinScreen({ onChanged }) {
           <input type="password" inputMode="numeric" value={novoPin} onChange={(e) => setNovoPin(e.target.value)} required />
         </label>
         <label>Confirme o novo PIN
-          <input type="password" inputMode="numeric" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} required />
+          <input type="password" inputMode="numeric" data-teclado-enviar="Trocar PIN" value={confirmar} onChange={(e) => setConfirmar(e.target.value)} required />
         </label>
         {error && <p className="modal-error">{error}</p>}
         <button className="btn-primary" type="submit" disabled={saving}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { VazioGuia } from '../common/VazioGuia';
 
 const STATUS_LABEL = { pendente: 'Pendente', em_rota: 'Em rota', entregue: 'Entregue', cancelada: 'Cancelada' };
 const STATUS_CLASSE = { pendente: 'row-warning', em_rota: '', entregue: '', cancelada: 'row-critical' };
@@ -84,7 +85,7 @@ function DeliveryQueue() {
       </div>
 
       {entregas === null && <p className="empty-state">Carregando...</p>}
-      {entregas !== null && entregas.length === 0 && <p className="empty-state">Nenhuma entrega por aqui.</p>}
+      {entregas !== null && entregas.length === 0 && <VazioGuia icone="truck" titulo="Nenhuma entrega aqui.">Venda com entrega no PDV ou pedido do WhatsApp entra sozinho nesta lista.</VazioGuia>}
       {entregas && entregas.length > 0 && (
         <table className="data-table">
           <thead><tr><th>Cliente/Endereço</th><th>Rota</th><th>Entregador</th><th>Veículo</th><th>Taxa</th><th>Status</th><th></th></tr></thead>

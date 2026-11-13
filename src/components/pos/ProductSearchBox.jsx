@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { ProductThumbnail } from './ProductThumbnail';
 import Icon from '../common/Icon';
+import { useToque } from '../../context/ToqueContext';
 
 /**
  * @param {{ onSelect: (product: object) => void, onSelectPersonalizado?: () => void }} props
@@ -13,7 +14,11 @@ export function ProductSearchBox({ onSelect, onSelectPersonalizado }) {
   const [resultadosDoGrupo, setResultadosDoGrupo] = useState([]);
   const [open, setOpen] = useState(false);
   const [indiceSelecionado, setIndiceSelecionado] = useState(-1);
-  const [modoBusca, setModoBusca] = useState('lista');
+  const [modoBuscaConfig, setModoBusca] = useState('lista');
+  // Na tela de toque o resultado vem sempre em cartões grandes (um toque
+  // por produto); no mouse vale o que está em Configurações.
+  const { ativo: toque } = useToque();
+  const modoBusca = toque ? 'blocos' : modoBuscaConfig;
   const [importando, setImportando] = useState(null); // id do produto do grupo sendo importado
 
   useEffect(() => {

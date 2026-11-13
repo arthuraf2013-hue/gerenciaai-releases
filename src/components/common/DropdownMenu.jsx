@@ -20,10 +20,10 @@ export function DropdownMenu({ label, children }) {
     function handleEsc(e) {
       if (e.key === 'Escape') setOpen(false);
     }
-    document.addEventListener('mousedown', handleClickFora);
+    document.addEventListener('pointerdown', handleClickFora);
     window.addEventListener('keydown', handleEsc);
     return () => {
-      document.removeEventListener('mousedown', handleClickFora);
+      document.removeEventListener('pointerdown', handleClickFora);
       window.removeEventListener('keydown', handleEsc);
     };
   }, [open]);
