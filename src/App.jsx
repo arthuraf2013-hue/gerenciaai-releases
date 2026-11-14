@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { PreferenciasProvider } from './context/PreferenciasContext';
-import { ToqueProvider } from './context/ToqueContext';
-import { TecladoNumerico } from './components/common/TecladoNumerico';
+import { ToqueProvider, useToque } from './context/ToqueContext';
+import { TecladoNumerico, TecladoPainel } from './components/common/TecladoNumerico';
+import { TecladoDoSistema } from './components/common/TecladoDoSistema';
+import { aplicarTecla } from './utils/toque';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { ProfileProvider } from './context/ProfileContext';
 import { AppShell } from './components/layout/AppShell';
@@ -42,51 +44,76 @@ function LoginScreen() {
   // Mais que isso, a lista de sempre.
   const emCartoes = users.length > 0 && users.length <= 12;
   const pinRef = useRef(null);
+  const formRef = useRef(null);
+  // Tela de toque: o teclado fica embutido no cartão, ao lado do PIN --
+  // flutuando, numa tela de 1024x768 ele não tinha onde caber e caía
+  // em cima dos nomes e do próprio campo.
+  const { ativo: toque } = useToque();
   function escolher(id) {
     setUserId(id);
     setError('');
     setPin('');
     pinRef.current?.focus();
   }
+  function teclar(tecla) {
+    setPin((atual) => aplicarTecla({ texto: atual, substituir: false }, tecla, { decimal: false, maxLength: 12 }).texto);
+    setError('');
+  }
+
+  const classes = ['modal-card', 'login-card'];
+  if (emCartoes) classes.push('login-card-cartoes');
+  if (toque) classes.push('login-card-toque');
 
   return (
     <div className="login-screen">
-      <form className={emCartoes ? 'modal-card login-card login-card-cartoes' : 'modal-card login-card'} onSubmit={handleSubmit}>
-        <img src="/logo-mark.svg" alt="GerenciaAI" width="48" height="48" className="auth-logo" />
-        <h1>Entrar no caixa</h1>
-        {emCartoes ? (
-          <div className="login-operadores" role="radiogroup" aria-label="Operador">
-            {users.map((u) => (
-              <button
-                type="button" key={u.id} role="radio" aria-checked={userId === u.id}
-                className={userId === u.id ? 'login-operador ativo' : 'login-operador'}
-                onClick={() => escolher(u.id)}
-              >
-                <span className="login-operador-inicial" aria-hidden="true">{(u.nome || '?').trim().charAt(0).toUpperCase()}</span>
-                <span className="login-operador-nome">{u.nome}</span>
-              </button>
-            ))}
-          </div>
-        ) : (
+      <form ref={formRef} className={classes.join(' ')} onSubmit={handleSubmit}>
+        <div className="login-coluna">
+          <img src="/logo-mark.svg" alt="GerenciaAI" width="48" height="48" className="auth-logo" />
+          <h1>Entrar no caixa</h1>
+          {emCartoes ? (
+            <div className="login-operadores" role="radiogroup" aria-label="Operador">
+              {users.map((u) => (
+                <button
+                  type="button" key={u.id} role="radio" aria-checked={userId === u.id}
+                  className={userId === u.id ? 'login-operador ativo' : 'login-operador'}
+                  onClick={() => escolher(u.id)}
+                >
+                  <span className="login-operador-inicial" aria-hidden="true">{(u.nome || '?').trim().charAt(0).toUpperCase()}</span>
+                  <span className="login-operador-nome">{u.nome}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <label>
+              Operador
+              <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
+                <option value="">Selecione...</option>
+                {users.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+              </select>
+            </label>
+          )}
           <label>
-            Operador
-            <select value={userId} onChange={(e) => setUserId(e.target.value)} required>
-              <option value="">Selecione...</option>
-              {users.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
-            </select>
+            PIN
+            <input
+              ref={pinRef} type="password" value={pin}
+              inputMode={toque ? 'none' : 'numeric'} data-teclado-enviar="Entrar"
+              {...(toque ? { 'data-sem-teclado': '' } : {})}
+              onChange={(e) => setPin(e.target.value)} required autoFocus={!emCartoes}
+              placeholder={emCartoes && !userId ? 'Toque no seu nome acima' : undefined}
+            />
           </label>
+          {loadError && <p className="modal-error">{loadError}</p>}
+          {error && <p className="modal-error">{error}</p>}
+          {!toque && <button className="btn-primary login-entrar" type="submit">Entrar</button>}
+        </div>
+        {toque && (
+          <div className="teclado-embutido login-teclado" role="group" aria-label="Teclado do PIN">
+            <TecladoPainel
+              texto={pin} senha okRotulo="Entrar"
+              onTecla={teclar} onOk={() => formRef.current?.requestSubmit()}
+            />
+          </div>
         )}
-        <label>
-          PIN
-          <input
-            ref={pinRef} type="password" inputMode="numeric" value={pin} data-teclado-enviar="Entrar"
-            onChange={(e) => setPin(e.target.value)} required autoFocus={!emCartoes}
-            placeholder={emCartoes && !userId ? 'Toque no seu nome acima' : undefined}
-          />
-        </label>
-        {loadError && <p className="modal-error">{loadError}</p>}
-        {error && <p className="modal-error">{error}</p>}
-        <button className="btn-primary login-entrar" type="submit">Entrar</button>
       </form>
     </div>
   );
@@ -147,6 +174,7 @@ export default function App() {
         </LicenseGate>
       </UpdateGate>
       <TecladoNumerico />
+      <TecladoDoSistema />
       </ToqueProvider>
     </ErrorBoundary>
   );

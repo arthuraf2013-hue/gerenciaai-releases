@@ -84,6 +84,9 @@ function createWindow() {
     height: pos.height,
     minWidth: 1024,
     minHeight: 700,
+    // Sem a barra "File Edit View Window" do Electron: no caixa ela só
+    // roubava altura da tela (aparece com Alt, para suporte).
+    autoHideMenuBar: true,
     icon: path.join(__dirname, '../build/icon.png'),
     show: false, // só mostra a janela quando o conteúdo já estiver pronto (ver ready-to-show) — evita o flash de tela branca em PCs mais lentos, onde o carregamento demora mais
     webPreferences: {
@@ -578,6 +581,7 @@ function prepararReparoDaInstalacao() {
 // app sair. A vigia (fora do app) confere se ele terminou inteiro.
 app.on('before-quit', () => {
   try { updateService.antesDeFechar(); } catch (err) { console.error('[reparo]', err); }
+  try { require('./services/tecladoSistemaService').encerrar(); } catch { /* nada aberto */ }
 });
 
 app.on('window-all-closed', () => {

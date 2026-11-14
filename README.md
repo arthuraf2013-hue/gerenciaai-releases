@@ -6516,3 +6516,17 @@ vista dentro da tela Restaurante. **Janela no lugar:** o GerenciaAI reabre no mo
 Preferências por usuário passaram para a migração 10 (antes no `schema.sql`).
 
 Testes novos: `contaPorPessoa.test.js` (4) e `janela.test.js` (5).
+
+## Tela de toque em monitor 1024x768 e teclado do Windows nos cadastros (nov/2026)
+
+**Login:** no modo toque o teclado de números fica embutido no cartão, ao lado dos nomes, em vez de
+flutuar -- num monitor de toque 1024x768 ele caía em cima dos nomes e do campo PIN. Em tela baixa as
+teclas ficam um pouco menores, e o teclado flutuante dos outros campos encosta na borda com mais
+espaço quando não cabe inteiro, sem tampar o campo.
+
+**Teclado do Windows nos campos de texto:** tocar com o dedo em nome, descrição, e-mail etc. abre o
+teclado de toque do Windows mesmo com teclado físico ligado; ir para um botão ou campo de número
+fecha. A tela rola o campo para cima do teclado. Mouse e Tab não abrem nada. A barra
+"File Edit View Window" saiu da janela (Alt mostra).
+
+Testes novos: `tecladoSistema.test.js` (7).

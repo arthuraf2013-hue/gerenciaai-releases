@@ -73,7 +73,13 @@ function posicionar(r, largura, altura, ancora, lado = r) {
   if (lado.left - MARGEM - largura >= MARGEM) return { left: lado.left - MARGEM - largura, top: limitarTopo(r.top - 40) };
   if (lado !== r) return posicionar(r, largura, altura, ancora, r);
   if (r.bottom + MARGEM + altura <= vh - MARGEM) return { left: limitarEsq(r.left), top: r.bottom + MARGEM };
-  return { left: limitarEsq(r.left), top: Math.max(MARGEM, r.top - MARGEM - altura) };
+  if (r.top - MARGEM - altura >= MARGEM) return { left: limitarEsq(r.left), top: r.top - MARGEM - altura };
+  // Não cabe inteiro em lugar nenhum (tela baixa, 1024x768): encosta na
+  // borda do lado que tem mais espaço livre -- tampa o mínimo do campo,
+  // em vez de cair em cima dele.
+  const embaixo = vh - r.bottom >= r.top;
+  const left = vw - r.right >= r.left ? vw - largura - MARGEM : MARGEM;
+  return { left, top: embaixo ? limitarTopo(r.bottom + MARGEM) : MARGEM };
 }
 
 export function TecladoNumerico() {
@@ -220,17 +226,7 @@ export function TecladoNumerico() {
     setAlvo(null);
   }
 
-  // Botões do teclado não roubam o foco do campo.
   const segurarFoco = (e) => e.preventDefault();
-  const botao = (tecla, conteudo, extra = {}) => (
-    <button type="button" tabIndex={-1} key={tecla} className={extra.className || 'teclado-tecla'}
-      aria-label={extra.rotulo} onPointerDown={segurarFoco} onMouseDown={segurarFoco}
-      onClick={extra.onClick || (() => teclar(tecla))}>{conteudo}</button>
-  );
-
-  const visor = estado.texto === ''
-    ? <span className="teclado-visor-vazio">{alvo.decimal ? '0,00' : '—'}</span>
-    : alvo.senha ? '•'.repeat(estado.texto.length) : estado.texto;
 
   return (
     <div
@@ -242,19 +238,49 @@ export function TecladoNumerico() {
       onPointerDown={segurarFoco}
       onMouseDown={segurarFoco}
     >
-      <div className="teclado-topo">
-        <span className="teclado-rotulo">{alvo.rotulo || 'Número'}</span>
-        {botao('esconder', <Icon name="close" size={16} />, { className: 'teclado-esconder', rotulo: 'Esconder o teclado', onClick: esconder })}
-      </div>
-      <div className={estado.substituir ? 'teclado-visor teclado-visor-substituir' : 'teclado-visor'} aria-live="polite">{visor}</div>
+      <TecladoPainel
+        rotulo={alvo.rotulo || 'Número'} onEsconder={esconder}
+        texto={estado.texto} substituir={estado.substituir} senha={alvo.senha} decimal={alvo.decimal}
+        okRotulo={alvo.enviar || (alvo.proximo ? 'Próximo' : 'OK')}
+        onTecla={teclar} onOk={confirmar}
+      />
+    </div>
+  );
+}
+
+/**
+ * As teclas, o visor e o OK -- o mesmo desenho no teclado que flutua ao
+ * lado do campo e no que fica embutido na tela (login no modo toque).
+ * Botões não roubam o foco do campo.
+ */
+export function TecladoPainel({ rotulo, onEsconder, texto, substituir = false, senha = false, decimal = false, okRotulo = 'OK', onTecla, onOk }) {
+  const segurarFoco = (e) => e.preventDefault();
+  const botao = (tecla, conteudo, extra = {}) => (
+    <button type="button" tabIndex={-1} key={tecla} className={extra.className || 'teclado-tecla'}
+      aria-label={extra.rotulo} onPointerDown={segurarFoco} onMouseDown={segurarFoco}
+      onClick={extra.onClick || (() => onTecla(tecla))}>{conteudo}</button>
+  );
+  const visor = texto === ''
+    ? <span className="teclado-visor-vazio">{decimal ? '0,00' : '—'}</span>
+    : senha ? '•'.repeat(texto.length) : texto;
+
+  return (
+    <>
+      {(rotulo || onEsconder) && (
+        <div className="teclado-topo">
+          <span className="teclado-rotulo">{rotulo}</span>
+          {onEsconder && botao('esconder', <Icon name="close" size={16} />, { className: 'teclado-esconder', rotulo: 'Esconder o teclado', onClick: onEsconder })}
+        </div>
+      )}
+      <div className={substituir ? 'teclado-visor teclado-visor-substituir' : 'teclado-visor'} aria-live="polite">{visor}</div>
       <div className="teclado-grade">
         {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((n) => botao(n, n))}
-        {alvo.decimal ? botao(',', ',', { rotulo: 'Vírgula' }) : botao('limpar', 'C', { className: 'teclado-tecla teclado-limpar', rotulo: 'Limpar' })}
+        {decimal ? botao(',', ',', { rotulo: 'Vírgula' }) : botao('limpar', 'C', { className: 'teclado-tecla teclado-limpar', rotulo: 'Limpar' })}
         {botao('0', '0')}
         {botao('apagar', <Icon name="backspace" size={20} />, { className: 'teclado-tecla teclado-apagar', rotulo: 'Apagar' })}
-        {alvo.decimal && botao('limpar', 'C', { className: 'teclado-tecla teclado-limpar', rotulo: 'Limpar' })}
-        {botao('ok', alvo.enviar || (alvo.proximo ? 'Próximo' : 'OK'), { className: alvo.decimal ? 'teclado-ok' : 'teclado-ok teclado-ok-largo', onClick: confirmar })}
+        {decimal && botao('limpar', 'C', { className: 'teclado-tecla teclado-limpar', rotulo: 'Limpar' })}
+        {botao('ok', okRotulo, { className: decimal ? 'teclado-ok' : 'teclado-ok teclado-ok-largo', onClick: onOk })}
       </div>
-    </div>
+    </>
   );
 }

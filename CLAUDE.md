@@ -737,6 +737,23 @@ possível numa sessão sem rota de rede até o download dele).
   Atributos: `data-sem-teclado` (não abre), `data-teclado-enviar="Entrar"` (OK envia o form),
   `data-teclado-ancora="direita"` (encosta na borda direita). Campo numérico novo não precisa
   de nada para ganhar o teclado; precisa de `step` certo (sem step = inteiro).
+- **Login no modo toque**: o teclado vem EMBUTIDO no cartão (`TecladoPainel`, o mesmo desenho do
+  flutuante), à direita dos nomes; o campo PIN leva `data-sem-teclado` + `inputMode="none"`.
+  Flutuando, em 1024x768 ele não cabia e caía em cima dos nomes e do campo. Tela baixa
+  (`max-height: 760px`) usa teclas de 50 px. Se nada cabe inteiro, o flutuante encosta na borda
+  do lado com mais espaço em vez de tampar o campo.
+- **Teclado do Windows nos campos de TEXTO** (`TecladoDoSistema.jsx` + `src/utils/tecladoSistema.js`
+  + `electron/services/tecladoSistemaService.js`, canal público `tela:tecladoSistema`): com teclado
+  físico ligado o Windows não sobe o de toque sozinho. Toque de DEDO (`pointerType` touch/pen) num
+  campo de texto -> `mostrar`; foco foi para botão/campo de número -> `esconder` (250 ms depois).
+  Um PowerShell escondido fica aberto (script ASCII gravado em `userData/teclado-sistema.ps1`)
+  com `ITipInvocation.Toggle` (TabTip) e `IFrameworkInputPane.Location` (só alterna se o estado
+  for o contrário -- Toggle às cegas fechava teclado aberto). Depois de mostrar, o main vigia a
+  posição a cada 800 ms e manda `tela:tecladoSistemaArea {altura}` (DIP, parte da janela coberta);
+  o renderer põe `--teclado-sistema` + `html.teclado-sistema-aberto` (espaço embaixo nos roladores
+  e no modal) e rola o campo para cima do teclado. Falha é silenciosa (sobra o teclado físico).
+  Mouse e Tab NUNCA abrem. Campo que não quer: `data-sem-teclado`.
+- Janela sem a barra "File Edit View Window" (`autoHideMenuBar`; Alt mostra).
 - CSS: regras gerais com `:where()` (especificidade zero) para não brigar com o CSS de cada
   tela; modo toque sempre prefixado por `html.modo-toque`. "Clicar fora" de popover usa
   `pointerdown`, não `mousedown` (toque que vira rolagem não gera mousedown).

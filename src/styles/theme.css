@@ -1473,7 +1473,7 @@ html.modo-toque .qty-stepper-input { width: 52px; font-size: 18px; }
 }
 .teclado-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
 .teclado-rotulo { font-size: 13px; font-weight: 600; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.teclado-numerico .teclado-esconder {
+:is(.teclado-numerico, .teclado-embutido) .teclado-esconder {
   width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center;
   background: none; color: var(--color-text-muted); border-radius: 8px; flex-shrink: 0;
 }
@@ -1487,20 +1487,20 @@ html.modo-toque .qty-stepper-input { width: 52px; font-size: 18px; }
 .teclado-visor-substituir { border-color: color-mix(in srgb, var(--color-primary) 45%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
 .teclado-visor-vazio { color: var(--color-text-muted); font-weight: 400; }
 .teclado-grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.teclado-numerico .teclado-tecla {
+:is(.teclado-numerico, .teclado-embutido) .teclado-tecla {
   height: 58px; min-height: 58px; padding: 0; display: grid; place-items: center;
   font-size: 24px; font-weight: 600; background: var(--color-bg); color: var(--color-text);
   border: 1px solid var(--color-border); border-radius: 10px;
 }
-.teclado-numerico .teclado-tecla:active { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); }
-.teclado-numerico .teclado-limpar { font-size: 20px; color: var(--color-danger); }
-.teclado-numerico .teclado-apagar { color: var(--color-text-muted); }
-.teclado-numerico .teclado-ok {
+:is(.teclado-numerico, .teclado-embutido) .teclado-tecla:active { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-limpar { font-size: 20px; color: var(--color-danger); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-apagar { color: var(--color-text-muted); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-ok {
   grid-column: span 2; height: 58px; min-height: 58px; padding: 0;
   background: var(--color-primary); color: #fff; font-size: 19px; font-weight: 700; border-radius: 10px;
 }
-.teclado-numerico .teclado-ok-largo { grid-column: span 3; }
-.teclado-numerico .teclado-ok:active { background: var(--color-primary-hover); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-ok-largo { grid-column: span 3; }
+:is(.teclado-numerico, .teclado-embutido) .teclado-ok:active { background: var(--color-primary-hover); }
 
 /* Login: um cartão por operador */
 .login-card-cartoes { width: min(560px, 100%); }
@@ -1517,6 +1517,35 @@ html.modo-toque .qty-stepper-input { width: 52px; font-size: 18px; }
 }
 .login-operador-nome { font-size: 13.5px; font-weight: 600; color: var(--color-text); text-align: center; line-height: 1.25; overflow-wrap: break-word; }
 html.modo-toque .login-entrar { min-height: 54px; font-size: 16px; }
+
+/* Login na tela de toque: nomes e PIN à esquerda, teclado embutido à
+ * direita. Cabe em 1024x768 (o monitor de toque mais comum no caixa). */
+.login-coluna { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+html.modo-toque .login-screen { align-items: safe center; overflow-y: auto; padding: 16px; height: 100vh; }
+.login-card-toque.login-card {
+  width: min(880px, 100%); max-height: none; overflow: visible;
+  display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 28px; align-items: center; padding: 28px;
+}
+.login-card-toque .auth-logo { align-self: flex-start; }
+.login-card-toque h1 { margin: 0; }
+.login-card-toque .login-operadores { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.login-card-toque .login-operador { padding: 16px 8px; }
+.login-card-toque input[type="password"] { font-size: 22px; letter-spacing: 4px; min-height: 52px; caret-color: transparent; }
+.login-teclado .teclado-visor { display: none; } /* o próprio campo PIN já mostra os pontinhos */
+.teclado-embutido { display: flex; flex-direction: column; gap: 10px; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+@media (max-width: 760px) {
+  .login-card-toque.login-card { grid-template-columns: minmax(0, 1fr); }
+  .login-card-toque .teclado-embutido { width: min(300px, 100%); justify-self: center; }
+}
+
+/* Tela baixa (1024x768 com barra de título e do Windows): teclas um
+ * pouco menores para o teclado inteiro caber sem tampar o campo. */
+@media (max-height: 760px) {
+  :is(.teclado-numerico, .teclado-embutido) .teclado-tecla,
+  :is(.teclado-numerico, .teclado-embutido) .teclado-ok { height: 50px; min-height: 50px; }
+  .teclado-visor { min-height: 46px; font-size: 24px; }
+  .teclado-numerico { gap: 8px; padding: 10px; }
+}
 html.modo-toque input[type="number"]::-webkit-inner-spin-button,
 html.modo-toque input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 
@@ -1607,3 +1636,12 @@ html.modo-toque .product-search-results-blocks .product-card-price { font-size: 
 .screen:has(> .mesa-tela) { height: 100%; display: flex; flex-direction: column; }
 .screen:has(> .mesa-tela) > .settings-tabs { flex-shrink: 0; }
 .screen:has(> .mesa-tela) > .mesa-tela { flex: 1; min-height: 0; height: auto; }
+
+/* Teclado de toque do Windows aberto (TecladoDoSistema.jsx): a tela ganha
+ * espaço embaixo do tamanho dele, para o campo poder subir e ficar à vista,
+ * e as janelas (modais) passam a caber na parte de cima. */
+html.teclado-sistema-aberto :is(.main-content, .pos-main-scroll, .modal-card-fullscreen-scroll, .mesa-catalogo) {
+  padding-bottom: calc(var(--teclado-sistema, 0px) + 28px);
+}
+html.teclado-sistema-aberto .modal-overlay { padding-bottom: calc(var(--teclado-sistema, 0px) + 12px); }
+html.teclado-sistema-aberto .modal-overlay .modal-card { max-height: calc(100vh - var(--teclado-sistema, 0px) - 32px); }

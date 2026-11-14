@@ -24,6 +24,13 @@ contextBridge.exposeInMainWorld('pdv', {
       const f = Number(fator);
       webFrame.setZoomFactor(Number.isFinite(f) ? Math.min(1.6, Math.max(0.8, f)) : 1);
     },
+    // Teclado de toque do Windows: 'preparar' | 'mostrar' | 'esconder'.
+    tecladoSistema: (acao) => ipcRenderer.invoke('tela:tecladoSistema', { acao }),
+    aoMudarTecladoSistema: (callback) => {
+      const ouvinte = (_e, dados) => callback(dados);
+      ipcRenderer.on('tela:tecladoSistemaArea', ouvinte);
+      return () => ipcRenderer.removeListener('tela:tecladoSistemaArea', ouvinte);
+    },
   },
   products: {
     findByBarcode: invoke('product:findByBarcode'),

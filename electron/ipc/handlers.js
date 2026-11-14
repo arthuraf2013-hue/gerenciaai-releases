@@ -12,6 +12,7 @@ const messageService = require('../services/messageService');
 const tableService = require('../services/tableService');
 const ingredientService = require('../services/ingredientService');
 const preferenciasService = require('../services/preferenciasService');
+const tecladoSistemaService = require('../services/tecladoSistemaService');
 const customItemService = require('../services/customItemService');
 const serviceMaterialService = require('../services/serviceMaterialService');
 const wasteService = require('../services/wasteService');
@@ -141,6 +142,8 @@ const CANAIS_PUBLICOS = new Set([
   'time:getStatus', 'time:getBrasiliaNow',
   'update:getStatus', 'update:getForcedStatus', 'update:check', 'update:download', 'update:install',
   'error:report',
+  // Só mostra/esconde o teclado de toque do Windows -- não lê nem grava dado.
+  'tela:tecladoSistema',
 ]);
 
 // Canais que, além de login, exigem papel de gestão. São exatamente os
@@ -234,6 +237,46 @@ function politicaDeAcesso(channel, event) {
 // também pra regra "o próprio operador não autoriza a si mesmo"
 // (authService.authorizeManagerOverride), que dependia desse campo.
 const CAMPOS_DE_OPERADOR = ['operadorId', 'currentOperatorId', 'requestingUserId'];
+// --- Teclado de toque do Windows: quanto da janela ele cobre --------------
+let vigiaTeclado = null;
+
+function avisarAlturaDoTeclado(sender, area) {
+  if (!sender || sender.isDestroyed?.()) return 0;
+  let altura = 0;
+  try {
+    const { screen } = require('electron');
+    const win = BrowserWindow.fromWebContents(sender);
+    if (win && area && area.width > 0 && area.height > 0) {
+      // Location devolve pixels físicos; a janela trabalha em DIP (escala 125% etc.).
+      const dip = screen.screenToDipRect ? screen.screenToDipRect(win, area) : area;
+      altura = tecladoSistemaService.alturaCoberta(win.getContentBounds(), dip);
+    }
+  } catch (err) {
+    console.error('[teclado-sistema]', err);
+  }
+  sender.send('tela:tecladoSistemaArea', { altura });
+  return altura;
+}
+
+function pararVigiaTeclado() {
+  if (vigiaTeclado) clearInterval(vigiaTeclado);
+  vigiaTeclado = null;
+}
+
+function vigiarTecladoSistema(sender) {
+  pararVigiaTeclado();
+  let fechadoSeguidas = 0;
+  vigiaTeclado = setInterval(async () => {
+    if (!sender || sender.isDestroyed?.()) { pararVigiaTeclado(); return; }
+    const { app } = require('electron');
+    const r = await tecladoSistemaService.executar('area', app.getPath('userData'));
+    if (!r.ok) return;
+    const altura = avisarAlturaDoTeclado(sender, r.area);
+    fechadoSeguidas = altura > 0 ? 0 : fechadoSeguidas + 1;
+    if (fechadoSeguidas >= 3) pararVigiaTeclado();
+  }, 800);
+}
+
 function comOperadorDaSessao(event, payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
   if (!CAMPOS_DE_OPERADOR.some((c) => Object.prototype.hasOwnProperty.call(payload, c))) return payload;
@@ -971,6 +1014,20 @@ function registerIpcHandlers() {
   // do payload) -- qualquer papel, inclusive garçom, monta o próprio menu.
   safeHandle('prefs:get', (event) => preferenciasService.ler(usuarioLogado(event)));
   safeHandle('prefs:set', (event, mudancas) => preferenciasService.gravar(usuarioLogado(event), mudancas));
+
+  // Teclado de toque do Windows nos campos de texto (TecladoDoSistema.jsx).
+  // Depois de mostrar, acompanha onde ele está para a tela deixar o campo
+  // à vista -- e percebe quando a pessoa fecha o teclado pelo X dele.
+  safeHandle('tela:tecladoSistema', async (event, payload) => {
+    const acao = payload?.acao;
+    const { app } = require('electron');
+    const r = await tecladoSistemaService.executar(acao, app.getPath('userData'));
+    if (!r.ok || !r.suportado) return { ok: r.ok, suportado: !!r.suportado, altura: 0 };
+    const altura = avisarAlturaDoTeclado(event.sender, r.area);
+    if (acao === 'mostrar') vigiarTecladoSistema(event.sender);
+    if (acao === 'esconder') pararVigiaTeclado();
+    return { ok: true, suportado: true, altura };
+  });
   safeHandle('product:listPratosParaCardapio', () => productService.listPratosParaCardapio());
   // Qualquer pessoa logada no caixa pode marcar "acabou" -- é rotina do turno,
   // não cadastro (o resto do produto continua exigindo gestão).
