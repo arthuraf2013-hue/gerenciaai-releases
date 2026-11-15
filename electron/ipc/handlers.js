@@ -461,6 +461,8 @@ function registerIpcHandlers() {
   // Criar/excluir mesa é configuração do salão, não operação de venda --
   // mesmo padrão de category/supplier/ingredient abaixo.
   safeHandle('table:create', (event, payload) => guardRole(event, PAPEIS_GESTAO) || tableService.createTable(payload));
+  safeHandle('table:createLote', (event, payload) => guardRole(event, PAPEIS_GESTAO) || tableService.createTablesEmLote(payload));
+  safeHandle('table:proximoNumero', (event, { locationId } = {}) => guardRole(event, PAPEIS_GESTAO) || ({ ok: true, numero: tableService.proximoNumeroDeMesa(locationId) }));
   safeHandle('table:delete', (event, { tableId }) => guardRole(event, PAPEIS_GESTAO) || tableService.deleteTable(tableId));
   safeHandle('table:open', (_e, payload) => tableService.openTable(payload));
   safeHandle('table:getCart', (_e, { saleId }) => tableService.getTableCart(saleId));
@@ -860,6 +862,11 @@ function registerIpcHandlers() {
   safeHandle('salesSync:getConsolidated', (_e, payload) => salesSyncService.getConsolidated(payload));
   safeHandle('salesSync:getGroupHistory', (_e, payload) => salesSyncService.getGroupHistory(payload));
   safeHandle('salesSync:pushTodoOHistorico', () => salesSyncService.pushTodoOHistorico({ diasRecentes: 60 }));
+  // Refaz o estoque do grupo inteiro a partir deste computador (servidor),
+  // depois de uma contagem física. Apaga o que os outros caixas venderam
+  // desde a última contagem -- por isso só administrador.
+  safeHandle('stockSync:recontarGrupo', (event) => guardRole(event, ['admin', 'suporte'])
+    || require('../services/stockSyncService').recontarEstoqueDoGrupo());
 
   // --- Clientes, fiado e fidelidade ---
   safeHandle('customer:list', (_e, opts) => customerService.listWithSaldo(opts));

@@ -348,6 +348,64 @@ uma vez (livro `.../movimentos/{id}` + transação). **Nunca** regravar o
 total absoluto (o antigo `pushEstoqueProduto` apagava os débitos das outras
 máquinas). Venda ABERTA não mexe no contador (débito só na finalização).
 
+**Servidor do grupo e redundância (nov/2026).** Um servidor por grupo: a
+Central (`alternarServidorDoGrupo`) desmarca o anterior ao marcar outro.
+`pushEstoqueInicial` (máquina que vira servidor) só cria o contador dos
+produtos que o grupo ainda NÃO tem, somando (`increment`) -- nunca regrava os
+existentes: o estoque local de uma reserva não sabe das vendas dos outros
+caixas nem das entradas do servidor anterior, e regravar estragava o grupo na
+troca e na volta. Total absoluto só em `recontarEstoqueDoGrupo` (botão em
+Configurações → Sincronização, só admin/suporte, só no servidor, depois de
+inventário). Lotes de no máximo 400 escritas (Firestore recusa >500).
+
+**Caixas do grupo como extensão um do outro** (`grupoReplicaService.js`,
+migração 13): produtos, clientes e o livro do fiado têm cópia completa em
+cada caixa (continua vendendo sem internet). Coleções do grupo `produtos`,
+`clientes` (regra: só sem login) e `fiado` (só inclusão).
+- Fila por TRIGGER (`grupo_replica_pendente`, migração 13) em products e
+  customers: qualquer caminho que mexa (tela, planilha, nota, promoção,
+  exclusão) entra. Gravação vinda do grupo usa `comoDoGrupo` (linha em
+  `grupo_replica_aplicando`) e não volta para a fila. Coluna nova que deva
+  ir para os outros caixas: incluir no `UPDATE OF` do trigger, em
+  `paraDoc` e em `aplicar`.
+- Vence `versaoMs` mais novo (doc antigo sem ele: `atualizadoEm`). Caixa
+  que entra casa produto por código de barras/SKU (sem os dois, nome +
+  unidade) e cliente por CPF/CNPJ (ou nome + telefone); vínculo em
+  `grupo_replica` (id local pode diferir do id no grupo). O CONTADOR DE
+  ESTOQUE usa o id do grupo: `grupoReplicaService.paraGrupo` (já aplicado
+  em `stockSyncService`). Dois caixas que publicaram o mesmo produto: fica o
+  doc de id menor, o outro vira lápide (`excluido`, `substituidoPor`).
+- Nada é enviado antes do caixa juntar com o grupo (`juntouComGrupo`);
+  sem internet ao abrir, tenta de novo a cada minuto.
+- Fiado: cada lançamento vai/entra uma vez (`grupo_replica_livro`); o de
+  fora entra com `sale_id`/`operador_id` nulos e "(caixa X)" no motivo;
+  lançamento que chega antes do cliente espera.
+- Fica por caixa: estoque físico (o do grupo é o contador), pontos de
+  fidelidade, foto, controles de automação. "Apagar todos os produtos"
+  num caixa vale para o grupo (vira lápide).
+- `productService.mergeProducts` agora leva TODA tabela com FK para
+  products (lida do banco) -- a lista fixa falhava na chave estrangeira.
+
+**Histórico do grupo**: espelho da venda leva `status` (cancelada),
+`valorDevolvido`, `ocultaHistorico` e `nomeComputador`; devolução tira a
+marca de enviada (trigger, migração 13) e `reenviarVendas` atualiza na
+hora. Consolidado ignora cancelada e desconta devolução. Histórico tem
+"Todo o grupo" / "Só deste caixa" (a lista local, com as ações).
+**Nome do computador**: `licenseService.nomeDoComputador()` (os.hostname)
+vai em `installations/{id}.nomeComputador`; a Central usa `rotuloMaquina`.
+
+**Usuários do grupo** (`userSyncService.js`, migração 12 `user_group_sync`,
+regra `grupos_sincronizacao/{g}/usuarios`): nome, papel, ativo, hash bcrypt do
+PIN e PIN temporário iguais em todos os caixas. Vence `versaoMs` mais novo;
+caixa que entra casa pelo NOME (o "Administrador" de fábrica vira o do grupo).
+Não entram: 'suporte', "(demonstração)", "(celular)" e o admin com PIN 0000
+de fábrica ainda não trocado. Do grupo para o caixa: papel conhecido, hash
+bcrypt, nunca tira o último admin ativo. Tentativas/bloqueio são por caixa.
+Toda alteração de usuário (`userService.create/setActive/resetPin`,
+`authService.changeOwnPin`) chama `aoMudarLocalmente`; caminho novo que mexa
+em `users` precisa chamar também. A regra só deixa o computador (sem login no
+Firebase) ler/gravar -- celular pareado (anônimo) não lê hash de PIN.
+
 ## Segurança (auditoria out/2026)
 
 - **`electron/seguranca.js`**: janela nova sempre negada (abre fora só

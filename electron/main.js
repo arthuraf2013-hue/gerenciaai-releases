@@ -295,6 +295,8 @@ app.whenReady().then(() => {
   function iniciarEtapa2() {
     prepararReparoDaInstalacao();
     require('./services/productSyncService').iniciarEscutaProdutos();
+    // Grupo multi-PDV: usuários e PINs iguais em todos os caixas.
+    require('./services/userSyncService').iniciar();
     // Status ao vivo pro celular de quem já estiver pareado — ver
     // liveStatusSyncService.js (só publica se houver celular pareado).
     require('./services/liveStatusSyncService').iniciarPublicacaoContinua();

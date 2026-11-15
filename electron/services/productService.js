@@ -807,6 +807,23 @@ function findDuplicateProducts() {
   return [...porNomeNormalizado.values()].filter((grupo) => grupo.length > 1);
 }
 
+/** Tabelas e colunas com chave estrangeira para products(id), mais as que
+ * guardam o produto sem FK (fila do estoque do grupo). */
+function referenciasAProdutos(db) {
+  const refs = [];
+  const tabelas = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).all();
+  for (const { name } of tabelas) {
+    for (const fk of db.prepare(`PRAGMA foreign_key_list("${name}")`).all()) {
+      if (fk.table === 'products' && (fk.to === 'id' || fk.to === null)) refs.push({ tabela: name, coluna: fk.from });
+    }
+  }
+  for (const tabela of TABELAS_COM_PRODUCT_ID) {
+    if (!refs.some((r) => r.tabela === tabela && r.coluna === 'product_id')) refs.push({ tabela, coluna: 'product_id' });
+  }
+  if (tabelas.some((t) => t.name === 'estoque_grupo_pendente')) refs.push({ tabela: 'estoque_grupo_pendente', coluna: 'product_id' });
+  return refs;
+}
+
 const TABELAS_COM_PRODUCT_ID = [
   'product_price_history', 'dish_ingredients', 'waste_log',
   'product_batches', 'stock_movements', 'sale_items', 'return_items',
@@ -834,8 +851,14 @@ function mergeProducts({ manterId, removerId, currentOperatorId }) {
   if (!remover) return { ok: false, error: 'Produto a remover não encontrado.' };
 
   const tx = db.transaction(() => {
-    for (const tabela of TABELAS_COM_PRODUCT_ID) {
-      db.prepare(`UPDATE ${tabela} SET product_id = ? WHERE product_id = ?`).run(manterId, removerId);
+    // Toda tabela que aponta para products (lida do próprio banco). A
+    // lista fixa antiga esquecia pedido de compra, orçamento, custo médio,
+    // nota de entrada... e o DELETE no fim falhava pela chave estrangeira.
+    // UPDATE OR IGNORE + DELETE: vínculo que já existia no produto mantido
+    // (ex.: o mesmo fornecedor nos dois) fica só uma vez.
+    for (const { tabela, coluna } of referenciasAProdutos(db)) {
+      db.prepare(`UPDATE OR IGNORE "${tabela}" SET "${coluna}" = ? WHERE "${coluna}" = ?`).run(manterId, removerId);
+      db.prepare(`DELETE FROM "${tabela}" WHERE "${coluna}" = ?`).run(removerId);
     }
     db.prepare('DELETE FROM products WHERE id = ?').run(removerId);
   });

@@ -28,7 +28,8 @@ function getOrCreateDeviceUid() {
  * tempo real). */
 function getSyncStatus() {
   const syncStateService = require('./syncStateService');
-  return { sincronizacaoAtiva: !!syncStateService.getGrupoSincronizacaoId() };
+  const sincronizacaoAtiva = !!syncStateService.getGrupoSincronizacaoId();
+  return { sincronizacaoAtiva, servidorDoGrupo: sincronizacaoAtiva && syncStateService.ehServidorDoGrupo() };
 }
 
 module.exports = { getOrCreateDeviceUid, getSyncStatus };

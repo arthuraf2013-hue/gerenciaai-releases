@@ -136,6 +136,8 @@ contextBridge.exposeInMainWorld('pdv', {
     },
     list: invoke('table:list'),
     create: invoke('table:create'),
+    createLote: invoke('table:createLote'),
+    proximoNumero: invoke('table:proximoNumero'),
     delete: invoke('table:delete'),
     open: invoke('table:open'),
     getCart: invoke('table:getCart'),
@@ -395,6 +397,7 @@ contextBridge.exposeInMainWorld('pdv', {
     getConsolidated: invoke('salesSync:getConsolidated'),
     getGroupHistory: invoke('salesSync:getGroupHistory'),
     pushTodoOHistorico: invoke('salesSync:pushTodoOHistorico'),
+    recontarEstoqueDoGrupo: invoke('stockSync:recontarGrupo'),
   },
   customers: {
     list: invoke('customer:list'),

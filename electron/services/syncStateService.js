@@ -20,22 +20,27 @@ function aplicarGrupoDaInstalacao(dadosInstalacao) {
     .run(novoGrupoId, novoServidor, 'default');
 
   if (novoGrupoId !== grupoAntes) {
-    // Mudou de grupo de verdade (entrou, saiu, ou trocou) — reinicia a
-    // escuta de produtos pro grupo novo (ou desliga, se saiu), e manda
-    // o catálogo inteiro se acabou de entrar num grupo novo.
+    // Mudou de grupo de verdade (entrou, saiu, ou trocou) — religa a
+    // réplica (produtos, clientes e fiado iguais em todos os caixas: lê o
+    // grupo, casa o que já existe aqui e manda o resto) e o histórico.
+    // O estoque inicial do servidor espera a réplica: o contador usa o
+    // id do produto NO GRUPO (grupoReplicaService.paraGrupo).
     try {
-      require('./productSyncService').iniciarEscutaProdutos();
-      if (novoGrupoId) require('./productSyncService').pushTodosOsProdutos();
+      const replica = require('./productSyncService').iniciarEscutaProdutos();
       if (novoGrupoId) require('./salesSyncService').pushTodoOHistorico();
-      if (novoGrupoId && novoServidor) require('./stockSyncService').pushEstoqueInicial();
+      if (novoGrupoId && novoServidor) {
+        Promise.resolve(replica).finally(() => require('./stockSyncService').pushEstoqueInicial());
+      }
+      // Usuários e PINs iguais em todos os caixas (ou para, se saiu do grupo).
+      require('./userSyncService').iniciar();
     } catch (err) {
       console.error('[syncStateService] falha ao reagir à mudança de grupo:', err);
     }
   } else if (novoGrupoId && novoServidor && novoServidor !== servidorAntes) {
     // Continuou no MESMO grupo, mas acabou de virar a servidor agora
-    // (marcado depois, pelo painel) — precisa mandar o estoque atual
-    // dela pro grupo nesse momento, senão o contador compartilhado
-    // fica vazio/desatualizado até a próxima mudança de estoque.
+    // (marcado depois, pelo painel, inclusive trocando de servidor para
+    // redundância). Só cria o contador dos produtos que o grupo ainda não
+    // tem -- nunca regrava os que já existem (ver pushEstoqueInicial).
     try {
       require('./stockSyncService').pushEstoqueInicial();
     } catch (err) {

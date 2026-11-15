@@ -55,6 +55,20 @@ function formatMetodos(str) {
   return str.split(',').map((m) => METODO_LABEL[m] || m).join(', ');
 }
 
+
+// Nome do caixa nas vendas do grupo: o nome do computador (o app manda,
+// ex.: DESKTOP-APA25LS); vendas antigas, sem ele, mostram o local.
+function rotuloDoPdv(v) {
+  return v.nomeComputador || v.locationNome || '—';
+}
+
+// Quanto a venda do grupo vale de verdade: cancelada não conta e
+// devolução desconta.
+function valorLiquidoDoGrupo(v) {
+  if (v.status === 'cancelada') return 0;
+  return Math.max(0, (v.total || 0) - (Number(v.valorDevolvido) || 0));
+}
+
 export function SalesHistory({ onDevolver }) {
   const { currentUser } = useSession();
   const { promptState, promptAsync, confirmarPrompt, cancelarPrompt } = usePromptModal();
@@ -80,6 +94,9 @@ export function SalesHistory({ onDevolver }) {
   const [nfcePorVenda, setNfcePorVenda] = useState({}); // cache: { [saleId]: nfce[] }
   const [reenviandoNfceId, setReenviandoNfceId] = useState(null);
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
+  // Grupo de caixas: por padrão mostra as vendas de todos; "Só deste caixa"
+  // volta para a lista local, com reimprimir, cancelar e devolução.
+  const [verGrupo, setVerGrupo] = useState(true);
   const [vendasDoGrupo, setVendasDoGrupo] = useState(null);
   const [carregandoGrupo, setCarregandoGrupo] = useState(false);
   const [erroGrupo, setErroGrupo] = useState('');
@@ -269,20 +286,22 @@ export function SalesHistory({ onDevolver }) {
   // Coluna "Mesa" só aparece quando o período tem alguma venda de mesa.
   const temMesa = useMemo(() => salesFiltradas.some((s) => s.mesa_rotulo), [salesFiltradas]);
   const colunas = temMesa ? 8 : 7;
+  const mostrarGrupo = sincronizacaoAtiva && verGrupo;
+  const visiveisDoGrupo = useMemo(() => (vendasDoGrupo || []).filter((v) => !v.ocultaHistorico), [vendasDoGrupo]);
   const pdvsDisponiveis = useMemo(
-    () => (vendasDoGrupo ? [...new Set(vendasDoGrupo.map((v) => v.locationNome).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')) : []),
-    [vendasDoGrupo]
+    () => [...new Set(visiveisDoGrupo.map(rotuloDoPdv).filter((n) => n !== '—'))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [visiveisDoGrupo]
   );
   const vendasDoGrupoFiltradas = useMemo(
-    () => (!vendasDoGrupo ? [] : filtroPdv === 'todos' ? vendasDoGrupo : vendasDoGrupo.filter((v) => v.locationNome === filtroPdv)),
-    [vendasDoGrupo, filtroPdv]
+    () => (filtroPdv === 'todos' ? visiveisDoGrupo : visiveisDoGrupo.filter((v) => rotuloDoPdv(v) === filtroPdv)),
+    [visiveisDoGrupo, filtroPdv]
   );
 
   const totalDia = useMemo(() => (
-    sincronizacaoAtiva
-      ? vendasDoGrupoFiltradas.reduce((acc, v) => acc + (v.total || 0), 0)
+    mostrarGrupo
+      ? vendasDoGrupoFiltradas.reduce((acc, v) => acc + valorLiquidoDoGrupo(v), 0)
       : salesFiltradas.filter((s) => s.status === 'finalizada').reduce((acc, s) => acc + s.total, 0)
-  ), [sincronizacaoAtiva, vendasDoGrupoFiltradas, salesFiltradas]);
+  ), [mostrarGrupo, vendasDoGrupoFiltradas, salesFiltradas]);
 
   return (
     <div className="screen">
@@ -310,13 +329,19 @@ export function SalesHistory({ onDevolver }) {
           </>
         )}
 
-        {podeExcluir && !sincronizacaoAtiva && (
+        {sincronizacaoAtiva && (
+          <div className="historico-escopo" role="tablist" aria-label="Quais vendas mostrar">
+            <button type="button" role="tab" aria-selected={verGrupo} className={verGrupo ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setVerGrupo(true)}>Todo o grupo</button>
+            <button type="button" role="tab" aria-selected={!verGrupo} className={!verGrupo ? 'category-btn category-btn-active' : 'category-btn'} onClick={() => setVerGrupo(false)}>Só deste caixa</button>
+          </div>
+        )}
+        {podeExcluir && !mostrarGrupo && (
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13 }}>
             <input type="checkbox" style={{ width: 'auto' }} checked={mostrarExcluidas} onChange={(e) => setMostrarExcluidas(e.target.checked)} />
             Mostrar excluídas do histórico
           </label>
         )}
-        {sincronizacaoAtiva && (
+        {mostrarGrupo && (
           <label style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', fontSize: 13 }}>
             Filtrar por PDV:
             <select value={filtroPdv} onChange={(e) => setFiltroPdv(e.target.value)} style={{ maxWidth: 220 }}>
@@ -325,14 +350,14 @@ export function SalesHistory({ onDevolver }) {
             </select>
           </label>
         )}
-        {sincronizacaoAtiva && (
+        {mostrarGrupo && (
           <button className="btn-secondary" onClick={() => carregarHistoricoDoGrupo(true, true)} disabled={carregandoGrupo} title="Reenvia o dado desta máquina (corrige qualquer coisa desatualizada) e busca de novo na hora">
             {carregandoGrupo ? 'Atualizando...' : (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="refresh" size={15} /> Atualizar</span>
             )}
           </button>
         )}
-        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: sincronizacaoAtiva ? 0 : (podeExcluir ? 0 : 'auto') }}>
+        <button className="btn-secondary" onClick={handleExport} disabled={exportando} style={{ marginLeft: mostrarGrupo ? 0 : (podeExcluir ? 0 : 'auto') }}>
           {exportando ? 'Exportando...' : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chart" size={15} /> Exportar relatório</span>
           )}
@@ -413,7 +438,7 @@ export function SalesHistory({ onDevolver }) {
 
       {exportMsg && <p className="io-message">{exportMsg}</p>}
 
-      {sincronizacaoAtiva ? (
+      {mostrarGrupo ? (
         <>
           {carregandoGrupo && <p className="empty-state">Carregando vendas do grupo...</p>}
           {erroGrupo && <p className="modal-error">{erroGrupo}</p>}
@@ -423,22 +448,29 @@ export function SalesHistory({ onDevolver }) {
           {!carregandoGrupo && vendasDoGrupoFiltradas.length > 0 && (
             <table className="data-table">
               <thead>
-                <tr><th>Data/hora</th><th>PDV</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th></tr>
+                <tr><th>Data/hora</th><th>PDV</th><th>Operador</th><th>Itens</th><th>Total</th><th>Pagamento</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {vendasDoGrupoFiltradas.map((v) => (
                   <Fragment key={v.id}>
-                    <tr>
+                    <tr className={v.status === 'cancelada' ? 'linha-cancelada' : undefined}>
                       <td>{v.finalizadaEm ? new Date(v.finalizadaEm.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : '—'}</td>
-                      <td><strong>{v.locationNome || '—'}</strong></td>
+                      <td title={v.locationNome || undefined}><strong>{rotuloDoPdv(v)}</strong></td>
                       <td>{v.operadorNome || '—'}</td>
                       <td>{v.totalItens}</td>
                       <td>R$ {(v.total || 0).toFixed(2)}</td>
                       <td>{formatMetodos((v.metodosPagamento || []).join(','))}</td>
+                      <td>
+                        {v.status === 'cancelada'
+                          ? <span className="chip-situacao chip-erro">Cancelada</span>
+                          : v.valorDevolvido > 0
+                            ? <span className="chip-situacao chip-atualizar" title="Valor devolvido ao cliente">Devolvido R$ {Number(v.valorDevolvido).toFixed(2)}</span>
+                            : <span className="chip-situacao chip-neutro">Finalizada</span>}
+                      </td>
                     </tr>
                     {v.itens && v.itens.length > 0 && (
                       <tr>
-                        <td colSpan={6} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
+                        <td colSpan={7} style={{ background: 'var(--color-bg)', padding: '4px 16px' }}>
                           <span className="screen-hint">
                             {v.itens.map((i) => `${i.nome} × ${i.quantidade}`).join(', ')}
                           </span>

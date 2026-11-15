@@ -87,6 +87,8 @@ function changeOwnPin(userId, pinAtual, novoPin) {
   limparTentativas(db, userId);
   db.prepare('UPDATE users SET pin_hash = ?, pin_temporario = 0 WHERE id = ?')
     .run(bcrypt.hashSync(String(novoPin), 10), userId);
+  // Grupo multi-PDV: o PIN novo vale em todos os caixas (userSyncService).
+  try { require('./userSyncService').aoMudarLocalmente(userId); } catch { /* fica para a próxima sincronização */ }
   return { ok: true };
 }
 

@@ -2,6 +2,11 @@ const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 
+// Grupo multi-PDV: a alteração vai para os outros caixas (userSyncService).
+function avisarGrupo(userId) {
+  try { require('./userSyncService').aoMudarLocalmente(userId); } catch { /* sem grupo / sem rede: fica para depois */ }
+}
+
 function requireManagerOrAdmin(requestingUserId) {
   const db = getDb();
   const user = db.prepare('SELECT * FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
@@ -34,6 +39,7 @@ function create(requestingUserId, { nome, role, pin }) {
   const id = randomUUID();
   db.prepare('INSERT INTO users (id, nome, role, pin_hash) VALUES (?, ?, ?, ?)')
     .run(id, nome.trim(), role, bcrypt.hashSync(String(pin), 10));
+  avisarGrupo(id);
   return { ok: true, id };
 }
 
@@ -48,6 +54,7 @@ function setActive(requestingUserId, { userId, ativo }) {
     if (alvo?.role === 'admin' || alvo?.role === 'suporte') return { ok: false, error: 'Um gerente não pode alterar um administrador ou usuário de suporte.' };
   }
   db.prepare('UPDATE users SET ativo = ? WHERE id = ?').run(ativo ? 1 : 0, userId);
+  avisarGrupo(userId);
   return { ok: true };
 }
 
@@ -78,6 +85,7 @@ function resetPin(requestingUserId, { userId, novoPin }) {
     ).run(randomUUID(), requestingUserId, `PIN de "${alvo?.nome || userId}" foi redefinido`);
   } catch (err) { /* auditoria não deve travar a redefinição se falhar */ }
 
+  avisarGrupo(userId);
   return { ok: true };
 }
 

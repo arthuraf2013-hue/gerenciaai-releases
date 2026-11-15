@@ -183,6 +183,14 @@ function aplicarDadosDoServidor(dados) {
  * dentro da carência. Também garante o "heartbeat" (ultimoContato,
  * versaoApp) pro painel saber que a instalação está viva.
  */
+/** Nome do computador no Windows (ex.: DESKTOP-APA25LS) -- a Central e o
+ * histórico do grupo mostram isso em vez do código da instalação. */
+function nomeDoComputador() {
+  try {
+    return String(require('os').hostname() || '').replace(/[^\x20-\x7e]/g, '').trim().slice(0, 63) || null;
+  } catch { return null; }
+}
+
 async function checkLicense() {
   try {
     const { doc, getDoc, setDoc, serverTimestamp } = require('firebase/firestore');
@@ -197,6 +205,7 @@ async function checkLicense() {
       const metricas = require('./metricsService').getMetricasAgregadas();
       await setDoc(ref, {
         ...(maquinaHash ? { maquinaHash } : {}),
+        ...(nomeDoComputador() ? { nomeComputador: nomeDoComputador() } : {}),
         ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion(),
         ...metricas,
         // Pendências e primeiros passos (saudeService) -- a Central mostra
@@ -217,6 +226,7 @@ async function checkLicense() {
         totalVendasHistorico: 0, vendasUltimos30Dias: 0, perfilAtivo: null,
         teste: { dias: require('./testeGratisService').DIAS_TESTE },
         ...(maquinaHash ? { maquinaHash } : {}),
+        ...(nomeDoComputador() ? { nomeComputador: nomeDoComputador() } : {}),
         criadoEm: serverTimestamp(), ultimoContato: serverTimestamp(), versaoApp: electronApp.getVersion(),
       });
       aplicarDadosDoServidor({ ativo: true, bloqueioImediato: false });
@@ -436,6 +446,7 @@ function computeAccessStatus() {
 }
 
 module.exports = {
+  nomeDoComputador,
   checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, enviarPing, getLicenseFirestore, getLicenseApp,
   aplicarDadosDoServidor, // exportada pra teste (não toca rede)
   GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS, INTERVALO_PING_MS,

@@ -1,42 +1,84 @@
 const syncStateService = require('./syncStateService');
 
+// Id do produto no grupo: o contador é do produto do GRUPO. Um produto
+// daqui casado com o de outro caixa (pelo código de barras) pode ter id
+// local diferente -- ver grupoReplicaService.paraGrupo.
+function idNoGrupo(productId) {
+  try { return require('./grupoReplicaService').paraGrupo(productId); } catch { return productId; }
+}
+
+// Estoque físico local por produto (soma do livro de movimentos), já com
+// o id do produto no grupo.
+function totaisLocais() {
+  const { getDb } = require('../db/database');
+  return getDb().prepare(
+    `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements GROUP BY product_id`
+  ).all().map((l) => ({ product_id: idNoGrupo(l.product_id), local_id: l.product_id, total: l.total }));
+}
+
 /**
- * A máquina servidor manda TODO o estoque atual (por local dela) pro
- * Firestore de uma vez — chamado quando ela é designada servidor pela
- * primeira vez, ou sob demanda pra reconciliar.
+ * Máquina que ACABOU de virar servidor do grupo. Só cria o contador dos
+ * produtos que o grupo ainda não conhece -- os que já existem ficam como
+ * estão. Antes ela regravava o total de TODOS com o estoque local dela,
+ * que não sabe das vendas dos outros caixas (nem, se ela era reserva, das
+ * entradas feitas no servidor anterior): trocar de servidor -- e depois
+ * voltar -- deixava o estoque do grupo errado. Agora dá para passar o
+ * servidor para outra máquina e devolver sem mexer em nada.
+ *
+ * O produto novo entra somando (increment), não regravando: se outro
+ * caixa vendeu dele no meio tempo, o débito continua lá.
+ * Para refazer a contagem inteira (depois de um inventário):
+ * recontarEstoqueDoGrupo().
  */
 async function pushEstoqueInicial() {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId || !syncStateService.ehServidorDoGrupo()) return;
-
+    if (!grupoId || !syncStateService.ehServidorDoGrupo()) return { ok: false, error: 'Este computador não é o servidor do grupo.' };
+    const existentes = await backend.lerContadoresExistentes(grupoId);
+    const linhas = totaisLocais();
+    const novos = linhas.filter((l) => !existentes.has(l.product_id));
     const { getDb } = require('../db/database');
     const db = getDb();
-    // Variações ainda na fila já estão dentro do total local -- depois do
-    // retrato absoluto elas não podem ser somadas de novo.
-    const filaAntes = db.prepare('SELECT id FROM estoque_grupo_pendente WHERE grupo_id = ?').all(grupoId).map((r) => r.id);
-    const linhas = db.prepare(
-      `SELECT product_id, COALESCE(SUM(quantidade), 0) as total FROM stock_movements GROUP BY product_id`
-    ).all();
-
-    const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
-    const { doc, writeBatch, serverTimestamp } = require('firebase/firestore');
-    const batch = writeBatch(firestore);
-    for (const linha of linhas) {
-      const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', linha.product_id);
-      batch.set(ref, { quantidade: linha.total, atualizadoEm: serverTimestamp() });
-    }
-    if (linhas.length > 0) await batch.commit();
+    // Variações ainda na fila dos produtos que vão entrar agora já estão
+    // dentro do total local -- não podem ser somadas de novo depois.
+    const idsNovos = new Set(novos.map((l) => l.local_id));
+    const filaAntes = db.prepare('SELECT id, product_id FROM estoque_grupo_pendente WHERE grupo_id = ?').all(grupoId)
+      .filter((r) => idsNovos.has(r.product_id)).map((r) => r.id);
+    if (novos.length > 0) await backend.gravarContadores(grupoId, novos, { somar: true });
     const apagar = db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?');
     for (const id of filaAntes) apagar.run(id);
+    return { ok: true, criados: novos.length, mantidos: linhas.length - novos.length };
   } catch (err) {
     console.error('[stockSyncService] falha ao mandar o estoque inicial:', err.message);
+    return { ok: false, error: 'Não foi possível falar com o grupo agora. Confira a internet e tente de novo.' };
   }
 }
 
-// ------------------------------------------------------------------
-// Variações do estoque compartilhado (fila persistente + idempotente)
+/**
+ * Recontagem de propósito (botão em Configurações, só admin, só no
+ * servidor): o estoque do grupo passa a ser EXATAMENTE o estoque deste
+ * computador. Apaga o que os outros caixas venderam desde a última
+ * contagem -- por isso só depois de um inventário/contagem física aqui.
+ */
+async function recontarEstoqueDoGrupo() {
+  try {
+    const grupoId = syncStateService.getGrupoSincronizacaoId();
+    if (!grupoId) return { ok: false, error: 'Este computador não está em nenhum grupo de sincronização.' };
+    if (!syncStateService.ehServidorDoGrupo()) return { ok: false, error: 'Só o servidor do grupo pode recontar o estoque.' };
+    const { getDb } = require('../db/database');
+    const db = getDb();
+    const filaAntes = db.prepare('SELECT id FROM estoque_grupo_pendente WHERE grupo_id = ?').all(grupoId).map((r) => r.id);
+    const linhas = totaisLocais();
+    if (linhas.length > 0) await backend.gravarContadores(grupoId, linhas, { somar: false });
+    const apagar = db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?');
+    for (const id of filaAntes) apagar.run(id);
+    return { ok: true, produtos: linhas.length };
+  } catch (err) {
+    console.error('[stockSyncService] falha ao recontar o estoque do grupo:', err.message);
+    return { ok: false, error: 'Não foi possível falar com o grupo agora. Confira a internet e tente de novo.' };
+  }
+}
+
 // ------------------------------------------------------------------
 // Antes existia pushEstoqueProduto(): o SERVIDOR gravava no contador do
 // grupo o total absoluto do estoque LOCAL dele (setDoc). Esse total não
@@ -65,8 +107,30 @@ let backend = {
       tx.set(contadorRef, { quantidade: atual + delta, atualizadoEm: serverTimestamp() }, { merge: true });
     });
   },
+  async lerContadoresExistentes(grupoId) {
+    const licenseService = require('./licenseService');
+    const firestore = licenseService.getLicenseFirestore();
+    const { collection, getDocs } = require('firebase/firestore');
+    const snap = await getDocs(collection(firestore, 'grupos_sincronizacao', grupoId, 'estoque'));
+    return new Set(snap.docs.map((d) => d.id));
+  },
+  // Lotes de 400: o Firestore recusa mais de 500 escritas por lote (o
+  // código antigo mandava o catálogo inteiro num lote só).
+  async gravarContadores(grupoId, linhas, { somar }) {
+    const licenseService = require('./licenseService');
+    const firestore = licenseService.getLicenseFirestore();
+    const { doc, writeBatch, serverTimestamp, increment } = require('firebase/firestore');
+    for (let i = 0; i < linhas.length; i += 400) {
+      const batch = writeBatch(firestore);
+      for (const linha of linhas.slice(i, i + 400)) {
+        const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', linha.product_id);
+        batch.set(ref, { quantidade: somar ? increment(linha.total) : linha.total, atualizadoEm: serverTimestamp() }, { merge: true });
+      }
+      await batch.commit();
+    }
+  },
 };
-function _definirBackendParaTeste(b) { backend = b; }
+function _definirBackendParaTeste(b) { backend = { ...backend, ...b }; }
 
 function enfileirarVariacao(productId, delta, motivo) {
   const grupoId = syncStateService.getGrupoSincronizacaoId();
@@ -126,7 +190,7 @@ async function enviarVariacoesPendentes() {
     let enviados = 0;
     for (const p of pendentes) {
       try {
-        await backend.aplicarMovimento({ grupoId: p.grupo_id, productId: p.product_id, movimentoId: p.id, delta: p.delta, motivo: p.motivo });
+        await backend.aplicarMovimento({ grupoId: p.grupo_id, productId: idNoGrupo(p.product_id), movimentoId: p.id, delta: p.delta, motivo: p.motivo });
         db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?').run(p.id);
         enviados += 1;
       } catch (err) {
@@ -181,7 +245,7 @@ async function verificarEDebitarEstoqueRemoto(itens) {
     await runTransaction(firestore, async (tx) => {
       const refs = [...porProduto.keys()].map((productId) => ({
         productId,
-        ref: doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', productId),
+        ref: doc(firestore, 'grupos_sincronizacao', grupoId, 'estoque', idNoGrupo(productId)),
       }));
 
       // TODAS as leituras primeiro (exigência do Firestore em
@@ -250,6 +314,7 @@ async function verificarEDebitarEstoqueRemoto(itens) {
 }
 
 module.exports = {
+  recontarEstoqueDoGrupo,
   pushEstoqueInicial, verificarEDebitarEstoqueRemoto,
   registrarMovimentoDoServidor, registrarDevolucaoDeVenda, estornarDebitoDaVenda,
   enviarVariacoesPendentes, contarVariacoesPendentes, _definirBackendParaTeste,

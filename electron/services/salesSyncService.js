@@ -64,6 +64,8 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
     await setDoc(ref, {
       installId, total, totalItens, itens: itens || [], metodosPagamento: metodosPagamento || [],
       operadorNome, locationNome, finalizadaEm, diaISO,
+      nomeComputador: licenseService.nomeDoComputador?.() || null,
+      status: 'finalizada', valorDevolvido: 0, ocultaHistorico: false,
     });
     marcarEnviadas([saleId], grupoId);
   } catch (err) {
@@ -91,7 +93,7 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
  * objetivo delas é só corrigir alguma sincronização que falhou
  * silenciosamente há pouco tempo, não reprocessar anos de vendas.
  */
-async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false } = {}) {
+async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false, ids = null } = {}) {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId) return true;
@@ -102,6 +104,11 @@ async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false } = {}
       ? ' AND NOT EXISTS (SELECT 1 FROM group_sync_sales g WHERE g.sale_id = s.id AND g.grupo_id = ?)'
       : '';
     const argsPendentes = apenasPendentes ? [grupoId] : [];
+    // ids: só estas vendas (reenvio na hora depois de cancelar/devolver).
+    const listaIds = Array.isArray(ids) ? ids.filter(Boolean).slice(0, 500) : null;
+    if (listaIds && listaIds.length === 0) return true;
+    const filtroIds = listaIds ? ` AND s.id IN (${listaIds.map(() => '?').join(',')})` : '';
+    const argsIds = listaIds || [];
 
     const { getDb } = require('../db/database');
     const db = getDb();
@@ -120,22 +127,27 @@ async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false } = {}
           const dataCorte = timeService.diasAPartirDeHojeLocalISO(-diasRecentes);
           const { inicioUtc } = timeService.localDateRangeToUtcBounds(dataCorte, dataCorte);
           return db.prepare(
-            `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
+            `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, s.status, s.cancelada_em, s.oculta_historico,
+               (SELECT COALESCE(SUM(r.valor_devolvido), 0) FROM returns r WHERE r.sale_id = s.id) as valor_devolvido,
+               u.nome as operador_nome, l.nome as location_nome
              FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-             WHERE s.status = 'finalizada' AND s.finalizada_em >= ?${filtroPendentes}`
-          ).all(inicioUtc, ...argsPendentes);
+             WHERE s.status IN ('finalizada', 'cancelada') AND s.finalizada_em IS NOT NULL AND s.finalizada_em >= ?${filtroPendentes}${filtroIds}`
+          ).all(inicioUtc, ...argsPendentes, ...argsIds);
         })()
       : db.prepare(
-          `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, u.nome as operador_nome, l.nome as location_nome
+          `SELECT s.id, s.total, s.desconto, s.desconto_gerente, s.finalizada_em, s.status, s.cancelada_em, s.oculta_historico,
+               (SELECT COALESCE(SUM(r.valor_devolvido), 0) FROM returns r WHERE r.sale_id = s.id) as valor_devolvido,
+               u.nome as operador_nome, l.nome as location_nome
            FROM sales s JOIN users u ON u.id = s.operador_id JOIN locations l ON l.id = s.location_id
-           WHERE s.status = 'finalizada'${filtroPendentes}`
-        ).all(...argsPendentes);
+           WHERE s.status IN ('finalizada', 'cancelada') AND s.finalizada_em IS NOT NULL${filtroPendentes}${filtroIds}`
+        ).all(...argsPendentes, ...argsIds);
     if (vendas.length === 0) return true;
 
     const licenseService = require('./licenseService');
     const firestore = licenseService.getLicenseFirestore();
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const { doc, writeBatch } = require('firebase/firestore');
+    const nomeComputador = licenseService.nomeDoComputador?.() || null;
 
     // Preparadas UMA VEZ fora do loop -- antes, cada uma era recompilada
     // a cada venda do lote (centenas/milhares de vezes por ciclo), sem
@@ -167,6 +179,14 @@ async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false } = {}
           locationNome: v.location_nome,
           finalizadaEm: v.finalizada_em,
           diaISO,
+          nomeComputador,
+          // Cancelada/devolvida depois de ir para o grupo: o espelho é
+          // atualizado (antes ficava como venda boa no histórico e no
+          // consolidado dos outros caixas).
+          status: v.status,
+          canceladaEm: v.cancelada_em || null,
+          valorDevolvido: Number(v.valor_devolvido) || 0,
+          ocultaHistorico: v.oculta_historico === 1,
         });
       }
       await batch.commit();
@@ -265,15 +285,17 @@ async function getConsolidated({ dataInicio, dataFim }) {
     return { ok: false, error: `Falha ao consultar o servidor: ${err.message}` };
   }
 
-  const vendas = snapshot.docs.map((d) => d.data());
+  // Cancelada não entra; devolução desconta.
+  const vendas = snapshot.docs.map((d) => d.data()).filter((v) => v.status !== 'cancelada');
   const porInstalacao = {};
   let totalGeral = 0;
   for (const v of vendas) {
-    totalGeral += v.total || 0;
-    const chave = v.locationNome || v.installId;
+    const valor = Math.max(0, (v.total || 0) - (Number(v.valorDevolvido) || 0));
+    totalGeral += valor;
+    const chave = v.nomeComputador || v.locationNome || v.installId;
     if (!porInstalacao[chave]) porInstalacao[chave] = { nome: chave, totalVendas: 0, totalFaturado: 0 };
     porInstalacao[chave].totalVendas += 1;
-    porInstalacao[chave].totalFaturado += v.total || 0;
+    porInstalacao[chave].totalFaturado += valor;
   }
 
   return {
@@ -284,4 +306,12 @@ async function getConsolidated({ dataInicio, dataFim }) {
   };
 }
 
-module.exports = { pushSale, pushTodoOHistorico, pushPeriodico, getConsolidated, getGroupHistory, calcularDiaISO };
+/** Atualiza na hora o espelho de vendas que mudaram (cancelamento,
+ * devolução). Sem rede, o ciclo de 15 min manda depois (a marca já caiu
+ * pelos triggers). */
+function reenviarVendas(ids) {
+  if (!syncStateService.getGrupoSincronizacaoId()) return Promise.resolve(true);
+  return pushTodoOHistorico({ ids }).catch(() => false);
+}
+
+module.exports = { reenviarVendas, pushSale, pushTodoOHistorico, pushPeriodico, getConsolidated, getGroupHistory, calcularDiaISO };

@@ -594,6 +594,129 @@ const MIGRACOES = [
       `);
     },
   },
+  {
+    versao: 12,
+    nome: 'grupo multi-PDV: usuários (e PIN) iguais em todos os caixas',
+    up(db) {
+      // Vínculo do usuário local com o documento dele no grupo
+      // (userSyncService). Tabela à parte: `users` já foi reconstruída
+      // por migrações antigas e não ganha coluna nova. versao_ms = marca
+      // da última alteração aplicada/publicada (vence a mais nova).
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_group_sync (
+          user_id   TEXT PRIMARY KEY REFERENCES users(id),
+          grupo_id  TEXT NOT NULL,
+          doc_id    TEXT NOT NULL,
+          versao_ms INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_group_sync_doc ON user_group_sync(grupo_id, doc_id);
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_user_group_sync_doc;
+        DROP TABLE IF EXISTS user_group_sync;
+      `);
+    },
+  },
+  {
+    versao: 13,
+    nome: 'grupo multi-PDV: devolução atualiza o histórico do grupo; produtos e clientes iguais em todos os caixas',
+    up(db) {
+      db.exec(`
+        -- Devolução muda o valor da venda no histórico do grupo: tira a
+        -- marca de "já enviada" (igual aos triggers de sales/itens/pagamentos).
+        CREATE TRIGGER IF NOT EXISTS trg_group_sync_returns_ins AFTER INSERT ON returns
+        BEGIN DELETE FROM group_sync_sales WHERE sale_id = NEW.sale_id; END;
+
+        -- Réplica de cadastros do grupo (grupoReplicaService): vínculo
+        -- registro local <-> documento no grupo e a versão (ms) da última
+        -- alteração aplicada ou publicada. Vence a mais nova.
+        CREATE TABLE IF NOT EXISTS grupo_replica (
+          entidade  TEXT NOT NULL,
+          local_id  TEXT NOT NULL,
+          grupo_id  TEXT NOT NULL,
+          doc_id    TEXT NOT NULL,
+          versao_ms INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (entidade, grupo_id, local_id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_grupo_replica_doc ON grupo_replica(entidade, grupo_id, doc_id);
+
+        -- Lançamentos do fiado (customer_credit_movements) já recebidos do
+        -- grupo ou enviados para ele -- o livro é só de inclusão.
+        CREATE TABLE IF NOT EXISTS grupo_replica_livro (
+          livro    TEXT NOT NULL,
+          grupo_id TEXT NOT NULL,
+          item_id  TEXT NOT NULL,
+          PRIMARY KEY (livro, grupo_id, item_id)
+        );
+
+        -- Fila do que mudou AQUI e ainda não foi para o grupo. Quem enche
+        -- são os triggers abaixo -- pega qualquer caminho que mexa no
+        -- produto/cliente (tela, planilha, nota de entrada, promoção...),
+        -- sem depender de cada serviço lembrar de avisar. marca muda a cada
+        -- alteração: só sai da fila o que não mudou enquanto era enviado.
+        CREATE TABLE IF NOT EXISTS grupo_replica_pendente (
+          entidade TEXT NOT NULL,
+          local_id TEXT NOT NULL,
+          marca    INTEGER NOT NULL,
+          PRIMARY KEY (entidade, local_id)
+        );
+        -- Enquanto tem linha aqui, a alteração veio DO grupo (não volta pra fila).
+        CREATE TABLE IF NOT EXISTS grupo_replica_aplicando (id INTEGER PRIMARY KEY);
+
+        CREATE TRIGGER IF NOT EXISTS trg_replica_produto_ins AFTER INSERT ON products
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('produtos', NEW.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_replica_produto_upd AFTER UPDATE OF
+          nome, categoria, preco, custo, unidade, sku, codigo_barras, ncm, cest, cfop, cst_csosn,
+          origem_mercadoria, estoque_minimo, ativo, tipo, preco_promocional, promocao_valida_ate,
+          codigo_balanca, custom_fields ON products
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('produtos', NEW.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_replica_produto_del AFTER DELETE ON products
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('produtos', OLD.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_replica_cliente_ins AFTER INSERT ON customers
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('clientes', NEW.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_replica_cliente_upd AFTER UPDATE OF
+          nome, telefone, cpf, cnpj, ativo, data_nascimento, limite_fiado, fiado_bloqueado ON customers
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('clientes', NEW.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_replica_cliente_upd;
+        DROP TRIGGER IF EXISTS trg_replica_cliente_ins;
+        DROP TRIGGER IF EXISTS trg_replica_produto_del;
+        DROP TRIGGER IF EXISTS trg_replica_produto_upd;
+        DROP TRIGGER IF EXISTS trg_replica_produto_ins;
+        DROP TABLE IF EXISTS grupo_replica_aplicando;
+        DROP TABLE IF EXISTS grupo_replica_pendente;
+        DROP TABLE IF EXISTS grupo_replica_livro;
+        DROP INDEX IF EXISTS idx_grupo_replica_doc;
+        DROP TABLE IF EXISTS grupo_replica;
+        DROP TRIGGER IF EXISTS trg_group_sync_returns_ins;
+      `);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

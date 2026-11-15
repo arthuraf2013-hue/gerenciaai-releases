@@ -159,6 +159,8 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
     stockSyncService.registrarDevolucaoDeVenda(saleId, saleItem.product_id, item.quantidade);
   }
 
+  // Grupo de caixas: o histórico dos outros passa a mostrar a devolução.
+  try { require('./salesSyncService').reenviarVendas([saleId]); } catch { /* ciclo de 15 min manda depois */ }
   return { ok: true, returnId, valorDevolvido: valorTotal, autorizadoPor: auth.autorizadoPor };
 }
 

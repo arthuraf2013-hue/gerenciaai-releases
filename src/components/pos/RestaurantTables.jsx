@@ -56,6 +56,18 @@ export function RestaurantTables() {
   const [novoNumero, setNovoNumero] = useState('');
   const [novoNome, setNovoNome] = useState('');
   const [createError, setCreateError] = useState('');
+  // Cadastro rápido: quantas mesas + de que número começa (padrão: a
+  // seguinte à maior que já existe). "Uma mesa só" continua para nome livre.
+  const [modoNova, setModoNova] = useState('varias');
+  const [qtdMesas, setQtdMesas] = useState('10');
+  const [inicioMesas, setInicioMesas] = useState('1');
+  const [criando, setCriando] = useState(false);
+  const [avisoMesas, setAvisoMesas] = useState('');
+  useEffect(() => {
+    if (!avisoMesas) return undefined;
+    const t = setTimeout(() => setAvisoMesas(''), 8000);
+    return () => clearTimeout(t);
+  }, [avisoMesas]);
   const [abrindoMesa, setAbrindoMesa] = useState(null); // mesa aguardando número de pessoas antes de abrir
   useEscToClose(() => setAbrindoMesa(null), !!abrindoMesa);
   const [pessoasInput, setPessoasInput] = useState('2');
@@ -126,15 +138,45 @@ export function RestaurantTables() {
     // aguardando_limpeza: não abre nada, só os botões de ação no card cuidam disso
   }
 
+  async function abrirNovaMesa() {
+    setCreateError('');
+    setModoNova('varias');
+    setShowNew(true);
+    const r = await window.pdv.table.proximoNumero({ locationId: window.APP_LOCATION_ID });
+    if (r?.ok) setInicioMesas(String(r.numero));
+  }
+
+  const qtdNum = Number(qtdMesas);
+  const inicioNum = Number(inicioMesas);
+  const loteValido = Number.isInteger(qtdNum) && qtdNum >= 1 && qtdNum <= 200 && Number.isInteger(inicioNum) && inicioNum >= 1;
+  const faixaLote = loteValido ? (qtdNum === 1 ? `a mesa ${inicioNum}` : `as mesas ${inicioNum} a ${inicioNum + qtdNum - 1}`) : '';
+
   async function handleCriarMesa(e) {
     e.preventDefault();
     setCreateError('');
-    const result = await window.pdv.table.create({
-      locationId: window.APP_LOCATION_ID, numero: novoNumero, nome: novoNome || undefined,
-    });
-    if (!result.ok) return setCreateError(result.error);
-    setNovoNumero('');
-    setNovoNome('');
+    if (modoNova === 'varias') {
+      if (!loteValido) return setCreateError('Informe de 1 a 200 mesas e o número inicial.');
+      setCriando(true);
+      const r = await window.pdv.table.createLote({ locationId: window.APP_LOCATION_ID, quantidade: qtdNum, inicio: inicioNum });
+      setCriando(false);
+      if (!r.ok) return setCreateError(r.error);
+      const partes = [];
+      if (r.criadas.length) {
+        partes.push(r.criadas.length === 1
+          ? `Mesa ${r.criadas[0]} cadastrada.`
+          : `${r.criadas.length} mesas cadastradas (${r.criadas[0]} a ${r.criadas[r.criadas.length - 1]}).`);
+      }
+      if (r.jaExistiam.length) partes.push(`Já existia${r.jaExistiam.length > 1 ? 'm' : ''}: ${r.jaExistiam.join(', ')}.`);
+      setAvisoMesas(partes.join(' ') || 'Nenhuma mesa nova.');
+    } else {
+      const result = await window.pdv.table.create({
+        locationId: window.APP_LOCATION_ID, numero: novoNumero, nome: novoNome || undefined,
+      });
+      if (!result.ok) return setCreateError(result.error);
+      setAvisoMesas(`Mesa ${novoNome || novoNumero} cadastrada.`);
+      setNovoNumero('');
+      setNovoNome('');
+    }
     setShowNew(false);
     reload();
   }
@@ -217,7 +259,7 @@ export function RestaurantTables() {
     <div className="screen">
       <div className="screen-header">
         <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={20} /> Mesas</h1>
-        <button className="btn-primary" onClick={() => setShowNew(true)}><Icon name="add" size={15} /> Nova mesa</button>
+        <button className="btn-primary" onClick={abrirNovaMesa}><Icon name="add" size={15} /> Cadastrar mesas</button>
       </div>
       <p className="screen-hint">
         Clique numa mesa livre ou reservada pra abrir uma comanda (informando quantas pessoas —
@@ -225,9 +267,13 @@ export function RestaurantTables() {
         ocupada pra continuar lançando itens ou fechar a conta.
       </p>
       {loadError && <p className="modal-error">{loadError}</p>}
+      {avisoMesas && <p className="io-message mesas-aviso" role="status">{avisoMesas}</p>}
 
       {tables.length === 0 ? (
-        <p className="empty-state">Nenhuma mesa cadastrada ainda — clique em "+ Nova mesa".</p>
+        <div className="empty-state mesas-vazio">
+          <p>Nenhuma mesa cadastrada ainda.</p>
+          <button type="button" className="btn-primary" onClick={abrirNovaMesa}><Icon name="add" size={15} /> Cadastrar mesas</button>
+        </div>
       ) : (
         <div className="tables-grid">
           {tables.map((t) => {
@@ -300,18 +346,49 @@ export function RestaurantTables() {
 
       {showNew && (
         <div className="modal-overlay">
-          <form className="modal-card" onSubmit={handleCriarMesa}>
-            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={18} /> Nova mesa</h2>
-            <label>Número
-              <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} required autoFocus />
-            </label>
-            <label>Nome (opcional)
-              <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex: Varanda, Mesa do fundo..." />
-            </label>
+          <form className="modal-card mesas-cadastro" onSubmit={handleCriarMesa}>
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={18} /> Cadastrar mesas</h2>
+            <div className="chips-categorias mesas-modo" role="tablist" aria-label="Como cadastrar">
+              <button type="button" role="tab" aria-selected={modoNova === 'varias'} className={modoNova === 'varias' ? 'ativo' : ''}
+                onClick={() => { setModoNova('varias'); setCreateError(''); }}>Várias de uma vez</button>
+              <button type="button" role="tab" aria-selected={modoNova === 'uma'} className={modoNova === 'uma' ? 'ativo' : ''}
+                onClick={() => { setModoNova('uma'); setCreateError(''); }}>Uma mesa, com nome</button>
+            </div>
+
+            {modoNova === 'varias' ? (
+              <>
+                <label>Quantas mesas?
+                  <input type="number" inputMode="numeric" min="1" max="200" step="1" value={qtdMesas}
+                    onChange={(e) => setQtdMesas(e.target.value)} required autoFocus data-teclado-enviar={loteValido ? `Cadastrar ${qtdNum}` : undefined} />
+                </label>
+                <div className="chips-categorias mesas-atalhos" aria-label="Quantidades comuns">
+                  {[5, 10, 15, 20, 30].map((n) => (
+                    <button type="button" key={n} className={qtdNum === n ? 'ativo' : ''} onClick={() => setQtdMesas(String(n))}>{n}</button>
+                  ))}
+                </div>
+                <label>Começando do número
+                  <input type="number" inputMode="numeric" min="1" step="1" value={inicioMesas} onChange={(e) => setInicioMesas(e.target.value)} required />
+                </label>
+                <p className="screen-hint mesas-previa">
+                  {loteValido ? <>Vai cadastrar <strong>{faixaLote}</strong>. Número que já existe é pulado.</> : 'Informe de 1 a 200 mesas.'}
+                </p>
+              </>
+            ) : (
+              <>
+                <label>Número
+                  <input value={novoNumero} onChange={(e) => setNovoNumero(e.target.value)} required autoFocus />
+                </label>
+                <label>Nome (opcional)
+                  <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex: Varanda, Mesa do fundo..." />
+                </label>
+              </>
+            )}
             {createError && <p className="modal-error">{createError}</p>}
             <div className="modal-actions">
               <button type="button" className="btn-secondary" onClick={() => setShowNew(false)}><Icon name="close" size={15} /> Cancelar</button>
-              <button type="submit" className="btn-primary"><Icon name="add" size={15} /> Criar</button>
+              <button type="submit" className="btn-primary" disabled={criando || (modoNova === 'varias' && !loteValido)}>
+                <Icon name="add" size={15} /> {modoNova === 'varias' ? (loteValido ? `Cadastrar ${qtdNum} mesa${qtdNum > 1 ? 's' : ''}` : 'Cadastrar') : 'Cadastrar'}
+              </button>
             </div>
           </form>
         </div>

@@ -1645,3 +1645,19 @@ html.teclado-sistema-aberto :is(.main-content, .pos-main-scroll, .modal-card-ful
 }
 html.teclado-sistema-aberto .modal-overlay { padding-bottom: calc(var(--teclado-sistema, 0px) + 12px); }
 html.teclado-sistema-aberto .modal-overlay .modal-card { max-height: calc(100vh - var(--teclado-sistema, 0px) - 32px); }
+
+/* Mesas: cadastro rápido (quantas + de que número começa). */
+.mesas-cadastro.modal-card { width: min(460px, 100%); }
+.mesas-cadastro .mesas-modo { margin-top: 0; flex-wrap: nowrap; }
+.mesas-cadastro .mesas-atalhos { margin-top: -4px; }
+.mesas-cadastro .mesas-atalhos button { min-width: 44px; }
+.mesas-cadastro .mesas-previa { margin: 0; }
+.mesas-vazio { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.mesas-vazio p { margin: 0; }
+html.modo-toque .mesas-cadastro .chips-categorias button { min-height: 44px; padding: 8px 16px; font-size: 15px; }
+
+/* Histórico com grupo de caixas: "Todo o grupo" / "Só deste caixa" e
+ * venda cancelada em outro caixa riscada. */
+.historico-escopo { display: inline-flex; gap: 6px; }
+.data-table tr.linha-cancelada td { color: var(--color-text-muted); }
+.data-table tr.linha-cancelada td:nth-child(5) { text-decoration: line-through; }

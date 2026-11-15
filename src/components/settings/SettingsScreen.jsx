@@ -93,6 +93,8 @@ export function SettingsScreen() {
   const [pixSaved, setPixSaved] = useState(false);
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
+  const [servidorDoGrupo, setServidorDoGrupo] = useState(false);
+  const [recontagem, setRecontagem] = useState({ rodando: false, msg: '', erro: false });
 
   // Desempenho -- ver src/utils/modoLeve.js e electron/services/hardwareService.js.
   const [perfilDesempenho, setPerfilDesempenho] = useState(null);
@@ -216,7 +218,10 @@ export function SettingsScreen() {
         pixNomeRecebedor: p.pix_nome_recebedor || '', pixCidade: p.pix_cidade || '',
       });
     });
-    window.pdv.pdvRegistry.getStatus().then((s) => setSincronizacaoAtiva(s.sincronizacaoAtiva));
+    window.pdv.pdvRegistry.getStatus().then((s) => {
+      setSincronizacaoAtiva(s.sincronizacaoAtiva);
+      setServidorDoGrupo(!!s.servidorDoGrupo);
+    });
     window.pdv.loyalty.getConfig().then((l) => setLoyaltyForm({
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
       ativarCupomAniversario: !!l.ativar_cupom_aniversario, pontosBonusAniversario: l.pontos_bonus_aniversario ?? 20,
@@ -1346,6 +1351,35 @@ export function SettingsScreen() {
             <>Sincronização não configurada para este terminal ainda.</>
           )}
         </div>
+        {sincronizacaoAtiva && (
+          <p className="screen-hint">
+            Os usuários são os mesmos em todos os caixas do grupo, com o mesmo PIN: quem for criado, desativado
+            ou trocar o PIN aqui vale nos outros também.
+            {servidorDoGrupo
+              ? ' Este computador é o servidor: entradas, ajustes e inventário feitos aqui atualizam o estoque do grupo.'
+              : ' Entradas e ajustes de estoque do grupo são feitos no computador servidor.'}
+          </p>
+        )}
+        {sincronizacaoAtiva && servidorDoGrupo && ['admin', 'suporte'].includes(currentUser.role) && (
+          <div className="sync-recontar">
+            <button
+              type="button" className="btn-secondary" disabled={recontagem.rodando}
+              onClick={async () => {
+                if (!window.confirm('O estoque do grupo passa a ser exatamente o estoque deste computador.\n\n'
+                  + 'O que os outros caixas venderam desde a última contagem deixa de ser descontado. '
+                  + 'Faça isto só logo depois de contar o estoque aqui (inventário). Continuar?')) return;
+                setRecontagem({ rodando: true, msg: '', erro: false });
+                const r = await window.pdv.salesSync.recontarEstoqueDoGrupo();
+                setRecontagem(r?.ok
+                  ? { rodando: false, msg: `Estoque do grupo recontado: ${r.produtos} produto(s).`, erro: false }
+                  : { rodando: false, msg: r?.error || 'Não foi possível recontar agora.', erro: true });
+              }}
+            >
+              <Icon name="refresh" size={15} /> {recontagem.rodando ? 'Recontando...' : 'Recontar estoque do grupo a partir deste computador'}
+            </button>
+            {recontagem.msg && <p className={recontagem.erro ? 'modal-error' : 'io-message'}>{recontagem.msg}</p>}
+          </div>
+        )}
       </section>
 
       <section className="settings-section">

@@ -276,6 +276,7 @@ function excluirDoHistorico({ saleId, operadorId, motivo }) {
      VALUES (?, 'venda_excluida_do_historico', ?, ?, ?, ?, 1)`
   ).run(randomUUID(), saleId, operadorId, operadorId, motivo || null);
 
+  try { require('./salesSyncService').reenviarVendas([saleId]); } catch { /* ciclo de 15 min manda depois */ }
   return { ok: true };
 }
 
@@ -295,6 +296,7 @@ function reexibirNoHistorico({ saleId, operadorId }) {
     `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, autorizado_por_id, sucesso)
      VALUES (?, 'venda_reexibida_no_historico', ?, ?, ?, 1)`
   ).run(randomUUID(), saleId, operadorId, operadorId);
+  try { require('./salesSyncService').reenviarVendas([saleId]); } catch { /* ciclo de 15 min manda depois */ }
   return { ok: true };
 }
 
@@ -1244,6 +1246,7 @@ function executarCancelamentoDaVenda({ saleId, locationId, currentOperatorId, au
   tx();
 
   // Venda aberta: nada a devolver ao contador do grupo (ver cancelSaleItem).
+  try { require('./salesSyncService').reenviarVendas([saleId]); } catch { /* ciclo de 15 min manda depois */ }
   return novoTotal;
 }
 

@@ -240,6 +240,46 @@ function createTable({ locationId, numero, nome }) {
   return { ok: true, id };
 }
 
+/** Próximo número livre: o maior número de mesa que é só dígitos, + 1. */
+function proximoNumeroDeMesa(locationId) {
+  const db = getDb();
+  const numeros = db.prepare('SELECT numero FROM restaurant_tables WHERE location_id = ?').all(locationId)
+    .map((r) => String(r.numero).trim()).filter((n) => /^\d+$/.test(n)).map(Number);
+  return numeros.length ? Math.max(...numeros) + 1 : 1;
+}
+
+const MAX_MESAS_POR_VEZ = 200;
+
+/**
+ * Cadastro rápido: informa quantas mesas e de que número começa
+ * (padrão: o próximo depois da maior que já existe). Número que já
+ * existe é pulado -- não para tudo nem duplica. Tudo numa transação.
+ */
+function createTablesEmLote({ locationId, quantidade, inicio } = {}) {
+  const qtd = Number(quantidade);
+  if (!Number.isInteger(qtd) || qtd < 1) return { ok: false, error: 'Informe quantas mesas cadastrar.' };
+  if (qtd > MAX_MESAS_POR_VEZ) return { ok: false, error: `No máximo ${MAX_MESAS_POR_VEZ} mesas de uma vez.` };
+  if (!locationId) return { ok: false, error: 'Local não informado.' };
+  const primeiro = inicio === undefined || inicio === null || inicio === '' ? proximoNumeroDeMesa(locationId) : Number(inicio);
+  if (!Number.isInteger(primeiro) || primeiro < 1 || primeiro + qtd - 1 > 9999) {
+    return { ok: false, error: 'Número inicial inválido (de 1 a 9999).' };
+  }
+  const db = getDb();
+  const criadas = [];
+  const jaExistiam = [];
+  db.transaction(() => {
+    const existe = db.prepare('SELECT 1 FROM restaurant_tables WHERE location_id = ? AND numero = ?');
+    const inserir = db.prepare(`INSERT INTO restaurant_tables (id, location_id, numero, status) VALUES (?, ?, ?, 'livre')`);
+    for (let n = primeiro; n < primeiro + qtd; n++) {
+      const numero = String(n);
+      if (existe.get(locationId, numero)) { jaExistiam.push(numero); continue; }
+      inserir.run(randomUUID(), locationId, numero);
+      criadas.push(numero);
+    }
+  })();
+  return { ok: true, criadas, jaExistiam };
+}
+
 function deleteTable(tableId) {
   const db = getDb();
   const table = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(tableId);
@@ -738,6 +778,8 @@ function removerPessoa({ tableId, numero } = {}) {
 }
 
 module.exports = {
+  createTablesEmLote,
+  proximoNumeroDeMesa,
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable, repararMesasUnidas,
   repararMesasComVendaFechada, liberarMesaDaVenda,
   markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,

@@ -965,6 +965,51 @@ test('grupos: só a Central lista grupos; máquina usa vendas/produtos/estoque p
   await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-123/estoque/p1').set({ quantidade: 5 }));
 });
 
+test('grupos: usuários do grupo -- só o computador lê; gravação conferida', SK, async () => {
+  await setupTestEnv();
+  const hash = '$2a$10$' + 'a'.repeat(53);
+  const ok = { nome: 'Maria', role: 'operador', ativo: true, pinHash: hash, pinTemporario: false, versaoMs: 1731590000000, origem: 'pc-1' };
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u1').set(ok));
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u1').get());
+  await assertSucceeds(semLogin().collection('grupos_sincronizacao/g-9/usuarios').get());
+  // celular pareado (login anônimo) não lê hash de PIN nem grava
+  await assertFails(testEnv.authenticatedContext('anon-9').firestore().doc('grupos_sincronizacao/g-9/usuarios/u1').get());
+  await assertFails(testEnv.authenticatedContext('anon-9').firestore().doc('grupos_sincronizacao/g-9/usuarios/u2').set(ok));
+  // nada de suporte, campo estranho, hash fora do formato ou versão quebrada
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u3').set({ ...ok, role: 'suporte' }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u3').set({ ...ok, admin: true }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u3').set({ ...ok, pinHash: '1234' }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u3').set({ ...ok, versaoMs: 'x' }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u3').set({ ...ok, nome: '' }));
+  // apagar: só a Central
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-9/usuarios/u1').delete());
+  await assertSucceeds(adminCtx().doc('grupos_sincronizacao/g-9/usuarios/u1').delete());
+});
+
+test('grupos: clientes e fiado -- só o computador lê e grava; formato conferido', SK, async () => {
+  await setupTestEnv();
+  const cli = { nome: 'Maria', telefone: '81999990000', cpf: '52998224725', cnpj: null, ativo: true,
+    dataNascimento: null, limiteFiado: 100, fiadoBloqueado: false, excluido: false, versaoMs: 1731590000000, origem: 'pc-1' };
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-8/clientes/c1').set(cli));
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-8/clientes/c0').set({ excluido: true, ativo: false, substituidoPor: 'c1', versaoMs: 2, origem: 'pc-1' }));
+  await assertSucceeds(semLogin().collection('grupos_sincronizacao/g-8/clientes').get());
+  await assertFails(testEnv.authenticatedContext('anon-8').firestore().doc('grupos_sincronizacao/g-8/clientes/c1').get());
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/clientes/c2').set({ ...cli, pontos: 999 }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/clientes/c2').set({ ...cli, nome: '' }));
+
+  const f = { clienteDoc: 'c1', tipo: 'divida', valor: 50, motivo: null, criadoEm: '2026-11-15 10:00:00',
+    operadorNome: 'Ana', nomeComputador: 'CAIXA-1', origem: 'pc-1' };
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-8/fiado/m1').set(f));
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-8/fiado/m1').set(f)); // reenvio
+  await assertSucceeds(semLogin().doc('grupos_sincronizacao/g-8/fiado/m2').set({ ...f, tipo: 'pagamento', valor: 12.5 }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/fiado/m3').set({ ...f, tipo: 'presente' }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/fiado/m3').set({ ...f, valor: -5 }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/fiado/m3').set({ ...f, valor: '50' }));
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/fiado/m3').set({ ...f, clienteDoc: '' }));
+  await assertFails(testEnv.authenticatedContext('anon-8').firestore().doc('grupos_sincronizacao/g-8/fiado/m1').get());
+  await assertFails(semLogin().doc('grupos_sincronizacao/g-8/fiado/m1').delete());
+});
+
 test('cofre: fechado para quem não é a Central', SK, async () => {
   await setupTestEnv();
   await semRegras((db) => db.doc('cofre_config/chave_contas_google').set({ chavePrivadaEnc: 'x' }));

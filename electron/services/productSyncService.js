@@ -1,127 +1,52 @@
 const syncStateService = require('./syncStateService');
 
 /**
- * Cache do catálogo do grupo — só em MEMÓRIA, nunca gravado na tabela
- * local `products`, e some quando o app fecha. Serve só pra consulta
- * (buscar o que existe no grupo, pra decidir se vale trazer pra loja
- * de propósito) — nunca vira parte do catálogo "de verdade" desta
- * máquina sozinho. Isso é deliberado: antes, um produto de outra
- * máquina virava uma linha nova na tabela local automaticamente, o
- * que causava duplicidade quando duas máquinas cadastravam "o mesmo"
- * produto de forma independente antes de nunca terem sincronizado.
+ * Cache do catálogo do grupo em MEMÓRIA, só para as buscas "no grupo"
+ * (POS, mesa, re-vinculação de códigos). Desde nov/2026 os produtos do
+ * grupo também entram no banco de cada caixa (grupoReplicaService, com
+ * casamento por código de barras para não duplicar) -- este cache é o
+ * mesmo dado, alimentado pela réplica.
  */
 let catalogoDoGrupoEmMemoria = new Map();
 
-/** Campos do produto que fazem sentido "serem os mesmos" entre PDVs —
- * NUNCA inclui estoque (isso é físico, por máquina) nem preço de
- * custo interno sensível a decisão local... na verdade custo também
- * compartilha, já que é sobre o MESMO produto sendo vendido — só
- * estoque (quantidade física presente) é que nunca sincroniza. */
-const CAMPOS_SINCRONIZADOS = [
-  'nome', 'categoria', 'preco', 'custo', 'unidade', 'sku', 'codigoBarras',
-  'ncm', 'cest', 'cfop', 'cstCsosn', 'origemMercadoria', 'estoqueMinimo', 'ativo', 'tipo',
-];
-
-/** Manda a versão atual de um produto pro grupo — best-effort,
- * silencioso se essa instalação não estiver em nenhum grupo ainda.
- * Isso continua funcionando normalmente: cada máquina PUBLICA o
- * próprio catálogo pro grupo poder consultar — o que mudou é que
- * ninguém mais IMPORTA automaticamente o que os outros publicam. */
-async function pushProduct(product) {
-  try {
-    const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId) return;
-
-    const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
-    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
-
-    const dados = {};
-    for (const campo of CAMPOS_SINCRONIZADOS) {
-      if (product[campo] !== undefined) dados[campo] = product[campo];
-    }
-    dados.atualizadoEm = serverTimestamp();
-
-    const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'produtos', product.id);
-    await setDoc(ref, dados, { merge: true });
-  } catch (err) {
-    console.error('[productSyncService] falha ao sincronizar produto (não afeta o produto local):', err.message);
+async function pushProduct() {
+  // Desde a réplica completa (grupoReplicaService) quem manda é a fila
+  // dos triggers -- pega qualquer caminho que mexa no produto. Aqui só
+  // adianta o envio, para a outra máquina ver logo.
+  try { await require('./grupoReplicaService').enviarPendentes(); } catch (err) {
+    console.error('[productSyncService] falha ao enviar produto (vai na próxima):', err.message);
   }
 }
 
 /** Manda TODOS os produtos ativos locais pro grupo de uma vez — chamado
  * quando essa instalação entra num grupo pela primeira vez, pra levar
  * o catálogo que já existia antes de configurar a sincronização. */
+/** Entrada num grupo: a réplica lê o grupo inteiro e manda o que falta. */
 async function pushTodosOsProdutos() {
-  try {
-    const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId) return;
-
-    const { getDb } = require('../db/database');
-    const db = getDb();
-    const produtos = db.prepare('SELECT * FROM products WHERE ativo = 1').all();
-
-    const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
-    const { doc, writeBatch, serverTimestamp } = require('firebase/firestore');
-    const batch = writeBatch(firestore);
-
-    for (const p of produtos) {
-      const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'produtos', p.id);
-      batch.set(ref, {
-        nome: p.nome, categoria: p.categoria, preco: p.preco, custo: p.custo, unidade: p.unidade,
-        sku: p.sku, codigoBarras: p.codigo_barras, ncm: p.ncm, cest: p.cest, cfop: p.cfop,
-        cstCsosn: p.cst_csosn, origemMercadoria: p.origem_mercadoria, estoqueMinimo: p.estoque_minimo,
-        ativo: true, atualizadoEm: serverTimestamp(),
-      }, { merge: true });
-    }
-    if (produtos.length > 0) await batch.commit();
-  } catch (err) {
-    console.error('[productSyncService] falha ao mandar o catálogo inteiro pro grupo:', err.message);
+  try { await require('./grupoReplicaService').sincronizarTudo(); } catch (err) {
+    console.error('[productSyncService] falha ao mandar o catálogo pro grupo:', err.message);
   }
 }
 
-let pararEscutaProdutos = null;
-
 /**
- * Escuta em tempo real o catálogo do grupo — mas SÓ atualiza o cache
- * em memória (pra consulta), nunca escreve na tabela local `products`.
- * Decisão de propósito, pra impedir a sincronização de catálogo clonar
- * produtos na base local sem ninguém pedir — cada máquina continua
- * dona do próprio catálogo, só pode ENXERGAR o que as outras têm.
+ * Liga a réplica do grupo (produtos, clientes e fiado iguais em todos os
+ * caixas -- grupoReplicaService). O cache em memória abaixo continua só
+ * para as buscas "no grupo" que já existiam; quem o enche agora é a
+ * réplica (uma escuta só por coleção).
  */
 function iniciarEscutaProdutos() {
-  try {
-    if (pararEscutaProdutos) { pararEscutaProdutos(); pararEscutaProdutos = null; }
-    catalogoDoGrupoEmMemoria = new Map();
-    const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId) return;
+  catalogoDoGrupoEmMemoria = new Map();
+  try { return require('./grupoReplicaService').iniciar(); } catch (err) {
+    console.error('[productSyncService] não foi possível ligar a réplica do grupo:', err);
+    return Promise.resolve();
+  }
+}
 
-    const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
-    const { collection, onSnapshot } = require('firebase/firestore');
-    const ref = collection(firestore, 'grupos_sincronizacao', grupoId, 'produtos');
-
-    pararEscutaProdutos = onSnapshot(
-      ref,
-      (snap) => {
-        // Só aplica o que MUDOU (docChanges) em vez de reconstruir o mapa
-        // inteiro a cada produto editado em qualquer máquina do grupo --
-        // num catálogo de milhares de itens, reconstruir tudo a cada
-        // alteração custava CPU e memória à toa. O primeiro snapshot
-        // traz todos como 'added', então o resultado final é o mesmo.
-        for (const change of snap.docChanges()) {
-          const id = change.doc.id;
-          if (change.type === 'removed') { catalogoDoGrupoEmMemoria.delete(id); continue; }
-          const dados = change.doc.data();
-          if (dados.excluido === true) { catalogoDoGrupoEmMemoria.delete(id); continue; } // removido em outra máquina -- não mostra na consulta
-          catalogoDoGrupoEmMemoria.set(id, { id, ...dados });
-        }
-      },
-      (err) => console.error('[productSyncService] escuta de produtos falhou:', err)
-    );
-  } catch (err) {
-    console.error('[productSyncService] não foi possível iniciar a escuta de produtos:', err);
+/** Chamado pela réplica a cada leva de produtos do grupo. */
+function atualizarCacheDoGrupo(mudancas) {
+  for (const [id, dados] of mudancas) {
+    if (!dados || dados.excluido === true) { catalogoDoGrupoEmMemoria.delete(id); continue; }
+    catalogoDoGrupoEmMemoria.set(id, { id, ...dados });
   }
 }
 
@@ -162,18 +87,11 @@ function buscarNoCatalogoDoGrupoPorCodigoBarras(codigoBarras) {
  * numa versão anterior do app, que ainda aplica automaticamente — a
  * lápide impede que ELAS tragam esse produto de volta sem querer.
  */
-async function marcarProdutoExcluidoNoGrupo(productId) {
-  try {
-    const grupoId = syncStateService.getGrupoSincronizacaoId();
-    if (!grupoId) return;
-
-    const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
-    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
-    const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'produtos', productId);
-    await setDoc(ref, { excluido: true, atualizadoEm: serverTimestamp() }, { merge: true });
-  } catch (err) {
-    console.error('[productSyncService] falha ao marcar produto excluído no grupo:', err.message);
+async function marcarProdutoExcluidoNoGrupo() {
+  // A exclusão/mesclagem já entrou na fila pelos triggers (o produto sumiu
+  // ou ficou inativo): a réplica grava a lápide. Aqui só adianta o envio.
+  try { await require('./grupoReplicaService').enviarPendentes(); } catch (err) {
+    console.error('[productSyncService] falha ao avisar o grupo sobre produto excluído:', err.message);
   }
 }
 
@@ -203,7 +121,7 @@ function prepararRevinculacaoViaGrupo() {
 }
 
 module.exports = {
-  pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos, marcarProdutoExcluidoNoGrupo,
+  pushProduct, pushTodosOsProdutos, iniciarEscutaProdutos, marcarProdutoExcluidoNoGrupo, atualizarCacheDoGrupo,
   buscarNoCatalogoDoGrupo, buscarNoCatalogoDoGrupoPorCodigoBarras, listarCatalogoCompletoDoGrupo,
   prepararRevinculacaoViaGrupo,
 };

@@ -6530,3 +6530,54 @@ fecha. A tela rola o campo para cima do teclado. Mouse e Tab não abrem nada. A 
 "File Edit View Window" saiu da janela (Alt mostra).
 
 Testes novos: `tecladoSistema.test.js` (7).
+
+## Grupo de caixas: usuários iguais em todos e troca de servidor sem estragar o estoque (nov/2026)
+
+**Usuários e PIN em todos os caixas do grupo:** quem for criado, desativado, tiver o PIN redefinido
+ou trocar o próprio PIN num caixa passa a valer nos outros. Caixa que entra no grupo casa os
+usuários pelo nome (o "Administrador" dele passa a usar o PIN do grupo) e recebe quem ainda não
+tinha. Ficam só no próprio caixa: usuário de suporte, operadores de demonstração e o admin que
+ainda está com o PIN 0000 de fábrica. Tentativas erradas e bloqueio continuam por caixa.
+
+**Servidor do grupo e redundância:** na Central, marcar outra máquina como servidor desmarca a
+anterior. A máquina que vira servidor não regrava mais o estoque do grupo (antes regravava com o
+estoque dela, que não conhece as vendas dos outros caixas): só cria o estoque de produto que o
+grupo ainda não tinha. Dá para passar o servidor para a reserva e devolver depois sem perder
+nada. Para refazer a contagem inteira depois de um inventário: Configurações → Sincronização →
+"Recontar estoque do grupo a partir deste computador" (só administrador, só no servidor).
+
+**Publicar:** `firebase deploy --only firestore:rules` (regra nova de `usuarios`) e a Central de
+novo (troca de servidor). Desktop: commit `release:` normal. Testes novos:
+`usuariosDoGrupo.test.js` (8) e um caso em `firestoreRules.test.js`.
+
+## Cadastro rápido de mesas (nov/2026)
+
+Restaurante → Mesas → **Cadastrar mesas**: informa quantas (atalhos 5, 10, 15, 20, 30) e de que número
+começa — já vem preenchido com o seguinte à maior mesa que existe — e todas são criadas de uma vez
+(até 200). Número que já existe é pulado, sem duplicar. "Uma mesa, com nome" continua para mesa com
+nome livre (Varanda...). `tableService.createTablesEmLote` / `proximoNumeroDeMesa`, canais
+`table:createLote` e `table:proximoNumero` (gerente/admin). Testes: `mesasEmLote.test.js` (4).
+
+## Caixas do grupo como extensão um do outro (nov/2026)
+
+Pedido: os PDVs do grupo como extensão um do outro, com os mesmos usuários, senhas, históricos etc.
+Junto com os usuários e PINs (entrada anterior), agora ficam iguais em todos os caixas:
+
+- **Produtos e preços**: o catálogo inteiro entra no banco de cada caixa. Cadastrar, mudar preço
+  (inclusive por planilha, nota de entrada ou promoção) ou excluir num caixa vale nos outros.
+  Caixa que entra no grupo casa o que já tinha pelo código de barras (ou SKU; sem os dois, pelo
+  nome) — não duplica e fica com o cadastro do grupo.
+- **Clientes e fiado**: mesmo cadastro (casa pelo CPF/CNPJ) e o mesmo saldo de fiado — a dívida
+  feita num caixa pode ser paga em outro. Limite e bloqueio do fiado também valem em todos.
+- **Histórico**: cancelamento e devolução aparecem no histórico do grupo e descontam do
+  consolidado; botão "Só deste caixa" volta para a lista local com reimprimir/devolução.
+- **Nome do computador** na Central e no histórico do grupo, em vez do código.
+
+Cada caixa continua com a cópia dele e vendendo sem internet; acerta com os outros quando a
+conexão volta (vence a alteração mais nova). Ficam por caixa: estoque físico (o do grupo é o
+contador do servidor), pontos de fidelidade, foto do produto, caixa/gaveta e configurações.
+
+Publicar: commit `release:` normal + `firebase deploy --only firestore:rules` (regras de
+`clientes` e `fiado`) + Central de novo. Testes: `caixasDoGrupo.test.js` (9), casos novos em
+`firestoreRules.test.js`; testado também com dois "computadores" no emulador do Firestore.
+
