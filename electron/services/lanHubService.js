@@ -159,12 +159,12 @@ async function atender(caminho, corpo, caixaId) {
       if (!armazem.colecaoValida(corpo.colecao) || armazem.SO_POR_ID.has(corpo.colecao)) return [400, { erro: 'coleção' }];
       return [200, { docs: [...armazem.lerTodos(g, corpo.colecao)], seq: armazem.seqAtual() }];
     }
-    // Só alguns documentos, por id (fotos). O que não está aqui vem da nuvem.
+    // Só alguns documentos, por id (fotos). Só o que está na cópia da loja: fotos não vão à nuvem.
     case '/v1/ler-alguns': {
       const p = exigirPronto(); if (p) return p;
       const ids = Array.isArray(corpo.ids) ? corpo.ids.filter((id) => typeof id === 'string' && id.length <= 200 && !id.includes('/')) : [];
       if (!armazem.colecaoValida(corpo.colecao) || !ids.length || ids.length > 20) return [400, { erro: 'pedido' }];
-      return [200, { docs: [...await require('./lanEspelhoService').lerAlgunsComNuvem(g, corpo.colecao, ids)] }];
+      return [200, { docs: [...armazem.lerAlguns(g, corpo.colecao, ids)] }];
     }
     case '/v1/gravar': {
       if (!armazem.colecaoValida(corpo.colecao) || !Array.isArray(corpo.itens) || corpo.itens.length > 2000) return [400, { erro: 'pedido' }];

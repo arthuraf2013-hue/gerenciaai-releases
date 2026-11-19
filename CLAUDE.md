@@ -409,22 +409,37 @@ cada caixa (continua vendendo sem internet). Coleções do grupo `produtos`,
   vez: pedido durante um envio vira UMA passada a mais (antes cada pedido
   rodava junto, lendo a fila inteira -- planilha de 500 produtos = 250 mil
   gravações).
-- Foto do produto (`grupoFotoService.js`, migração 16): coleção própria
-  `fotos/{docDoProduto}` ({hash, tipo, dados base64, versaoMs}), comprimida
-  (até 800 px, 450 KB; PNG continua PNG), regra no firestore.rules. O
-  produto leva só `fotoHash` (null = sem foto; sem o campo = caixa antigo
-  ou foto ainda não subiu: não mexe). Filas `grupo_replica_foto_enviar`
-  (gatilho no foto_path) e `grupo_replica_foto_baixar`; `grupo_replica_foto`
-  = hash do arquivo daqui -> hash no grupo. Subir/baixar foto é separado do
-  cadastro: nuvem recusando foto não segura produto. No servidor da loja,
-  fotos só por id (`/v1/ler-alguns`, sem "ler tudo"/feed) e sobem para a
-  nuvem em lote à parte (`subirFotos`); a que falta vem da nuvem sob demanda.
+- Foto do produto (`grupoFotoService.js`, migração 16): SÓ PELA REDE LOCAL
+  (servidor da loja), NUNCA pelo Firestore -- na v1.0.32 subia para a nuvem
+  e cada foto (~600 KB) gastava cota; tirado em nov/2026. Coleção `fotos`
+  da cópia do servidor (`lanArmazemService`, `SO_REDE_LOCAL`: nuvem_pendente
+  sempre 0), {hash, tipo, dados base64, versaoMs}, comprimida (até 800 px,
+  450 KB; PNG continua PNG). Sem regra no firestore.rules de propósito
+  (tudo recusado). `grupoReplicaService.trabalharFotos` só roda com backend
+  da rede local (`backendDasFotos`); em modo 'nuvem' a foto espera na fila.
+  O produto (que vai à nuvem) leva só `fotoHash` (null = sem foto; sem o
+  campo = caixa antigo ou foto ainda não subiu: não mexe). Filas
+  `grupo_replica_foto_enviar` (gatilho no foto_path) e
+  `grupo_replica_foto_baixar`; `grupo_replica_foto` = hash do arquivo daqui
+  -> hash no grupo. Subir/baixar foto é separado do cadastro. No servidor,
+  fotos só por id (`/v1/ler-alguns`, sem "ler tudo"/feed), só da cópia.
   Quem baixa confere hash e cabeçalho da imagem.
 - Fica por caixa: estoque físico (o do grupo é o contador), pontos de
   fidelidade, controles de automação. "Apagar todos os produtos"
   num caixa vale para o grupo (vira lápide).
 - `productService.mergeProducts` agora leva TODA tabela com FK para
   products (lida do banco) -- a lista fixa falhava na chave estrangeira.
+
+**Grupo da máquina (documento da instalação)**: a escuta
+(`licenseService.iniciarEscutaTempoReal`) e o `checkLicense` IGNORAM
+snapshot `fromCache`. Sem chegar à nuvem, o ping pelo SDK (setDoc merge)
+faz o SDK mostrar um documento só com os campos do ping (testado no SDK
+real) -- aplicado, tirava a máquina do grupo ("Sincronização não
+configurada") e, na volta, ela reentrava relendo o catálogo e reenviando
+TODO o histórico de vendas (cota queimada); no checkLicense, um "não
+existe" da memória ainda recriaria o documento por cima. E
+`syncStateService.aplicarGrupoDaInstalacao` só mexe no grupo com o campo
+presente: só a Central tira, gravando null (corrigido nov/2026).
 
 **Histórico do grupo**: espelho da venda leva `status` (cancelada),
 `valorDevolvido`, `ocultaHistorico` e `nomeComputador`; devolução tira a

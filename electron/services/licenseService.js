@@ -224,6 +224,11 @@ async function checkLicense() {
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const ref = doc(firestore, 'installations', installId);
     const snap = await getDoc(ref);
+    // Sem chegar ao servidor, o getDoc devolve a cópia da memória do SDK --
+    // que pode ser só o pedaço gravado pelo ping (sem grupo, sem cliente)
+    // ou "não existe", e aí o ramo de baixo CRIARIA um documento novo por
+    // cima do de verdade. Sem servidor, não aplica nem grava nada.
+    if (snap.metadata?.fromCache) throw new Error('offline: só a cópia local do documento da instalação');
 
     const maquinaHash = await require('./testeGratisService').maquinaHash();
     const disjuntor = require('./nuvemDisjuntorService');
@@ -347,6 +352,14 @@ function iniciarEscutaTempoReal() {
       ref,
       (snap) => {
         if (!snap.exists()) return;
+        // Só o que veio do servidor. Sem chegar à nuvem (sem internet,
+        // Firebase fora), o ping pelo SDK (setDoc com merge) faz o SDK
+        // mostrar aqui um documento "de mentira" só com os campos do ping
+        // (ultimoPing, versaoApp...): sem grupoSincronizacaoId, clienteId,
+        // nada. Aplicado, tirava a máquina do grupo e, quando o documento
+        // de verdade voltava, ela "entrava" de novo -- relendo o catálogo
+        // inteiro e reenviando todo o histórico de vendas (cota queimada).
+        if (snap.metadata?.fromCache) return;
         aplicarDadosDoServidor(snap.data());
         // Botão "Forçar atualização dos dados" da Central (sincronizacaoForcadaService).
         require('./sincronizacaoForcadaService').aoMudarInstalacao(snap.data());

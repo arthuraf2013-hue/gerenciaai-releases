@@ -415,16 +415,6 @@ let backend = {
     const snap = await getDocs(collection(firestore, 'grupos_sincronizacao', grupoId, colecao));
     return new Map(snap.docs.map((d) => [d.id, d.data()]));
   },
-  /** Só os documentos pedidos (fotos). */
-  async lerAlguns(grupoId, colecao, ids) {
-    const lan = require('./grupoTransporteService').backend('replica');
-    if (lan) return lan.lerAlguns(grupoId, colecao, ids);
-    const firestore = require('./licenseService').getLicenseFirestore();
-    const { doc, getDoc } = require('firebase/firestore');
-    const { comPrazo } = require('./nuvemDisjuntorService');
-    const snaps = await Promise.all(ids.map((id) => comPrazo(getDoc(doc(firestore, 'grupos_sincronizacao', grupoId, colecao, id)), 30000, 'foto do grupo')));
-    return new Map(snaps.filter((s) => s.exists()).map((s) => [s.id, s.data()]));
-  },
   async gravarLote(grupoId, colecao, itens) {
     const lan = require('./grupoTransporteService').backend('replica');
     if (lan) return lan.gravarLote(grupoId, colecao, itens);
@@ -660,14 +650,23 @@ function iniciar() {
   });
 }
 
+// Fotos só andam pela rede local (servidor da loja), NUNCA pelo Firestore:
+// cada foto pesa até ~600 KB e gastava a cota da nuvem. Sem rede local
+// (modo 'nuvem'), elas esperam na fila; quando o servidor da loja responde,
+// sobem e descem por ele. O backend é o da rede local direto (não o
+// `backend` acima, que cai para o Firestore se o modo trocar no meio).
+const BACKEND_DAS_FOTOS = () => require('./grupoTransporteService').backend('replica');
+let backendDasFotos = BACKEND_DAS_FOTOS;
+function _definirBackendDasFotosParaTeste(fn) { backendDasFotos = fn || BACKEND_DAS_FOTOS; }
+
 /** Fotos dos produtos (grupoFotoService): sobe as trocadas aqui e baixa as novas do grupo. */
 function trabalharFotos(grupoId) {
   try {
     const fotos = require('./grupoFotoService');
     if (!fotos.temTrabalho(grupoId)) return null;
-    const lan = !!require('./grupoTransporteService').backend('replica');
-    const semEnvio = !lan && !require('./nuvemDisjuntorService').podeEscrever();
-    return fotos.trabalhar({ grupoId, backend, origem: origemDesteCaixa(), semEnvio });
+    const lan = backendDasFotos();
+    if (!lan) return null; // sem servidor da loja: a foto espera, não vai pela nuvem
+    return fotos.trabalhar({ grupoId, backend: lan, origem: origemDesteCaixa() });
   } catch (err) {
     console.error('[grupoReplicaService] fotos:', err?.message || err);
     return null;
@@ -685,5 +684,5 @@ function receber(entidade, grupoId, mudou) {
 
 module.exports = {
   iniciar, parar, sincronizarTudo, enviarPendentes, mesclar, receber, receberFiado, paraGrupo, trabalharFotos,
-  versaoDoDoc, _definirBackendParaTeste, ENTIDADES,
+  versaoDoDoc, _definirBackendParaTeste, _definirBackendDasFotosParaTeste, ENTIDADES,
 };

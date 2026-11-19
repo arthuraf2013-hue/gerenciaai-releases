@@ -164,7 +164,7 @@ function backend(tipo) {
     case 'replica':
       return hub ? {
         lerTodos: async (g, colecao) => armazem.lerTodos(g, colecao),
-        lerAlguns: async (g, colecao, ids) => espelho().lerAlgunsComNuvem(g, colecao, ids),
+        lerAlguns: async (g, colecao, ids) => armazem.lerAlguns(g, colecao, ids), // fotos: só a cópia da loja, sem nuvem
         gravarLote: async (g, colecao, itens) => { armazem.gravar(g, colecao, itens); },
         escutar: (g, colecao, aoMudar) => armazem.escutar(g, colecao, aoMudar),
       } : {

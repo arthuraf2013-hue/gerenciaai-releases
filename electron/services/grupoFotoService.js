@@ -1,10 +1,15 @@
-// Foto do produto igual em todos os caixas do grupo.
+// Foto do produto igual em todos os caixas do grupo -- SÓ PELA REDE LOCAL.
+//
+// As fotos andam só pelo servidor da loja (lanHubService), nunca pelo
+// Firestore: cada uma pesa até ~600 KB e gastava a cota da nuvem. Sem rede
+// local, ficam na fila (grupoReplicaService.trabalharFotos nem chama aqui).
 //
 // A foto não vai dentro do documento do produto: o app relê o grupo inteiro
 // ao abrir (grupoReplicaService.sincronizarTudo) e baixaria todas as fotos de
-// novo toda vez. Ela vai em grupos_sincronizacao/{g}/fotos/{docDoProduto}
-// ({ hash, tipo, dados(base64), versaoMs, origem }) e o produto leva só o
-// `fotoHash`. Cada caixa baixa uma foto só quando o fotoHash muda.
+// novo toda vez. Ela vai na coleção `fotos/{docDoProduto}` do servidor da
+// loja ({ hash, tipo, dados(base64), versaoMs, origem }) e o produto (que vai
+// para a nuvem também) leva só o `fotoHash`. Cada caixa baixa uma foto só
+// quando o fotoHash muda.
 //
 //   produto.fotoHash = 'abc…'  a foto do grupo é esta
 //   produto.fotoHash = null    o produto ficou sem foto
@@ -16,16 +21,16 @@
 // grupo tem foto nova, falta baixar) e grupo_replica_foto (foto daqui que o
 // grupo já conhece: hash do arquivo daqui -> hash no grupo).
 //
-// Subir/baixar foto é separado do cadastro: se a nuvem recusar a foto (regra
-// do Firestore ainda não publicada, sem cota, sem internet), produto, preço e
-// estoque continuam sincronizando normalmente e a foto tenta de novo depois.
+// Subir/baixar foto é separado do cadastro: sem servidor da loja (ou ele
+// recusando), produto, preço e estoque continuam sincronizando normalmente
+// e a foto tenta de novo depois.
 
 const fs = require('fs');
 const path = require('path');
 const { createHash } = require('crypto');
 const { getDb } = require('../db/database');
 
-const MAX_BYTES = 450 * 1024; // depois de comprimida (no grupo ~600 KB em base64; o Firestore aceita 1 MB por documento)
+const MAX_BYTES = 450 * 1024; // depois de comprimida (~600 KB em base64; 4 por envio cabem nos 8 MB do servidor da loja)
 const LARGURAS = [800, 600, 400];
 const TIPOS = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
 const ENVIO_POR_VEZ = 4;
@@ -296,7 +301,7 @@ let trabalhando = null;
 function trabalhar(opcoes) {
   if (trabalhando) return trabalhando;
   trabalhando = (async () => {
-    const enviadas = opcoes.semEnvio ? 0 : (await enviarFotos(opcoes)).enviadas || 0;
+    const enviadas = (await enviarFotos(opcoes)).enviadas || 0;
     const baixadas = (await baixarFotos(opcoes)).baixadas || 0;
     return { enviadas, baixadas };
   })().catch((err) => {

@@ -5,8 +5,8 @@
  * (lanEspelhoService) acerta com a nuvem quando há internet e cota.
  *
  *   lan_docs        produtos, clientes, fiado, usuarios, vendas, fotos
- *                   (fotos = foto do produto, lida só por id -- lerAlguns -- e
- *                   subida para a nuvem fora do lote do resto, ver lanEspelhoService)
+ *                   (fotos = foto do produto, lida só por id -- lerAlguns --
+ *                   e que NUNCA vai para a nuvem: nuvem_pendente sempre 0)
  *                   (seq crescente = feed de mudanças; nuvem_pendente = falta subir)
  *   lan_estoque     contador do estoque do grupo por produto (autoridade
  *                   enquanto o servidor está no ar; `espelhado` = último valor
@@ -64,20 +64,21 @@ function avisar(grupoId, colecao, docs, seqMax) {
 function gravar(grupoId, colecao, itens) {
   if (!colecaoValida(colecao)) throw new Error('coleção inválida');
   const db = getDb();
+  const paraNuvem = SO_REDE_LOCAL.has(colecao) ? 0 : 1;
   const mudou = new Map();
   let seqMax = 0;
   db.transaction(() => {
     const up = db.prepare(
       `INSERT INTO lan_docs (grupo_id, colecao, doc_id, dados, versao, seq, nuvem_pendente, dia)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(grupo_id, colecao, doc_id) DO UPDATE SET
-         dados = excluded.dados, versao = excluded.versao, seq = excluded.seq, nuvem_pendente = 1, dia = excluded.dia`
+         dados = excluded.dados, versao = excluded.versao, seq = excluded.seq, nuvem_pendente = excluded.nuvem_pendente, dia = excluded.dia`
     );
     for (const { docId, dados } of itens) {
       if (typeof docId !== 'string' || !docId || docId.length > 200 || docId.includes('/')) continue;
       const limpo = paraJson(dados || {});
       seqMax = proximoSeq(db);
-      up.run(grupoId, colecao, docId, JSON.stringify(limpo), versaoDe(limpo), seqMax, typeof limpo.diaISO === 'string' ? limpo.diaISO : null);
+      up.run(grupoId, colecao, docId, JSON.stringify(limpo), versaoDe(limpo), seqMax, paraNuvem, typeof limpo.diaISO === 'string' ? limpo.diaISO : null);
       mudou.set(docId, limpo);
     }
   })();
@@ -188,14 +189,16 @@ function esperarMudanca(grupoId, colecao, ms) {
 
 // ---------------------------------------------------------------- nuvem
 
-/** O que falta subir. Fotos à parte (fotos: true): são pesadas (o Firestore
- * recusa lote acima de 10 MB) e, se a nuvem recusar uma, o resto não pode
- * ficar parado atrás dela. */
-function pendentesParaNuvem(limite = 400, { fotos = false } = {}) {
+/** Coleções que ficam só na rede local (não sobem para o Firestore). */
+const SO_REDE_LOCAL = new Set(['fotos']);
+
+/** O que falta subir. Fotos nunca (só rede local; a marca de uma cópia da
+ * v1.0.32, que ainda subia foto, é ignorada). */
+function pendentesParaNuvem(limite = 400) {
   return getDb().prepare(
     `SELECT grupo_id, colecao, doc_id, dados, seq FROM lan_docs
-     WHERE nuvem_pendente = 1 AND (colecao = 'fotos') = ? ORDER BY seq LIMIT ?`
-  ).all(fotos ? 1 : 0, limite).map((l) => ({ grupoId: l.grupo_id, colecao: l.colecao, docId: l.doc_id, dados: JSON.parse(l.dados), seq: l.seq }));
+     WHERE nuvem_pendente = 1 AND colecao <> 'fotos' ORDER BY seq LIMIT ?`
+  ).all(limite).map((l) => ({ grupoId: l.grupo_id, colecao: l.colecao, docId: l.doc_id, dados: JSON.parse(l.dados), seq: l.seq }));
 }
 
 /** Só tira a marca se o documento não mudou de novo enquanto subia. */
@@ -207,7 +210,7 @@ function marcarNaNuvem(itens) {
 
 function contarPendentesParaNuvem() {
   const db = getDb();
-  return Number(db.prepare('SELECT COUNT(*) AS n FROM lan_docs WHERE nuvem_pendente = 1').get().n)
+  return Number(db.prepare(`SELECT COUNT(*) AS n FROM lan_docs WHERE nuvem_pendente = 1 AND colecao <> 'fotos'`).get().n)
     + Number(db.prepare('SELECT COUNT(*) AS n FROM lan_estoque WHERE pendente = 1').get().n);
 }
 
@@ -373,7 +376,7 @@ function esquecerOutrosGrupos(grupoId) {
 }
 
 module.exports = {
-  COLECOES, SO_POR_ID, colecaoValida, versaoDe, gravar, aplicarDaNuvem, lerTodos, lerAlguns, seqAtual, mudancasDesde, vendasDoPeriodo,
+  COLECOES, SO_POR_ID, SO_REDE_LOCAL, colecaoValida, versaoDe, gravar, aplicarDaNuvem, lerTodos, lerAlguns, seqAtual, mudancasDesde, vendasDoPeriodo,
   escutar, esperarMudanca, pendentesParaNuvem, marcarNaNuvem, contarPendentesParaNuvem,
   lerContadores, aplicarMovimento, verificarEDebitar, gravarContadores, contadorDaNuvem, contaDaSubida,
   contadoresPendentes, contadorSubiu, lerMeta, gravarMeta, esquecerOutrosGrupos,

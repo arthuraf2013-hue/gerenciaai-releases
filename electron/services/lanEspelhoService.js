@@ -18,12 +18,8 @@ const disjuntor = require('./nuvemDisjuntorService');
 const DIAS_DE_VENDAS = 60;
 const INTERVALO_MS = 5000;
 const LOTE = 400;
-// Fotos: poucas por lote (cada uma tem até ~600 KB; o Firestore recusa lote
-// acima de 10 MB) e, se a nuvem recusar (regra ainda não publicada, sem
-// cota), espera um pouco sem segurar o resto.
-const LOTE_FOTOS = 6;
-const ESPERA_FOTOS_FALHOU_MS = 5 * 60 * 1000;
-let fotosSoDepoisDe = 0;
+// Fotos (coleção `fotos` da cópia) NÃO sobem para a nuvem: ficam só na
+// rede local (ver grupoFotoService). Nada aqui lê nem grava foto no Firestore.
 
 // ------------------------------------------------------------ Firestore (trocável nos testes)
 
@@ -59,13 +55,6 @@ let nuvem = {
       aoMudar(mudou);
     }, aoErrar);
   },
-  /** Só os documentos pedidos (os que existem na nuvem). */
-  async lerAlguns(grupoId, colecao, ids) {
-    const firestore = require('./licenseService').getLicenseFirestore();
-    const { doc, getDoc } = require('firebase/firestore');
-    const snaps = await Promise.all(ids.map((id) => disjuntor.comPrazo(getDoc(doc(firestore, 'grupos_sincronizacao', grupoId, colecao, id)), 30000, 'leitura do grupo')));
-    return new Map(snaps.filter((s) => s.exists()).map((s) => [s.id, s.data()]));
-  },
   async gravarLote(grupoId, itens) {
     const firestore = require('./licenseService').getLicenseFirestore();
     const { doc, writeBatch, serverTimestamp } = require('firebase/firestore');
@@ -87,7 +76,7 @@ let nuvem = {
     }), 60000, 'estoque da rede local');
   },
 };
-function _definirNuvemParaTeste(n) { nuvem = { ...nuvem, ...n }; fotosSoDepoisDe = 0; }
+function _definirNuvemParaTeste(n) { nuvem = { ...nuvem, ...n }; }
 
 // ------------------------------------------------------------ estado
 
@@ -173,7 +162,6 @@ async function subirPendentes() {
       total += pend.length;
       if (pend.length < LOTE) break;
     }
-    await subirFotos();
     // Contadores de estoque, um por transação.
     for (const linha of armazem.contadoresPendentes(100)) {
       if (linha.grupo_id !== grupoAtivo) continue;
@@ -203,49 +191,8 @@ async function subirPendentes() {
   return total;
 }
 
-/** Fotos para a nuvem, em lote pequeno e separado: falhar aqui não para nada. */
-async function subirFotos() {
-  if (Date.now() < fotosSoDepoisDe) return 0;
-  let total = 0;
-  try {
-    for (let volta = 0; volta < 5; volta++) {
-      const pend = armazem.pendentesParaNuvem(LOTE_FOTOS, { fotos: true }).filter((p) => p.grupoId === grupoAtivo);
-      if (!pend.length) break;
-      if (!disjuntor.podeEscrever('espelhoRedeLocal', pend.length)) break;
-      await nuvem.gravarLote(grupoAtivo, pend);
-      armazem.marcarNaNuvem(pend);
-      total += pend.length;
-      if (pend.length < LOTE_FOTOS) break;
-    }
-  } catch (err) {
-    fotosSoDepoisDe = Date.now() + ESPERA_FOTOS_FALHOU_MS;
-    console.error('[lanEspelho] fotos não subiram para a nuvem (tenta de novo em 5 min):', err?.message || err);
-  }
-  return total;
-}
-
-/**
- * Documentos pedidos por id (fotos): os da cópia; os que faltam, da nuvem
- * (caixa fora da rede local que subiu direto lá), guardando na cópia.
- */
-async function lerAlgunsComNuvem(grupoId, colecao, ids) {
-  const achados = armazem.lerAlguns(grupoId, colecao, ids);
-  const faltam = [...new Set(ids)].filter((id) => !achados.has(id)).slice(0, 20);
-  if (!faltam.length) return achados;
-  try {
-    const daNuvem = await nuvem.lerAlguns(grupoId, colecao, faltam);
-    if (daNuvem.size) {
-      armazem.aplicarDaNuvem(grupoId, colecao, daNuvem);
-      for (const [id, d] of armazem.lerAlguns(grupoId, colecao, [...daNuvem.keys()])) achados.set(id, d);
-    }
-  } catch (err) {
-    console.error('[lanEspelho] não consegui buscar na nuvem:', err?.message || err);
-  }
-  return achados;
-}
-
 function status() {
   return { ativo: !!grupoAtivo, pronto: pronto(grupoAtivo), faltaSubir: (() => { try { return armazem.contarPendentesParaNuvem(); } catch { return null; } })() };
 }
 
-module.exports = { iniciar, parar, subirPendentes, subirFotos, lerAlgunsComNuvem, pronto, aoFicarPronto, status, _definirNuvemParaTeste };
+module.exports = { iniciar, parar, subirPendentes, pronto, aoFicarPronto, status, _definirNuvemParaTeste };

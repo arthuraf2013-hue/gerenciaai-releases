@@ -10,11 +10,19 @@ function getLocalState() {
  * mesmo documento, sem precisar de outra consulta ao Firestore. */
 function aplicarGrupoDaInstalacao(dadosInstalacao) {
   const db = getDb();
-  const novoGrupoId = dadosInstalacao.grupoSincronizacaoId || null;
-  const novoServidor = dadosInstalacao.servidorDoGrupo === true ? 1 : 0;
+  const tem = (campo) => !!dadosInstalacao && Object.prototype.hasOwnProperty.call(dadosInstalacao, campo);
+  // Só a Central tira a máquina do grupo, e ela grava o campo como null
+  // (desvincular / apagar grupo). Documento SEM o campo (pedaço do
+  // documento, instalação recém-criada) não mexe no grupo daqui: tirar e
+  // pôr de novo relê o catálogo e reenvia todo o histórico de vendas.
+  if (!tem('grupoSincronizacaoId')) return;
   const estadoAntes = getLocalState();
   const grupoAntes = estadoAntes.grupo_sincronizacao_id;
   const servidorAntes = estadoAntes.servidor_do_grupo;
+  const novoGrupoId = dadosInstalacao.grupoSincronizacaoId || null;
+  const novoServidor = tem('servidorDoGrupo')
+    ? (dadosInstalacao.servidorDoGrupo === true ? 1 : 0)
+    : (novoGrupoId && novoGrupoId === grupoAntes ? servidorAntes : 0);
 
   db.prepare('UPDATE sync_state SET grupo_sincronizacao_id = ?, servidor_do_grupo = ? WHERE id = ?')
     .run(novoGrupoId, novoServidor, 'default');

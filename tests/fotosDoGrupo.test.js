@@ -1,5 +1,7 @@
 // Foto do produto igual em todos os caixas do grupo (grupoFotoService),
-// com o grupo (Firestore / servidor da loja) trocado por um falso.
+// com o grupo trocado por um falso. As fotos só andam pela rede local
+// (servidor da loja): `usarGrupo` liga o mesmo falso como nuvem E como
+// servidor da loja; sem servidor, a foto não passa pela nuvem.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -17,15 +19,23 @@ function grupoFalso() {
   const g = {
     colecoes,
     recusarFotos: false,
-    async lerTodos(_g, c) { return new Map([...colecoes[c]].map(([k, v]) => [k, { ...v }])); },
-    async lerAlguns(_g, c, ids) { return new Map(ids.filter((id) => colecoes[c].has(id)).map((id) => [id, { ...colecoes[c].get(id) }])); },
+    pedidosDeFoto: 0,
+    async lerTodos(_g, c) { if (c === 'fotos') g.pedidosDeFoto++; return new Map([...colecoes[c]].map(([k, v]) => [k, { ...v }])); },
+    async lerAlguns(_g, c, ids) { if (c === 'fotos') g.pedidosDeFoto++; return new Map(ids.filter((id) => colecoes[c].has(id)).map((id) => [id, { ...colecoes[c].get(id) }])); },
     async gravarLote(_g, c, itens) {
-      if (c === 'fotos' && g.recusarFotos) throw new Error('Missing or insufficient permissions.');
+      if (c === 'fotos') g.pedidosDeFoto++;
+      if (c === 'fotos' && g.recusarFotos) throw new Error('servidor da loja fora do ar');
       for (const { docId, dados } of itens) colecoes[c].set(docId, { ...dados });
     },
     escutar() { return () => {}; },
   };
   return g;
+}
+
+/** O grupo falso vale como nuvem e como servidor da loja (rede local ligada). */
+function usarGrupo(g, { redeLocal = true } = {}) {
+  replica._definirBackendParaTeste(g);
+  replica._definirBackendDasFotosParaTeste(() => (redeLocal ? g : null));
 }
 
 /** Imagem JPEG "de mentira" (cabeçalho certo, conteúdo aleatório). */
@@ -59,11 +69,11 @@ async function ciclo() {
 }
 
 test.beforeEach(() => fotos._definirCompressorParaTeste((arquivo) => ({ bytes: fs.readFileSync(arquivo), tipo: 'image/jpeg' })));
-test.after(() => { fotos._definirCompressorParaTeste(null); fotos._definirPastaParaTeste(null); });
+test.after(() => { fotos._definirCompressorParaTeste(null); fotos._definirPastaParaTeste(null); replica._definirBackendDasFotosParaTeste(null); });
 
 test('foto posta num caixa aparece no outro; trocar e tirar também', async () => {
   const g = grupoFalso();
-  replica._definirBackendParaTeste(g);
+  usarGrupo(g);
   const a = caixa();
   const { id } = productService.upsert({ nome: 'Coxinha', preco: 6 });
   await replica.sincronizarTudo();
@@ -115,7 +125,7 @@ test('foto posta num caixa aparece no outro; trocar e tirar também', async () =
 
 test('foto de um caixa que ainda não subiu não é apagada por quem não tem foto, e caixa antigo não mexe em foto', async () => {
   const g = grupoFalso();
-  replica._definirBackendParaTeste(g);
+  usarGrupo(g);
   const a = caixa();
   const { id } = productService.upsert({ nome: 'Pastel', preco: 8 });
   await replica.sincronizarTudo();
@@ -148,10 +158,10 @@ test('foto de um caixa que ainda não subiu não é apagada por quem não tem fo
   assert.deepEqual(fs.readFileSync(linha(a, id).foto_path), fotoB);
 });
 
-test('nuvem recusando as fotos (regra não publicada) não segura o cadastro; a foto sobe depois', async () => {
+test('servidor da loja recusando as fotos não segura o cadastro; a foto sobe depois', async () => {
   const g = grupoFalso();
   g.recusarFotos = true;
-  replica._definirBackendParaTeste(g);
+  usarGrupo(g);
   const a = caixa();
   const { id } = productService.upsert({ nome: 'Bolo', preco: 30 });
   await replica.sincronizarTudo();
@@ -170,9 +180,50 @@ test('nuvem recusando as fotos (regra não publicada) não segura o cadastro; a 
   assert.ok(g.colecoes.produtos.get(id).fotoHash);
 });
 
+test('sem rede local a foto não passa pela nuvem: espera na fila e vai quando o servidor da loja responde', async () => {
+  const g = grupoFalso();
+  usarGrupo(g, { redeLocal: false });
+  const a = caixa();
+  const { id } = productService.upsert({ nome: 'Empada', preco: 7 });
+  await replica.sincronizarTudo();
+  const b = caixa();
+  await replica.sincronizarTudo();
+
+  a.usar();
+  porFoto(a, id, jpeg());
+  a.db.prepare('UPDATE products SET preco = 8 WHERE id = ?').run(id);
+  await ciclo(); await ciclo();
+  assert.equal(g.colecoes.produtos.get(id).preco, 8, 'o cadastro continua indo pela nuvem');
+  assert.equal(g.pedidosDeFoto, 0, 'nenhuma leitura ou gravação de foto na nuvem');
+  assert.equal(g.colecoes.fotos.size, 0);
+  assert.equal(a.db.prepare('SELECT COUNT(*) n FROM grupo_replica_foto_enviar').get().n, 1, 'a foto espera na fila');
+
+  // Servidor da loja respondeu: a foto sobe e o B baixa por ele.
+  usarGrupo(g, { redeLocal: true });
+  fotos._definirCompressorParaTeste((arquivo) => ({ bytes: fs.readFileSync(arquivo), tipo: 'image/jpeg' }));
+  await ciclo();
+  assert.equal(g.colecoes.fotos.size, 1);
+  b.usar();
+  receberProdutos(g);
+  await replica.trabalharFotos('g-1');
+  assert.ok(linha(b, id).foto_path, 'o B ficou com a foto');
+
+  // B sem rede local de novo, foto nova no A: o B não busca na nuvem, espera.
+  a.usar();
+  porFoto(a, id, jpeg());
+  await ciclo();
+  b.usar();
+  usarGrupo(g, { redeLocal: false });
+  const antes = g.pedidosDeFoto;
+  receberProdutos(g);
+  await replica.trabalharFotos('g-1');
+  assert.equal(g.pedidosDeFoto, antes, 'B sem servidor da loja não pede foto à nuvem');
+  assert.equal(b.db.prepare('SELECT COUNT(*) n FROM grupo_replica_foto_baixar').get().n, 1, 'a foto nova espera para baixar');
+});
+
 test('foto adulterada ou que não é imagem não é gravada; tenta de novo mais tarde', async () => {
   const g = grupoFalso();
-  replica._definirBackendParaTeste(g);
+  usarGrupo(g);
   const a = caixa();
   const { id } = productService.upsert({ nome: 'Torta', preco: 40 });
   await replica.sincronizarTudo();
@@ -193,7 +244,7 @@ test('foto adulterada ou que não é imagem não é gravada; tenta de novo mais 
 
 test('foto grande demais fica só no caixa dela, sem travar a fila', async () => {
   const g = grupoFalso();
-  replica._definirBackendParaTeste(g);
+  usarGrupo(g);
   const a = caixa();
   const { id } = productService.upsert({ nome: 'Pizza', preco: 50 });
   await replica.sincronizarTudo();
