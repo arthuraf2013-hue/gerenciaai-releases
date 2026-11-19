@@ -391,7 +391,8 @@ CREATE TABLE IF NOT EXISTS sales (
   desconto_gerente        REAL NOT NULL DEFAULT 0,
   desconto_gerente_motivo TEXT,
   desconto_autorizado_por_id TEXT REFERENCES users(id),
-  status        TEXT NOT NULL DEFAULT 'aberta' CHECK (status IN ('aberta','finalizada','cancelada')),
+  -- transferida = comanda de mesa recebida em outro caixa do grupo (mesaCompartilhadaService), fora de todo relatório.
+  status        TEXT NOT NULL DEFAULT 'aberta' CHECK (status IN ('aberta','finalizada','cancelada','transferida')),
   total         REAL NOT NULL DEFAULT 0,
   criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
   finalizada_em TEXT,

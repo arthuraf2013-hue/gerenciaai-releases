@@ -139,6 +139,12 @@ async function pareamentoFim(corpo) {
   return [200, { prova: cripto.provaDoServidor(chaveSessao, corpo.sessao), hubId: contexto.hubId, hubNome: contexto.nome, grupoId: contexto.grupoId }];
 }
 
+function mesas() { return require('./mesaCompartilhadaService'); }
+function caixaDoPedido(installId) {
+  const c = getDb().prepare('SELECT install_id, nome FROM lan_caixas WHERE install_id = ?').get(installId);
+  return { id: installId, nome: c?.nome || 'outro caixa' };
+}
+
 function exigirPronto() {
   return require('./lanEspelhoService').pronto(contexto.grupoId) ? null : [503, { erro: 'aquecendo' }];
 }
@@ -172,6 +178,17 @@ async function atender(caminho, corpo, caixaId) {
       return [200, { vendas: armazem.vendasDoPeriodo(g, corpo.de, corpo.ate) }];
     case '/v1/estoque/movimento':
       return [200, armazem.aplicarMovimento(g, corpo)];
+    // Mesa compartilhada (mesaCompartilhadaService): as mesas são daqui.
+    case '/v1/mesas/chamar':
+      return [200, await mesas().atenderChamada(corpo, caixaDoPedido(caixaId))];
+    case '/v1/mesas/puxar':
+      return [200, mesas().puxar(corpo, caixaDoPedido(caixaId))];
+    case '/v1/mesas/concluir':
+      return [200, mesas().concluir(corpo, caixaDoPedido(caixaId))];
+    case '/v1/mesas/devolver':
+      return [200, mesas().devolver(corpo, caixaDoPedido(caixaId))];
+    case '/v1/mesas/versao':
+      return [200, { versao: await mesas().esperarMudanca(corpo.desde, corpo.esperarMs) }];
     case '/v1/estoque/debitar': {
       if (!Array.isArray(corpo.itens) || !corpo.itens.length) return [400, { erro: 'itens' }];
       const itens = corpo.itens.map((i) => ({ productId: String(i.productId), quantidade: Number(i.quantidade), nome: i.nome || null }));

@@ -35,6 +35,9 @@ function listActiveItems(locationId) {
      LEFT JOIN sale_people sp ON sp.sale_id = si.sale_id AND sp.numero = si.pessoa_numero
      WHERE s.location_id = ? AND s.status = 'aberta' AND si.cancelado = 0
        AND si.status_preparo IN ('pendente', 'preparando')
+       -- Conta de mesa trazida do servidor do grupo só para receber aqui: a
+       -- cozinha dela é a do servidor (mesaCompartilhadaService).
+       AND NOT EXISTS (SELECT 1 FROM mesa_remota_fechamentos f WHERE f.sale_id = s.id)
      ORDER BY si.criado_em ASC`
   ).all(locationId);
 }

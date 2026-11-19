@@ -92,6 +92,9 @@ function safeHandle(channel, fn) {
       // exigindo login.
       const negado = politicaDeAcesso(channel, event);
       if (negado) return negado;
+      // Mesa sendo paga em outro caixa do grupo: ninguém mexe nela daqui.
+      const travada = require('../services/mesaCompartilhadaService').recusaPorTrava(channel, payload);
+      if (travada) return travada;
       return await fn(event, comOperadorDaSessao(event, payload));
     } catch (err) {
       console.error(`[ipc:${channel}]`, err);
@@ -427,6 +430,8 @@ function registerIpcHandlers() {
       // Comanda de mesa paga: a mesa vai para "aguardando limpeza" já aqui,
       // sem depender do botão "Concluir" da tela (ver tableService).
       try { require('../services/tableService').liberarMesaDaVenda(saleId); } catch (err) { console.error('[mesa] liberar após pagar:', err?.message || err); }
+      // Conta de mesa do servidor recebida neste caixa: avisa o servidor.
+      require('../services/mesaCompartilhadaService').aoFinalizarVenda(saleId);
       const senha = require('../services/chamadaService').aposFinalizarVenda({ saleId, nome: nomeSenha, operadorId: usuarioLogado(event) });
       if (senha) return { ...r, senha };
     }
@@ -488,6 +493,21 @@ function registerIpcHandlers() {
   safeHandle('table:renomearPessoa', (_e, payload) => tableService.renomearPessoa(payload || {}));
   safeHandle('table:removerPessoa', (_e, payload) => tableService.removerPessoa(payload || {}));
   safeHandle('table:vincularCliente', (_e, payload) => tableService.vincularClientePessoa(payload || {}));
+
+  // --- Mesa compartilhada entre os caixas do grupo (rede local) ---
+  // Caixa: as mesas são as do servidor (chamar = mesma coisa que os canais
+  // table:/sale: acima, feita lá). Servidor: destravar mesa presa.
+  const mesaCompartilhada = () => require('../services/mesaCompartilhadaService');
+  safeHandle('mesaCompartilhada:status', () => mesaCompartilhada().status());
+  safeHandle('mesaCompartilhada:chamar', (event, { canal, args } = {}) => mesaCompartilhada().chamar(canal, args, usuarioLogado(event)));
+  safeHandle('mesaCompartilhada:puxar', (event, { tableId } = {}) => mesaCompartilhada().puxarParaPagar({ tableId, usuarioId: usuarioLogado(event) }));
+  safeHandle('mesaCompartilhada:devolver', (_e, { saleId } = {}) => mesaCompartilhada().devolverMesa({ saleId }));
+  safeHandle('mesaCompartilhada:definirModo', (_e, { modo } = {}) => mesaCompartilhada().definirModo(modo));
+  safeHandle('mesaCompartilhada:destravar', (event, { tableId } = {}) => mesaCompartilhada().destravar({ tableId, operadorId: usuarioLogado(event) }));
+  safeHandle('mesaCompartilhada:pendencias', async () => {
+    await mesaCompartilhada().processarFila().catch(() => {});
+    return mesaCompartilhada().pendenciasDaFila();
+  });
 
   // --- Insumos e ficha técnica ---
   safeHandle('ingredient:list', (_e, opts) => ingredientService.list(opts));

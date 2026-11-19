@@ -661,6 +661,26 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .table-reserva-badge-pendente { background: var(--color-warning-bg); color: var(--color-warning-text); }
 .table-reserva-badge-aguardando_confirmacao { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); color: var(--color-primary); }
 .table-reserva-badge-confirmada { background: var(--color-primary); color: white; }
+/* Mesa compartilhada (mesas do servidor do grupo pela rede local). */
+.mesa-compartilhada-aviso {
+  display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 8px 12px; font-size: 13px;
+  border-radius: var(--radius); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); color: var(--color-text);
+}
+.mesa-tela .mesa-compartilhada-aviso { margin: 8px 24px 0; }
+.mesa-compartilhada-recebendo { background: var(--color-warning-bg); border-color: color-mix(in srgb, var(--color-warning-text) 40%, transparent); }
+.mesa-compartilhada-sem-servidor p { margin: 0 0 8px; }
+.mesa-compartilhada-acoes { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.table-card-pagando {
+  font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; display: inline-flex; flex-wrap: wrap;
+  align-items: center; justify-content: center; gap: 6px; background: var(--color-warning-bg); color: var(--color-warning-text);
+}
+.table-card-pagando-aqui { background: var(--color-primary); color: white; }
+.mesas-daqui { margin-top: 18px; padding: 12px 14px; border: 1px dashed var(--color-border); border-radius: var(--radius); }
+.mesas-daqui h2 { font-size: 15px; margin: 0 0 2px; }
+.mesas-daqui .tables-grid { margin-top: 10px; }
+.mesa-catalogo-fechando { display: flex; align-items: center; justify-content: center; }
+.mesa-catalogo-fechando .empty-state { max-width: 360px; text-align: center; }
 
 .profile-cards { display: flex; gap: 12px; flex-wrap: wrap; }
 .profile-card {

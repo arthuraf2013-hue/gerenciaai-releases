@@ -70,9 +70,15 @@ function getOrOpenCurrentSale({ locationId, operadorId }) {
   // entre criar e finalizar (ou enquanto espera o estoque do grupo) --
   // nunca é o carrinho de quem está no computador, mesmo que seja o
   // mesmo usuário logado nos dois.
+  //
+  // Comanda de mesa também nunca é o carrinho do balcão: nem a de uma mesa
+  // daqui, nem a conta de mesa trazida do servidor do grupo para receber
+  // neste caixa (mesa_remota_fechamentos, ver mesaCompartilhadaService).
   const existing = db.prepare(
     `SELECT * FROM sales WHERE location_id = ? AND operador_id = ? AND status = 'aberta' AND pendente_estoque_grupo = 0
        AND NOT EXISTS (SELECT 1 FROM mobile_sales ms WHERE ms.sale_id = sales.id)
+       AND NOT EXISTS (SELECT 1 FROM restaurant_tables t WHERE t.sale_id = sales.id)
+       AND NOT EXISTS (SELECT 1 FROM mesa_remota_fechamentos f WHERE f.sale_id = sales.id)
      ORDER BY criado_em DESC LIMIT 1`
   ).get(locationId, operadorId);
 
@@ -232,6 +238,9 @@ function listSalesByRange({ locationId, dataInicio, dataFim, incluirOcultas = fa
        -- uma venda de verdade. Carrinho aberto COM item ainda aparece
        -- (o estoque já foi debitado nele, vale saber que ficou pendente).
        AND NOT (s.status = 'aberta' AND (SELECT COUNT(*) FROM sale_items si2 WHERE si2.sale_id = s.id AND si2.cancelado = 0) = 0)
+       -- Comanda de mesa recebida em outro caixa do grupo: a venda é a de lá
+       -- (aparece no histórico daquele caixa e no do grupo), aqui é só rastro.
+       AND s.status != 'transferida'
        ${incluirOcultas ? '' : 'AND s.oculta_historico = 0'}
      ORDER BY data_efetiva DESC`
   ).all(locationId, inicioUtc, fimUtcExclusivo);

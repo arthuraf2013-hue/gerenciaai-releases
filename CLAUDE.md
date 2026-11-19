@@ -681,6 +681,19 @@ precisa ser respeitado ao mexer no código:
   nuvem desde o último espelho). Caixa: `lanClienteService`. Teste com dois
   processos: `tests/lanRedeLocal.test.js`. Coleção nova do grupo = incluir em
   `lanArmazemService.COLECOES` e no espelho.
+- **Mesa compartilhada (nov/2026)**: no caixa ligado ao servidor pela rede
+  local, as mesas são as do servidor (`mesaCompartilhadaService`; tela usa
+  `src/utils/mesasApi.js`, mesmos canais `table:`/`sale:` executados lá, ids
+  de usuário/produto/cliente viajam como id do grupo). Fechar a conta no caixa:
+  o servidor trava a mesa (`restaurant_tables.fechando_caixa_*`), o caixa cria a
+  venda dele com os itens (sem estoque local; o do grupo baixa ao finalizar,
+  uma vez) e recebe ali; ao finalizar, a venda do servidor vira
+  `status = 'transferida'` (fora de tudo que conta 'finalizada'; CHECK novo em
+  `database.js`, migração 15) e a mesa libera. Fila no caixa:
+  `mesa_remota_fechamentos`. Mesa travada: `recusaPorTrava` (handlers),
+  `travaDoComandoCelular` (celular). Canal novo de mesa/venda que muda comanda =
+  incluir em `CANAIS` (ou `TAMBEM_TRAVADOS`). Teste com dois processos:
+  `tests/mesaCompartilhada.test.js`.
 - **`sqlite_stat4`**: o better-sqlite3 tem STAT4 ligado; com amostras
   nessa tabela, toda statement com parâmetro é repreparada a cada valor
   novo (custo dobrado em laço). `otimizarBanco()` esvazia o stat4 depois

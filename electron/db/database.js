@@ -343,6 +343,59 @@ function atualizarCheckRoleParaIncluirSuporte(database) {
  * se uma já estiver certa (banco novo, ou migração parcial anterior),
  * só a outra é recriada.
  */
+/**
+ * Mesmo raciocínio de atualizarCheckRoleParaIncluirGarcom, agora pro CHECK
+ * de sales.status -- precisa aceitar 'transferida' (comanda de mesa
+ * recebida em outro caixa do grupo, ver mesaCompartilhadaService.js).
+ * A tabela `sales` ganhou muitas colunas com o tempo (ALTER TABLE), então
+ * a nova é criada a partir do próprio SQL guardado no banco, só com o
+ * CHECK trocado -- mesmas colunas, mesma ordem, mesmos padrões. Índices e
+ * gatilhos da tabela saem junto com o DROP e são recriados do SQL deles.
+ * legacy_alter_table durante a troca: o RENAME não reescreve (nem
+ * revalida) os gatilhos de outras tabelas que citam `sales` -- eles
+ * continuam valendo, porque o nome final é o mesmo.
+ */
+function atualizarCheckStatusDeVendasParaIncluirTransferida(database) {
+  try {
+    const tabela = database.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sales'`).get();
+    if (!tabela) return;
+    const re = /CHECK\s*\(\s*status\s+IN\s*\(([^)]*)\)\s*\)/i;
+    const check = re.exec(tabela.sql);
+    if (!check) { console.error('[migração] CHECK de sales.status não encontrado -- nada feito.'); return; }
+    if (check[1].includes("'transferida'")) return; // já migrado, ou banco novo
+    const novoSql = tabela.sql
+      .replace(re, (_m, lista) => `CHECK (status IN (${lista.trim()},'transferida'))`)
+      .replace(/^CREATE TABLE\s+(?:"sales"|sales|'sales'|\[sales\])/i, 'CREATE TABLE sales_nova_com_transferida');
+    if (!novoSql.startsWith('CREATE TABLE sales_nova_com_transferida')) { console.error('[migração] SQL de sales inesperado -- nada feito.'); return; }
+    const anexos = database.prepare(
+      `SELECT sql FROM sqlite_master WHERE tbl_name = 'sales' AND type IN ('index', 'trigger') AND sql IS NOT NULL`
+    ).all().map((r) => r.sql);
+    const total = database.prepare('SELECT COUNT(*) AS c FROM sales').get().c;
+
+    const fkEstava = database.pragma('foreign_keys', { simple: true });
+    const legadoEstava = database.pragma('legacy_alter_table', { simple: true });
+    database.pragma('foreign_keys = OFF');
+    database.pragma('legacy_alter_table = ON');
+    try {
+      database.transaction(() => {
+        database.exec('DROP TABLE IF EXISTS sales_nova_com_transferida;');
+        database.exec(novoSql);
+        database.exec('INSERT INTO sales_nova_com_transferida SELECT * FROM sales;');
+        const copiadas = database.prepare('SELECT COUNT(*) AS c FROM sales_nova_com_transferida').get().c;
+        if (copiadas !== total) throw new Error(`cópia de sales incompleta (${copiadas} de ${total})`);
+        database.exec('DROP TABLE sales;');
+        database.exec('ALTER TABLE sales_nova_com_transferida RENAME TO sales;');
+        for (const sql of anexos) database.exec(sql);
+      })();
+    } finally {
+      database.pragma(`legacy_alter_table = ${legadoEstava ? 'ON' : 'OFF'}`);
+      database.pragma(`foreign_keys = ${fkEstava ? 'ON' : 'OFF'}`);
+    }
+  } catch (err) {
+    console.error("[migração] falhou ao atualizar CHECK de sales.status pra incluir 'transferida':", err);
+  }
+}
+
 function atualizarCheckTipoPareamentoParaIncluirPdv(database) {
   const migracoes = [
     {
@@ -639,6 +692,7 @@ function migrateColumnsIfNeeded(database) {
   atualizarCheckOrigemParaIncluirAppGarcom(database);
   atualizarCheckRoleParaIncluirSuporte(database);
   atualizarCheckTipoPareamentoParaIncluirPdv(database);
+  atualizarCheckStatusDeVendasParaIncluirTransferida(database);
   removerIndicesSubstituidos(database);
 
   // PDV móvel -- módulo pago próprio (ver modulosPagosService.js).
@@ -897,6 +951,8 @@ module.exports = {
   garantirCampoExtraNoPerfil,
   // Idem, pra tests/pdvMobileSyncService.test.js (CHECK de tipo de pareamento com 'pdv').
   atualizarCheckTipoPareamentoParaIncluirPdv,
+  // Idem, pra tests/mesaCompartilhada.test.js (CHECK de sales.status com 'transferida').
+  atualizarCheckStatusDeVendasParaIncluirTransferida,
   // Pra tests/desempenho.test.js (abertura de banco antigo sem travar).
   aplicarSchemaComRedeDeSeguranca, migrateColumnsIfNeeded, garantirGatilhosErp,
 };

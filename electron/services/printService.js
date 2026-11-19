@@ -482,4 +482,4 @@ function printDailyMenu(itens) {
   return { ok: true };
 }
 
-module.exports = { printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml };
+module.exports = { imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml };

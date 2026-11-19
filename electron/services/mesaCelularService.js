@@ -885,6 +885,9 @@ function executarComando(comandoId, dados, { agoraMs = Date.now() } = {}) {
     let saida;
     try {
       conferirPrazo(dados, agoraMs);
+      // Mesa sendo paga em outro caixa do grupo (mesaCompartilhadaService).
+      const trava = require('./mesaCompartilhadaService').travaDoComandoCelular(dados);
+      if (trava) throw new ErroComando(trava);
       // Savepoint: se a ação falhar no meio, desfaz só ela -- o registro do
       // erro abaixo continua valendo.
       const r = db.transaction(() => ACOES[dados.tipo](dados, ctx))();

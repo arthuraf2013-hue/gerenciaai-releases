@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { TableOrderScreen } from './TableOrderScreen';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { apiDasMesas } from '../../utils/mesasApi';
 
 const STATUS_LABEL = {
   livre: 'Livre',
@@ -30,6 +31,16 @@ function dataDaReserva(valor) {
 
 export function RestaurantTables() {
   const { currentUser } = useSession();
+  // Mesa compartilhada: neste caixa as mesas são as do servidor do grupo
+  // (rede local). { carregou, podeUsar, ativa, online, servidor, erro }
+  const [compart, setCompart] = useState({ carregou: false, ativa: false });
+  const remota = !!compart.ativa;
+  const api = useMemo(() => apiDasMesas(remota), [remota]);
+  // Mesas que ficaram abertas NESTE caixa de antes da mesa compartilhada.
+  const [mesasDaqui, setMesasDaqui] = useState([]);
+  const [pendencias, setPendencias] = useState([]);
+  const [semServidor, setSemServidor] = useState('');
+  const ehGestao = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
   const [tables, setTables] = useState([]);
   const [reservasPorMesa, setReservasPorMesa] = useState({});
   const [loadError, setLoadError] = useState('');
@@ -87,20 +98,79 @@ export function RestaurantTables() {
   const [qrError, setQrError] = useState('');
   const [qrCarregando, setQrCarregando] = useState(false);
 
+  async function carregarCompartilhada() {
+    const st = await window.pdv.mesaCompartilhada?.status?.().catch(() => null);
+    setCompart({ carregou: true, ...(st || { ativa: false }) });
+  }
+
   async function reload() {
+    if (!compart.carregou) return;
     const [list, reservas] = await Promise.all([
-      window.pdv.table.list({ locationId: window.APP_LOCATION_ID }),
-      window.pdv.reservation.listVinculadasAtivas({ locationId: window.APP_LOCATION_ID }),
+      api.table.list({ locationId: window.APP_LOCATION_ID }),
+      api.reservation.listVinculadasAtivas({ locationId: window.APP_LOCATION_ID }),
     ]);
+    if (remota) {
+      // Sem resposta do servidor: continua mostrando a última lista, com o aviso.
+      if (!Array.isArray(list)) { setSemServidor(list?.error || 'O servidor das mesas não respondeu.'); return; }
+      setSemServidor('');
+      const daqui = await window.pdv.table.list({ locationId: window.APP_LOCATION_ID });
+      setMesasDaqui(Array.isArray(daqui) ? daqui.filter((t) => t.status === 'ocupada' && !t.unida_a_mesa_id) : []);
+    } else {
+      setMesasDaqui([]);
+      setSemServidor('');
+    }
+    if (compart.podeUsar) setPendencias(await window.pdv.mesaCompartilhada.pendencias().catch(() => []) || []);
     setTables(Array.isArray(list) ? list : []);
     const mapa = {};
     (Array.isArray(reservas) ? reservas : []).forEach((r) => { mapa[r.mesa_id] = r; });
     setReservasPorMesa(mapa);
   }
 
-  useEffect(() => { reload(); }, []);
-  // Mesa aberta, pedido, nome ou conta fechada pelo celular aparecem na hora.
-  useEffect(() => window.pdv.table.onMudou?.(() => { reload(); }), []);
+  useEffect(() => { carregarCompartilhada(); }, []);
+  useEffect(() => { reload(); }, [compart.carregou, remota]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Mesa aberta, pedido, nome ou conta fechada pelo celular (ou no servidor) aparecem na hora.
+  useEffect(() => window.pdv.table.onMudou?.((evento) => {
+    if (evento?.origem === 'aviso' && evento.mensagem) setAvisoMesas(evento.mensagem);
+    if (evento?.origem === 'modo') { carregarCompartilhada(); return; }
+    reload();
+  }), [compart.carregou, remota]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function usarSoAsMesasDaqui() {
+    if (!confirm('Usar só as mesas deste caixa?\n\nAs mesas do servidor somem daqui até você voltar. Use só se o servidor estiver desligado: a mesma mesa aberta nos dois computadores vira duas comandas.')) return;
+    await window.pdv.mesaCompartilhada.definirModo({ modo: 'local' });
+    await carregarCompartilhada();
+  }
+
+  async function voltarAsMesasDoServidor() {
+    await window.pdv.mesaCompartilhada.definirModo({ modo: 'servidor' });
+    await carregarCompartilhada();
+  }
+
+  async function destravarMesa(table, e) {
+    e.stopPropagation();
+    if (!confirm(`Destravar ${table.nome || `Mesa ${table.numero}`}?\n\nEla está sendo paga no ${table.fechando_caixa_nome || 'outro caixa'}. Só destrave se lá desistiram ou o computador desligou: se o ${table.fechando_caixa_nome || 'outro caixa'} já recebeu, a conta seria cobrada duas vezes.`)) return;
+    const r = await window.pdv.mesaCompartilhada.destravar({ tableId: table.id });
+    if (!r?.ok) return setLoadError(r?.error || 'Não deu para destravar.');
+    reload();
+  }
+
+  /** Mesa do servidor: traz a conta para receber neste caixa. */
+  async function puxarConta(destino) {
+    const atual = mesaAberta;
+    const r = await window.pdv.mesaCompartilhada.puxar({ tableId: atual.tableId });
+    if (!r?.ok) return r || { ok: false, error: 'O servidor não respondeu.' };
+    setMesaAberta({ ...atual, saleIdServidor: atual.saleId, saleId: r.saleId, modo: 'fechando', pagarAoAbrir: destino });
+    return r;
+  }
+
+  /** Desistiu de receber aqui: a mesa volta para o servidor, como estava. */
+  async function devolverConta() {
+    const atual = mesaAberta;
+    const r = await window.pdv.mesaCompartilhada.devolver({ saleId: atual.saleId });
+    if (!r?.ok) return r || { ok: false, error: 'Não deu para devolver a mesa.' };
+    setMesaAberta({ ...atual, saleId: atual.saleIdServidor, modo: 'remota', pagarAoAbrir: null });
+    return r;
+  }
 
   function pedirNumeroPessoas(table) {
     setLoadError('');
@@ -110,7 +180,7 @@ export function RestaurantTables() {
 
   async function confirmarAbrirMesa(e) {
     e.preventDefault();
-    const result = await window.pdv.table.open({
+    const result = await api.table.open({
       tableId: abrindoMesa.id, locationId: window.APP_LOCATION_ID, operadorId: currentUser.id,
       pessoas: pessoasInput || undefined,
     });
@@ -121,18 +191,34 @@ export function RestaurantTables() {
     }
     setMesaAberta({
       tableId: abrindoMesa.id, saleId: result.saleId, numero: abrindoMesa.numero,
-      nome: abrindoMesa.nome, pessoas: Number(pessoasInput) || null,
+      nome: abrindoMesa.nome, pessoas: Number(pessoasInput) || null, modo: remota ? 'remota' : 'local',
     });
     setAbrindoMesa(null);
   }
 
-  async function continuarMesaOcupada(table) {
-    setMesaAberta({
-      tableId: table.id, saleId: table.sale_id, numero: table.numero, nome: table.nome, pessoas: table.pessoas,
-    });
+  async function continuarMesaOcupada(table, { daqui = false } = {}) {
+    const base = { tableId: table.id, saleId: table.sale_id, numero: table.numero, nome: table.nome, pessoas: table.pessoas };
+    if (remota && !daqui && table.fechando_aqui) {
+      // Este caixa já estava recebendo esta conta: continua de onde parou.
+      if (table.venda_local_id) {
+        setMesaAberta({ ...base, saleIdServidor: table.sale_id, saleId: table.venda_local_id, modo: 'fechando' });
+        return;
+      }
+      const r = await window.pdv.mesaCompartilhada.puxar({ tableId: table.id });
+      if (!r?.ok) { setLoadError(r?.error || 'O servidor não respondeu.'); return; }
+      setMesaAberta({ ...base, saleIdServidor: table.sale_id, saleId: r.saleId, modo: 'fechando' });
+      return;
+    }
+    setMesaAberta({ ...base, modo: remota && !daqui ? 'remota' : 'local' });
   }
 
   function handleClickMesa(table) {
+    const principal = table.unida_a_mesa_id ? tables.find((t) => t.id === table.unida_a_mesa_id) : table;
+    if (principal?.fechando_caixa_id && !principal.fechando_aqui) {
+      setLoadError(`${principal.nome || `Mesa ${principal.numero}`} está sendo paga no ${principal.fechando_caixa_nome || 'outro caixa'}. Espere terminar lá.`);
+      return;
+    }
+    setLoadError('');
     if (table.status === 'ocupada') return continuarMesaOcupada(table);
     if (table.status === 'livre' || table.status === 'reservada') return pedirNumeroPessoas(table);
     // aguardando_limpeza: não abre nada, só os botões de ação no card cuidam disso
@@ -142,7 +228,7 @@ export function RestaurantTables() {
     setCreateError('');
     setModoNova('varias');
     setShowNew(true);
-    const r = await window.pdv.table.proximoNumero({ locationId: window.APP_LOCATION_ID });
+    const r = await api.table.proximoNumero({ locationId: window.APP_LOCATION_ID });
     if (r?.ok) setInicioMesas(String(r.numero));
   }
 
@@ -157,7 +243,7 @@ export function RestaurantTables() {
     if (modoNova === 'varias') {
       if (!loteValido) return setCreateError('Informe de 1 a 200 mesas e o número inicial.');
       setCriando(true);
-      const r = await window.pdv.table.createLote({ locationId: window.APP_LOCATION_ID, quantidade: qtdNum, inicio: inicioNum });
+      const r = await api.table.createLote({ locationId: window.APP_LOCATION_ID, quantidade: qtdNum, inicio: inicioNum });
       setCriando(false);
       if (!r.ok) return setCreateError(r.error);
       const partes = [];
@@ -169,7 +255,7 @@ export function RestaurantTables() {
       if (r.jaExistiam.length) partes.push(`Já existia${r.jaExistiam.length > 1 ? 'm' : ''}: ${r.jaExistiam.join(', ')}.`);
       setAvisoMesas(partes.join(' ') || 'Nenhuma mesa nova.');
     } else {
-      const result = await window.pdv.table.create({
+      const result = await api.table.create({
         locationId: window.APP_LOCATION_ID, numero: novoNumero, nome: novoNome || undefined,
       });
       if (!result.ok) return setCreateError(result.error);
@@ -184,14 +270,14 @@ export function RestaurantTables() {
   async function handleExcluirMesa(table, e) {
     e.stopPropagation();
     if (!confirm(`Excluir a mesa "${table.nome || table.numero}"?`)) return;
-    const result = await window.pdv.table.delete({ tableId: table.id });
+    const result = await api.table.delete({ tableId: table.id });
     if (!result.ok) return setLoadError(result.error);
     reload();
   }
 
   async function handleMarcarLimpa(table, e) {
     e.stopPropagation();
-    const result = await window.pdv.table.markCleaned({ tableId: table.id });
+    const result = await api.table.markCleaned({ tableId: table.id });
     if (!result.ok) return setLoadError(result.error);
     reload();
   }
@@ -210,7 +296,7 @@ export function RestaurantTables() {
     // datetime-local produzia -- continua batendo com o `new Date(...)`
     // usado mais abaixo pra exibir a data/hora no card da mesa.
     const reservadoPara = reservaData ? `${reservaData}T${reservaHora || '00:00'}` : undefined;
-    const result = await window.pdv.table.markReserved({
+    const result = await api.table.markReserved({
       tableId: reservandoMesa.id,
       reservadoPara,
     });
@@ -225,7 +311,7 @@ export function RestaurantTables() {
 
   async function handleCancelarReserva(table, e) {
     e.stopPropagation();
-    const result = await window.pdv.table.cancelReservation({ tableId: table.id });
+    const result = await api.table.cancelReservation({ tableId: table.id });
     if (!result.ok) return setLoadError(result.error);
     reload();
   }
@@ -236,20 +322,28 @@ export function RestaurantTables() {
     setQrDados(null);
     setQrError('');
     setQrCarregando(true);
-    const result = await window.pdv.table.montarLinkPedido({ tableId: table.id });
+    const result = await api.table.montarLinkPedido({ tableId: table.id });
     setQrCarregando(false);
     if (!result.ok) return setQrError(result.error);
     setQrDados(result);
   }
 
   if (mesaAberta) {
+    const modo = mesaAberta.modo || 'local';
     return (
       <TableOrderScreen
+        key={`${mesaAberta.saleId}-${modo}`}
         tableId={mesaAberta.tableId}
         saleId={mesaAberta.saleId}
         numero={mesaAberta.numero}
         nome={mesaAberta.nome}
         pessoas={mesaAberta.pessoas}
+        modo={modo}
+        api={modo === 'remota' ? apiDasMesas(true) : window.pdv}
+        servidorNome={compart.servidor || null}
+        pagarAoAbrir={mesaAberta.pagarAoAbrir || null}
+        onPuxar={puxarConta}
+        onDevolver={devolverConta}
         onFechar={() => { setMesaAberta(null); reload(); }}
       />
     );
@@ -266,8 +360,50 @@ export function RestaurantTables() {
         usado só pra calcular quanto fica por pessoa na hora de dividir a conta). Clique numa mesa
         ocupada pra continuar lançando itens ou fechar a conta.
       </p>
+      {remota && !semServidor && (
+        <p className="mesa-compartilhada-aviso" role="status">
+          <Icon name="link" size={14} /> Mesas do servidor{compart.servidor ? ` (${compart.servidor})` : ''}: as mesmas nos dois computadores.
+          Quem fecha a conta recebe no próprio caixa.
+        </p>
+      )}
+      {remota && semServidor && (
+        <div className="modal-error mesa-compartilhada-sem-servidor" role="alert">
+          <p><strong>Sem conexão com o servidor das mesas.</strong> {semServidor}</p>
+          <div className="mesa-compartilhada-acoes">
+            <button type="button" className="btn-secondary" onClick={reload}>Tentar de novo</button>
+            <button type="button" className="btn-link" onClick={usarSoAsMesasDaqui}>Usar só as mesas deste caixa</button>
+          </div>
+        </div>
+      )}
+      {compart.podeUsar && !remota && (
+        <p className="io-message mesas-aviso">
+          Este caixa está usando só as mesas dele.{' '}
+          <button type="button" className="btn-link" onClick={voltarAsMesasDoServidor}>Voltar a usar as mesas do servidor</button>
+        </p>
+      )}
+      {pendencias.length > 0 && (
+        <p className="io-message mesas-aviso" role="status">
+          Avisando o servidor que {pendencias.map((p) => p.mesa_rotulo).join(', ')} {pendencias.length > 1 ? 'foram pagas' : 'foi paga'} aqui
+          {pendencias.some((p) => p.tentativas > 0) ? ' (o servidor ainda não respondeu; a mesa fica travada lá até ele confirmar)' : ''}...
+        </p>
+      )}
       {loadError && <p className="modal-error">{loadError}</p>}
       {avisoMesas && <p className="io-message mesas-aviso" role="status">{avisoMesas}</p>}
+
+      {remota && mesasDaqui.length > 0 && (
+        <div className="mesas-daqui">
+          <h2>Abertas só neste caixa</h2>
+          <p className="screen-hint">Comandas abertas aqui antes de usar as mesas do servidor. Feche-as normalmente.</p>
+          <div className="tables-grid">
+            {mesasDaqui.map((t) => (
+              <div key={t.id} className="table-card table-card-ocupada" onClick={() => continuarMesaOcupada(t, { daqui: true })}>
+                <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+                <span className="table-card-status">Ocupada — R$ {(t.total_atual || 0).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {tables.length === 0 ? (
         <div className="empty-state mesas-vazio">
@@ -303,6 +439,14 @@ export function RestaurantTables() {
               {t.status === 'ocupada' && t.unida_a_mesa_id && (
                 <span className="table-card-status" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <Icon name="link" size={13} /> Unida à {t.unida_a_nome || `Mesa ${t.unida_a_numero}`}
+                </span>
+              )}
+              {t.status === 'ocupada' && !t.unida_a_mesa_id && t.fechando_caixa_id && (
+                <span className={`table-card-pagando${t.fechando_aqui ? ' table-card-pagando-aqui' : ''}`}>
+                  <Icon name="cash" size={13} /> {t.fechando_aqui ? 'Recebendo neste caixa' : `Pagando no ${t.fechando_caixa_nome || 'outro caixa'}`}
+                  {!remota && ehGestao && (
+                    <button type="button" className="table-card-action" onClick={(e) => destravarMesa(t, e)}>Destravar</button>
+                  )}
                 </span>
               )}
               {t.status === 'ocupada' && !t.unida_a_mesa_id && (

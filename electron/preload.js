@@ -156,6 +156,16 @@ contextBridge.exposeInMainWorld('pdv', {
     removerPessoa: invoke('table:removerPessoa'),
     vincularCliente: invoke('table:vincularCliente'),
   },
+  // Mesa compartilhada: as mesas do servidor do grupo, pela rede local.
+  mesaCompartilhada: {
+    status: invoke('mesaCompartilhada:status'),
+    chamar: invoke('mesaCompartilhada:chamar'),
+    puxar: invoke('mesaCompartilhada:puxar'),
+    devolver: invoke('mesaCompartilhada:devolver'),
+    definirModo: invoke('mesaCompartilhada:definirModo'),
+    destravar: invoke('mesaCompartilhada:destravar'),
+    pendencias: invoke('mesaCompartilhada:pendencias'),
+  },
   ingredient: {
     list: invoke('ingredient:list'),
     upsert: invoke('ingredient:upsert'),

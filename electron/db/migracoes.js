@@ -794,6 +794,52 @@ const MIGRACOES = [
       `);
     },
   },
+  {
+    versao: 15,
+    nome: 'mesa compartilhada: caixa do grupo recebe a conta de mesa do servidor pela rede local',
+    up(db) {
+      // Servidor: mesa travada enquanto outro caixa recebe a conta, e a
+      // venda daqui que foi recebida lá ('transferida', ver database.js).
+      // Caixa: a fila do que avisar o servidor (concluir/devolver).
+      // Ver mesaCompartilhadaService.js.
+      const colunas = (t) => new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
+      const mesas = colunas('restaurant_tables');
+      for (const c of ['fechando_caixa_id', 'fechando_caixa_nome', 'fechando_desde']) {
+        if (!mesas.has(c)) db.exec(`ALTER TABLE restaurant_tables ADD COLUMN ${c} TEXT`);
+      }
+      const vendas = colunas('sales');
+      for (const c of ['transferida_para_caixa', 'transferida_para_venda_id', 'transferida_em']) {
+        if (!vendas.has(c)) db.exec(`ALTER TABLE sales ADD COLUMN ${c} TEXT`);
+      }
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS mesa_remota_fechamentos (
+          sale_id           TEXT PRIMARY KEY,
+          hub_id            TEXT,
+          mesa_id           TEXT NOT NULL,
+          mesa_rotulo       TEXT,
+          venda_servidor_id TEXT NOT NULL,
+          itens_servidor    TEXT NOT NULL DEFAULT '[]',
+          estado            TEXT NOT NULL DEFAULT 'pagando' CHECK (estado IN ('pagando','concluir','devolver','feito')),
+          tentativas        INTEGER NOT NULL DEFAULT 0,
+          erro              TEXT,
+          aviso             TEXT,
+          criado_em         TEXT NOT NULL DEFAULT (datetime('now')),
+          atualizado_em     TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_mesa_remota_estado ON mesa_remota_fechamentos(estado);
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_mesa_remota_estado;
+        DROP TABLE IF EXISTS mesa_remota_fechamentos;
+      `);
+      for (const [t, cs] of [['restaurant_tables', ['fechando_caixa_id', 'fechando_caixa_nome', 'fechando_desde']], ['sales', ['transferida_para_caixa', 'transferida_para_venda_id', 'transferida_em']]]) {
+        const tem = new Set(db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name));
+        for (const c of cs) if (tem.has(c)) db.exec(`ALTER TABLE ${t} DROP COLUMN ${c}`);
+      }
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

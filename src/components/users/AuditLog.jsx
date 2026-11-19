@@ -6,6 +6,10 @@ import Icon from '../common/Icon';
 const TIPO_LABEL = {
   cancelamento_item: 'Cancelamento de item',
   venda_acima_do_estoque_do_grupo: 'Venda acima do estoque do grupo (débito na fila)',
+  mesa_puxada_por_outro_caixa: 'Mesa levada para receber em outro caixa',
+  mesa_fechada_em_outro_caixa: 'Mesa paga em outro caixa do grupo',
+  mesa_fechada_em_dois_caixas: 'Mesa fechada em dois caixas (conferir cobrança)',
+  mesa_destravada: 'Mesa destravada (estava sendo paga em outro caixa)',
   cancelamento_venda: 'Cancelamento de venda',
   devolucao: 'Devolução',
   desconto_manual: 'Desconto manual',

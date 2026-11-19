@@ -35,9 +35,21 @@ function playErrorBeep() {
 }
 
 /**
+ * modo:
+ *   'local'    mesa deste computador (o de sempre);
+ *   'remota'   mesa do servidor do grupo (mesa compartilhada): `api` faz tudo
+ *              lá; para receber, `onPuxar('conta' | pessoa)` traz a conta;
+ *   'fechando' conta trazida do servidor, recebendo aqui (saleId é a venda
+ *              deste caixa): só pagamento; `onDevolver` devolve a mesa.
  * @param {{ tableId: string, saleId: string, numero: string, nome?: string, onFechar: () => void }} props
  */
-export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pessoasIniciais, onFechar }) {
+export function TableOrderScreen({
+  tableId, saleId, numero, nome, pessoas: pessoasIniciais, onFechar,
+  api: apiProp = null, modo = 'local', pagarAoAbrir = null, onPuxar, onDevolver, servidorNome = null,
+}) {
+  const api = apiProp || window.pdv;
+  const fechando = modo === 'fechando';
+  const remota = modo === 'remota';
   // Lido aqui dentro (não no topo do módulo) de propósito: o topo do
   // módulo roda durante a avaliação do grafo de imports, ANTES do
   // bootstrap() do main.jsx terminar de buscar o local real — capturar
@@ -53,7 +65,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   // Pagamento individual: descontos da conta e quanto cada pessoa já pagou.
   const [conta, setConta] = useState({ desconto: 0, totalPago: 0, pagoPorPessoa: {} });
   // Pessoa pagando a parte dela agora ({ numero, nome, valor }) ou null.
-  const [pagandoPessoa, setPagandoPessoa] = useState(null);
+  const [pagandoPessoa, setPagandoPessoa] = useState(pagarAoAbrir && pagarAoAbrir !== 'conta' ? pagarAoAbrir : null);
   const [pendingQty, setPendingQty] = useState('1');
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [pessoas, setPessoasAtual] = useState(pessoasIniciais);
@@ -61,7 +73,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   useEscToClose(() => setEditandoPessoas(false), editandoPessoas);
   const [pessoasInput, setPessoasInput] = useState('');
   const [feedback, setFeedback] = useState(null);
-  const [showPayment, setShowPayment] = useState(false);
+  const [showPayment, setShowPayment] = useState(pagarAoAbrir === 'conta');
   useEscToClose(() => setShowPayment(false), showPayment);
   const [authAction, setAuthAction] = useState(null); // { itemId } | null
   const [editandoObs, setEditandoObs] = useState(null); // { itemId, valor } | null
@@ -94,18 +106,18 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }, []);
 
   const recarregarComanda = useCallback(async () => {
-    const cart = await window.pdv.table.getCart({ saleId });
+    const cart = await api.table.getCart({ saleId });
     setItems(cart.items || []);
     setTotal(cart.total || 0);
     setTaxaServicoPercentual(cart.taxaServicoPercentual || 0);
     setConta({ desconto: cart.desconto || 0, totalPago: cart.totalPago || 0, pagoPorPessoa: cart.pagoPorPessoa || {} });
     aplicarPessoas(cart.pessoas);
     setGrupo(cart.grupo || null);
-  }, [saleId, aplicarPessoas]);
+  }, [saleId, aplicarPessoas, api]);
 
   useEffect(() => { recarregarComanda(); }, [recarregarComanda]);
   // Nome de pessoa, item ou pessoa nova lançados pelo celular aparecem na hora.
-  useEffect(() => window.pdv.table.onMudou?.(() => { recarregarComanda(); }), [recarregarComanda]);
+  useEffect(() => api.table.onMudou?.(() => { recarregarComanda(); }), [recarregarComanda]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -115,7 +127,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   async function addProductToCart(product) {
     const quantidade = Math.max(1, Number(pendingQty) || 1);
-    const result = await window.pdv.sale.addItem({
+    const result = await api.sale.addItem({
       saleId, productId: product.id, locationId: LOCATION_ID,
       quantidade, operadorId: currentUser.id, deviceId: DEVICE_ID, pessoaNumero: pessoaAtiva,
     });
@@ -145,7 +157,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }
 
   async function ajustarQuantidade(item, delta) {
-    const r = await window.pdv.sale.ajustarQuantidade({
+    const r = await api.sale.ajustarQuantidade({
       saleId, saleItemId: item.id, delta, locationId: LOCATION_ID, operadorId: currentUser.id, deviceId: DEVICE_ID,
     });
     if (!r?.ok) { setFeedback({ message: r?.error || 'Não consegui mudar a quantidade.', type: 'error' }); return; }
@@ -158,7 +170,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
    * aqui só reflete no carrinho da mesa, igual addProductToCart faz
    * depois de um addItem normal. */
   function handleCustomItemAdded(result) {
-    if (pessoaAtiva) window.pdv.sale.setItemPerson({ saleItemId: result.itemId, pessoaNumero: pessoaAtiva });
+    if (pessoaAtiva) api.sale.setItemPerson({ saleItemId: result.itemId, pessoaNumero: pessoaAtiva });
     setItems((prev) => [...prev, {
       id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
       pessoaNumero: pessoaAtiva,
@@ -192,12 +204,12 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     playErrorBeep();
   }, [addProductToCart]);
 
-  useBarcodeScanner(handleScan, { enabled: !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder && !showJuntar && !promptState && !vinculandoPessoa });
+  useBarcodeScanner(handleScan, { enabled: !fechando && !showPayment && !authAction && !editandoObs && !showTransferir && !editandoPessoas && !showCustomItemBuilder && !showJuntar && !promptState && !vinculandoPessoa });
 
   async function requestCancelItem(itemId) {
-    const check = await window.pdv.sale.needsManagerAuthForCancel({ saleId });
+    const check = await api.sale.needsManagerAuthForCancel({ saleId });
     if (!check.needsAuth) {
-      const result = await window.pdv.sale.cancelItem({
+      const result = await api.sale.cancelItem({
         saleId, saleItemId: itemId, locationId: LOCATION_ID,
         currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
       });
@@ -220,16 +232,16 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       // Sem nenhum item lançado ainda -- libera direto, sem pedir
       // autorização de gerente (não tem risco de fraude nenhum em
       // cancelar algo que nunca teve nada dentro).
-      const result = await window.pdv.table.desocupar({
+      const result = await api.table.desocupar({
         tableId, locationId: LOCATION_ID, currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
       });
       if (result.ok) { onFechar(); } else { setFeedback({ message: result.error, type: 'error' }); }
       return;
     }
 
-    const config = await window.pdv.auth.getSecurityConfig();
+    const config = await api.auth.getSecurityConfig();
     if (config.exigir_autorizacao_cancelamento !== 1) {
-      const result = await window.pdv.table.desocupar({
+      const result = await api.table.desocupar({
         tableId, locationId: LOCATION_ID, currentOperatorId: currentUser.id, deviceId: DEVICE_ID,
       });
       if (result.ok) { onFechar(); } else { setFeedback({ message: result.error, type: 'error' }); }
@@ -245,7 +257,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   async function salvarObs(e) {
     e.preventDefault();
-    await window.pdv.sale.setItemNote({ saleItemId: editandoObs.itemId, observacao: editandoObs.valor });
+    await api.sale.setItemNote({ saleItemId: editandoObs.itemId, observacao: editandoObs.valor });
     setItems((prev) => prev.map((i) => (i.id === editandoObs.itemId ? { ...i, observacao: editandoObs.valor.trim() } : i)));
     setEditandoObs(null);
   }
@@ -258,7 +270,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
     const motivo = await promptAsync('Motivo da alteração (opcional — ex: "Cortesia cliente antigo"):', '');
 
-    const result = await window.pdv.sale.setItemPrice({
+    const result = await api.sale.setItemPrice({
       saleId, saleItemId: item.id, novoPreco, motivo: motivo || null, currentOperatorId: currentUser.id,
     });
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
@@ -270,13 +282,13 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   async function abrirTransferencia() {
     setTransferError('');
-    const list = await window.pdv.table.list({ locationId: window.APP_LOCATION_ID });
+    const list = await api.table.list({ locationId: window.APP_LOCATION_ID });
     setMesasLivres(Array.isArray(list) ? list.filter((t) => t.status === 'livre' && t.id !== tableId) : []);
     setShowTransferir(true);
   }
 
   async function confirmarTransferencia(toTableId) {
-    const result = await window.pdv.table.transfer({ fromTableId: tableId, toTableId });
+    const result = await api.table.transfer({ fromTableId: tableId, toTableId });
     if (!result.ok) {
       setTransferError(result.error);
       return;
@@ -294,7 +306,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     e.preventDefault();
     const novoValor = Number(pessoasInput);
     if (!novoValor || novoValor < 1) return;
-    const result = await window.pdv.table.updatePeople({ tableId, pessoas: novoValor });
+    const result = await api.table.updatePeople({ tableId, pessoas: novoValor });
     if (!result.ok) {
       setFeedback({ message: result.error, type: 'error' });
       return;
@@ -309,7 +321,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   async function adicionarPessoa() {
     const nomeDigitado = await promptAsync('Nome da nova pessoa (opcional):', '', { placeholder: 'Ex: Ana' });
     if (nomeDigitado === null) return;
-    const result = await window.pdv.table.adicionarPessoa({ tableId, nome: nomeDigitado });
+    const result = await api.table.adicionarPessoa({ tableId, nome: nomeDigitado });
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
     aplicarPessoas(result.pessoas);
   }
@@ -317,13 +329,13 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   async function renomearPessoa(pessoa) {
     const nomeDigitado = await promptAsync(`Nome da pessoa ${pessoa.numero} (vazio apaga o nome):`, pessoa.nome || '', { placeholder: 'Ex: Ana' });
     if (nomeDigitado === null) return;
-    const result = await window.pdv.table.renomearPessoa({ tableId, numero: pessoa.numero, nome: nomeDigitado });
+    const result = await api.table.renomearPessoa({ tableId, numero: pessoa.numero, nome: nomeDigitado });
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
     aplicarPessoas(result.pessoas);
   }
 
   async function removerPessoa(pessoa) {
-    const result = await window.pdv.table.removerPessoa({ tableId, numero: pessoa.numero });
+    const result = await api.table.removerPessoa({ tableId, numero: pessoa.numero });
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
     // Itens dessa pessoa voltaram para "não atribuído" e as seguintes subiram um número.
     setPessoaAtiva(null);
@@ -332,7 +344,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }
 
   async function vincularCliente(pessoa, customerId) {
-    const result = await window.pdv.table.vincularCliente({ tableId, numero: pessoa.numero, customerId });
+    const result = await api.table.vincularCliente({ tableId, numero: pessoa.numero, customerId });
     if (!result.ok) return setFeedback({ message: result.error, type: 'error' });
     aplicarPessoas(result.pessoas);
     setVinculandoPessoa(null);
@@ -347,7 +359,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   async function abrirJuntar() {
     setJuntarError('');
     setJuntarSelecionadas([]);
-    const list = await window.pdv.table.list({ locationId: window.APP_LOCATION_ID });
+    const list = await api.table.list({ locationId: window.APP_LOCATION_ID });
     const idsDoGrupo = new Set([tableId, grupo?.principal?.id, ...(grupo?.unidas || []).map((m) => m.id)].filter(Boolean));
     setMesasParaJuntar(Array.isArray(list)
       ? list.filter((t) => !idsDoGrupo.has(t.id) && !t.unida_a_mesa_id && (t.status === 'livre' || t.status === 'ocupada'))
@@ -358,7 +370,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   async function confirmarJuntar() {
     if (juntarSelecionadas.length === 0) return setJuntarError('Escolha pelo menos uma mesa.');
     setJuntando(true);
-    const result = await window.pdv.table.juntar({ tableId, mesaIds: juntarSelecionadas, currentOperatorId: currentUser.id });
+    const result = await api.table.juntar({ tableId, mesaIds: juntarSelecionadas, currentOperatorId: currentUser.id });
     setJuntando(false);
     if (!result.ok) return setJuntarError(result.error);
     await recarregarComanda();
@@ -367,7 +379,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
   }
 
   async function separarMesa(mesa) {
-    const result = await window.pdv.table.separar({ tableId: mesa.id, currentOperatorId: currentUser.id });
+    const result = await api.table.separar({ tableId: mesa.id, currentOperatorId: currentUser.id });
     if (!result.ok) return setJuntarError(result.error);
     if (mesa.id === tableId) {
       // Esta tela era a da mesa separada: ela não tem mais comanda.
@@ -381,13 +393,13 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   /** Pré-nota da conta inteira, ou só da parte de uma pessoa. */
   async function imprimirPreNota(pessoa) {
-    const r = await window.pdv.print.preNota({ saleId, pessoaNumero: pessoa?.numero });
+    const r = await api.print.preNota({ saleId, pessoaNumero: pessoa?.numero });
     if (r?.ok === false) { setFeedback({ message: r.error, type: 'error' }); return; }
     setFeedback({ message: pessoa ? `Pré-nota de ${pessoa.nome || `Pessoa ${pessoa.numero}`} enviada para a impressora.` : 'Pré-nota enviada para a impressora.', type: 'success' });
   }
 
   async function handleImprimirComanda() {
-    const result = await window.pdv.print.kitchenTicket({ saleId, mesaLabel: nome || `Mesa ${numero}` });
+    const result = await api.print.kitchenTicket({ saleId, mesaLabel: nome || `Mesa ${numero}` });
     if (!result.ok) {
       setFeedback({ message: result.error, type: 'error' });
       return;
@@ -395,9 +407,41 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setFeedback({ message: `Comanda enviada — ${result.totalItens} item(ns).`, type: 'success' });
   }
 
+  /** Mesa do servidor: traz a conta para receber aqui (a tela troca para o recebimento). */
+  async function puxar(destino) {
+    const r = await onPuxar?.(destino);
+    if (r && r.ok === false) setFeedback({ message: r.error, type: 'error' });
+  }
+
+  /** Recebendo aqui: desiste e devolve a mesa ao servidor. */
+  async function devolver() {
+    const r = await onDevolver?.();
+    if (r && r.ok === false) setFeedback({ message: r.error, type: 'error' });
+    return r;
+  }
+
+  /** Conta paga: a mesa deste computador vai para "aguardando limpeza". A do
+   * servidor quem libera é ele, quando este caixa avisa que recebeu. */
+  async function liberarMesaPaga() {
+    if (modo === 'local') await api.table.release({ tableId });
+  }
+
+  /** "Voltar ao pedido" na tela de pagamento. */
+  async function voltarDoPagamento(fecharModal) {
+    const st = await api.sale.getPaymentState({ saleId }).catch(() => null);
+    if (st?.status === 'finalizada') { await liberarMesaPaga(); onFechar(); return; }
+    // Conta trazida do servidor e nada recebido ainda: a mesa volta para lá.
+    if (fechando && !(st?.pagamentos || []).length) {
+      const r = await devolver();
+      if (!r || r.ok !== false) return;
+    }
+    fecharModal();
+    recarregarComanda();
+  }
+
   async function handleAuthConfirm(candidateId, pin, motivo) {
     if (authAction.type === 'desocupar') {
-      const result = await window.pdv.table.desocupar({
+      const result = await api.table.desocupar({
         tableId, locationId: LOCATION_ID, currentOperatorId: currentUser.id,
         candidateManagerId: candidateId, pin, motivo, deviceId: DEVICE_ID,
       });
@@ -408,7 +452,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
       return result;
     }
 
-    const result = await window.pdv.sale.cancelItem({
+    const result = await api.sale.cancelItem({
       saleId, saleItemId: authAction.itemId, locationId: LOCATION_ID,
       currentOperatorId: currentUser.id, candidateManagerId: candidateId, pin, motivo, deviceId: DEVICE_ID,
     });
@@ -448,7 +492,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
 
   async function atribuirPessoa(itemId, valor) {
     const pessoaNumero = valor ? Number(valor) : null;
-    await window.pdv.sale.setItemPerson({ saleItemId: itemId, pessoaNumero });
+    await api.sale.setItemPerson({ saleItemId: itemId, pessoaNumero });
     setItems((prev) => prev.map((i) => (i.id === itemId ? { ...i, pessoaNumero } : i)));
   }
 
@@ -461,11 +505,11 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
         onClick={() => setSelectedItemId(item.id)}
       >
         <span className="mesa-item-nome">
-          {item.ajustavel ? <>{item.nome} <QuantidadeDaLinha item={item} onAjustar={ajustarQuantidade} /></> : <>{item.nome} × {item.quantidade}</>}
+          {item.ajustavel && !fechando ? <>{item.nome} <QuantidadeDaLinha item={item} onAjustar={ajustarQuantidade} /></> : <>{item.nome} × {item.quantidade}</>}
           {item.observacao && <span className="mesa-item-obs"><Icon name="warning" size={12} /> {item.observacao}</span>}
         </span>
         <span className="mesa-item-preco">{(item.precoUnitario * item.quantidade).toFixed(2)}</span>
-        <DropdownMenu label="⋯">
+        {!fechando && <DropdownMenu label="⋯">
           {pessoasLista.filter((p) => p.numero !== item.pessoaNumero).map((p) => (
             <DropdownMenuItem key={p.numero} onClick={() => atribuirPessoa(item.id, p.numero)}>Mover para {nomeCurto(p)}</DropdownMenuItem>
           ))}
@@ -473,7 +517,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
           <DropdownMenuItem onClick={() => abrirEdicaoObs(item)}>{item.observacao ? 'Editar observação' : 'Observação'}</DropdownMenuItem>
           {podeEditarPreco && <DropdownMenuItem onClick={() => handleEditarPrecoItem(item)}>Editar preço</DropdownMenuItem>}
           <DropdownMenuItem danger onClick={() => requestCancelItem(item.id)}>Cancelar item</DropdownMenuItem>
-        </DropdownMenu>
+        </DropdownMenu>}
       </li>
     );
   }
@@ -488,6 +532,21 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
           )}
         </h1>
         <div className="pos-header-right">
+          {fechando ? (
+            <>
+              <button className="close-cash-btn" onClick={() => imprimirPreNota()} disabled={itensAtivos.length === 0}
+                title="Imprime a conta para o cliente conferir antes de pagar (não é documento fiscal)">
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={15} /> Pré-nota</span>
+              </button>
+              <button className="close-cash-btn" onClick={devolver} disabled={conta.totalPago > 0.005}
+                title={conta.totalPago > 0.005 ? 'Já tem pagamento recebido aqui: termine de receber neste caixa.' : 'Desiste de receber aqui: a mesa volta para o servidor, como estava.'}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="undo" size={15} /> Devolver a mesa</span>
+              </button>
+              <button className="close-cash-btn" onClick={onFechar}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="arrowLeft" size={15} /> Mesas</span>
+              </button>
+            </>
+          ) : (<>
           <button className="close-cash-btn" onClick={abrirJuntar}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Icon name="link" size={15} /> {grupo?.unidas?.length > 0 ? `Mesas unidas (${grupo.unidas.length})` : 'Juntar mesas'}
@@ -508,12 +567,33 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
           <button className="close-cash-btn" onClick={onFechar}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="arrowLeft" size={15} /> Mesas</span>
           </button>
+          </>)}
         </div>
       </header>
+
+      {remota && (
+        <p className="mesa-compartilhada-aviso" role="status">
+          <Icon name="link" size={14} /> Mesa do servidor{servidorNome ? ` (${servidorNome})` : ''}: o que você lança aqui aparece lá na hora.
+        </p>
+      )}
+      {fechando && (
+        <p className="mesa-compartilhada-aviso mesa-compartilhada-recebendo" role="status">
+          <Icon name="cash" size={14} /> Recebendo aqui a conta que estava no servidor{servidorNome ? ` (${servidorNome})` : ''}. A mesa fica travada lá até terminar.
+          O dinheiro entra no caixa deste computador.
+        </p>
+      )}
 
       {feedback && <p className={feedback.type === 'error' ? 'modal-error' : 'io-message'} style={{ margin: '8px 24px' }}>{feedback.message}</p>}
 
       <div className="mesa-corpo">
+        {fechando ? (
+        <section className="mesa-catalogo mesa-catalogo-fechando" aria-label="Recebendo a conta">
+          <div className="empty-state">
+            <p><strong>Só recebimento.</strong></p>
+            <p>Para lançar mais itens, use <em>Devolver a mesa</em> (antes de receber qualquer valor) e lance pela mesa de novo.</p>
+          </div>
+        </section>
+        ) : (
         <section className="mesa-catalogo" aria-label="Produtos">
           <div className="pos-search-row">
             <div className="qty-stepper" title="Quantidade do próximo item">
@@ -531,13 +611,15 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 </button>
               </div>
             </div>
-            <ProductSearchBox onSelect={addProductToCart} onSelectPersonalizado={() => setShowCustomItemBuilder(true)} />
+            {/* Item montado na hora usa os insumos deste computador: na mesa do servidor, monte lá. */}
+            <ProductSearchBox onSelect={addProductToCart} onSelectPersonalizado={remota ? undefined : () => setShowCustomItemBuilder(true)} />
           </div>
           <CategoryProductBrowser onSelectProduct={addProductToCart} />
         </section>
+        )}
 
         <aside className="mesa-comanda" aria-label="Comanda">
-          <div className="mesa-lancar-para">
+          {!fechando && <div className="mesa-lancar-para">
             <span className="mesa-lancar-titulo">Lançar para</span>
             <div className="mesa-lancar-opcoes">
               <button type="button" className={`mesa-chip mesa-chip-sem${pessoaAtiva === null ? ' mesa-chip-ativo' : ''}`} onClick={() => setPessoaAtiva(null)}>
@@ -556,7 +638,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 <Icon name="add" size={13} /> Pessoa
               </button>
             </div>
-          </div>
+          </div>}
 
           <div className="mesa-comanda-lista">
             {itensAtivos.length === 0 && pessoasLista.length === 0 && (
@@ -569,6 +651,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                   <button type="button" className="mesa-grupo-nome" onClick={() => setPessoaAtiva(g.numero)} title="Lançar os próximos itens para esta pessoa">
                     {nomeCurto(g.pessoa)}
                   </button>
+                  {!fechando && <>
                   <BotaoCliente pessoa={g.pessoa} rotulo={nomeCurto(g.pessoa)} aoClicar={() => setVinculandoPessoa(g.pessoa)} />
                   <button type="button" className="mesa-icone" onClick={() => renomearPessoa(g.pessoa)} aria-label={`Renomear ${nomeCurto(g.pessoa)}`} title="Dar ou trocar o nome">
                     <Icon name="edit" size={13} />
@@ -576,18 +659,22 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                   <button type="button" className="mesa-icone" onClick={() => removerPessoa(g.pessoa)} aria-label={`Remover ${nomeCurto(g.pessoa)}`} title="Remover pessoa (os itens ficam sem pessoa)">
                     <Icon name="close" size={13} />
                   </button>
+                  </>}
                   <span className="mesa-grupo-subtotal">R$ {subtotal(g.itens).toFixed(2)}</span>
                 </div>
                 <PagamentoDaPessoa
                   parte={parteDa(g.numero, g.itens)} nome={nomeCurto(g.pessoa)} contaQuitada={contaQuitada}
-                  onPagar={(parte) => setPagandoPessoa({ numero: g.numero, nome: nomeCurto(g.pessoa), valor: parte.valor })}
+                  onPagar={(parte) => {
+                    const quem = { numero: g.numero, nome: nomeCurto(g.pessoa), valor: parte.valor };
+                    if (remota) puxar(quem); else setPagandoPessoa(quem);
+                  }}
                   onPreNota={() => imprimirPreNota(g.pessoa)}
                 />
                 <ul className="mesa-grupo-itens">{g.itens.map(renderItem)}</ul>
               </div>
             ))}
 
-            {pessoasSemItens.length > 0 && (
+            {pessoasSemItens.length > 0 && !fechando && (
               <div className="mesa-sem-itens">
                 {pessoasSemItens.map((p) => (
                   <span key={p.numero} className={`mesa-sem-itens-pessoa${pessoaAtiva === p.numero ? ' mesa-sem-itens-ativa' : ''}`}>
@@ -622,7 +709,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 </span>
               )}
             </div>
-            <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => setShowPayment(true)}>
+            <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => (remota ? puxar('conta') : setShowPayment(true))}>
               Ir para pagamento
             </button>
           </footer>
@@ -638,17 +725,12 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               mostrarTaxaServico
               taxaServicoPercentual={taxaServicoPercentual}
               onFinalized={async () => {
-                await window.pdv.table.release({ tableId });
+                await liberarMesaPaga();
                 onFechar();
               }}
             />
             {/* Conta já paga: a mesa foi liberada no pagamento; "voltar" fecha a mesa. */}
-            <button className="btn-secondary" onClick={async () => {
-              const st = await window.pdv.sale.getPaymentState({ saleId }).catch(() => null);
-              if (st?.status === 'finalizada') { await window.pdv.table.release({ tableId }); onFechar(); return; }
-              setShowPayment(false);
-              recarregarComanda();
-            }}>Voltar ao pedido</button>
+            <button className="btn-secondary" onClick={() => voltarDoPagamento(() => setShowPayment(false))}>Voltar ao pedido</button>
           </div>
         </div>
       )}
@@ -667,16 +749,11 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 setFeedback({ message: `${nomePago} pagou a sua parte. A mesa continua aberta para os outros.`, type: "success" });
               }}
               onFinalized={async () => {
-                await window.pdv.table.release({ tableId });
+                await liberarMesaPaga();
                 onFechar();
               }}
             />
-            <button className="btn-secondary" onClick={async () => {
-              const st = await window.pdv.sale.getPaymentState({ saleId }).catch(() => null);
-              if (st?.status === 'finalizada') { await window.pdv.table.release({ tableId }); onFechar(); return; }
-              setPagandoPessoa(null);
-              recarregarComanda();
-            }}>Voltar ao pedido</button>
+            <button className="btn-secondary" onClick={() => voltarDoPagamento(() => setPagandoPessoa(null))}>Voltar ao pedido</button>
           </div>
         </div>
       )}

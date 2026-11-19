@@ -304,6 +304,8 @@ app.whenReady().then(() => {
       require('./services/productSyncService').iniciarEscutaProdutos();
       // Grupo multi-PDV: usuários e PINs iguais em todos os caixas.
       require('./services/userSyncService').iniciar();
+      // Caixa usando as mesas do servidor: escuta as mudanças e manda a fila.
+      try { require('./services/mesaCompartilhadaService').iniciarEscuta(); } catch (err) { console.error('[mesas]', err?.message || err); }
     });
     // Status ao vivo pro celular de quem já estiver pareado — ver
     // liveStatusSyncService.js (só publica se houver celular pareado).

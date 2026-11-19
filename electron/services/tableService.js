@@ -46,10 +46,10 @@ function liberarGrupo(db, principalId, status) {
 function repararMesasComVendaFechada(db, locationId = null) {
   const presas = db.prepare(
     `SELECT t.id, s.status FROM restaurant_tables t JOIN sales s ON s.id = t.sale_id
-     WHERE t.status = 'ocupada' AND t.unida_a_mesa_id IS NULL AND s.status IN ('finalizada', 'cancelada')
+     WHERE t.status = 'ocupada' AND t.unida_a_mesa_id IS NULL AND s.status IN ('finalizada', 'cancelada', 'transferida')
        ${locationId ? 'AND t.location_id = ?' : ''}`
   ).all(...(locationId ? [locationId] : []));
-  for (const m of presas) liberarGrupo(db, m.id, m.status === 'finalizada' ? 'aguardando_limpeza' : 'livre');
+  for (const m of presas) liberarGrupo(db, m.id, m.status === 'cancelada' ? 'livre' : 'aguardando_limpeza');
   return presas.length;
 }
 

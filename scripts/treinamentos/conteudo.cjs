@@ -223,6 +223,15 @@ const salaoECozinha = () => [
     ],
   },
   {
+    tipo: 'cards', kicker: 'Dois caixas', titulo: 'As mesmas mesas nos dois computadores', papeis: ['caixa', 'gerente'], novo: true,
+    cards: [
+      { icone: 'link', t: 'Mesas do servidor', d: 'Com o caixa ligado ao servidor pela rede local, os dois veem as mesmas mesas e lançam nelas ao vivo.', novo: true },
+      { icone: 'dinheiro', t: 'Quem fecha, recebe', d: 'Fechou a conta no caixa 2? O pagamento e a nota saem dele, e o dinheiro entra no caixa dele.', novo: true },
+      { icone: 'chave', t: 'Mesa travada no pagamento', d: 'Enquanto um caixa recebe, a mesa fica travada nos outros e no celular. Desistiu? "Devolver a mesa".', novo: true },
+      { icone: 'escudo', t: 'Servidor desligado', d: 'O caixa avisa. Em último caso, "Usar só as mesas deste caixa", e volte quando o servidor ligar.', novo: true },
+    ],
+  },
+  {
     tipo: 'cards', kicker: 'No celular do garçom', titulo: 'Atender a mesa sem ir ao caixa', papeis: ['garcom'], novo: true,
     cards: [
       { icone: 'mesa', t: 'Painel de mesas', d: 'As mesas ao vivo, com filtro Minhas, Livres e Todas. Toque numa mesa para ver a comanda por pessoa.' },
