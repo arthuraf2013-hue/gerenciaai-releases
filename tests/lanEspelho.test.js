@@ -90,3 +90,46 @@ test('espelho: estoque soma a venda feita direto na nuvem e ignora o eco da pró
   assert.equal(armazem.lerContadores(G).get('p1'), 3);
   espelho.parar();
 });
+
+test('espelho: fotos sobem num lote à parte; nuvem recusando fotos não segura produto nem venda', async () => {
+  freshTestDb();
+  disjuntor._zerarParaTeste();
+  const n = nuvemFalsa();
+  n.api.gravarLote = async (_g, itens) => {
+    if (itens.some((i) => i.colecao === 'fotos')) throw new Error('Missing or insufficient permissions.');
+    n.gravados.push(...itens.map((i) => [i.colecao, i.docId]));
+  };
+  espelho._definirNuvemParaTeste(n.api);
+  espelho.iniciar(G);
+  armazem.gravar(G, 'fotos', [{ docId: 'p1', dados: { hash: 'a'.repeat(32), tipo: 'image/jpeg', dados: 'x', versaoMs: 5 } }]);
+  armazem.gravar(G, 'produtos', [{ docId: 'p1', dados: { nome: 'A', versaoMs: 5, fotoHash: 'a'.repeat(32) } }]);
+  armazem.gravar(G, 'vendas', [{ docId: 'v1', dados: { total: 10, versaoMs: 5 } }]);
+  await espelho.subirPendentes();
+  assert.deepEqual(n.gravados.sort(), [['produtos', 'p1'], ['vendas', 'v1']], 'produto e venda subiram');
+  assert.equal(armazem.pendentesParaNuvem().length, 0);
+  assert.equal(armazem.pendentesParaNuvem(10, { fotos: true }).length, 1, 'a foto espera');
+
+  // Regra publicada: a foto sobe (depois da espera de 5 min, zerada aqui)
+  n.api.gravarLote = async (_g, itens) => { n.gravados.push(...itens.map((i) => [i.colecao, i.docId])); };
+  espelho._definirNuvemParaTeste(n.api);
+  await espelho.subirPendentes();
+  assert.ok(n.gravados.some(([c]) => c === 'fotos'));
+  assert.equal(armazem.pendentesParaNuvem(10, { fotos: true }).length, 0);
+  espelho.parar();
+});
+
+test('servidor da loja: foto lida por id; a que falta vem da nuvem e fica guardada', async () => {
+  freshTestDb();
+  disjuntor._zerarParaTeste();
+  const n = nuvemFalsa();
+  let pedidasNaNuvem = [];
+  n.api.lerAlguns = async (_g, _c, ids) => { pedidasNaNuvem = ids; return new Map(ids.filter((id) => id === 'p2').map((id) => [id, { hash: 'b'.repeat(32), versaoMs: 3 }])); };
+  espelho._definirNuvemParaTeste(n.api);
+  armazem.gravar(G, 'fotos', [{ docId: 'p1', dados: { hash: 'a'.repeat(32), versaoMs: 5 } }]);
+  const r = await espelho.lerAlgunsComNuvem(G, 'fotos', ['p1', 'p2', 'p3']);
+  assert.deepEqual([...r.keys()].sort(), ['p1', 'p2']);
+  assert.deepEqual(pedidasNaNuvem.sort(), ['p2', 'p3'], 'só as que faltavam foram à nuvem');
+  assert.equal(armazem.lerAlguns(G, 'fotos', ['p2']).get('p2').hash, 'b'.repeat(32), 'guardou na cópia');
+  // Fotos não vão no "ler tudo" do feed dos caixas
+  assert.ok(armazem.SO_POR_ID.has('fotos'));
+});

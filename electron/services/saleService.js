@@ -1642,7 +1642,7 @@ module.exports = {
   openSale, getOrOpenCurrentSale, listSalesByRange, listRecentlySold, setCustomer, redeemLoyaltyPoints,
   applyManagerDiscount, removeManagerDiscount, setServiceCharge,
   addItem, addCustomItem, addPayment, getPaymentState, removePayment, finalizeSale, finalizeSaleComVerificacaoDeGrupo, cancelSaleItem, cancelSale, needsManagerAuthForCancel, setItemNote, setItemPerson, setItemPrice,
-  getSaleItemsDetail, registrarMesasDaVenda, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
+  getSaleItemsDetail, registrarMesasDaVenda, rotuloDasMesas, excluirDoHistorico, reexibirNoHistorico, editarHistoricoVenda,
   tentarFinalizarVendasPendentesDeEstoque, contarVendasPendentesDeEstoque, listVendasPendentesDeEstoque, getStatusPendenteEstoque,
   cancelarVendaAbertaPeloSistema,
   ajustarQuantidadeItem,

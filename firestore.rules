@@ -355,6 +355,20 @@ service cloud.firestore {
           && request.resource.data.clienteDoc is string && request.resource.data.clienteDoc.size() > 0;
         allow delete: if ehAdminAutenticado();
       }
+      // Foto do produto (grupoFotoService): uma por produto, comprimida,
+      // em base64. Só o computador (sem login no Firebase) lê e grava.
+      // Tamanho e tipo conferidos aqui; o conteúdo (é imagem mesmo, hash
+      // bate) quem confere é o caixa que baixa.
+      match /fotos/{produtoId} {
+        allow read: if request.auth == null;
+        allow create, update: if request.auth == null
+          && request.resource.data.keys().hasOnly(['hash', 'tipo', 'dados', 'versaoMs', 'origem', 'atualizadoEm'])
+          && request.resource.data.hash is string && request.resource.data.hash.matches('^[a-f0-9]{16,64}$')
+          && request.resource.data.tipo in ['image/jpeg', 'image/png', 'image/webp']
+          && request.resource.data.dados is string && request.resource.data.dados.size() <= 700000
+          && request.resource.data.versaoMs is int;
+        allow delete: if ehAdminAutenticado();
+      }
       match /estoque/{produtoId} {
         allow read, write: if true;
         // Livro das variações (stockSyncService): cada movimento é gravado

@@ -45,6 +45,9 @@ const PADRAO = {
     ...BASE,
     titulo: '',
     mostrarOperador: false,
+    mostrarMesa: true,
+    mesaTamanho: 'grande',
+    mesaNegrito: true,
     mostrarObservacoes: false,
     mostrarPagamentos: true,
   },
@@ -53,6 +56,10 @@ const PADRAO = {
     titulo: 'PRÉ-CONTA · CONFERÊNCIA',
     mostrarOperador: true,
     mostrarMesa: true,
+    // Pré-nota já mostrava "Mesa: 7" na linha de informações; continua assim
+    // até a loja escolher destacar.
+    mesaTamanho: 'normal',
+    mesaNegrito: false,
     mostrarObservacoes: true,
     agruparPorPessoa: true,
     mostrarDivisao: false,
@@ -68,6 +75,7 @@ const ESCOLHAS = {
   fonte: ['mono', 'sans'],
   tamanho: ['pequena', 'normal', 'grande'],
   separador: ['tracejado', 'continuo'],
+  mesaTamanho: ['normal', 'grande', 'enorme'],
 };
 const TEXTOS = { nomeLoja: 60, cabecalhoTexto: 400, titulo: 60, rodape: 300 };
 
@@ -117,6 +125,7 @@ function estilo(config, larguraMm) {
     td.n { text-align: right; white-space: nowrap; padding-left: 4px; }
     .obs { font-size: ${fonte - 2}px; padding-left: 8px; }
     .pessoa { font-weight: bold; margin: 8px 0 0; }
+    .mesa { text-align: center; margin: 4px 0 2px; line-height: 1.15; overflow-wrap: anywhere; }
     .sub { display: flex; justify-content: space-between; gap: 6px; }
     hr { border: none; border-top: 1px ${linha} #000; margin: 6px 0; }
     .total { font-size: ${fonte + 2}px; font-weight: bold; display: flex; justify-content: space-between; margin-top: 4px; }
@@ -141,6 +150,16 @@ function dataHoraBR(textoUtc) {
   const d = new Date(`${String(textoUtc).replace(' ', 'T')}Z`);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+}
+
+/** Mesa em destaque (linha própria, maior e/ou em negrito). Vazio quando a
+ * venda não é de mesa, quando o estúdio esconde a mesa ou quando ela fica
+ * do jeito simples, na linha de informações (mesaEmDestaque = false). */
+const mesaEmDestaque = (c) => c.mesaTamanho !== 'normal' || c.mesaNegrito;
+function blocoMesa(c, mesa, fonte) {
+  if (!c.mostrarMesa || !mesa || !mesaEmDestaque(c)) return '';
+  const tamanho = { normal: fonte, grande: fonte + 6, enorme: Math.round(fonte * 2.2) }[c.mesaTamanho] || fonte;
+  return `<p class="mesa" style="font-size:${tamanho}px;font-weight:${c.mesaNegrito ? 'bold' : 'normal'};">${escHtml(mesa)}</p>`;
 }
 
 function linhasDeInfo(config, venda, { rotuloCodigo, dataUtc, extra = [] }) {
@@ -172,7 +191,7 @@ function contaDe({ subtotalItens, desconto, taxaServicoPercentual }) {
 /**
  * NOTA — recibo de uma venda finalizada.
  * dados: { venda, itens[{nome,quantidade,precoUnitario,observacao}], pagamentos[{metodo,valor}],
- *          loja, larguraMm, rodape, operador, cliente, fiscalHtml, senha{numero,nome},
+ *          loja, larguraMm, rodape, operador, cliente, mesa ("Mesa 3 + 4" ou null), fiscalHtml, senha{numero,nome},
  *          ajustadoManualmente, totalFinal, descontoFidelidade, descontoGerente, taxaServicoValor, taxaServicoPercentual }
  */
 function montarNota(config, dados) {
@@ -182,6 +201,7 @@ function montarNota(config, dados) {
     ? `<div class="center" style="border:2px solid #000;padding:4px;margin-bottom:6px;"><div>SUA SENHA</div><div style="font-size:${fonte * 3}px;font-weight:bold;line-height:1.1;">${escHtml(dados.senha.numero)}</div>${dados.senha.nome ? `<div>${escHtml(dados.senha.nome)}</div>` : ''}<div class="pequeno">Aguarde ser chamado no painel</div></div>`
     : '';
   const extra = [];
+  if (c.mostrarMesa && !mesaEmDestaque(c)) extra.push(['Mesa', dados.mesa]);
   if (c.mostrarOperador) extra.push(['Atendente', dados.operador]);
   if (c.mostrarCliente) extra.push(['Cliente', dados.cliente]);
   return `<!doctype html>
@@ -190,6 +210,7 @@ function montarNota(config, dados) {
     ${senha}
     ${cabecalho(c, dados.loja)}
     ${c.titulo ? `<p class="titulo">${escHtml(c.titulo)}</p>` : ''}
+    ${blocoMesa(c, dados.mesa, fonte)}
     ${linhasDeInfo(c, dados.venda, { rotuloCodigo: 'Venda', dataUtc: dados.venda?.finalizada_em, extra })}
     <hr>
     ${tabelaItens(c, dados.itens)}
@@ -263,7 +284,7 @@ function montarPreNota(config, dados) {
   }
 
   const extra = [];
-  if (c.mostrarMesa) extra.push(['Mesa', dados.mesa]);
+  if (c.mostrarMesa && !mesaEmDestaque(c)) extra.push(['Mesa', dados.mesa]);
   if (soUma) extra.push(['Conta de', nomeDa(soUma)]);
   if (c.mostrarOperador) extra.push(['Atendente', dados.operador]);
   if (c.mostrarCliente) extra.push(['Cliente', dados.cliente]);
@@ -297,6 +318,7 @@ function montarPreNota(config, dados) {
     ${cabecalho(c, dados.loja)}
     ${c.titulo ? `<p class="titulo">${escHtml(c.titulo)}</p>` : ''}
     <p class="aviso">NÃO É DOCUMENTO FISCAL</p>
+    ${blocoMesa(c, dados.mesa, medidas(dados.larguraMm, c.tamanho).fonte)}
     ${linhasDeInfo(c, dados.venda, { rotuloCodigo: 'Conta', dataUtc: dados.agoraUtc, extra })}
     <hr>
     ${corpo}
@@ -327,7 +349,7 @@ function exemplo(tipo, { larguraMm = 80, loja = { nome: 'Minha Loja' }, rodapeNo
     return {
       venda: { id: 'a1b2c3d4e5', finalizada_em: agora }, itens, larguraMm, loja,
       pagamentos: [{ metodo: 'pix', valor: arred(total) }], rodape: rodapeNota,
-      operador: 'Carla', cliente: 'João Silva', fiscalHtml: '', senha: null,
+      operador: 'Carla', cliente: 'João Silva', mesa: 'Mesa 7', fiscalHtml: '', senha: null,
       totalFinal: total, descontoFidelidade: 0, descontoGerente: 0, taxaServicoPercentual: 0, taxaServicoValor: 0,
     };
   }

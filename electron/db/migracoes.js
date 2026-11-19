@@ -840,6 +840,87 @@ const MIGRACOES = [
       }
     },
   },
+  {
+    // Foto do produto igual em todos os caixas do grupo (grupoFotoService).
+    // A foto vai numa coleção própria do grupo ('fotos'); o produto leva só
+    // o fotoHash. Filas daqui: o que falta subir e o que falta baixar.
+    versao: 16,
+    nome: 'foto do produto no grupo',
+    up(db) {
+      db.exec(`
+        -- Foto daqui que já está no grupo: hash do arquivo daqui e hash no grupo.
+        CREATE TABLE IF NOT EXISTS grupo_replica_foto (
+          grupo_id     TEXT NOT NULL,
+          local_id     TEXT NOT NULL,
+          hash_arquivo TEXT NOT NULL,
+          hash_grupo   TEXT NOT NULL,
+          PRIMARY KEY (grupo_id, local_id)
+        );
+        -- Produto daqui com foto nova/trocada, esperando subir.
+        CREATE TABLE IF NOT EXISTS grupo_replica_foto_enviar (
+          local_id TEXT PRIMARY KEY,
+          marca    INTEGER NOT NULL
+        );
+        -- Foto que o grupo tem e este caixa ainda não baixou.
+        CREATE TABLE IF NOT EXISTS grupo_replica_foto_baixar (
+          grupo_id   TEXT NOT NULL,
+          local_id   TEXT NOT NULL,
+          doc_id     TEXT NOT NULL,
+          hash       TEXT NOT NULL,
+          tentativas INTEGER NOT NULL DEFAULT 0,
+          proxima_em INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (grupo_id, local_id)
+        );
+
+        -- Trocar ou tirar a foto também manda o produto de novo (leva o fotoHash).
+        DROP TRIGGER IF EXISTS trg_replica_produto_upd;
+        CREATE TRIGGER trg_replica_produto_upd AFTER UPDATE OF
+          nome, categoria, preco, custo, unidade, sku, codigo_barras, ncm, cest, cfop, cst_csosn,
+          origem_mercadoria, estoque_minimo, ativo, tipo, preco_promocional, promocao_valida_ate,
+          codigo_balanca, custom_fields, foto_path ON products
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('produtos', NEW.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_replica_foto_upd AFTER UPDATE OF foto_path ON products
+        WHEN NEW.foto_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_foto_enviar (local_id, marca) VALUES (NEW.id, abs(random()))
+          ON CONFLICT(local_id) DO UPDATE SET marca = abs(random());
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_replica_foto_ins AFTER INSERT ON products
+        WHEN NEW.foto_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_foto_enviar (local_id, marca) VALUES (NEW.id, abs(random()))
+          ON CONFLICT(local_id) DO UPDATE SET marca = abs(random());
+        END;
+
+        -- As fotos que já existiam antes desta versão sobem uma vez.
+        INSERT OR IGNORE INTO grupo_replica_foto_enviar (local_id, marca)
+          SELECT id, abs(random()) FROM products WHERE foto_path IS NOT NULL;
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP TRIGGER IF EXISTS trg_replica_foto_ins;
+        DROP TRIGGER IF EXISTS trg_replica_foto_upd;
+        DROP TRIGGER IF EXISTS trg_replica_produto_upd;
+        CREATE TRIGGER trg_replica_produto_upd AFTER UPDATE OF
+          nome, categoria, preco, custo, unidade, sku, codigo_barras, ncm, cest, cfop, cst_csosn,
+          origem_mercadoria, estoque_minimo, ativo, tipo, preco_promocional, promocao_valida_ate,
+          codigo_balanca, custom_fields ON products
+        WHEN NOT EXISTS (SELECT 1 FROM grupo_replica_aplicando)
+        BEGIN
+          INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('produtos', NEW.id, abs(random()))
+          ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random());
+        END;
+        DROP TABLE IF EXISTS grupo_replica_foto_baixar;
+        DROP TABLE IF EXISTS grupo_replica_foto_enviar;
+        DROP TABLE IF EXISTS grupo_replica_foto;
+      `);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

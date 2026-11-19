@@ -239,6 +239,16 @@ async function lerTodos(colecao) {
   return new Map(r.docs);
 }
 
+/** Só os documentos pedidos (fotos). Até 20 por pedido. */
+async function lerAlguns(colecao, ids) {
+  const docs = new Map();
+  for (let i = 0; i < ids.length; i += 20) {
+    const r = await pedido('/v1/ler-alguns', { colecao, ids: ids.slice(i, i + 20) }, { timeoutMs: 60000 });
+    for (const [id, d] of r.docs) docs.set(id, d);
+  }
+  return docs;
+}
+
 async function gravarLote(colecao, itens) {
   for (let i = 0; i < itens.length; i += 1000) {
     await pedido('/v1/gravar', { colecao, itens: itens.slice(i, i + 1000) }, { timeoutMs: 30000 });
@@ -276,6 +286,6 @@ async function verificarEDebitar(itens, operacaoId) { return pedido('/v1/estoque
 async function ping() { return pedido('/v1/ping', {}, { timeoutMs: 4000 }); }
 
 module.exports = {
-  config, parear, desligar, reencontrar, pedido, ping, lerTodos, gravarLote, escutar, vendasDoPeriodo,
+  config, parear, desligar, reencontrar, pedido, ping, lerTodos, lerAlguns, gravarLote, escutar, vendasDoPeriodo,
   aplicarMovimento, verificarEDebitar, procurarNaRede, normalizarEndereco,
 };

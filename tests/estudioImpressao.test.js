@@ -223,3 +223,62 @@ test('pré-nota na mesa: mostra o nome da mesa e as pessoas com nome', async () 
   assert.match(r.html, /Mesa: Mesa 7/);
   assert.match(r.html, /Marina/);
 });
+
+// ---------------------------------------------------------------- número da mesa na nota
+
+test('nota: número da mesa em destaque (maior e em negrito) por padrão; no balcão não sai nada', () => {
+  freshTestDb();
+  const itens = [{ nome: 'Café', quantidade: 1, preco_unitario: 10 }];
+  const daMesa = printService.buildReceiptHtml(vendaNota, itens, [], { nome: 'Loja' }, 80, '', null, null, null, { mesa: 'Mesa 7' });
+  // 80mm, letra normal = 11px; "grande" = 17px
+  assert.match(daMesa, /<p class="mesa" style="font-size:17px;font-weight:bold;">Mesa 7<\/p>/);
+  assert.doesNotMatch(daMesa, /Mesa: Mesa 7/);
+  const balcao = printService.buildReceiptHtml(vendaNota, itens, [], { nome: 'Loja' }, 80, '', null, null, null, {});
+  assert.doesNotMatch(balcao, /class="mesa"/);
+  assert.doesNotMatch(balcao, /Mesa/);
+});
+
+test('nota: o estúdio muda tamanho, negrito e pode esconder a mesa', () => {
+  const d = layout.exemplo('nota', { larguraMm: 80, loja: { nome: 'Loja' } });
+  assert.match(layout.montarNota({ mesaTamanho: 'enorme' }, d), /font-size:24px;font-weight:bold;">Mesa 7/);
+  assert.match(layout.montarNota({ mesaTamanho: 'grande', mesaNegrito: false }, d), /font-size:17px;font-weight:normal;">Mesa 7/);
+  // normal e sem negrito: volta para a linha de informações, como na pré-nota antiga
+  const simples = layout.montarNota({ mesaTamanho: 'normal', mesaNegrito: false }, d);
+  assert.doesNotMatch(simples, /class="mesa"/);
+  assert.match(simples, /Mesa: Mesa 7/);
+  assert.doesNotMatch(layout.montarNota({ mostrarMesa: false }, d), /Mesa 7/);
+  assert.equal(layout.normalizarConfig('nota', { mesaTamanho: 'gigante' }).mesaTamanho, 'grande');
+  assert.match(layout.montarNota({}, { ...d, mesa: ataque }), /&lt;img src=x/);
+  assert.doesNotMatch(layout.montarNota({}, { ...d, mesa: ataque }), /<img src=x/);
+});
+
+test('pré-nota: continua com "Mesa: 7" na linha de informações até a loja escolher destacar', () => {
+  const d = contaExemplo();
+  assert.match(layout.montarPreNota({}, d), /Mesa: Mesa 7/);
+  const destacada = layout.montarPreNota({ mesaTamanho: 'grande', mesaNegrito: true }, d);
+  assert.match(destacada, /class="mesa"[^>]*>Mesa 7</);
+  assert.doesNotMatch(destacada, /Mesa: Mesa 7/);
+});
+
+test('nota da venda de mesa finalizada: acha a mesa (e as unidas) mesmo depois de a mesa ser liberada', () => {
+  const ctx = freshTestDb();
+  const m7 = tableService.createTable({ locationId: ctx.locationId, numero: '7' });
+  const m8 = tableService.createTable({ locationId: ctx.locationId, numero: '8' });
+  const id7 = m7.id || m7.tableId;
+  const id8 = m8.id || m8.tableId;
+  const aberta = tableService.openTable({ tableId: id7, locationId: ctx.locationId, operadorId: ctx.operadorId, pessoas: 2 });
+  const juntou = tableService.juntarMesas({ tableId: id7, mesaIds: [id8], currentOperatorId: ctx.operadorId });
+  assert.notEqual(juntou?.ok, false, juntou?.error);
+  const p = createProduct(ctx.db, { nome: 'Pastel', preco: 8 });
+  addStock(ctx.db, { productId: p, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+  saleService.addItem({ saleId: aberta.saleId, productId: p, locationId: ctx.locationId, quantidade: 1, operadorId: ctx.operadorId, deviceId: 'd' });
+  assert.equal(printService.mesaDaVenda(ctx.db, aberta.saleId), 'Mesa 7 + 8', 'reimpressão com a mesa ainda aberta');
+  saleService.addPayment({ saleId: aberta.saleId, metodo: 'dinheiro', valor: 8, detalhes: {} });
+  assert.equal(saleService.finalizeSale(aberta.saleId).ok, true);
+  tableService.liberarMesaDaVenda(aberta.saleId);
+  assert.equal(ctx.db.prepare('SELECT COUNT(*) AS n FROM restaurant_tables WHERE sale_id = ?').get(aberta.saleId).n, 0);
+  assert.equal(printService.mesaDaVenda(ctx.db, aberta.saleId), 'Mesa 7 + 8');
+
+  const { id: balcao } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
+  assert.equal(printService.mesaDaVenda(ctx.db, balcao), null);
+});

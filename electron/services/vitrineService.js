@@ -240,15 +240,8 @@ async function imprimirQrMesas() {
   if (!r.mesas.length && !getConfig().link) return { ok: false, error: 'Nenhuma mesa cadastrada.' };
   const config = await getConfigComQr();
   const html = montarFolhaQrMesas({ nomeLoja: nomeDaLoja(), mesas: r.mesas, comVitrine: config.qrDataUrl || null });
-  const { BrowserWindow } = require('electron');
-  const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
-  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  return new Promise((resolve) => {
-    win.webContents.print({ silent: false, printBackground: true }, (ok, motivo) => {
-      win.close();
-      resolve(ok || motivo === 'cancelled' ? { ok: true, cancelado: !ok } : { ok: false, error: `Não imprimiu (${motivo || 'erro'}).` });
-    });
-  });
+  const { ok, motivo } = await require('./printService').imprimirEmJanelaInvisivel(html, { silent: false, printBackground: true });
+  return ok || motivo === 'cancelled' ? { ok: true, cancelado: !ok } : { ok: false, error: `Não imprimiu (${motivo || 'erro'}).` };
 }
 
 /** hash -> rótulo, para a página pública escrever "Mesa 5". */

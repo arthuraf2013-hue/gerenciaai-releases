@@ -164,10 +164,12 @@ function backend(tipo) {
     case 'replica':
       return hub ? {
         lerTodos: async (g, colecao) => armazem.lerTodos(g, colecao),
+        lerAlguns: async (g, colecao, ids) => espelho().lerAlgunsComNuvem(g, colecao, ids),
         gravarLote: async (g, colecao, itens) => { armazem.gravar(g, colecao, itens); },
         escutar: (g, colecao, aoMudar) => armazem.escutar(g, colecao, aoMudar),
       } : {
         lerTodos: comAviso((_g, colecao) => c.lerTodos(colecao)),
+        lerAlguns: comAviso((_g, colecao, ids) => c.lerAlguns(colecao, ids)),
         gravarLote: comAviso((_g, colecao, itens) => c.gravarLote(colecao, itens)),
         escutar: (_g, colecao, aoMudar, aoErrar) => c.escutar(colecao, aoMudar, (err) => { avisarFalha(err); aoErrar?.(err); }),
       };

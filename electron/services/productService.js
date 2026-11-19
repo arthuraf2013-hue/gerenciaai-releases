@@ -989,4 +989,4 @@ function removerDescontoValidade(productId) {
   return { ok: true };
 }
 
-module.exports = { findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listPratosParaCardapio, setDisponivelHoje, listFullMenu, listServicePriceTable, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };
+module.exports = { fotosDir, findByBarcode, findByBalancaCode, findBySku, list, listCategories, count, upsert, setFoto, removeFoto, getFotoDataUrl, deactivate, generateInternalBarcode, listPriceHistory, listDailyMenu, listPratosParaCardapio, setDisponivelHoje, listFullMenu, listServicePriceTable, clearAllProducts, aplicarProdutoSincronizado, countConflitosCodigoBarrasPendentes, findDuplicateProducts, mergeProducts, casarCandidatosPorNome, alertasDeMargem, findAlsoBoughtWith, precoEfetivo, aplicarDescontoValidade, removerDescontoValidade };

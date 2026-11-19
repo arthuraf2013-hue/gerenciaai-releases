@@ -52,18 +52,61 @@ protocol.registerSchemesAsPrivileged([
 // versão parecer "travada" no painel mesmo depois de atualizar de
 // verdade e abrir o app novo. Quem tenta abrir uma segunda vez só foca
 // a janela que já está aberta, em vez de abrir outra por cima.
+//
+// A janela a focar é a PRINCIPAL (a "primeira janela" da lista podia ser uma janela
+// invisível de impressão, e aí nada aparecia). E se a instância que tem a
+// trava ficou presa sem janela, a nova encerra a presa e reabre -- ver
+// instanciaUnica.js. Antes disso o app "não abria" até alguém finalizar a
+// tarefa no Gerenciador de Tarefas.
+const instanciaUnica = require('./instanciaUnica');
+const arquivoDaInstancia = instanciaUnica.arquivoDaInstancia(app.getPath('userData'));
+let janelaPrincipal = null;
+let saindo = false;
+let atualizacaoVaiInstalar = false;
+let batimento = null;
 const temOLock = app.requestSingleInstanceLock();
 if (!temOLock) {
-  app.quit();
+  let reabrir = false;
+  try {
+    reabrir = instanciaUnica.destravarInstanciaPresa({ arquivo: arquivoDaInstancia, execPath: process.execPath });
+  } catch (err) {
+    console.error('[instância]', err);
+  }
+  if (reabrir) {
+    app.relaunch();
+    app.exit(0);
+  } else {
+    app.quit();
+  }
 } else {
-  app.on('second-instance', () => {
-    const janelas = BrowserWindow.getAllWindows();
-    if (janelas.length > 0) {
-      const win = janelas[0];
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
-  });
+  batimento = instanciaUnica.iniciarBatimento({ arquivo: arquivoDaInstancia });
+  app.on('second-instance', () => trazerJanelaParaFrente());
+}
+
+/** Alguém abriu o GerenciaAI de novo: mostra a janela que já existe. */
+function trazerJanelaParaFrente() {
+  if (saindo) {
+    // Estava fechando e não terminou: sai de vez. Reabre limpo -- menos
+    // quando é a atualização instalando (o instalador abre o app no fim, e
+    // abrir agora atrapalharia a troca dos arquivos).
+    let instalando = atualizacaoVaiInstalar;
+    try { instalando = instalando || Boolean(updateService.getStatus()?.baixado); } catch { /* sem updater */ }
+    if (!instalando) app.relaunch();
+    app.exit(0);
+    return;
+  }
+  const win = janelaPrincipal;
+  if (!win || win.isDestroyed()) {
+    // Ainda abrindo (a janela já vem) ou, por algum caminho, sem janela: cria.
+    if (app.isReady() && win) janelaPrincipal = createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  if (!win.isVisible()) win.show();
+  // Windows não deixa uma janela de fundo "roubar" a frente só com focus().
+  win.setAlwaysOnTop(true);
+  win.focus();
+  win.setAlwaysOnTop(false);
 }
 
 function createWindow() {
@@ -110,11 +153,35 @@ function createWindow() {
   janela.lembrarJanela(win, screen, arquivoJanela);
 
   // maximize() mostra a janela na hora (antes do conteúdo): por isso só aqui.
-  win.once('ready-to-show', () => {
+  // Se ready-to-show não vier (o Chromium às vezes não emite: placa de vídeo,
+  // tela que travou ao carregar), mostra assim mesmo em 10 s -- antes a
+  // janela ficava invisível para sempre, com o app aberto no Gerenciador de
+  // Tarefas.
+  const mostrar = () => {
+    if (win.isDestroyed() || win.isVisible()) return;
     if (pos.maximized) win.maximize();
     if (pos.fullscreen) win.setFullScreen(true);
     win.show();
+    batimento?.fase('aberta');
+  };
+  win.once('ready-to-show', mostrar);
+  setTimeout(mostrar, 10000);
+  // A tela (processo do Chromium) caiu: recarrega em vez de deixar janela
+  // branca/morta. No máximo 3 vezes em 5 min, para não ficar num laço.
+  const quedas = [];
+  win.webContents.on('render-process-gone', (_e, detalhes) => {
+    console.error('[render-process-gone]', detalhes?.reason, detalhes?.exitCode);
+    errorReportService.reportarErro({
+      mensagem: `A tela do app caiu (${detalhes?.reason || 'motivo desconhecido'}, código ${detalhes?.exitCode ?? '?'})`,
+      stack: null, contexto: 'janela-caiu',
+    }).catch(() => {});
+    if (saindo || win.isDestroyed() || detalhes?.reason === 'clean-exit') return;
+    const agora = Date.now();
+    while (quedas.length && agora - quedas[0] > 5 * 60 * 1000) quedas.shift();
+    quedas.push(agora);
+    if (quedas.length <= 3) setTimeout(() => { if (!win.isDestroyed()) { win.reload(); mostrar(); } }, 1000);
   });
+  win.on('unresponsive', () => console.error('[janela] a tela parou de responder'));
   // Windows: depois de um diálogo (salvar arquivo, impressão, aviso) a
   // janela volta ao primeiro plano mas a PÁGINA pode ficar sem o foco do
   // teclado -- os campos de texto param de aceitar digitação até trocar de
@@ -128,7 +195,13 @@ function createWindow() {
   // 'closed') porque win.webContents já pode estar destruído quando
   // 'closed' dispara.
   const webContentsId = win.webContents.id;
-  win.on('closed', () => sessionService.encerrarSessao(webContentsId));
+  win.on('closed', () => {
+    sessionService.encerrarSessao(webContentsId);
+    // Fechou a janela principal = fechou o app, mesmo que sobre alguma janela
+    // invisível (impressão esperando a impressora). Antes isso dependia de
+    // 'window-all-closed', que nunca vinha enquanto uma delas existisse.
+    if (win === janelaPrincipal && process.platform !== 'darwin') app.quit();
+  });
   // Windows desligando/reiniciando com o app aberto: não instala a
   // atualização nesse fechamento -- o Windows mataria o instalador no meio
   // e o GerenciaAI.exe sumiria (ver updateService.windowsEstaEncerrando).
@@ -204,7 +277,7 @@ app.whenReady().then(() => {
   // este bloco síncrono inteiro terminar -- handlers, banco e o
   // autoUpdater (ver comentário de setupAutoUpdater) já estão prontos
   // quando a primeira chamada da janela chega.
-  const janelaPrincipal = createWindow();
+  janelaPrincipal = createWindow();
 
   getDb(); // garante schema criado e seed aplicado antes de atender a janela
   timeService.startAutoSync(); // sincroniza com a internet assim que possível, e a cada 15 min
@@ -448,7 +521,7 @@ app.whenReady().then(() => {
   );
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) janelaPrincipal = createWindow();
   });
 }).catch((err) => {
   // Se algo travar aqui (ex: uma migração de banco falhando, ou
@@ -599,8 +672,18 @@ function prepararReparoDaInstalacao() {
 // Fechando com atualização baixada: o instalador roda logo depois que o
 // app sair. A vigia (fora do app) confere se ele terminou inteiro.
 app.on('before-quit', () => {
-  try { updateService.antesDeFechar(); } catch (err) { console.error('[reparo]', err); }
+  try { atualizacaoVaiInstalar = Boolean(updateService.antesDeFechar()) || atualizacaoVaiInstalar; } catch (err) { console.error('[reparo]', err); }
   try { require('./services/tecladoSistemaService').encerrar(); } catch { /* nada aberto */ }
+  if (saindo) return;
+  saindo = true;
+  batimento?.saindo();
+  // Rede de segurança: se algo segurar o fechamento (janela que não fecha,
+  // tarefa pendurada), sai à força em 10 s em vez de ficar no Gerenciador de
+  // Tarefas sem janela. Saindo normal, o processo acaba antes disso.
+  setTimeout(() => {
+    console.error('[saída] o app não terminou de fechar em 10 s: encerrando à força');
+    app.exit(0);
+  }, 10000);
 });
 
 app.on('window-all-closed', () => {

@@ -367,6 +367,19 @@ hora (`tipo = 'servico'`) ficam fora da checagem. Produto sem contador não
 trava nem ganha contador por variação: quem cria é o servidor
 (`garantirContadoresDoGrupo`, ao abrir e a cada 30 min, com o estoque dele).
 
+**App sem janela no Gerenciador de Tarefas** (nov/2026): toda impressão
+passa por `printService.imprimirEmJanelaInvisivel` (janela SEMPRE fecha:
+resposta, erro ou prazo de 90 s; com diálogo, 15 min) -- antes impressora
+sem resposta deixava janela invisível aberta e o app não encerrava. Fechar
+a janela principal = `app.quit()` (não depende de 'window-all-closed'), e
+o fechamento tem saída forçada em 10 s. `second-instance` foca a janela
+PRINCIPAL (mostra se invisível). Janela mostra em 10 s mesmo sem
+'ready-to-show'; tela que cai recarrega (até 3x em 5 min).
+`electron/instanciaUnica.js`: quem tem a trava grava pid + batida a cada
+10 s em userData/instancia.json; quem abre e não pega a trava encerra a
+instância travada (batida parada: 60 s aberta, 20 s fechando, 3 min
+abrindo; só se o pid for GerenciaAI.exe) e reabre.
+
 **Caixas do grupo como extensão um do outro** (`grupoReplicaService.js`,
 migração 13): produtos, clientes e o livro do fiado têm cópia completa em
 cada caixa (continua vendendo sem internet). Coleções do grupo `produtos`,
@@ -389,8 +402,26 @@ cada caixa (continua vendendo sem internet). Coleções do grupo `produtos`,
 - Fiado: cada lançamento vai/entra uma vez (`grupo_replica_livro`); o de
   fora entra com `sale_id`/`operador_id` nulos e "(caixa X)" no motivo;
   lançamento que chega antes do cliente espera.
+- Fila: `marca` é inteiro de 64 bits -- ler e comparar SEMPRE como texto
+  (`CAST(marca AS TEXT)`); como número do JS perde precisão, o DELETE não
+  batia e a fila nunca esvaziava (tudo reenviado a cada 5 s, cota do
+  Firestore queimada; corrigido nov/2026). `enviarPendentes` é um envio por
+  vez: pedido durante um envio vira UMA passada a mais (antes cada pedido
+  rodava junto, lendo a fila inteira -- planilha de 500 produtos = 250 mil
+  gravações).
+- Foto do produto (`grupoFotoService.js`, migração 16): coleção própria
+  `fotos/{docDoProduto}` ({hash, tipo, dados base64, versaoMs}), comprimida
+  (até 800 px, 450 KB; PNG continua PNG), regra no firestore.rules. O
+  produto leva só `fotoHash` (null = sem foto; sem o campo = caixa antigo
+  ou foto ainda não subiu: não mexe). Filas `grupo_replica_foto_enviar`
+  (gatilho no foto_path) e `grupo_replica_foto_baixar`; `grupo_replica_foto`
+  = hash do arquivo daqui -> hash no grupo. Subir/baixar foto é separado do
+  cadastro: nuvem recusando foto não segura produto. No servidor da loja,
+  fotos só por id (`/v1/ler-alguns`, sem "ler tudo"/feed) e sobem para a
+  nuvem em lote à parte (`subirFotos`); a que falta vem da nuvem sob demanda.
+  Quem baixa confere hash e cabeçalho da imagem.
 - Fica por caixa: estoque físico (o do grupo é o contador), pontos de
-  fidelidade, foto, controles de automação. "Apagar todos os produtos"
+  fidelidade, controles de automação. "Apagar todos os produtos"
   num caixa vale para o grupo (vira lápide).
 - `productService.mergeProducts` agora leva TODA tabela com FK para
   products (lida do banco) -- a lista fixa falhava na chave estrangeira.

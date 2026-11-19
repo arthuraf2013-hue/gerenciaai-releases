@@ -118,9 +118,17 @@ test('recibo impresso: nome de produto, pagamento, loja e rodapé saem escapados
 test('toda janela de impressão roda sem JavaScript e em sandbox', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'electron', 'services', 'printService.js'), 'utf-8');
   const janelas = src.match(/new \(getBrowserWindow\(\)\)\(\{[^\n]*/g) || [];
-  assert.ok(janelas.length >= 6);
+  // listPrinters + imprimirEmJanelaInvisivel (por onde passa TODA impressão)
+  assert.ok(janelas.length >= 2);
   for (const j of janelas) assert.match(j, /webPreferences:\s*\{\s*sandbox:\s*true,\s*javascript:\s*false\s*\}/);
   assert.equal((src.match(/new \(getBrowserWindow\(\)\)/g) || []).length, janelas.length);
+  // Ninguém mais abre janela de impressão por fora (ela podia ficar aberta
+  // para sempre e prender o app no Gerenciador de Tarefas).
+  assert.equal((src.match(/webContents\.print\(/g) || []).length, 1);
+  for (const outro of ['cozinhaService.js', 'vitrineService.js']) {
+    const o = fs.readFileSync(path.join(__dirname, '..', 'electron', 'services', outro), 'utf-8');
+    assert.doesNotMatch(o, /new BrowserWindow|webContents\.print\(/, outro);
+  }
 });
 
 test('planilha acima do limite é recusada antes de abrir', async () => {

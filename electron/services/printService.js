@@ -73,6 +73,40 @@ function updateReceiptConfig({ larguraMm, rodapeTexto, imprimirAutomatico, impre
   return { ok: true };
 }
 
+/**
+ * Imprime um HTML numa janela invisível que SEMPRE fecha -- quando a
+ * impressora responde, quando o carregamento falha ou, no pior caso, quando
+ * o prazo acaba. Antes a janela só fechava na resposta da impressora: com a
+ * impressora desligada, sem papel ou com o spooler do Windows travado a
+ * resposta nunca vinha, a janela invisível ficava aberta para sempre e o
+ * Electron não encerrava ao fechar o app (sobrava uma janela). Resultado: o
+ * GerenciaAI continuava no Gerenciador de Tarefas sem janela nenhuma e não
+ * abria de novo até alguém finalizar a tarefa.
+ * Com diálogo (silent: false) o prazo é longo: a pessoa está escolhendo.
+ * Devolve { ok, motivo }.
+ */
+function imprimirEmJanelaInvisivel(html, opcoes, { prazoMs } = {}) {
+  const prazo = prazoMs || (opcoes && opcoes.silent === false ? 15 * 60 * 1000 : 90 * 1000);
+  return new Promise((resolve) => {
+    const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
+    let terminou = false;
+    let timer = null;
+    const terminar = (ok, motivo) => {
+      if (terminou) return;
+      terminou = true;
+      clearTimeout(timer);
+      try { if (!win.isDestroyed()) win.destroy(); } catch { /* já fechada */ }
+      if (!ok && motivo !== 'cancelled') console.error('[impressão] não imprimiu:', motivo || 'erro');
+      resolve({ ok: Boolean(ok), motivo: motivo || '' });
+    };
+    timer = setTimeout(() => terminar(false, 'a impressora não respondeu a tempo'), prazo);
+    win.on('closed', () => terminar(false, 'janela de impressão fechada'));
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+      .then(() => win.webContents.print(opcoes, (ok, motivo) => terminar(ok, motivo)))
+      .catch((err) => terminar(false, err?.message || String(err)));
+  });
+}
+
 /** Lista as impressoras instaladas no Windows, pra escolher uma como
  * padrão nas Configurações. Precisa de uma janela (mesmo invisível)
  * pra perguntar ao sistema operacional. */
@@ -82,7 +116,7 @@ async function listPrinters() {
     const impressoras = await win.webContents.getPrintersAsync();
     return impressoras.map((p) => ({ nome: p.name, padraoDoSistema: !!p.isDefault }));
   } finally {
-    win.close();
+    win.destroy();
   }
 }
 
@@ -112,10 +146,7 @@ function printTestPage() {
     <p>${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
-    win.webContents.print(opcoesDeImpressao(), () => win.close());
-  });
+  imprimirEmJanelaInvisivel(html, opcoesDeImpressao());
   return { ok: true };
 }
 
@@ -184,6 +215,7 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     rodape: rodapeTexto,
     operador: extras.operador || '',
     cliente: extras.cliente || '',
+    mesa: extras.mesa || null,
     fiscalHtml: buildFiscalHtmlBlock(nfce, qrDataUrl),
     senha,
     totalFinal: sale.total - sale.desconto - sale.desconto_gerente,
@@ -272,6 +304,21 @@ function buildReceiptWhatsappLink(saleId) {
   return { ok: true, url, temTelefoneCliente: !!cliente?.telefone };
 }
 
+/** "Mesa 3 + 4" da venda (gravado em sale_mesas ao finalizar, inclusive na
+ * conta de mesa recebida em outro caixa do grupo); null no balcão. */
+function mesaDaVenda(db, saleId) {
+  try {
+    const mesas = db.prepare('SELECT numero, nome, principal FROM sale_mesas WHERE sale_id = ?').all(saleId);
+    if (mesas.length) return require('./saleService').rotuloDasMesas(mesas);
+    // Reimpressão de comanda que ainda está na mesa (não deveria, mas não custa).
+    const t = db.prepare('SELECT numero, nome, CASE WHEN unida_a_mesa_id IS NULL THEN 1 ELSE 0 END AS principal FROM restaurant_tables WHERE sale_id = ?').all(saleId);
+    return t.length ? require('./saleService').rotuloDasMesas(t) : null;
+  } catch (err) {
+    console.error('[printService] não achei a mesa da venda:', err.message);
+    return null;
+  }
+}
+
 async function printReceipt(saleId) {
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
@@ -305,15 +352,13 @@ async function printReceipt(saleId) {
 
   const operador = db.prepare('SELECT nome FROM users WHERE id = ?').get(sale.operador_id)?.nome || '';
   const cliente = sale.customer_id ? (db.prepare('SELECT nome FROM customers WHERE id = ?').get(sale.customer_id)?.nome || '') : '';
-  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha, { operador, cliente });
+  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha, { operador, cliente, mesa: mesaDaVenda(db, saleId) });
   imprimirNoRolo(html, larguraMm);
   return { ok: true };
 }
 
 /** Imprime HTML de recibo no formato configurado (rolo térmico ou A4). */
 function imprimirNoRolo(html, larguraMm) {
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
-
   const isTermica = larguraMm === 58 || larguraMm === 80;
   const printOptions = opcoesDeImpressao();
   if (isTermica) {
@@ -322,11 +367,7 @@ function imprimirNoRolo(html, larguraMm) {
     printOptions.pageSize = { width: larguraMm * 1000, height: 1000000 };
   }
 
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
-    win.webContents.print(printOptions, () => {
-      win.close();
-    });
-  });
+  imprimirEmJanelaInvisivel(html, printOptions);
 }
 
 /**
@@ -364,10 +405,7 @@ function printLabel({ nome, preco, codigoBarras, barcodeDataUrl }) {
     <p class="codigo">${escHtml(codigoBarras)}</p>
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
-    win.webContents.print(opcoesDeImpressao({ pageSize: { width: 50000, height: 30000 } }), () => win.close());
-  });
+  imprimirEmJanelaInvisivel(html, opcoesDeImpressao({ pageSize: { width: 50000, height: 30000 } }));
 
   return { ok: true };
 }
@@ -420,10 +458,7 @@ function printKitchenTicket(saleId, mesaLabel) {
     ${linhasHtml}
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
-    win.webContents.print(opcoesDeImpressao({ pageSize: { width: 80000, height: 1000000 } }), () => win.close());
-  });
+  imprimirEmJanelaInvisivel(html, opcoesDeImpressao({ pageSize: { width: 80000, height: 1000000 } }));
 
   const idsEnviados = itens.map((i) => i.id);
   const placeholders = idsEnviados.map(() => '?').join(',');
@@ -474,12 +509,9 @@ function printDailyMenu(itens) {
     ${gruposHtml}
   </body></html>`;
 
-  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
-    win.webContents.print(opcoesDeImpressao(), () => win.close());
-  });
+  imprimirEmJanelaInvisivel(html, opcoesDeImpressao());
 
   return { ok: true };
 }
 
-module.exports = { imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml };
+module.exports = { imprimirEmJanelaInvisivel, imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml, mesaDaVenda };

@@ -22,6 +22,7 @@ function grupoFalso() {
 }
 
 function caixa({ semGrupo = false } = {}) {
+  replica.parar(); // cada caixa é um processo: começa sem ter juntado com o grupo
   const ctx = freshTestDb();
   ctx.entrarNoGrupo = () => ctx.db.prepare(`UPDATE sync_state SET grupo_sincronizacao_id = 'g-1' WHERE id = 'default'`).run();
   if (!semGrupo) ctx.entrarNoGrupo();
@@ -253,4 +254,22 @@ test('mesclar produtos leva TODO o histórico (antes falhava se o produto estava
   assert.equal(r.ok, true, r.error);
   assert.equal(contar(db, 'SELECT COUNT(*) n FROM products WHERE id = ?', remover), 0);
   assert.equal(contar(db, 'SELECT COUNT(*) n FROM product_cost_history WHERE product_id = ?', manter), 1);
+});
+
+test('fila do grupo esvazia depois de enviar e salvar muitos produtos não multiplica as gravações (cota do Firestore)', async () => {
+  let gravacoes = 0;
+  const g = grupoFalso();
+  const gravar = g.gravarLote;
+  g.gravarLote = async (grupo, c, itens) => { gravacoes += itens.length; return gravar(grupo, c, itens); };
+  replica._definirBackendParaTeste(g);
+  const a = caixa();
+  // Cada upsert também pede um envio (productSyncService.pushProduct), todos juntos.
+  for (let i = 0; i < 30; i++) productService.upsert({ nome: `Produto ${i}`, preco: i + 1 });
+  await replica.sincronizarTudo();
+  await new Promise((ok) => setImmediate(ok));
+  await replica.enviarPendentes();
+  assert.equal(contar(a.db, 'SELECT COUNT(*) n FROM grupo_replica_pendente'), 0, 'a fila esvaziou');
+  assert.equal(gravacoes, 30, 'cada produto gravado uma vez');
+  for (let i = 0; i < 3; i++) await replica.enviarPendentes();
+  assert.equal(gravacoes, 30, 'nada reenviado nos ciclos seguintes');
 });

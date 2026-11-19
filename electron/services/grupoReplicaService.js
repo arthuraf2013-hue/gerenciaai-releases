@@ -25,8 +25,10 @@
 // - Fiado: cada lançamento vai uma vez e entra uma vez; o saldo do cliente
 //   (soma do livro) fica igual em todos os caixas. O lançamento de fora
 //   não aponta para venda local (sale_id nulo) -- a venda está no outro caixa.
+// - Foto do produto: coleção própria ('fotos'), o produto leva só o
+//   fotoHash -- ver grupoFotoService.
 // - Fica por caixa: estoque físico (o do grupo é o contador do servidor),
-//   pontos de fidelidade, foto do produto, controles de automação.
+//   pontos de fidelidade, controles de automação.
 
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
@@ -163,6 +165,14 @@ const PRODUTOS = {
   /** Lápide do grupo: igual a excluir aqui (libera código e SKU). */
   desativar(db, localId) {
     db.prepare('UPDATE products SET ativo = 0, codigo_barras = NULL, sku = NULL WHERE id = ?').run(localId);
+  },
+  /** Depois de gravar o que veio do grupo: a foto (grupoFotoService). */
+  depoisDeAplicar(db, grupoId, localId, docId, d) {
+    require('./grupoFotoService').aoReceberProduto(db, grupoId, localId, docId, d);
+  },
+  /** Campos que dependem de mais que a linha do produto. */
+  extrasDoDoc(db, grupoId, p) {
+    return require('./grupoFotoService').campoDaFoto(db, grupoId, p);
   },
 };
 
@@ -317,6 +327,7 @@ function mesclar(entidade, grupoId, remotos, { completo = false } = {}) {
           } else {
             const localId = E.ler(db, docId) ? randomUUID() : docId;
             E.aplicar(db, localId, d);
+            E.depoisDeAplicar?.(db, grupoId, localId, docId, d);
             gravarVinculo(db, entidade, grupoId, localId, docId, versao, mapa);
             continue;
           }
@@ -325,7 +336,10 @@ function mesclar(entidade, grupoId, remotos, { completo = false } = {}) {
 
       if (versao > v.versao_ms) {
         if (d.excluido === true) E.desativar(db, v.local_id);
-        else E.aplicar(db, v.local_id, d);
+        else {
+          E.aplicar(db, v.local_id, d);
+          E.depoisDeAplicar?.(db, grupoId, v.local_id, docId, d);
+        }
         gravarVinculo(db, entidade, grupoId, v.local_id, docId, versao, mapa);
       } else if (versao < v.versao_ms && E.ler(db, v.local_id)) {
         enfileirar(db, entidade, v.local_id); // daqui é mais novo: sobe de novo
@@ -401,6 +415,16 @@ let backend = {
     const snap = await getDocs(collection(firestore, 'grupos_sincronizacao', grupoId, colecao));
     return new Map(snap.docs.map((d) => [d.id, d.data()]));
   },
+  /** Só os documentos pedidos (fotos). */
+  async lerAlguns(grupoId, colecao, ids) {
+    const lan = require('./grupoTransporteService').backend('replica');
+    if (lan) return lan.lerAlguns(grupoId, colecao, ids);
+    const firestore = require('./licenseService').getLicenseFirestore();
+    const { doc, getDoc } = require('firebase/firestore');
+    const { comPrazo } = require('./nuvemDisjuntorService');
+    const snaps = await Promise.all(ids.map((id) => comPrazo(getDoc(doc(firestore, 'grupos_sincronizacao', grupoId, colecao, id)), 30000, 'foto do grupo')));
+    return new Map(snaps.filter((s) => s.exists()).map((s) => [s.id, s.data()]));
+  },
   async gravarLote(grupoId, colecao, itens) {
     const lan = require('./grupoTransporteService').backend('replica');
     if (lan) return lan.gravarLote(grupoId, colecao, itens);
@@ -434,11 +458,26 @@ function _definirBackendParaTeste(b) { backend = { ...backend, ...b }; }
 // ---------------------------------------------------------------------------
 
 let enviando = null;
+let enviarDeNovo = false;
 
-/** Manda a fila (produtos, clientes) e o fiado novo. Um envio por vez. */
+/**
+ * Manda a fila (produtos, clientes) e o fiado novo. Um envio por vez: quem
+ * pede enquanto um envio está andando ganha UMA passada a mais no fim (o que
+ * mudou nesse meio tempo). Antes cada pedido encadeava o seu próprio envio e
+ * eles rodavam juntos, cada um lendo a fila inteira -- salvar 500 produtos de
+ * uma planilha mandava a fila 500 vezes (centenas de milhares de gravações,
+ * muito acima da cota do Firestore).
+ */
 function enviarPendentes() {
-  if (enviando) return enviando.then(() => enviarPendentesAgora());
-  enviando = enviarPendentesAgora().finally(() => { enviando = null; });
+  if (enviando) { enviarDeNovo = true; return enviando; }
+  enviando = (async () => {
+    let r;
+    do {
+      enviarDeNovo = false;
+      r = await enviarPendentesAgora();
+    } while (enviarDeNovo);
+    return r;
+  })().finally(() => { enviando = null; });
   return enviando;
 }
 
@@ -460,7 +499,11 @@ async function enviarPendentesAgora() {
   try {
     for (const entidade of ['produtos', 'clientes']) {
       const E = ENTIDADES[entidade];
-      const fila = db.prepare('SELECT local_id, marca FROM grupo_replica_pendente WHERE entidade = ?').all(entidade);
+      // marca é um inteiro de 64 bits (abs(random())): lido como número do JS
+      // perde precisão e o DELETE abaixo nunca batia -- a fila não esvaziava e
+      // tudo era reenviado a cada 5 s, gastando a cota do Firestore. Como texto
+      // a comparação é exata.
+      const fila = db.prepare('SELECT local_id, CAST(marca AS TEXT) AS marca FROM grupo_replica_pendente WHERE entidade = ?').all(entidade);
       if (fila.length === 0) continue;
       const itens = [];
       const prontos = [];
@@ -485,12 +528,12 @@ async function enviarPendentesAgora() {
           let docId = v?.doc_id;
           if (!docId) docId = mapa.porDoc.has(localId) ? randomUUID() : localId;
           gravarVinculo(db, entidade, grupoId, localId, docId, versao, mapa);
-          itens.push({ docId, dados: { ...E.paraDoc(linha), versaoMs: versao, origem } });
+          itens.push({ docId, dados: { ...E.paraDoc(linha), ...(E.extrasDoDoc?.(db, grupoId, linha) || {}), versaoMs: versao, origem } });
           prontos.push({ localId, marca });
         }
       })();
       if (itens.length) await backend.gravarLote(grupoId, entidade, itens);
-      const tirar = db.prepare('DELETE FROM grupo_replica_pendente WHERE entidade = ? AND local_id = ? AND marca = ?');
+      const tirar = db.prepare('DELETE FROM grupo_replica_pendente WHERE entidade = ? AND local_id = ? AND CAST(marca AS TEXT) = ?');
       db.transaction(() => { for (const p of prontos) tirar.run(entidade, p.localId, p.marca); })();
       enviados += itens.length;
     }
@@ -610,10 +653,25 @@ function iniciar() {
         const db = getDb();
         const tem = db.prepare('SELECT 1 FROM grupo_replica_pendente LIMIT 1').get() || fiadoParaEnviar(db, grupoId).length > 0;
         if (tem) enviarPendentes();
+        trabalharFotos(grupoId);
       } catch { /* banco fechando */ }
     }, 5000);
     relogio.unref?.();
   });
+}
+
+/** Fotos dos produtos (grupoFotoService): sobe as trocadas aqui e baixa as novas do grupo. */
+function trabalharFotos(grupoId) {
+  try {
+    const fotos = require('./grupoFotoService');
+    if (!fotos.temTrabalho(grupoId)) return null;
+    const lan = !!require('./grupoTransporteService').backend('replica');
+    const semEnvio = !lan && !require('./nuvemDisjuntorService').podeEscrever();
+    return fotos.trabalhar({ grupoId, backend, origem: origemDesteCaixa(), semEnvio });
+  } catch (err) {
+    console.error('[grupoReplicaService] fotos:', err?.message || err);
+    return null;
+  }
 }
 
 /** O que a escuta faz com uma leva do grupo (exposto para os testes). */
@@ -626,6 +684,6 @@ function receber(entidade, grupoId, mudou) {
 }
 
 module.exports = {
-  iniciar, parar, sincronizarTudo, enviarPendentes, mesclar, receber, receberFiado, paraGrupo,
+  iniciar, parar, sincronizarTudo, enviarPendentes, mesclar, receber, receberFiado, paraGrupo, trabalharFotos,
   versaoDoDoc, _definirBackendParaTeste, ENTIDADES,
 };

@@ -273,7 +273,15 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
               </label>
               <Marcar rotulo={ePre ? 'Código da conta' : 'Código da venda'} checked={c.mostrarCodigoVenda} onChange={(v) => mudar('mostrarCodigoVenda', v)} />
               <Marcar rotulo="Data e hora" checked={c.mostrarDataHora} onChange={(v) => mudar('mostrarDataHora', v)} />
-              {ePre && <Marcar rotulo="Mesa" checked={c.mostrarMesa} onChange={(v) => mudar('mostrarMesa', v)} />}
+              <Marcar rotulo="Número da mesa" checked={c.mostrarMesa} onChange={(v) => mudar('mostrarMesa', v)}
+                dica="Só aparece em conta de mesa. No balcão não sai nada." />
+              {c.mostrarMesa && (
+                <div className="estudio-sub">
+                  <Escolha rotulo="Tamanho do número da mesa" valor={c.mesaTamanho} onChange={(v) => mudar('mesaTamanho', v)}
+                    opcoes={[['normal', 'Normal'], ['grande', 'Grande'], ['enorme', 'Bem grande']]} />
+                  <Marcar rotulo="Número da mesa em negrito" checked={c.mesaNegrito} onChange={(v) => mudar('mesaNegrito', v)} />
+                </div>
+              )}
               <Marcar rotulo="Atendente" checked={c.mostrarOperador} onChange={(v) => mudar('mostrarOperador', v)} />
               <Marcar rotulo="Cliente" checked={c.mostrarCliente} onChange={(v) => mudar('mostrarCliente', v)} />
               <Marcar rotulo="Coluna de preço unitário" checked={c.colunaUnitario} onChange={(v) => mudar('colunaUnitario', v)} />

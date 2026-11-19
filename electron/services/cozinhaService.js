@@ -183,21 +183,15 @@ function formatarQtd(q) {
   return Number.isInteger(n) ? `${n}x` : n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 }
 
-function imprimirWindowsPadrao(html, { impressora, larguraMm, copias }) {
-  return new Promise((resolve, reject) => {
-    const { BrowserWindow } = require('electron');
-    const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, javascript: false } });
-    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).then(() => {
-      win.webContents.print({
-        silent: true, deviceName: impressora, copies: copias, printBackground: false,
-        pageSize: { width: larguraMm * 1000, height: 1000000 }, margins: { marginType: 'none' },
-      }, (ok, motivo) => {
-        win.close();
-        if (ok) resolve({ ok: true });
-        else reject(new Error(`A impressora "${impressora}" não imprimiu${motivo ? ` (${motivo})` : ''}. Confira se está ligada e com papel.`));
-      });
-    }).catch((err) => { win.close(); reject(err); });
+async function imprimirWindowsPadrao(html, { impressora, larguraMm, copias }) {
+  // Janela invisível que sempre fecha (ver printService.imprimirEmJanelaInvisivel):
+  // impressora travada não deixa mais o app preso no Gerenciador de Tarefas.
+  const r = await require('./printService').imprimirEmJanelaInvisivel(html, {
+    silent: true, deviceName: impressora, copies: copias, printBackground: false,
+    pageSize: { width: larguraMm * 1000, height: 1000000 }, margins: { marginType: 'none' },
   });
+  if (r.ok) return { ok: true };
+  throw new Error(`A impressora "${impressora}" não imprimiu${r.motivo ? ` (${r.motivo})` : ''}. Confira se está ligada e com papel.`);
 }
 
 /** Manda a comanda pra impressora configurada. Lança Error legível. */

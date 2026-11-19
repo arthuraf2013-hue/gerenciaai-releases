@@ -4,7 +4,9 @@
  * (lanHubService), o próprio servidor usa direto, e o espelho
  * (lanEspelhoService) acerta com a nuvem quando há internet e cota.
  *
- *   lan_docs        produtos, clientes, fiado, usuarios, vendas
+ *   lan_docs        produtos, clientes, fiado, usuarios, vendas, fotos
+ *                   (fotos = foto do produto, lida só por id -- lerAlguns -- e
+ *                   subida para a nuvem fora do lote do resto, ver lanEspelhoService)
  *                   (seq crescente = feed de mudanças; nuvem_pendente = falta subir)
  *   lan_estoque     contador do estoque do grupo por produto (autoridade
  *                   enquanto o servidor está no ar; `espelhado` = último valor
@@ -20,7 +22,9 @@
 const { EventEmitter } = require('events');
 const { getDb } = require('../db/database');
 
-const COLECOES = ['produtos', 'clientes', 'fiado', 'usuarios', 'vendas'];
+const COLECOES = ['produtos', 'clientes', 'fiado', 'usuarios', 'vendas', 'fotos'];
+// Pesadas demais para "ler tudo" ou para o feed: só por id (lerAlguns).
+const SO_POR_ID = new Set(['fotos']);
 const eventos = new EventEmitter();
 eventos.setMaxListeners(200);
 
@@ -118,6 +122,16 @@ function lerTodos(grupoId, colecao) {
   return new Map(linhas.map((l) => [l.doc_id, JSON.parse(l.dados)]));
 }
 
+/** Só os documentos pedidos (os que existem). */
+function lerAlguns(grupoId, colecao, ids) {
+  const lista = [...new Set((ids || []).filter((id) => typeof id === 'string' && id))].slice(0, 50);
+  if (!lista.length) return new Map();
+  const linhas = getDb().prepare(
+    `SELECT doc_id, dados FROM lan_docs WHERE grupo_id = ? AND colecao = ? AND doc_id IN (${lista.map(() => '?').join(',')})`
+  ).all(grupoId, colecao, ...lista);
+  return new Map(linhas.map((l) => [l.doc_id, JSON.parse(l.dados)]));
+}
+
 function seqAtual() {
   return Number(getDb().prepare(`SELECT valor FROM lan_meta WHERE chave = 'seq'`).get()?.valor || 0);
 }
@@ -174,10 +188,14 @@ function esperarMudanca(grupoId, colecao, ms) {
 
 // ---------------------------------------------------------------- nuvem
 
-function pendentesParaNuvem(limite = 400) {
+/** O que falta subir. Fotos à parte (fotos: true): são pesadas (o Firestore
+ * recusa lote acima de 10 MB) e, se a nuvem recusar uma, o resto não pode
+ * ficar parado atrás dela. */
+function pendentesParaNuvem(limite = 400, { fotos = false } = {}) {
   return getDb().prepare(
-    'SELECT grupo_id, colecao, doc_id, dados, seq FROM lan_docs WHERE nuvem_pendente = 1 ORDER BY seq LIMIT ?'
-  ).all(limite).map((l) => ({ grupoId: l.grupo_id, colecao: l.colecao, docId: l.doc_id, dados: JSON.parse(l.dados), seq: l.seq }));
+    `SELECT grupo_id, colecao, doc_id, dados, seq FROM lan_docs
+     WHERE nuvem_pendente = 1 AND (colecao = 'fotos') = ? ORDER BY seq LIMIT ?`
+  ).all(fotos ? 1 : 0, limite).map((l) => ({ grupoId: l.grupo_id, colecao: l.colecao, docId: l.doc_id, dados: JSON.parse(l.dados), seq: l.seq }));
 }
 
 /** Só tira a marca se o documento não mudou de novo enquanto subia. */
@@ -355,7 +373,7 @@ function esquecerOutrosGrupos(grupoId) {
 }
 
 module.exports = {
-  COLECOES, colecaoValida, versaoDe, gravar, aplicarDaNuvem, lerTodos, seqAtual, mudancasDesde, vendasDoPeriodo,
+  COLECOES, SO_POR_ID, colecaoValida, versaoDe, gravar, aplicarDaNuvem, lerTodos, lerAlguns, seqAtual, mudancasDesde, vendasDoPeriodo,
   escutar, esperarMudanca, pendentesParaNuvem, marcarNaNuvem, contarPendentesParaNuvem,
   lerContadores, aplicarMovimento, verificarEDebitar, gravarContadores, contadorDaNuvem, contaDaSubida,
   contadoresPendentes, contadorSubiu, lerMeta, gravarMeta, esquecerOutrosGrupos,

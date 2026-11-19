@@ -156,8 +156,15 @@ async function atender(caminho, corpo, caixaId) {
       return [200, { grupoId: g, hubId: contexto.hubId, hubNome: contexto.nome, pronto: require('./lanEspelhoService').pronto(g), seq: armazem.seqAtual() }];
     case '/v1/ler': {
       const p = exigirPronto(); if (p) return p;
-      if (!armazem.colecaoValida(corpo.colecao)) return [400, { erro: 'coleção' }];
+      if (!armazem.colecaoValida(corpo.colecao) || armazem.SO_POR_ID.has(corpo.colecao)) return [400, { erro: 'coleção' }];
       return [200, { docs: [...armazem.lerTodos(g, corpo.colecao)], seq: armazem.seqAtual() }];
+    }
+    // Só alguns documentos, por id (fotos). O que não está aqui vem da nuvem.
+    case '/v1/ler-alguns': {
+      const p = exigirPronto(); if (p) return p;
+      const ids = Array.isArray(corpo.ids) ? corpo.ids.filter((id) => typeof id === 'string' && id.length <= 200 && !id.includes('/')) : [];
+      if (!armazem.colecaoValida(corpo.colecao) || !ids.length || ids.length > 20) return [400, { erro: 'pedido' }];
+      return [200, { docs: [...await require('./lanEspelhoService').lerAlgunsComNuvem(g, corpo.colecao, ids)] }];
     }
     case '/v1/gravar': {
       if (!armazem.colecaoValida(corpo.colecao) || !Array.isArray(corpo.itens) || corpo.itens.length > 2000) return [400, { erro: 'pedido' }];
@@ -165,7 +172,7 @@ async function atender(caminho, corpo, caixaId) {
     }
     case '/v1/feed': {
       const p = exigirPronto(); if (p) return p;
-      if (!armazem.colecaoValida(corpo.colecao)) return [400, { erro: 'coleção' }];
+      if (!armazem.colecaoValida(corpo.colecao) || armazem.SO_POR_ID.has(corpo.colecao)) return [400, { erro: 'coleção' }];
       let r = armazem.mudancasDesde(g, corpo.colecao, corpo.desde);
       const espera = Math.min(Math.max(Number(corpo.esperarMs) || 0, 0), ESPERA_MAX_FEED_MS);
       if (!r.docs.length && espera > 0) {

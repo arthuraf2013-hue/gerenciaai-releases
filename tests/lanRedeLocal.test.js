@@ -70,6 +70,15 @@ test('pedidos assinados: lê, grava e escuta o grupo pelo servidor', async () =>
   assert.deepEqual(recebidos.slice(0, 2), ['p1', 'p2'], 'tudo primeiro, depois a mudança (pedido longo)');
 });
 
+test('fotos pelo servidor: grava e lê por id; "ler tudo" e o feed de fotos são recusados', async () => {
+  const foto = { hash: 'c'.repeat(32), tipo: 'image/jpeg', dados: Buffer.from([0xff, 0xd8, 0xff, 1, 2, 3]).toString('base64'), versaoMs: 1 };
+  await cliente.gravarLote('fotos', [{ docId: 'p1', dados: foto }]);
+  const lidas = await cliente.lerAlguns('fotos', ['p1', 'nao-existe']);
+  assert.deepEqual([...lidas.keys()], ['p1']);
+  assert.equal(lidas.get('p1').dados, foto.dados);
+  await assert.rejects(() => cliente.lerTodos('fotos'));
+});
+
 test('estoque: duas vendas da última unidade ao mesmo tempo -- só uma passa', async () => {
   const [a, b] = await Promise.all([
     cliente.verificarEDebitar([{ productId: 'prod-ultima', quantidade: 1, nome: 'Última' }], 'venda-a'),
