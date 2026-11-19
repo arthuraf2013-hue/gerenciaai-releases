@@ -101,6 +101,10 @@ function getCatalogoProdutos(locationId = null) {
  * pra ser útil numa consulta remota.
  */
 async function publicarStatusAoVivo() {
+  // Uma por vez: sem internet/cota a gravação do SDK pode demorar muito, e o
+  // relógio de 25 s empilhava uma nova a cada volta.
+  if (publicandoAgora) return;
+  publicandoAgora = true;
   try {
     const db = getDb();
     // Ninguém pareado (garçom, PDV móvel ou consulta) = ninguém pra ler
@@ -170,22 +174,34 @@ async function publicarStatusAoVivo() {
     // sem mudança a cada 10 min, por segurança.
     const assinatura = JSON.stringify(dados);
     const agora = Date.now();
+    const disjuntor = require('./nuvemDisjuntorService');
     if (assinatura === ultimaPublicacao.assinatura && agora - ultimaPublicacao.completaEm < REPUBLICAR_COMPLETO_MS) {
+      // Só o carimbo "ainda estou aqui": a cada 2 min, não a cada 25 s
+      // (era a escrita que mais gastava a cota do dia). Mudança de verdade
+      // continua saindo em até 25 s (o caminho de baixo).
+      if (agora - ultimaPublicacao.carimboEm < CARIMBO_SEM_MUDANCA_MS) return;
+      if (!disjuntor.podeEscrever('statusAoVivo')) return;
       await updateDoc(ref, { atualizadoEm: serverTimestamp() });
+      ultimaPublicacao.carimboEm = agora;
       return;
     }
+    if (!disjuntor.podeEscrever('statusAoVivo')) return;
     await setDoc(ref, { ...dados, atualizadoEm: serverTimestamp() });
-    ultimaPublicacao = { assinatura, completaEm: agora };
+    ultimaPublicacao = { assinatura, completaEm: agora, carimboEm: agora };
   } catch (err) {
     // Rede fora, Firestore indisponível, ou nenhum dispositivo pareado
     // ainda -- nada disso deveria gerar alarde nenhum, é só best-effort.
     // Esquece a assinatura: a próxima passada publica tudo de novo.
-    ultimaPublicacao = { assinatura: null, completaEm: 0 };
+    ultimaPublicacao = { assinatura: null, completaEm: 0, carimboEm: 0 };
+  } finally {
+    publicandoAgora = false;
   }
 }
 
 const REPUBLICAR_COMPLETO_MS = 10 * 60 * 1000;
-let ultimaPublicacao = { assinatura: null, completaEm: 0 };
+const CARIMBO_SEM_MUDANCA_MS = 2 * 60 * 1000;
+let ultimaPublicacao = { assinatura: null, completaEm: 0, carimboEm: 0 };
+let publicandoAgora = false;
 
 let intervalo = null;
 

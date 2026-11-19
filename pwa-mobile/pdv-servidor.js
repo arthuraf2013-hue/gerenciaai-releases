@@ -1,4 +1,5 @@
 import { auth, db, firestoreFns as F } from './firebase-config.js';
+import { observarPresenca, presencaValida } from './presenca-servidor.js';
 
 /**
  * Comunicação do PDV móvel com o "servidor" da loja -- o GerenciaAI
@@ -20,8 +21,14 @@ function caminhoLoja(installId, ...resto) {
 
 /** Escuta a config publicada pelo desktop (config_mobile/pdv). Devolve
  * a função de parar. `aoMudar({ config, doServidor, erro })`. */
+// Presença do computador no Realtime Database (presenca-servidor.js): vale
+// junto com o sinal antigo (config atualizada há menos de 90 s).
+let presencaAtual = null;
+
 function observarConfig(installId, aoMudar) {
-  return F.onSnapshot(
+  presencaAtual = null;
+  const pararPresenca = observarPresenca(installId, (p) => { presencaAtual = p; });
+  const pararConfig = F.onSnapshot(
     F.doc(db, ...caminhoLoja(installId, 'config_mobile', 'pdv')),
     { includeMetadataChanges: true },
     (snap) => {
@@ -33,15 +40,17 @@ function observarConfig(installId, aoMudar) {
     },
     (erro) => aoMudar({ config: null, doServidor: false, erro })
   );
+  return () => { pararPresenca(); pararConfig(); };
 }
 
 function idadeDoServidorMs(config) {
   const ms = config?.atualizadoEm?.toMillis ? config.atualizadoEm.toMillis() : 0;
-  return ms ? Date.now() - ms : Infinity;
+  const pelaConfig = ms ? Date.now() - ms : Infinity;
+  return presencaValida(presencaAtual) ? Math.min(pelaConfig, Date.now() - presencaAtual.lidoEmMs) : pelaConfig;
 }
 
 function servidorRespondendo(config) {
-  return idadeDoServidorMs(config) < SERVIDOR_SILENCIOSO_MS;
+  return presencaValida(presencaAtual) || idadeDoServidorMs(config) < SERVIDOR_SILENCIOSO_MS;
 }
 
 /** Pedido/resposta (consultas_pdv). Rejeita com Error amigável em

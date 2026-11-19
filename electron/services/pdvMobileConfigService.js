@@ -192,7 +192,30 @@ async function publicarConfig() {
   });
 }
 
+/**
+ * Ciclo de 25 s (pdvMobileSyncService). A config só muda de vez em quando;
+ * o resto era "sinal de vida" para o celular -- o que mais gastava a cota
+ * do Firestore. Com todos os celulares PDV olhando a presença no Realtime
+ * Database (presencaService.celularesUsamPresenca), grava só quando muda
+ * (e uma vez a cada 10 min por segurança). Com algum celular no app antigo,
+ * mantém o sinal de vida a cada passada, como antes.
+ */
+let ultimaConfigPublicada = { assinatura: null, em: 0 };
+const REPUBLICAR_CONFIG_MS = 10 * 60 * 1000;
+async function publicarConfigSeNecessario() {
+  const assinatura = JSON.stringify(montarDocumentoPublico());
+  let legado = true;
+  try { legado = !require('./presencaService').celularesUsamPresenca(['pdv']); } catch { /* sem presença: legado */ }
+  const mudou = assinatura !== ultimaConfigPublicada.assinatura;
+  if (!legado && !mudou && Date.now() - ultimaConfigPublicada.em < REPUBLICAR_CONFIG_MS) return { publicado: false };
+  if (!require('./nuvemDisjuntorService').podeEscrever('configCelular')) return { publicado: false, semCota: true };
+  await publicarConfig();
+  ultimaConfigPublicada = { assinatura, em: Date.now() };
+  return { publicado: true };
+}
+
 module.exports = {
+  publicarConfigSeNecessario,
   METODOS_PAGAMENTO_VALIDOS, METRICAS_LOJA_VALIDAS, GESTAO_PRODUTOS_VALIDAS, getConfig, saveConfig, montarDocumentoPublico, publicarConfig,
   dispositivosComMetricas, dispositivosComGestao,
 };

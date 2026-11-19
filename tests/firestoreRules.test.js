@@ -1346,3 +1346,16 @@ test('painel de senhas: lê pelo token; ninguém lista; só número, nome e mode
   await assertFails(ref.set({ ativo: true, nomeLoja: 'x', modelo: {}, preparando: [], prontos: [], telefone: '81999990000' }));
   await assertFails(db.doc('paineis_chamada/curto').get());
 });
+
+test('celular pareado avisa o que sabe fazer (recursos) no próprio dispositivo; campo estranho, não', { skip: !RODAR && SKIP_MSG }, async () => {
+  await setupTestEnv();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().doc('installations/install-REC/dispositivos/uid-garcom-rec').set({ tipo: 'garcom', ativo: true, vinculoUserId: 'user-garcom-1' });
+  });
+  const celular = testEnv.authenticatedContext('uid-garcom-rec').firestore();
+  await assertSucceeds(celular.doc('installations/install-REC/dispositivos/uid-garcom-rec').set({ ultimoAcesso: new Date(), recursos: { presenca: 1 } }, { merge: true }));
+  await assertFails(celular.doc('installations/install-REC/dispositivos/uid-garcom-rec').set({ recursos: 'presenca' }, { merge: true }));
+  await assertFails(celular.doc('installations/install-REC/dispositivos/uid-garcom-rec').set({ ativo: true, tipo: 'consulta' }, { merge: true }));
+  const outro = testEnv.authenticatedContext('uid-de-outro').firestore();
+  await assertFails(outro.doc('installations/install-REC/dispositivos/uid-garcom-rec').set({ recursos: { presenca: 1 } }, { merge: true }));
+});

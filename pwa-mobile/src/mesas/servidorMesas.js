@@ -1,4 +1,5 @@
 import { auth, db, firestoreFns as F } from '../../firebase-config.js';
+import { observarPresenca } from '../../presenca-servidor.js';
 
 /**
  * Conversa do painel de mesas com o computador da loja, pelo Firestore
@@ -31,7 +32,15 @@ function traduzirErro(err) {
 export function observarMesas(installId, aoMudar) {
   let ultimoVivo = 0;
   let ultimaNovidadeMs = 0;
-  return F.onSnapshot(
+  let ultimo = null;
+  // Computador "no ar" pela presença (Realtime Database) conta como novidade:
+  // o computador novo não republica as mesas a cada 30 s só para dar sinal.
+  const pararPresenca = observarPresenca(installId, (p) => {
+    if (!p.on) return;
+    ultimaNovidadeMs = p.lidoEmMs;
+    if (ultimo && !ultimo.erro) aoMudar({ ...ultimo, ultimaNovidadeMs });
+  });
+  const pararMesas = F.onSnapshot(
     F.doc(db, ...caminho(installId, 'mesas_ao_vivo', 'atual')),
     { includeMetadataChanges: true },
     (snap) => {
@@ -41,10 +50,12 @@ export function observarMesas(installId, aoMudar) {
         if (ultimoVivo) ultimaNovidadeMs = Date.now();
         ultimoVivo = dados.vivoEmMs;
       }
-      aoMudar({ dados, existe: snap.exists(), doServidor, ultimaNovidadeMs });
+      ultimo = { dados, existe: snap.exists(), doServidor, ultimaNovidadeMs };
+      aoMudar(ultimo);
     },
     (erro) => aoMudar({ dados: null, existe: false, doServidor: false, ultimaNovidadeMs, erro: traduzirErro(erro) })
   );
+  return () => { pararPresenca(); pararMesas(); };
 }
 
 /** Comanda de uma mesa (principal). `aoMudar({ comanda, existe, erro })`. */

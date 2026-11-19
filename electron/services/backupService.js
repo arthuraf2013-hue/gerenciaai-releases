@@ -90,10 +90,10 @@ function updateConfig({ pastaSecundaria } = {}) {
 async function reportarConfigBackupParaCentral({ pastaSecundaria }) {
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
-  const { getFirestore, doc, setDoc } = require('firebase/firestore');
+  const { doc, setDoc } = require('firebase/firestore');
 
   const installId = pdvRegistryService.getOrCreateDeviceUid();
-  const firestore = getFirestore(licenseService.getLicenseApp());
+  const firestore = licenseService.getLicenseFirestore();
 
   await setDoc(
     doc(firestore, 'installations', installId),
@@ -127,8 +127,8 @@ async function reportarConfigBackupParaCentral({ pastaSecundaria }) {
  */
 async function buscarChavePublicaContasGoogle() {
   const licenseService = require('./licenseService');
-  const { getFirestore, doc, getDoc } = require('firebase/firestore');
-  const firestore = getFirestore(licenseService.getLicenseApp());
+  const { doc, getDoc } = require('firebase/firestore');
+  const firestore = licenseService.getLicenseFirestore();
   const snap = await getDoc(doc(firestore, 'config_publica', 'chave_contas_google'));
   if (!snap.exists() || !snap.data()?.chavePublicaSpki) {
     throw new Error('A Central ainda não gerou a chave de proteção de contas Google (isso é feito uma vez só, na aba Cofre de senhas).');
@@ -171,14 +171,14 @@ async function salvarContaGoogle({ email, senha }) {
 
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
-  const { getFirestore, doc, setDoc, serverTimestamp } = require('firebase/firestore');
+  const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
 
   try {
     const chavePublica = await buscarChavePublicaContasGoogle();
     const senhaCifradaRsa = await cifrarComChavePublica(chavePublica, senhaLimpa);
 
     const installId = pdvRegistryService.getOrCreateDeviceUid();
-    const firestore = getFirestore(licenseService.getLicenseApp());
+    const firestore = licenseService.getLicenseFirestore();
     await setDoc(
       doc(firestore, 'contas_google', installId),
       { email: emailLimpo, senhaCifradaRsa, atualizadoEm: serverTimestamp() }
@@ -365,17 +365,18 @@ async function uploadBackupParaNuvem(caminhoLocal, nomeArquivo) {
   const licenseService = require('./licenseService');
   const pdvRegistryService = require('./pdvRegistryService');
   const { getStorage, ref, uploadBytes } = require('firebase/storage');
-  const { getFirestore, doc, setDoc, serverTimestamp, collection, query, orderBy, getDocs, deleteDoc } = require('firebase/firestore');
+  const { doc, setDoc, serverTimestamp, collection, query, orderBy, getDocs, deleteDoc } = require('firebase/firestore');
 
   const installId = pdvRegistryService.getOrCreateDeviceUid();
   const storage = getStorage(licenseService.getLicenseApp());
-  const firestore = getFirestore(licenseService.getLicenseApp());
+  const firestore = licenseService.getLicenseFirestore();
 
   const bytes = fs.readFileSync(caminhoLocal);
   const caminhoStorage = `backups/${installId}/${nomeArquivo}`;
   const storageRef = ref(storage, caminhoStorage);
 
   try {
+    if (licenseService.firebaseRealDesligado()) throw new Error('Nuvem desligada durante os testes.');
     await uploadBytes(storageRef, bytes);
     await setDoc(
       doc(firestore, 'installations', installId, 'backups', nomeArquivo),
@@ -434,9 +435,10 @@ async function restaurarSolicitadoSeHouver(dadosInstalacao) {
 
   try {
     const { getStorage, ref, getBytes } = require('firebase/storage');
-    const { getFirestore, doc, setDoc, serverTimestamp } = require('firebase/firestore');
+    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+    if (licenseService.firebaseRealDesligado()) throw new Error('Nuvem desligada durante os testes.');
     const storage = getStorage(licenseService.getLicenseApp());
-    const firestore = getFirestore(licenseService.getLicenseApp());
+    const firestore = licenseService.getLicenseFirestore();
 
     const bytes = await getBytes(ref(storage, pedido.caminhoStorage));
     const destino = path.join(backupsDir(), `nuvem-${path.basename(pedido.nomeArquivo)}`);
@@ -464,8 +466,8 @@ async function restaurarSolicitadoSeHouver(dadosInstalacao) {
   } catch (err) {
     console.error('[backupService] falha ao restaurar backup solicitado remotamente', err);
     try {
-      const { getFirestore, doc, setDoc, serverTimestamp } = require('firebase/firestore');
-      const firestore = getFirestore(licenseService.getLicenseApp());
+      const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+      const firestore = licenseService.getLicenseFirestore();
       await setDoc(
         doc(firestore, 'installations', installId),
         { restauracaoStatus: 'falhou', restauracaoErro: err.message, restauracaoConcluidaEm: serverTimestamp() },

@@ -21,6 +21,7 @@ function truncar(texto, tamanho) {
 
 async function reportarErro({ mensagem, stack, contexto }) {
   if (contadorNaSessao >= LIMITE_POR_SESSAO) return; // já reportou demais nessa sessão, não insiste
+  if (!require('./nuvemDisjuntorService').podeEscrever('erros')) return; // sem cota: ficaria preso na fila
 
   try {
     contadorNaSessao++;

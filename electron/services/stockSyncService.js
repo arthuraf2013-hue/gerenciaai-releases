@@ -94,6 +94,8 @@ const { randomUUID } = require('crypto');
 /** Backend remoto trocável nos testes (sem Firestore de verdade). */
 let backend = {
   async aplicarMovimento({ grupoId, productId, movimentoId, delta, motivo }) {
+    const lan = require('./grupoTransporteService').backend('estoque');
+    if (lan) return lan.aplicarMovimento({ grupoId, productId, movimentoId, delta, motivo });
     const licenseService = require('./licenseService');
     const firestore = licenseService.getLicenseFirestore();
     const { doc, runTransaction, serverTimestamp } = require('firebase/firestore');
@@ -108,6 +110,8 @@ let backend = {
     });
   },
   async lerContadoresExistentes(grupoId) {
+    const lan = require('./grupoTransporteService').backend('estoque');
+    if (lan?.lerContadoresExistentes) return lan.lerContadoresExistentes(grupoId);
     const licenseService = require('./licenseService');
     const firestore = licenseService.getLicenseFirestore();
     const { collection, getDocs } = require('firebase/firestore');
@@ -117,6 +121,8 @@ let backend = {
   // Lotes de 400: o Firestore recusa mais de 500 escritas por lote (o
   // código antigo mandava o catálogo inteiro num lote só).
   async gravarContadores(grupoId, linhas, { somar }) {
+    const lan = require('./grupoTransporteService').backend('estoque');
+    if (lan?.gravarContadores) return lan.gravarContadores(grupoId, linhas, { somar });
     const licenseService = require('./licenseService');
     const firestore = licenseService.getLicenseFirestore();
     const { doc, writeBatch, serverTimestamp, increment } = require('firebase/firestore');
@@ -183,6 +189,8 @@ let enviando = null;
 /** Manda a fila local pro Firestore, em ordem. Nunca lança. */
 async function enviarVariacoesPendentes() {
   if (enviando) return enviando;
+  // Sem cota de escrita hoje: as variações ficam na fila (estoque_grupo_pendente).
+  if (!require('./grupoTransporteService').backend('estoque') && !require('./nuvemDisjuntorService').podeEscrever()) return { enviados: 0, semCota: true };
   enviando = (async () => {
     const { getDb } = require('../db/database');
     const db = getDb();
@@ -190,6 +198,7 @@ async function enviarVariacoesPendentes() {
     let enviados = 0;
     for (const p of pendentes) {
       try {
+        require('./nuvemDisjuntorService').contar('estoqueGrupo', 2);
         await backend.aplicarMovimento({ grupoId: p.grupo_id, productId: idNoGrupo(p.product_id), movimentoId: p.id, delta: p.delta, motivo: p.motivo });
         db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?').run(p.id);
         enviados += 1;
@@ -222,7 +231,7 @@ function contarVariacoesPendentes() {
  * @param {{ productId: string, quantidade: number, nome: string }[]} itens
  * @returns {{ ok: true } | { ok: false, error: string }}
  */
-async function verificarEDebitarEstoqueRemoto(itens) {
+async function verificarEDebitarEstoqueRemoto(itens, { operacaoId = null } = {}) {
   const grupoId = syncStateService.getGrupoSincronizacaoId();
   if (!grupoId) return { ok: true }; // sem grupo, sem checagem remota — comportamento de sempre
 
@@ -236,6 +245,26 @@ async function verificarEDebitarEstoqueRemoto(itens) {
   }
   if (porProduto.size === 0) return { ok: true };
   if (backend.verificarEDebitar) return backend.verificarEDebitar({ grupoId, porProduto });
+
+  // Rede local: o servidor confere e debita (transação no banco dele). Se ele
+  // não responder, segue pela nuvem -- o espelho do servidor soma esse débito
+  // quando ele voltar (lanArmazemService.contadorDaNuvem).
+  const lan = require('./grupoTransporteService').backend('estoque');
+  if (lan) {
+    try {
+      const lista = [...porProduto].map(([productId, p]) => ({ productId: idNoGrupo(productId), quantidade: p.quantidade, nome: p.nome || null }));
+      const r = await lan.verificarEDebitar({ grupoId, itens: lista, operacaoId });
+      if (r?.ok) return { ok: true, debitado: true };
+      if (r?.motivo === 'estoque_insuficiente') {
+        return { ok: false, motivo: 'estoque_insuficiente', error: 'Estoque insuficiente no grupo: ' + (r.faltando || []).join('; ') };
+      }
+    } catch (err) {
+      if (!err?.rede) {
+        console.error('[stockSyncService] servidor da rede local recusou a checagem de estoque:', err?.message || err);
+        return { ok: false, motivo: 'rede', error: 'O servidor do grupo não conseguiu conferir o estoque agora. Tente novamente em instantes.' };
+      }
+    }
+  }
 
   try {
     const licenseService = require('./licenseService');

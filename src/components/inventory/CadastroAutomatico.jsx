@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { CampoCategoria } from '../common/CampoCategoria';
 import { brl, brlCusto, qtd } from './erpUtils';
 
 /** Cadastro automático: produtos novos da nota, NCM pela IA e motor x cadastro. */
@@ -57,7 +58,7 @@ export function ProdutosDaNotaModal({ entradaId, onClose, onFeito }) {
         <div className="form-grid">
           <label>Margem sobre o custo (%)<input type="number" min="0" max="1000" step="0.1" value={margem} onChange={(e) => setMargem(e.target.value)} required placeholder="ex.: 40" /></label>
           <label>Preço final<select value={arred} onChange={(e) => setArred(e.target.value)}>{Object.entries(ARREDONDAMENTO).map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select></label>
-          <label>Categoria (vazio = automática pelo NCM)<input value={categoria} onChange={(e) => setCategoria(e.target.value)} maxLength={60} /></label>
+          <CampoCategoria rotulo="Categoria (vazio = automática pelo NCM)" placeholder="Automática pelo NCM" value={categoria} onChange={setCategoria} />
         </div>
         {erro && <p className="modal-error">{erro}</p>}
         {!previa ? <p className="empty-state">Montando a prévia...</p> : previa.itens.length === 0 ? <p className="empty-state">Todos os itens já têm produto.</p> : (

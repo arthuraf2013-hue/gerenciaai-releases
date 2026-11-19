@@ -367,8 +367,13 @@ function iniciarEscutaPareamentos() {
       collection(firestore, 'installations', installId, 'dispositivos'),
       (snap) => {
         snap.docChanges().forEach((change) => {
-          if (change.type === 'removed') return;
+          if (change.type === 'removed') { recursosPorDispositivo.delete(change.doc.id); return; }
           const dados = change.doc.data();
+          // O que o app do celular já sabe fazer (ex.: { presenca: 1 } = olha a
+          // presença no Realtime Database e não precisa mais do batimento a
+          // cada 25-30 s no Firestore -- ver presencaService).
+          if (dados.recursos && typeof dados.recursos === 'object') recursosPorDispositivo.set(change.doc.id, { ...dados.recursos });
+          else recursosPorDispositivo.delete(change.doc.id);
           espelharDispositivoPareado({
             uid: change.doc.id,
             tipo: dados.tipo,
@@ -385,7 +390,11 @@ function iniciarEscutaPareamentos() {
   }
 }
 
+const recursosPorDispositivo = new Map();
+function recursosDosDispositivos() { return recursosPorDispositivo; }
+
 module.exports = {
+  recursosDosDispositivos,
   gerarCodigo, listarCodigosPendentes, listarDispositivosPareados, revogarDispositivo,
   reativarDispositivo, excluirDispositivo,
   iniciarEscutaPareamentos,

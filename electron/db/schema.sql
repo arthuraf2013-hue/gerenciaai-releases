@@ -673,6 +673,16 @@ CREATE TABLE IF NOT EXISTS receipt_config (
   impressora_padrao   TEXT -- nome exato da impressora (Windows) escolhida como padrão; NULL = sempre perguntar
 );
 
+-- Estúdio de impressão: aparência da nota (recibo) e da pré-nota
+-- (conferência da conta antes de pagar). JSON validado por
+-- impressaoLayout.normalizarConfig; sem linha = padrão. O rodapé da nota
+-- continua em receipt_config.rodape_texto (WhatsApp usa o mesmo).
+CREATE TABLE IF NOT EXISTS impressao_estudio (
+  tipo          TEXT PRIMARY KEY CHECK (tipo IN ('nota', 'prenota')),
+  config_json   TEXT NOT NULL,
+  atualizado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
 -- Cardápio digital personalizável (restaurante/padaria) — aparência
 -- customizável de um cardápio que pode ser exportado como página HTML
 -- própria (pra exibir num tablet/TV, ou mandar o link/arquivo pro

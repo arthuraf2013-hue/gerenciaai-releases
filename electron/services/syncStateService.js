@@ -19,6 +19,15 @@ function aplicarGrupoDaInstalacao(dadosInstalacao) {
   db.prepare('UPDATE sync_state SET grupo_sincronizacao_id = ?, servidor_do_grupo = ? WHERE id = ?')
     .run(novoGrupoId, novoServidor, 'default');
 
+  if (novoGrupoId !== grupoAntes || novoServidor !== servidorAntes) {
+    // Rede local (servidor atende os caixas / caixa fala com o servidor) e o
+    // que a Central vê na presença.
+    setImmediate(() => {
+      try { require('./grupoTransporteService').reavaliar(); } catch (err) { console.error('[syncStateService]', err?.message || err); }
+      try { require('./presencaService').atualizarDados(); } catch { /* sem presença */ }
+    });
+  }
+
   if (novoGrupoId !== grupoAntes) {
     // Mudou de grupo de verdade (entrou, saiu, ou trocou) — religa a
     // réplica (produtos, clientes e fiado iguais em todos os caixas: lê o

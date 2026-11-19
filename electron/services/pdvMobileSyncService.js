@@ -547,7 +547,9 @@ function iniciarPdvMobile() {
 
   // Config + "sinal de vida" pro celular -- só gasta escrita no
   // Firestore se existe PDV móvel pareado de fato.
-  const publicar = () => { if (temPdvMovelPareado()) pdvMobileConfigService.publicarConfig().catch(() => {}); };
+  const publicar = () => {
+    if (temPdvMovelPareado()) pdvMobileConfigService.publicarConfigSeNecessario().catch(() => {});
+  };
   if (intervaloConfig) clearInterval(intervaloConfig);
   intervaloConfig = setInterval(publicar, 25 * 1000);
   publicar();

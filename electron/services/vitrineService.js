@@ -376,6 +376,7 @@ async function publicarSeMudou() {
       };
       const hash = crypto.createHash('sha256').update(JSON.stringify({ publico, itens })).digest('hex');
       if (hash === getRow().ultimo_hash) return { publicado: false, motivo: 'sem_mudanca' };
+      if (!require('./nuvemDisjuntorService').podeEscrever('vitrine', 2)) return { publicado: false, motivo: 'sem_cota' };
 
       const { doc, writeBatch, serverTimestamp } = require('firebase/firestore');
       const firestore = require('./licenseService').getLicenseFirestore();

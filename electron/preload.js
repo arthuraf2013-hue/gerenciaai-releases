@@ -399,6 +399,19 @@ contextBridge.exposeInMainWorld('pdv', {
     pushTodoOHistorico: invoke('salesSync:pushTodoOHistorico'),
     recontarEstoqueDoGrupo: invoke('stockSync:recontarGrupo'),
   },
+  estudio: {
+    get: invoke('estudio:get'),
+    previa: invoke('estudio:previa'),
+    salvar: invoke('estudio:salvar'),
+  },
+  redeLocal: {
+    status: invoke('lan:status'),
+    gerarCodigo: invoke('lan:gerarCodigo'),
+    cancelarCodigo: invoke('lan:cancelarCodigo'),
+    removerCaixa: invoke('lan:removerCaixa'),
+    parear: invoke('lan:parear'),
+    desligar: invoke('lan:desligar'),
+  },
   customers: {
     list: invoke('customer:list'),
     upsert: invoke('customer:upsert'),
@@ -539,6 +552,7 @@ contextBridge.exposeInMainWorld('pdv', {
     listPrinters: invoke('print:listPrinters'),
     testPage: invoke('print:testPage'),
     getReceiptConfig: invoke('print:getReceiptConfig'),
+    preNota: invoke('print:preNota'),
     updateReceiptConfig: invoke('print:updateReceiptConfig'),
   },
   dashboard: {

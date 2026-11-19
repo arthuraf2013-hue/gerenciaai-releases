@@ -431,7 +431,7 @@ function nuvem() {
   const app = licenseService.getLicenseApp();
   const fs = require('firebase/firestore');
   const st = require('firebase/storage');
-  return { app, fs, st, db: fs.getFirestore(app), storage: st.getStorage(app) };
+  return { app, fs, st, db: licenseService.getLicenseFirestore(), storage: st.getStorage(app) };
 }
 
 function msDe(ts) {

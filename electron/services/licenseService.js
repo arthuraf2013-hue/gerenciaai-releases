@@ -34,9 +34,34 @@ function getLicenseApp() {
   }
   return licenseApp;
 }
+/**
+ * Testes nunca falam com o Firebase de produção. Antes, alguns testes
+ * gravavam de verdade em gerenciaai-licencas: gastavam a cota do dia e,
+ * com a cota esgotada, a escrita ficava presa e o `npm test` (e o build
+ * de release no GitHub, que roda os testes) não terminava nunca.
+ * `node --test` marca NODE_TEST_CONTEXT em cada arquivo de teste;
+ * GERENCIAAI_FIREBASE_REAL=1 libera de propósito.
+ */
+function firebaseRealDesligado() {
+  return !!process.env.NODE_TEST_CONTEXT && process.env.GERENCIAAI_FIREBASE_REAL !== '1';
+}
+
+let firestoreDesligado = null;
 function getLicenseFirestore() {
-  const { getFirestore } = require('firebase/firestore');
-  return getFirestore(getLicenseApp());
+  const firestoreMod = require('firebase/firestore');
+  // Firestore de verdade num teste: devolve uma instância já encerrada
+  // (terminate), que recusa na hora qualquer leitura/escrita, como se
+  // estivesse sem internet. Testes com Firestore falso (require.cache)
+  // não têm terminate e seguem como antes.
+  if (firebaseRealDesligado() && typeof firestoreMod.terminate === 'function') {
+    if (!firestoreDesligado) {
+      firestoreDesligado = firestoreMod.getFirestore(getLicenseApp());
+      firestoreMod.terminate(firestoreDesligado).catch(() => {});
+    }
+    return firestoreDesligado;
+  }
+  require('./nuvemDisjuntorService').instalarDeteccaoNoSdk();
+  return firestoreMod.getFirestore(getLicenseApp());
 }
 
 function getLocalState() {
@@ -201,7 +226,14 @@ async function checkLicense() {
     const snap = await getDoc(ref);
 
     const maquinaHash = await require('./testeGratisService').maquinaHash();
-    if (snap.exists()) {
+    const disjuntor = require('./nuvemDisjuntorService');
+    if (snap.exists() && !disjuntor.podeEscrever('licenca')) {
+      // Sem cota de escrita hoje: a leitura acima já trouxe bloqueio/
+      // liberação da Central; o contato (ultimoContato, métricas) fica
+      // para depois em vez de entrar na fila presa do SDK.
+      aplicarDadosDoServidor(snap.data());
+      if (getLocalState().teste_fim) await atualizarContatoComercial(firestore);
+    } else if (snap.exists()) {
       const metricas = require('./metricsService').getMetricasAgregadas();
       await setDoc(ref, {
         ...(maquinaHash ? { maquinaHash } : {}),
@@ -314,7 +346,10 @@ function iniciarEscutaTempoReal() {
     pararEscuta = onSnapshot(
       ref,
       (snap) => {
-        if (snap.exists()) aplicarDadosDoServidor(snap.data());
+        if (!snap.exists()) return;
+        aplicarDadosDoServidor(snap.data());
+        // Botão "Forçar atualização dos dados" da Central (sincronizacaoForcadaService).
+        require('./sincronizacaoForcadaService').aoMudarInstalacao(snap.data());
       },
       (err) => {
         // Erro de conexão/permissão — não derruba nada, só loga. A
@@ -346,12 +381,32 @@ function iniciarEscutaTempoReal() {
  */
 let ultimaSaudeEnviada = null;
 let ultimoReparoEnviado = null;
+let pingPeloSdkPendente = false; // no máximo UM ping esperando na fila do SDK
+let restComDefeito = false;      // REST recusou o formato: usa só o SDK até reabrir
+let fetchDeTeste = null;
+let pingNoFirestoreEm = 0;
+// Com a presença no Realtime Database ligada (presencaService), a Central
+// sabe na hora se a máquina está no ar: o ping no Firestore vira um
+// "último contato" a cada 15 min (e quando saúde/reparo mudam).
+const PING_FIRESTORE_COM_PRESENCA_MS = 15 * 60 * 1000;
+
+/**
+ * Ping de presença por dois caminhos (redundância):
+ *   1. REST direto (firestoreRestService): responde na hora, nunca fica
+ *      preso nem acumula, e diz claramente "sem cota" (429) ou "sem rede";
+ *   2. SDK (setDoc) como reserva, se a REST não chegar ao servidor --
+ *      com prazo, e nunca mais de um ping parado na fila do SDK.
+ * Sem cota de escrita (nuvemDisjuntorService), não gasta nada: só uma
+ * sonda a cada 10 min para ver se a cota voltou antes da hora.
+ */
 async function enviarPing() {
+  const disjuntor = require('./nuvemDisjuntorService');
+  const conectividade = require('./connectivityService');
   try {
-    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
-    const firestore = getLicenseFirestore();
+    if (!disjuntor.podeEscrever() && !disjuntor.deveSondar()) return;
+    const rest = require('./firestoreRestService');
+    const AGORA = rest.AGORA_NO_SERVIDOR;
     const installId = pdvRegistryService.getOrCreateDeviceUid();
-    const ref = doc(firestore, 'installations', installId);
     // Pendências (saudeService) vão junto só quando MUDAM -- a Central vê
     // em até 2 min sem custar uma escrita maior a cada ping.
     const extra = {};
@@ -359,7 +414,7 @@ async function enviarPing() {
     try {
       const saude = require('./saudeService').resumoParaCentral();
       assinatura = JSON.stringify(saude);
-      if (assinatura !== ultimaSaudeEnviada) extra.saude = { ...saude, atualizadoEm: serverTimestamp() };
+      if (assinatura !== ultimaSaudeEnviada) extra.saude = { ...saude, atualizadoEm: AGORA };
     } catch { /* banco ainda abrindo */ }
     // Prontidão do reparo automático (Windows): mesmo esquema, só quando muda.
     let assinaturaReparo = null;
@@ -367,23 +422,87 @@ async function enviarPing() {
       const reparo = require('./reparoInstalacaoService').resumoParaCentral();
       if (reparo) {
         assinaturaReparo = JSON.stringify(reparo);
-        if (assinaturaReparo !== ultimoReparoEnviado) extra.reparo = { ...reparo, atualizadoEm: serverTimestamp() };
+        if (assinaturaReparo !== ultimoReparoEnviado) extra.reparo = { ...reparo, atualizadoEm: AGORA };
       }
     } catch { /* reparo é extra, nunca atrapalha o ping */ }
-    await setDoc(ref, { ultimoPing: serverTimestamp(), ...extra }, { merge: true });
-    if (extra.saude) ultimaSaudeEnviada = assinatura; // só depois de gravar de verdade
-    if (extra.reparo) ultimoReparoEnviado = assinaturaReparo;
-    // Esse ping já é a chamada de rede mais frequente e mais leve que a
-    // instalação faz o tempo todo — aproveita pra alimentar o sinal
-    // genérico de "estamos online?" usado pelo indicador do PDV (ver
-    // connectivityService.js), em vez de criar outra checagem só pra isso.
-    require('./connectivityService').marcarOnline();
+    let comPresenca = false;
+    try { comPresenca = require('./presencaService').estaConectado(); } catch { /* sem presença */ }
+    if (comPresenca && !extra.saude && !extra.reparo && Date.now() - pingNoFirestoreEm < PING_FIRESTORE_COM_PRESENCA_MS) {
+      conectividade.marcarOnline();
+      return;
+    }
+    const st = disjuntor.status();
+    const dados = {
+      ultimoPing: AGORA,
+      ...extra,
+      // Quem gastou a cota hoje (lista: substitui a do dia anterior inteira).
+      nuvem: {
+        escritasHoje: Object.entries(st.escritasHoje).map(([origem, n]) => ({ origem, n })),
+        ultimaFaltaDeCotaEm: st.ultimaFaltaDeCotaEm,
+      },
+    };
+    const gravou = () => {
+      if (extra.saude) ultimaSaudeEnviada = assinatura; // só depois de gravar de verdade
+      if (extra.reparo) ultimoReparoEnviado = assinaturaReparo;
+      disjuntor.registrarEscritaOk();
+      disjuntor.contar('ping', 1);
+      pingNoFirestoreEm = Date.now();
+      // Esse ping já é a chamada de rede mais frequente e mais leve que a
+      // instalação faz o tempo todo — aproveita pra alimentar o sinal
+      // genérico de "estamos online?" usado pelo indicador do PDV (ver
+      // connectivityService.js), em vez de criar outra checagem só pra isso.
+      conectividade.marcarOnline();
+    };
+
+    // 1) REST
+    const fetchRest = fetchDeTeste || (firebaseRealDesligado() ? null : undefined);
+    if (!restComDefeito && fetchRest !== null) {
+      const r = await rest.mesclar({
+        projeto: LICENSE_FIREBASE_CONFIG.projectId, apiKey: LICENSE_FIREBASE_CONFIG.apiKey,
+        caminho: `installations/${installId}`, dados, exigirExistente: true, fetch: fetchRest || null,
+      });
+      if (r.ok) { gravou(); return; }
+      if (r.motivo === 'sem-cota') {
+        disjuntor.registrarFaltaDeCota({ tipo: 'escrita' });
+        conectividade.marcarOnline(); // a internet está boa; quem parou foi a nuvem
+        return;
+      }
+      if (r.motivo === 'sem-documento' || r.motivo === 'sem-permissao') {
+        // O servidor respondeu: o documento ainda não existe (checkLicense
+        // cria) -- o ping não cria documento pela metade.
+        conectividade.marcarOnline();
+        return;
+      }
+      if (r.motivo === 'pedido-invalido') {
+        restComDefeito = true;
+        require('./errorReportService').reportarErro({ mensagem: `ping REST recusado: ${r.mensagem}`, contexto: 'ping_rest' });
+      }
+      // sem-rede / servidor / pedido-invalido: tenta pelo SDK.
+    }
+
+    // 2) SDK (reserva)
+    if (pingPeloSdkPendente) { conectividade.marcarOffline(); return; }
+    const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
+    const paraSdk = (v) => {
+      if (v === AGORA) return serverTimestamp();
+      if (Array.isArray(v)) return v.map(paraSdk);
+      if (v && typeof v === 'object' && !(v instanceof Date)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, paraSdk(x)]));
+      return v;
+    };
+    const ref = doc(getLicenseFirestore(), 'installations', installId);
+    const escrita = Promise.resolve().then(() => setDoc(ref, paraSdk(dados), { merge: true }));
+    pingPeloSdkPendente = true;
+    escrita.then(() => { pingPeloSdkPendente = false; }, () => { pingPeloSdkPendente = false; });
+    await disjuntor.comPrazo(escrita, 20000, 'ping');
+    gravou();
   } catch (err) {
     // Sem internet, ou o app acabou de abrir e ainda nem criou o
     // documento — não tem problema, o próximo ping tenta de novo.
-    require('./connectivityService').marcarOffline();
+    if (!disjuntor.status().escritaPausada) conectividade.marcarOffline();
   }
 }
+
+function _definirFetchDoPingParaTeste(fn) { fetchDeTeste = fn; restComDefeito = false; pingPeloSdkPendente = false; }
 
 function iniciarPingDePresenca() {
   enviarPing();
@@ -448,6 +567,7 @@ function computeAccessStatus() {
 module.exports = {
   nomeDoComputador,
   checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, enviarPing, getLicenseFirestore, getLicenseApp,
+  firebaseRealDesligado, _definirFetchDoPingParaTeste,
   aplicarDadosDoServidor, // exportada pra teste (não toca rede)
   GRACE_CONGELADA_DIAS, GRACE_SEM_INTERNET_DIAS, INTERVALO_CHECAGEM_MS, INTERVALO_PING_MS,
 };

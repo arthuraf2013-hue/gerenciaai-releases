@@ -15,6 +15,8 @@ import { MaquininhaConfig } from './MaquininhaConfig';
 import { CozinhaConfig } from './CozinhaConfig';
 import { SenhasConfig } from './SenhasConfig';
 import { VerticeConfig } from './VerticeConfig';
+import { RedeLocalConfig } from './RedeLocalConfig';
+import { EstudioImpressao } from './EstudioImpressao';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
 
@@ -93,6 +95,7 @@ export function SettingsScreen() {
   const [pixSaved, setPixSaved] = useState(false);
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
+  const [estudioAberto, setEstudioAberto] = useState(false);
   const [servidorDoGrupo, setServidorDoGrupo] = useState(false);
   const [recontagem, setRecontagem] = useState({ rodando: false, msg: '', erro: false });
 
@@ -1380,6 +1383,7 @@ export function SettingsScreen() {
             {recontagem.msg && <p className={recontagem.erro ? 'modal-error' : 'io-message'}>{recontagem.msg}</p>}
           </div>
         )}
+        {sincronizacaoAtiva && <RedeLocalConfig podeMexer={['admin', 'suporte'].includes(currentUser.role)} />}
       </section>
 
       <section className="settings-section">
@@ -1422,6 +1426,27 @@ export function SettingsScreen() {
 
       {aba === 'impressora' && (
       <>
+      <section className="settings-section">
+        <h2><Icon name="palette" size={16} /> Estúdio de impressão</h2>
+        <p className="screen-hint">
+          Aparência da nota (recibo) e da pré-nota (conta para o cliente conferir antes de pagar): logo, cabeçalho,
+          letra, o que aparece e rodapé, com prévia na hora.
+        </p>
+        <button type="button" className="btn-primary" onClick={() => setEstudioAberto(true)}>
+          <Icon name="printer" size={15} /> Abrir o estúdio
+        </button>
+      </section>
+      {estudioAberto && (
+        <EstudioImpressao onFechar={() => {
+          setEstudioAberto(false);
+          // O estúdio pode ter mudado o papel e o rodapé da nota.
+          window.pdv.print.getReceiptConfig().then((c) => {
+            setReceiptLargura(c.largura_mm);
+            setReceiptRodape(c.rodape_texto || '');
+          });
+        }} />
+      )}
+
       <section className="settings-section">
         <h2><Icon name="document" size={16} /> Formato do recibo</h2>
         <p className="screen-hint">

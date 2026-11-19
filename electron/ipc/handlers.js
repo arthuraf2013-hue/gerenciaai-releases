@@ -161,6 +161,7 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'profile:setActive', 'profile:create', 'profile:update', 'profile:duplicate', 'profile:delete',
   'settings:updateLocationName', 'payment:updateConfig', 'loyalty:updateConfig', 'whatsappAutomation:updateConfig',
   'weightBarcode:updateConfig', 'scaleHardware:updateConfig', 'print:updateReceiptConfig', 'posDisplay:updateConfig',
+  'estudio:salvar',
   'fiscal:selectCertificado',
   'supply:pickAndExtract', 'supply:confirmEntries', 'supply:saveDraft', 'supply:clearDraft',
   'supplier:suggestPurchases', 'report:exportPurchaseSuggestions', 'report:exportWaste',
@@ -868,6 +869,29 @@ function registerIpcHandlers() {
   safeHandle('stockSync:recontarGrupo', (event) => guardRole(event, ['admin', 'suporte'])
     || require('../services/stockSyncService').recontarEstoqueDoGrupo());
 
+  // --- Rede local (caixas do grupo falando direto com o servidor) ---
+  // Ligar/desligar caixa mexe na segurança da loja: só administrador.
+  safeHandle('lan:status', () => require('../services/grupoTransporteService').status());
+  safeHandle('lan:gerarCodigo', async (event) => {
+    const g = guardRole(event, ['admin', 'suporte']); if (g) return g;
+    const transporte = require('../services/grupoTransporteService');
+    const sync = require('../services/syncStateService');
+    if (!sync.getGrupoSincronizacaoId() || !sync.ehServidorDoGrupo()) return { ok: false, error: 'Só o computador servidor do grupo gera o código.' };
+    const codigo = require('../services/lanHubService').gerarCodigo();
+    await transporte.reavaliar(); // liga a porta se ainda estava desligada
+    const st = transporte.status();
+    if (!st.hub?.ligado) return { ok: false, error: st.ultimoErro || 'Não deu para abrir a porta da rede local neste computador.' };
+    return { ok: true, ...codigo, enderecos: st.hub.enderecos };
+  });
+  safeHandle('lan:cancelarCodigo', (event) => guardRole(event, ['admin', 'suporte'])
+    || (require('../services/lanHubService').cancelarCodigo(), require('../services/grupoTransporteService').reavaliar().then(() => ({ ok: true }))));
+  safeHandle('lan:removerCaixa', (event, { installId } = {}) => guardRole(event, ['admin', 'suporte'])
+    || (require('../services/lanHubService').removerCaixa(String(installId || '')), require('../services/grupoTransporteService').reavaliar().then(() => ({ ok: true }))));
+  safeHandle('lan:parear', (event, { codigo, endereco } = {}) => guardRole(event, ['admin', 'suporte'])
+    || require('../services/lanClienteService').parear({ codigo, endereco }));
+  safeHandle('lan:desligar', (event) => guardRole(event, ['admin', 'suporte'])
+    || (require('../services/lanClienteService').desligar(), require('../services/grupoTransporteService').reavaliar().then(() => ({ ok: true }))));
+
   // --- Clientes, fiado e fidelidade ---
   safeHandle('customer:list', (_e, opts) => customerService.listWithSaldo(opts));
   safeHandle('customer:upsert', (_e, customer) => customerService.upsert(customer));
@@ -1004,6 +1028,8 @@ function registerIpcHandlers() {
 
   // --- Impressão de recibo ---
   safeHandle('print:receipt', (_e, { saleId }) => printService.printReceipt(saleId));
+  // Pré-nota: a conta aberta para o cliente conferir antes de pagar (não mexe na venda).
+  safeHandle('print:preNota', (_e, payload) => printService.printPreNota({ saleId: payload?.saleId, pessoaNumero: payload?.pessoaNumero }));
   safeHandle('print:sendReceiptWhatsapp', (_e, { saleId }) => {
     const result = printService.buildReceiptWhatsappLink(saleId);
     if (!result.ok) return result;
@@ -1111,6 +1137,10 @@ function registerIpcHandlers() {
 
   safeHandle('print:getReceiptConfig', () => printService.getReceiptConfig());
   safeHandle('print:updateReceiptConfig', (_e, payload) => printService.updateReceiptConfig(payload));
+  // Estúdio de impressão (aparência da nota e da pré-nota) -- estudioImpressaoService.js.
+  safeHandle('estudio:get', () => require('../services/estudioImpressaoService').getTudo());
+  safeHandle('estudio:previa', (_e, payload) => require('../services/estudioImpressaoService').previa(payload || {}));
+  safeHandle('estudio:salvar', (_e, payload) => require('../services/estudioImpressaoService').salvar(payload || {}));
 
   // --- Painel de vendas (dashboard) ---
   safeHandle('dashboard:getSummary', (_e, payload) => dashboardService.getSummary(payload));

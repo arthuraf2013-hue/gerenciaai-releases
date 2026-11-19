@@ -53,10 +53,10 @@
       "electron/**",
       "!node_modules/**/*.map",
       "!node_modules/firebase/compat/**",
-      "!node_modules/firebase/{messaging,storage,remote-config,performance,installations,vertexai,analytics,functions,database,database-compat,storage-compat,messaging-compat,analytics-compat,functions-compat,remote-config-compat,performance-compat,app-check,app-check-compat,ai,data-connect,auth,auth-compat,firestore-compat,app-compat}/**",
+      "!node_modules/firebase/{messaging,storage,remote-config,performance,installations,vertexai,analytics,functions,database-compat,storage-compat,messaging-compat,analytics-compat,functions-compat,remote-config-compat,performance-compat,app-check,app-check-compat,ai,data-connect,auth,auth-compat,firestore-compat,app-compat}/**",
       "!node_modules/firebase/firebase-auth*.js",
       "!node_modules/firebase/firebase-auth*.js.map",
-      "!node_modules/@firebase/{database,database-compat,storage,storage-compat,ai,messaging,messaging-compat,analytics,analytics-compat,functions,functions-compat,remote-config,remote-config-compat,performance,performance-compat,data-connect,app-check,app-check-compat,installations-compat,auth,auth-compat,auth-types,auth-interop-types,firestore-compat,app-compat}/**",
+      "!node_modules/@firebase/{database-compat,storage,storage-compat,ai,messaging,messaging-compat,analytics,analytics-compat,functions,functions-compat,remote-config,remote-config-compat,performance,performance-compat,data-connect,app-check,app-check-compat,installations-compat,auth,auth-compat,auth-types,auth-interop-types,firestore-compat,app-compat}/**",
       "!node_modules/exceljs/dist/**",
       "!node_modules/better-sqlite3/deps/**",
       "!node_modules/better-sqlite3/src/**"

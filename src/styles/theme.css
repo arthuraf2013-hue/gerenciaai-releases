@@ -1661,3 +1661,60 @@ html.modo-toque .mesas-cadastro .chips-categorias button { min-height: 44px; pad
 .historico-escopo { display: inline-flex; gap: 6px; }
 .data-table tr.linha-cancelada td { color: var(--color-text-muted); }
 .data-table tr.linha-cancelada td:nth-child(5) { text-decoration: line-through; }
+
+/* --- Campo de categoria do cadastro de produto (CampoCategoria.jsx) --- */
+.campo-categoria-campo { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--color-text-muted); min-width: 0; }
+.campo-categoria { position: relative; }
+.campo-categoria input { width: 100%; box-sizing: border-box; padding-right: 42px; }
+.campo-categoria-seta {
+  position: absolute; top: 50%; right: 3px; transform: translateY(-50%);
+  width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 6px; color: var(--color-text-muted); cursor: pointer; padding: 0;
+}
+.campo-categoria-seta:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); }
+.campo-categoria-lista {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  margin: 0; padding: 6px; list-style: none; max-height: 264px; overflow-y: auto;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.campo-categoria-opcao {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 44px; padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  font-size: 14px; color: var(--color-text);
+}
+.campo-categoria-opcao small { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+.campo-categoria-opcao:hover, .campo-categoria-opcao.ativa { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.campo-categoria-opcao.escolhida { font-weight: 600; }
+.campo-categoria-opcao.nova { color: var(--color-primary); font-weight: 600; border-top: 1px solid var(--color-border); margin-top: 4px; }
+.campo-categoria-opcao.nova:first-child { border-top: none; margin-top: 0; }
+.campo-categoria-nome { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.campo-categoria-vazia { padding: 12px; font-size: 13px; color: var(--color-text-muted); }
+.campo-categoria-dica { font-size: 12px; color: var(--color-text-muted); }
+
+/* --- Rede local da loja (Configurações → Sincronização) --- */
+.rede-local { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.rede-local h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 15px; }
+.rede-local-estado {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px;
+  background: var(--color-warning-bg); color: var(--color-warning-text); font-size: 14px; margin-bottom: 8px;
+}
+.rede-local-estado.ok { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-text); }
+.rede-local-ponto { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; background: currentColor; opacity: .7; }
+.rede-local-estado.ok .rede-local-ponto { background: var(--color-primary); opacity: 1; }
+.rede-local-endereco { font-size: 13px; color: var(--color-text-muted); margin: 4px 0 12px; }
+.rede-local-endereco code { font-size: 13px; color: var(--color-text); }
+.rede-local-codigo {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+  padding: 12px 14px; border: 2px dashed var(--color-primary); border-radius: 10px; margin: 8px 0 12px; font-size: 14px;
+}
+.rede-local-codigo-valor {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 26px; font-weight: 800;
+  letter-spacing: 3px; color: var(--color-primary);
+}
+.rede-local-tabela { margin-top: 12px; }
+.rede-local-acoes { text-align: right; }
+.rede-local-dica { margin-top: 10px; }
+.rede-local-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 6px; }
+.rede-local-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rede-local-opcional { color: var(--color-text-muted); font-weight: 400; }

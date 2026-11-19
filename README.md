@@ -6581,3 +6581,30 @@ Publicar: commit `release:` normal + `firebase deploy --only firestore:rules` (r
 `clientes` e `fiado`) + Central de novo. Testes: `caixasDoGrupo.test.js` (9), casos novos em
 `firestoreRules.test.js`; testado também com dois "computadores" no emulador do Firestore.
 
+
+## Pré-nota e Estúdio de impressão (nov/2026)
+
+**Pré-nota** (pré-conta para o cliente conferir antes de pagar): botão
+**Pré-nota** no rodapé do PDV e no topo da mesa; na mesa, o ícone de
+impressora ao lado de "Pagar a parte" imprime só a parte daquela pessoa.
+Mostra itens (com observações), itens separados por pessoa com a parte de
+cada uma, desconto, taxa de serviço, o que já foi pago e o que falta. Não
+mexe na venda (não envia à cozinha, não fecha a conta). Sai sempre "NÃO É
+DOCUMENTO FISCAL", em cima e embaixo. Opcional: QR do Pix com o valor que
+falta, valor dividido pelo número de pessoas, sugestão de serviço (%) quando
+a conta não tem taxa.
+
+**Estúdio de impressão** (Configurações → Impressora → Abrir o estúdio):
+aparência da nota (recibo) e da pré-nota, com prévia na hora. Papel
+(58/80 mm ou A4), logo (PNG/JPG, reduzida para o rolo, opção preto e
+branco), nome e linhas do cabeçalho (CNPJ, endereço, telefone),
+alinhamento, tipo e tamanho da letra, linha separadora, título, o que
+aparece (código, data, mesa, atendente, cliente, preço unitário,
+observações, pagamentos) e rodapé. O bloco da NFC-e (chave, protocolo e QR)
+e a senha do balcão continuam saindo sempre na nota. O rodapé da nota é o
+mesmo da mensagem do WhatsApp.
+
+Código: `impressaoLayout.js` (desenho, função pura: imprime e gera a
+prévia), `estudioImpressaoService.js` (configuração na tabela
+`impressao_estudio` do schema.sql, sem migração), `printService.printPreNota`,
+`EstudioImpressao.jsx`. Testes: `estudioImpressao.test.js` (15).

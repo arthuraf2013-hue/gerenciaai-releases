@@ -717,6 +717,83 @@ const MIGRACOES = [
       `);
     },
   },
+  {
+    versao: 14,
+    nome: 'grupo multi-PDV pela rede local: servidor guarda a cópia do grupo e os caixas ligados a ele',
+    up(db) {
+      // Rede local (lanHubService/lanClienteService/lanArmazemService):
+      // o servidor do grupo guarda uma cópia do grupo (lan_docs, lan_estoque)
+      // que os caixas da loja leem e gravam pela rede, sem a nuvem; o
+      // espelho (lanEspelhoService) acerta essa cópia com o Firestore.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS lan_caixas (
+          install_id     TEXT PRIMARY KEY,
+          nome           TEXT,
+          chave          TEXT NOT NULL,
+          criado_em      TEXT NOT NULL DEFAULT (datetime('now')),
+          ultimo_contato TEXT
+        );
+        CREATE TABLE IF NOT EXISTS lan_cliente (
+          id             TEXT PRIMARY KEY DEFAULT 'default',
+          grupo_id       TEXT NOT NULL,
+          hub_install_id TEXT NOT NULL,
+          hub_nome       TEXT,
+          chave          TEXT NOT NULL,
+          enderecos      TEXT NOT NULL DEFAULT '[]',
+          criado_em      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS lan_docs (
+          grupo_id       TEXT NOT NULL,
+          colecao        TEXT NOT NULL,
+          doc_id         TEXT NOT NULL,
+          dados          TEXT NOT NULL,
+          versao         INTEGER NOT NULL DEFAULT 0,
+          seq            INTEGER NOT NULL,
+          nuvem_pendente INTEGER NOT NULL DEFAULT 0,
+          dia            TEXT,
+          PRIMARY KEY (grupo_id, colecao, doc_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lan_docs_seq ON lan_docs(grupo_id, colecao, seq);
+        CREATE INDEX IF NOT EXISTS idx_lan_docs_pendente ON lan_docs(nuvem_pendente) WHERE nuvem_pendente = 1;
+        CREATE INDEX IF NOT EXISTS idx_lan_docs_dia ON lan_docs(grupo_id, colecao, dia);
+        CREATE TABLE IF NOT EXISTS lan_estoque (
+          grupo_id   TEXT NOT NULL,
+          produto_id TEXT NOT NULL,
+          quantidade REAL NOT NULL DEFAULT 0,
+          espelhado  REAL,
+          pendente   INTEGER NOT NULL DEFAULT 0,
+          absoluto   INTEGER NOT NULL DEFAULT 0,
+          seq        INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (grupo_id, produto_id)
+        );
+        CREATE TABLE IF NOT EXISTS lan_movimentos (
+          grupo_id   TEXT NOT NULL,
+          mov_id     TEXT NOT NULL,
+          produto_id TEXT,
+          delta      REAL NOT NULL,
+          criado_em  TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (grupo_id, mov_id)
+        );
+        CREATE TABLE IF NOT EXISTS lan_meta (
+          chave TEXT PRIMARY KEY,
+          valor TEXT
+        );
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP TABLE IF EXISTS lan_meta;
+        DROP TABLE IF EXISTS lan_movimentos;
+        DROP TABLE IF EXISTS lan_estoque;
+        DROP INDEX IF EXISTS idx_lan_docs_dia;
+        DROP INDEX IF EXISTS idx_lan_docs_pendente;
+        DROP INDEX IF EXISTS idx_lan_docs_seq;
+        DROP TABLE IF EXISTS lan_docs;
+        DROP TABLE IF EXISTS lan_cliente;
+        DROP TABLE IF EXISTS lan_caixas;
+      `);
+    },
+  },
 ];
 
 function versoesAplicadas(db) {

@@ -1064,6 +1064,7 @@ async function publicar() {
   try {
     if (!temCelularDeMesa()) return;
     concluirPendentes();
+    if (!require('./nuvemDisjuntorService').podeEscrever()) return; // sem cota hoje: o estado fica aqui e sai quando voltar
     const { doc, setDoc, deleteDoc, serverTimestamp } = require('firebase/firestore');
     const { firestore, installId } = firestoreCtx();
     const { mesas, comandas } = montarPublicacao();
@@ -1080,8 +1081,13 @@ async function publicar() {
     // Sinal de vida só para loja com mesa cadastrada (sem mesa, o celular
     // nem mostra o painel e não precisa saber se o computador está no ar).
     const hashMesas = hashDe(mesas);
-    const precisaSinal = mesas.mesas.length > 0 && Date.now() - estadoPublicado.mesasEm > SINAL_DE_VIDA_MS;
+    // Celulares que já olham a presença (Realtime Database) não precisam do
+    // sinal de vida a cada 30 s -- só quando algo muda (e a cada 10 min).
+    let sinalMs = SINAL_DE_VIDA_MS;
+    try { if (require('./presencaService').celularesUsamPresenca(['garcom', 'pdv'])) sinalMs = 10 * 60 * 1000; } catch { /* sem presença */ }
+    const precisaSinal = mesas.mesas.length > 0 && Date.now() - estadoPublicado.mesasEm > sinalMs;
     if (hashMesas !== estadoPublicado.mesasHash || precisaSinal) {
+      require('./nuvemDisjuntorService').contar('mesas', 1);
       await setDoc(doc(firestore, 'installations', installId, 'mesas_ao_vivo', 'atual'), {
         ...mesas, vivoEmMs: Date.now(), atualizadoEm: serverTimestamp(),
       });

@@ -95,6 +95,7 @@ async function publicarHistorico() {
     const firestore = licenseService.getLicenseFirestore();
     const installId = pdvRegistryService.getOrCreateDeviceUid();
 
+    if (!require('./nuvemDisjuntorService').podeEscrever('historicoCelular')) return;
     const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
     await setDoc(doc(firestore, 'installations', installId, 'historico_vendas', 'atual'), {
       ...payload,

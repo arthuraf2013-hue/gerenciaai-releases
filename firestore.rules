@@ -110,6 +110,9 @@ service cloud.firestore {
       return ['ativo', 'bloqueioImediato', 'motivoBloqueio', 'mensagemPersonalizada',
         'clienteId', 'grupoSincronizacaoId', 'servidorDoGrupo',
         'modoOperacao', 'servidorInstallId', 'servidorNome', 'terminalDesde', 'terminalAte',
+        // Pedido de "Forçar atualização dos dados" (só a Central escreve; a máquina
+        // responde com sincronizacaoFeitaEm, que não é controle).
+        'sincronizacaoPedidaEm',
         'overrideAtivo', 'versaoMinimaOverride', 'excluidaEm', 'backupFrequenciaHoras',
         'restaurarBackupSolicitado',
         'atualizacaoSegurada', 'atualizacaoSeguradaVersao', 'atualizacaoSeguradaMotivo',
@@ -544,7 +547,11 @@ service cloud.firestore {
       // no topo do arquivo sobre a Parte 1).
       allow update: if
         (request.auth != null && uid == request.auth.uid && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso', 'nomeDispositivo'])
+          // recursos: o que o app do celular já sabe fazer (ex.: { presenca: 1 } =
+          // olha a presença no Realtime Database; ver presencaService.js).
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ultimoAcesso', 'nomeDispositivo', 'recursos'])
+            && (!request.resource.data.keys().hasAny(['recursos'])
+                || (request.resource.data.recursos is map && request.resource.data.recursos.size() <= 10)))
           || (request.resource.data.tipo in ['garcom', 'consulta', 'pdv']
               && pareamentoAutoriza(request.resource.data.tipo, request.resource.data.vinculoUserId, request.resource.data.pareamentoCodigo))
         ))

@@ -404,6 +404,7 @@ async function publicarSeMudou() {
       const painel = montarPainel();
       const hash = crypto.createHash('sha256').update(JSON.stringify(painel)).digest('hex');
       if (hash === row.ultimo_hash) return { publicado: false, motivo: 'sem_mudanca' };
+      if (!require('./nuvemDisjuntorService').podeEscrever('painelSenhas')) return { publicado: false, motivo: 'sem_cota' };
       const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
       const firestore = require('./licenseService').getLicenseFirestore();
       await setDoc(doc(firestore, 'paineis_chamada', row.painel_token), { ...painel, ativo: true, atualizadoEm: serverTimestamp() });

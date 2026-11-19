@@ -58,6 +58,7 @@ async function publicarUsuarios() {
     // (ou a cada 30 min, por segurança).
     const assinatura = JSON.stringify(usuarios);
     if (assinatura === ultimaAssinatura && Date.now() - ultimaPublicacaoEm < 30 * 60 * 1000) return;
+    if (!require('./nuvemDisjuntorService').podeEscrever('usuariosConsulta')) return;
 
     const licenseService = require('./licenseService');
     const pdvRegistryService = require('./pdvRegistryService');

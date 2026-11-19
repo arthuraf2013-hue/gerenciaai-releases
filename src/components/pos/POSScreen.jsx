@@ -445,6 +445,11 @@ export function POSScreen() {
     setAuthAction({ type: 'item', itemId });
   }
 
+  async function imprimirPreNota() {
+    const r = await window.pdv.print.preNota({ saleId });
+    if (r?.ok === false) setFeedback({ message: r.error, type: 'error' });
+  }
+
   function requestCancelSale() {
     setAuthAction({ type: 'sale' });
   }
@@ -743,6 +748,10 @@ export function POSScreen() {
         <div className="pos-total">Total: <strong>R$ {total.toFixed(2)}</strong></div>
         <div className="pos-actions">
           <span className="pos-shortcuts-hint">F2 finalizar · F4 cancelar item selecionado</span>
+          <button className="btn-secondary" onClick={imprimirPreNota} disabled={itensAtivos.length === 0}
+            title="Imprime a conta para o cliente conferir antes de pagar (não é documento fiscal)">
+            <Icon name="printer" size={15} /> Pré-nota
+          </button>
           <button className="btn-secondary" onClick={requestCancelSale} disabled={itensAtivos.length === 0}>
             Cancelar venda
           </button>

@@ -294,9 +294,17 @@ app.whenReady().then(() => {
 
   function iniciarEtapa2() {
     prepararReparoDaInstalacao();
-    require('./services/productSyncService').iniciarEscutaProdutos();
-    // Grupo multi-PDV: usuários e PINs iguais em todos os caixas.
-    require('./services/userSyncService').iniciar();
+    // Presença no Realtime Database (a Central e os celulares sabem na hora
+    // se este computador está no ar, sem gastar cota do Firestore).
+    require('./services/presencaService').iniciar().catch((err) => console.error('[presenca]', err));
+    // Rede local antes das réplicas: se este caixa estiver ligado ao
+    // servidor da loja (ou se este for o servidor com caixas ligados), as
+    // réplicas já nascem pelo caminho certo.
+    require('./services/grupoTransporteService').iniciar().catch(() => {}).finally(() => {
+      require('./services/productSyncService').iniciarEscutaProdutos();
+      // Grupo multi-PDV: usuários e PINs iguais em todos os caixas.
+      require('./services/userSyncService').iniciar();
+    });
     // Status ao vivo pro celular de quem já estiver pareado — ver
     // liveStatusSyncService.js (só publica se houver celular pareado).
     require('./services/liveStatusSyncService').iniciarPublicacaoContinua();

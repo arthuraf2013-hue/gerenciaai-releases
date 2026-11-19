@@ -379,6 +379,13 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
     setFeedback({ message: `${mesa.nome || `Mesa ${mesa.numero}`} separada. O consumo continua nesta comanda.`, type: 'success' });
   }
 
+  /** Pré-nota da conta inteira, ou só da parte de uma pessoa. */
+  async function imprimirPreNota(pessoa) {
+    const r = await window.pdv.print.preNota({ saleId, pessoaNumero: pessoa?.numero });
+    if (r?.ok === false) { setFeedback({ message: r.error, type: 'error' }); return; }
+    setFeedback({ message: pessoa ? `Pré-nota de ${pessoa.nome || `Pessoa ${pessoa.numero}`} enviada para a impressora.` : 'Pré-nota enviada para a impressora.', type: 'success' });
+  }
+
   async function handleImprimirComanda() {
     const result = await window.pdv.print.kitchenTicket({ saleId, mesaLabel: nome || `Mesa ${numero}` });
     if (!result.ok) {
@@ -486,6 +493,10 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
               <Icon name="link" size={15} /> {grupo?.unidas?.length > 0 ? `Mesas unidas (${grupo.unidas.length})` : 'Juntar mesas'}
             </span>
           </button>
+          <button className="close-cash-btn" onClick={() => imprimirPreNota()} disabled={itensAtivos.length === 0}
+            title="Imprime a conta para o cliente conferir antes de pagar (não é documento fiscal)">
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={15} /> Pré-nota</span>
+          </button>
           <button className="close-cash-btn" onClick={handleImprimirComanda} title="Imprimir a comanda para a cozinha">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Cozinha</span>
           </button>
@@ -570,6 +581,7 @@ export function TableOrderScreen({ tableId, saleId, numero, nome, pessoas: pesso
                 <PagamentoDaPessoa
                   parte={parteDa(g.numero, g.itens)} nome={nomeCurto(g.pessoa)} contaQuitada={contaQuitada}
                   onPagar={(parte) => setPagandoPessoa({ numero: g.numero, nome: nomeCurto(g.pessoa), valor: parte.valor })}
+                  onPreNota={() => imprimirPreNota(g.pessoa)}
                 />
                 <ul className="mesa-grupo-itens">{g.itens.map(renderItem)}</ul>
               </div>
@@ -858,7 +870,7 @@ function BotaoCliente({ pessoa, rotulo, aoClicar, pequeno = false }) {
 }
 
 /** Linha "pagar a parte" no topo do grupo da pessoa: botão, ou "Pago". */
-function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar }) {
+function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar, onPreNota }) {
   if (parte.estado === 'sem-itens') return null;
   if (parte.estado === 'paga') {
     return (
@@ -875,6 +887,11 @@ function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar }) {
         title="Esta pessoa paga só o que consumiu (com a taxa de serviço) e a mesa continua aberta">
         <Icon name="money" size={15} /> {parte.estado === 'parcial' ? 'Pagar o resto' : `Pagar a parte · R$ ${parte.valor.toFixed(2)}`}
       </button>
+      {onPreNota && (
+        <button type="button" className="mesa-icone" onClick={onPreNota} aria-label={`Pré-nota de ${nome}`} title={`Imprimir a pré-nota só de ${nome}`}>
+          <Icon name="printer" size={14} />
+        </button>
+      )}
     </div>
   );
 }

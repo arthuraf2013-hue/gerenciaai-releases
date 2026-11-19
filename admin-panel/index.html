@@ -683,6 +683,7 @@
   import {
     initializeAppCheck, ReCaptchaEnterpriseProvider,
   } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-app-check.js';
+  import { getDatabase, ref as refRtdb, onValue as onValueRtdb } from 'https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js';
 
   // Ícones próprios da Central — mesmo espírito dos ícones do app
   // GerenciaAI (duotone, currentColor, adapta sozinho ao tema claro/
@@ -926,6 +927,26 @@
     return false;
   }
 
+  // Presença no Realtime Database (electron/services/presencaService.js):
+  // o próprio Firebase marca a máquina offline quando ela cai, sem a máquina
+  // gravar ping no Firestore a cada 2 min. Sem o banco criado (ou sem
+  // permissão), fica vazio e vale o ping de sempre.
+  const RTDB_URL = 'https://gerenciaai-licencas-default-rtdb.firebaseio.com';
+  let presencas = {};
+  let presencaLigada = false;
+  function escutarPresenca() {
+    if (presencaLigada) return;
+    presencaLigada = true;
+    try {
+      onValueRtdb(refRtdb(getDatabase(app, RTDB_URL), 'presenca'), (snap) => {
+        presencas = snap.val() || {};
+        if (typeof atualizarSinaisOnline === 'function') atualizarSinaisOnline();
+      }, (err) => console.warn('[central] presença indisponível (vale o ping):', err?.message || err));
+    } catch (err) {
+      console.warn('[central] presença indisponível (vale o ping):', err?.message || err);
+    }
+  }
+
   function escutarDados() {
     // 'installations' e 'clientes' alimentam quase toda tela (painel,
     // métricas, erros, sincronização, backups, cofre) -- só mensagem e
@@ -933,6 +954,7 @@
     // (nem baixar as coleções inteiras) nessas duas telas economiza
     // leitura/banda à toa, especialmente conforme a base de clientes cresce.
     if (!TELAS_SEM_INSTALACOES_E_CLIENTES.includes(TELA_ATUAL)) {
+      escutarPresenca();
       onSnapshot(
         query(collection(db, 'installations'), orderBy('ultimoContato', 'desc')),
         (snap) => {
@@ -1147,6 +1169,7 @@
   // ainda não atualizaram pra versão que manda ultimoPing.
   const LIMITE_ONLINE_MIN = 3;
   function estaOnline(inst) {
+    if (presencas[inst.id]?.on === true) return true;
     const minPing = minutosAtras(inst.ultimoPing);
     if (minPing !== null) return minPing <= LIMITE_ONLINE_MIN;
     const minContato = minutosAtras(inst.ultimoContato);
@@ -1672,6 +1695,33 @@
     } catch (err) {
       mostrarErro(err, 'excluir a instalação do painel');
     }
+  }
+
+  /** Pede à máquina para refazer a sincronização agora (ver sincronizacaoForcadaService.js). */
+  async function forcarAtualizacaoDosDados(id) {
+    limparErro();
+    try {
+      await updateDoc(doc(db, 'installations', id), { sincronizacaoPedidaEm: serverTimestamp() });
+      registrarAcao('forcar_sincronizacao', { installationId: id });
+    } catch (err) {
+      mostrarErro(err, 'pedir a atualização dos dados dessa máquina');
+    }
+  }
+
+  function tsMs(t) {
+    return t && typeof t.toMillis === 'function' ? t.toMillis() : null;
+  }
+
+  /** Linha no card: se o pedido ainda está pendente ou quando a máquina terminou. */
+  function renderPedidoSincronizacao(inst) {
+    const pedida = tsMs(inst.sincronizacaoPedidaEm);
+    if (!pedida) return '';
+    const feita = tsMs(inst.sincronizacaoFeitaEm);
+    if (feita && feita >= pedida) {
+      const falhas = inst.sincronizacaoFeitaOk === false ? ' (com falhas: veja o log da máquina)' : '';
+      return `<div class="maquina-meta">Dados atualizados em ${escapeHtml(formatarData(inst.sincronizacaoFeitaEm))}${falhas}</div>`;
+    }
+    return `<div class="maquina-meta">Atualização pedida em ${escapeHtml(formatarData(inst.sincronizacaoPedidaEm))}. Aguardando a máquina (precisa estar online).</div>`;
   }
 
   async function restaurarNoPainel(id) {
@@ -4657,6 +4707,10 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
             title="Exigir/isentar uma versão de atualização só nessa máquina">
             ${inst.overrideAtivo ? `Override: ${escapeHtml(inst.versaoMinimaOverride || 'isenta')}` : 'Testar versão'}
           </button>
+          <button class="btn-secondary btn-small" data-forcar-sync="${escapeHtml(inst.id)}"
+            title="Pede para esta máquina refazer agora a sincronização do grupo, dos usuários e do histórico. Precisa estar online.">
+            Forçar atualização dos dados
+          </button>
           <button class="btn-excluir btn-small" data-excluir="${escapeHtml(inst.id)}"
             title="${online ? 'Online agora — congele ou bloqueie em vez de excluir' : 'Tirar essa máquina do painel (o congelamento/bloqueio continua valendo)'}">
             Excluir
@@ -4668,6 +4722,7 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
             <div class="maquina-progress-texto">Baixando a versão ${escapeHtml(inst.atualizacaoVersaoAlvo || '—')}... ${Math.min(100, Math.max(0, Number(inst.atualizacaoProgresso) || 0))}%${pedidoDeSegurarCobre(inst) ? ' — instalação segurada, não instala ao terminar' : ''}</div>
           </div>
         ` : ''}
+        ${renderPedidoSincronizacao(inst)}
         ${renderBlocoAtualizacao(inst)}
       </div>
     `;
@@ -4703,6 +4758,12 @@ ${comp ? `<div class="comp"><strong>Comparando com ${Number(comp.lojas)} lojas d
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         excluirDoPainel(btn.dataset.excluir);
+      });
+    });
+    listaClientes.querySelectorAll('[data-forcar-sync]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        forcarAtualizacaoDosDados(btn.dataset.forcarSync);
       });
     });
     listaClientes.querySelectorAll('[data-restaurar], [data-manter]').forEach((btn) => {

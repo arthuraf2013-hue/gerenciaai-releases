@@ -178,17 +178,23 @@ function mesclar(grupoId, remotos, { completo = false } = {}) {
 
 let backend = {
   async lerTodos(grupoId) {
+    const lan = require('./grupoTransporteService').backend('usuarios');
+    if (lan) return lan.lerTodos(grupoId);
     const firestore = require('./licenseService').getLicenseFirestore();
     const { collection, getDocs } = require('firebase/firestore');
     const snap = await getDocs(collection(firestore, 'grupos_sincronizacao', grupoId, 'usuarios'));
     return new Map(snap.docs.map((d) => [d.id, d.data()]));
   },
   async gravar(grupoId, docId, dados) {
+    const lan = require('./grupoTransporteService').backend('usuarios');
+    if (lan) return lan.gravar(grupoId, docId, dados);
     const firestore = require('./licenseService').getLicenseFirestore();
     const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
     await setDoc(doc(firestore, 'grupos_sincronizacao', grupoId, 'usuarios', docId), { ...dados, atualizadoEm: serverTimestamp() });
   },
   escutar(grupoId, aoMudar, aoErrar) {
+    const lan = require('./grupoTransporteService').backend('usuarios');
+    if (lan) return lan.escutar(grupoId, aoMudar, aoErrar);
     const firestore = require('./licenseService').getLicenseFirestore();
     const { collection, onSnapshot } = require('firebase/firestore');
     return onSnapshot(collection(firestore, 'grupos_sincronizacao', grupoId, 'usuarios'), (snap) => {
@@ -201,6 +207,8 @@ let backend = {
 function _definirBackendParaTeste(b) { backend = { ...backend, ...b }; }
 
 async function publicarLista(grupoId, lista) {
+  // Sem cota de escrita: o que falta subir é recalculado na próxima sincronização.
+  if (lista.length && !require('./grupoTransporteService').backend('usuarios') && !require('./nuvemDisjuntorService').podeEscrever('usuariosGrupo', lista.length)) return;
   for (const { docId, dados } of lista) {
     try {
       await backend.gravar(grupoId, docId, dados);

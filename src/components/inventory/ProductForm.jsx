@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useProfile } from '../../context/ProfileContext';
 import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
+import { CampoCategoria } from '../common/CampoCategoria';
 import { FichaTecnicaEditor, linhasParaSalvar, custoDasLinhas, linhaFichaDoInsumo } from './FichaTecnicaEditor';
 import { avaliarCmv, precoSugerido, linhaParaTela, formatarReais, lerNumero, arred } from '../../utils/cozinha';
 
@@ -592,9 +593,7 @@ export function ProductForm({ product, onSaved, onCancel }) {
         <label>Nome
           <input value={form.nome} onChange={(e) => setField('nome', e.target.value)} required autoFocus />
         </label>
-        <label>Categoria
-          <input value={form.categoria} onChange={(e) => setField('categoria', e.target.value)} />
-        </label>
+        <CampoCategoria value={form.categoria} onChange={(v) => setField('categoria', v)} />
         <label>{ehCozinha ? 'Código interno (opcional)' : 'SKU'}
           <input value={form.sku} onChange={(e) => setField('sku', e.target.value)} />
         </label>

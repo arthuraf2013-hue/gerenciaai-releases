@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { CampoCategoria } from '../common/CampoCategoria';
 
 const CONFIANCA_LABEL = { alta: 'alta confiança', media: 'confiança média', baixa: 'baixa confiança — confira antes de salvar' };
 
@@ -110,9 +111,7 @@ export function NovoProdutoPorFotoModal({ codigoBarras, onClose, onCriado }) {
           <label>Nome
             <input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} required autoFocus />
           </label>
-          <label>Categoria
-            <input value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} />
-          </label>
+          <CampoCategoria value={form.categoria} onChange={(v) => setForm((f) => ({ ...f, categoria: v }))} />
           <label>Unidade
             <select value={form.unidade} onChange={(e) => setForm({ ...form, unidade: e.target.value })}>
               {['un', 'kg', 'g', 'l', 'ml'].map((u) => <option key={u} value={u}>{u}</option>)}

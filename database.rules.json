@@ -1,0 +1,37 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "presenca": {
+      ".read": "auth != null && auth.token.firebase.sign_in_provider == 'password'",
+      "$installId": {
+        ".read": true,
+        ".write": "$installId.matches(/^[A-Za-z0-9_-]{8,64}$/)",
+        ".validate": "newData.hasChildren(['on'])",
+        "on": { ".validate": "newData.isBoolean()" },
+        "desde": { ".validate": "newData.isNumber()" },
+        "visto": { ".validate": "newData.isNumber()" },
+        "v": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "nome": { ".validate": "newData.isString() && newData.val().length <= 63" },
+        "grupo": { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "srv": { ".validate": "newData.isBoolean()" },
+        "$outro": { ".validate": false }
+      }
+    },
+    "hubs": {
+      "$grupoId": {
+        ".read": true,
+        ".write": "$grupoId.matches(/^[A-Za-z0-9_-]{8,64}$/)",
+        ".validate": "newData.hasChildren(['hubId', 'enderecos'])",
+        "hubId": { ".validate": "newData.isString() && newData.val().length <= 64" },
+        "nome": { ".validate": "newData.isString() && newData.val().length <= 63" },
+        "enderecos": {
+          "$i": { ".validate": "$i.matches(/^[0-9]$/) && newData.isString() && newData.val().length <= 64" }
+        },
+        "on": { ".validate": "newData.isBoolean()" },
+        "atualizado": { ".validate": "newData.isNumber()" },
+        "$outro": { ".validate": false }
+      }
+    }
+  }
+}

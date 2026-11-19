@@ -640,6 +640,38 @@ precisa ser respeitado ao mexer no código:
   ao grupo precisa de gatilho igual.
 - **Sync com Firestore**: publicar só quando houver celular pareado e
   só quando o conteúdo mudar (ver `liveStatusSyncService`).
+- **Cota do Firestore (nov/2026)**: no plano gratuito a cota de escrita do
+  dia acaba e o SDK fica tentando para sempre (promessa nunca termina).
+  `nuvemDisjuntorService` percebe (log do SDK ou 429 do ping REST) e pausa
+  as escritas até a meia-noite do Pacífico. **Toda publicação periódica nova
+  chama `podeEscrever('origem', n)` antes de gravar** e deixa o dado na fila
+  local quando a resposta for false. O ping vai pela REST
+  (`firestoreRestService`, nunca fica preso) com o SDK de reserva. Testes
+  nunca falam com o Firebase de produção (`firebaseRealDesligado` em
+  `licenseService`); use sempre `licenseService.getLicenseFirestore()`, nunca
+  `getFirestore(getLicenseApp())` direto. Não pôr `--test-force-exit` no
+  `npm test`: no Node 22 ele encerra arquivos lentos antes do fim (o
+  `saleService.test.js` rodou 32 de 54 testes e saiu "verde").
+- **Presença (Realtime Database, nov/2026)**: `presencaService` mantém
+  `presenca/{installId}` (onDisconnect marca `on: false`) e o servidor do grupo
+  anuncia `hubs/{grupoId}` (endereços na rede da loja). Regras em
+  `database.rules.json` (deploy `--only database`; teste no emulador:
+  `tests/presencaRtdb.test.js`). Com presença ligada o ping no Firestore cai
+  para 15 min; a Central e os celulares (`pwa-mobile/presenca-servidor.js`,
+  REST a cada 20 s) olham a presença. O celular avisa `dispositivos/{uid}.recursos.presenca`;
+  enquanto algum celular pareado não avisar, o computador mantém o batimento
+  antigo (config do PDV móvel 25 s, mesas 30 s) -- `celularesUsamPresenca`.
+  `firebase/database` saiu da lista de exclusão do `build.files`.
+- **Rede local do grupo (nov/2026)**: `grupoTransporteService` decide o modo
+  ('hub' no servidor com caixas ligados, 'lan' no caixa ligado, 'nuvem' o resto);
+  os serviços do grupo perguntam `backend(tipo)` a cada operação (null =
+  Firestore). Servidor: `lanHubService` (HTTP 47820, UDP 47821, pedidos e
+  respostas com HMAC por caixa, pareamento X25519 + código de 8 caracteres),
+  `lanArmazemService` (cópia do grupo, migração 14) e `lanEspelhoService`
+  (nuvem <-> cópia; estoque: a cópia manda e a subida soma o que mudou na
+  nuvem desde o último espelho). Caixa: `lanClienteService`. Teste com dois
+  processos: `tests/lanRedeLocal.test.js`. Coleção nova do grupo = incluir em
+  `lanArmazemService.COLECOES` e no espelho.
 - **`sqlite_stat4`**: o better-sqlite3 tem STAT4 ligado; com amostras
   nessa tabela, toda statement com parâmetro é repreparada a cada valor
   novo (custo dobrado em laço). `otimizarBanco()` esvazia o stat4 depois
@@ -830,3 +862,17 @@ possível numa sessão sem rota de rede até o download dele).
   mesmo efeito de estoque/ficha técnica de addItem/cancelSaleItem e grava `reducao_item_pre_pagamento`.
 - Janela principal: `electron/janela.js` (puro, testado) escolhe a posição; `setBounds` depois de criar
   (DPI diferente entre monitores) e `maximize()` só no ready-to-show (senão mostra antes do conteúdo).
+
+## Pré-nota e Estúdio de impressão (nov/2026)
+
+- Desenho da nota e da pré-nota em `electron/services/impressaoLayout.js`
+  (função pura). `printService.buildReceiptHtml` e `printPreNota` usam ele, e
+  a prévia do estúdio também -- não montar recibo em outro lugar.
+- Configuração em `impressao_estudio` (schema.sql, `CREATE TABLE IF NOT
+  EXISTS`, sem migração), validada por `normalizarConfig` (só chaves
+  conhecidas; logo só PNG/JPEG em data URL até ~300 KB). Rodapé da nota
+  continua em `receipt_config.rodape_texto` (WhatsApp usa o mesmo).
+- Fixos que o estúdio não tira: "NÃO É DOCUMENTO FISCAL" na pré-nota; bloco
+  da NFC-e e senha do balcão na nota.
+- Conta da pré-nota (`valoresDaPreNota`) bate com `src/utils/contaPorPessoa.js`;
+  o teste compara os dois.

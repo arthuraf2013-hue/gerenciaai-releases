@@ -53,20 +53,27 @@ async function pushSale({ saleId, total, totalItens, itens, metodosPagamento, fi
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId) return; // essa instalação ainda não foi colocada em nenhum grupo — sem sincronização, silencioso
+    const lan = require('./grupoTransporteService').backend('vendas');
+    // Sem cota de escrita hoje: a venda fica sem a marca de enviada e o
+    // ciclo de 15 min (pushPeriodico) manda quando a cota voltar.
+    if (!lan && !require('./nuvemDisjuntorService').podeEscrever('vendaGrupo')) return;
 
     const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
     const installId = pdvRegistryService.getOrCreateDeviceUid();
-    const { doc, setDoc } = require('firebase/firestore');
-
     const diaISO = calcularDiaISO(finalizadaEm);
-    const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', saleId);
-    await setDoc(ref, {
+    const dados = {
       installId, total, totalItens, itens: itens || [], metodosPagamento: metodosPagamento || [],
       operadorNome, locationNome, finalizadaEm, diaISO,
       nomeComputador: licenseService.nomeDoComputador?.() || null,
-      status: 'finalizada', valorDevolvido: 0, ocultaHistorico: false,
-    });
+      status: 'finalizada', valorDevolvido: 0, ocultaHistorico: false, versaoMs: Date.now(),
+    };
+    if (lan) {
+      await lan.gravar(grupoId, [{ docId: saleId, dados }]);
+    } else {
+      const firestore = licenseService.getLicenseFirestore();
+      const { doc, setDoc } = require('firebase/firestore');
+      await setDoc(doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', saleId), dados);
+    }
     marcarEnviadas([saleId], grupoId);
   } catch (err) {
     // Best-effort de propósito — a venda já está gravada localmente, isso
@@ -142,9 +149,12 @@ async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false, ids =
            WHERE s.status IN ('finalizada', 'cancelada') AND s.finalizada_em IS NOT NULL${filtroPendentes}${filtroIds}`
         ).all(...argsPendentes, ...argsIds);
     if (vendas.length === 0) return true;
+    const lan = require('./grupoTransporteService').backend('vendas');
+    // Sem cota de escrita: "não terminou" (o ciclo tenta de novo depois).
+    if (!lan && !require('./nuvemDisjuntorService').podeEscrever('historicoGrupo', vendas.length)) return false;
 
     const licenseService = require('./licenseService');
-    const firestore = licenseService.getLicenseFirestore();
+    const firestore = lan ? null : licenseService.getLicenseFirestore();
     const installId = pdvRegistryService.getOrCreateDeviceUid();
     const { doc, writeBatch } = require('firebase/firestore');
     const nomeComputador = licenseService.nomeDoComputador?.() || null;
@@ -163,13 +173,12 @@ async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false, ids =
     // com folga) — um histórico grande não pode estourar isso.
     for (let i = 0; i < vendas.length; i += 400) {
       const lote = vendas.slice(i, i + 400);
-      const batch = writeBatch(firestore);
+      const docs = [];
       for (const v of lote) {
         const itensDetalhados = stmtItens.all(v.id);
         const metodosPagamento = stmtMetodos.all(v.id).map((p) => p.metodo);
         const diaISO = calcularDiaISO(v.finalizada_em);
-        const ref = doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', v.id);
-        batch.set(ref, {
+        docs.push({ docId: v.id, dados: {
           installId,
           total: v.total - v.desconto - v.desconto_gerente,
           totalItens: itensDetalhados.length,
@@ -187,9 +196,16 @@ async function pushTodoOHistorico({ diasRecentes, apenasPendentes = false, ids =
           canceladaEm: v.cancelada_em || null,
           valorDevolvido: Number(v.valor_devolvido) || 0,
           ocultaHistorico: v.oculta_historico === 1,
-        });
+          versaoMs: Date.now(),
+        } });
       }
-      await batch.commit();
+      if (lan) {
+        await lan.gravar(grupoId, docs);
+      } else {
+        const batch = writeBatch(firestore);
+        for (const d of docs) batch.set(doc(firestore, 'grupos_sincronizacao', grupoId, 'vendas', d.docId), d.dados);
+        await batch.commit();
+      }
       marcarEnviadas(lote.map((v) => v.id), grupoId);
     }
     return true;
@@ -238,6 +254,10 @@ async function getGroupHistory({ dataInicio, dataFim }) {
   if (!grupoId) {
     return { ok: false, error: 'Esta instalação ainda não foi colocada em nenhum grupo de sincronização.' };
   }
+  const daRede = await vendasPelaRedeLocal(grupoId, dataInicio, dataFim);
+  if (daRede) {
+    return { ok: true, vendas: daRede.sort((a, b) => (b.finalizadaEm || '').localeCompare(a.finalizadaEm || '')) };
+  }
 
   const licenseService = require('./licenseService');
   const firestore = licenseService.getLicenseFirestore();
@@ -271,22 +291,26 @@ async function getConsolidated({ dataInicio, dataFim }) {
     return { ok: false, error: 'Esta instalação ainda não foi colocada em nenhum grupo de sincronização. Fale com o suporte.' };
   }
 
-  const licenseService = require('./licenseService');
-  const firestore = licenseService.getLicenseFirestore();
-  const { collection, query, where, getDocs } = require('firebase/firestore');
+  let todas = await vendasPelaRedeLocal(grupoId, dataInicio, dataFim);
+  if (!todas) {
+    const licenseService = require('./licenseService');
+    const firestore = licenseService.getLicenseFirestore();
+    const { collection, query, where, getDocs } = require('firebase/firestore');
 
-  const vendasRef = collection(firestore, 'grupos_sincronizacao', grupoId, 'vendas');
-  const q = query(vendasRef, where('diaISO', '>=', dataInicio), where('diaISO', '<=', dataFim));
+    const vendasRef = collection(firestore, 'grupos_sincronizacao', grupoId, 'vendas');
+    const q = query(vendasRef, where('diaISO', '>=', dataInicio), where('diaISO', '<=', dataFim));
 
-  let snapshot;
-  try {
-    snapshot = await getDocs(q);
-  } catch (err) {
-    return { ok: false, error: `Falha ao consultar o servidor: ${err.message}` };
+    let snapshot;
+    try {
+      snapshot = await getDocs(q);
+    } catch (err) {
+      return { ok: false, error: `Falha ao consultar o servidor: ${err.message}` };
+    }
+    todas = snapshot.docs.map((d) => d.data());
   }
 
   // Cancelada não entra; devolução desconta.
-  const vendas = snapshot.docs.map((d) => d.data()).filter((v) => v.status !== 'cancelada');
+  const vendas = todas.filter((v) => v.status !== 'cancelada');
   const porInstalacao = {};
   let totalGeral = 0;
   for (const v of vendas) {
@@ -304,6 +328,16 @@ async function getConsolidated({ dataInicio, dataFim }) {
     totalFaturado: totalGeral,
     porInstalacao: Object.values(porInstalacao).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
   };
+}
+
+/** Vendas do grupo pela rede local (servidor da loja), ou null para ir à nuvem. */
+async function vendasPelaRedeLocal(grupoId, de, ate) {
+  const lan = require('./grupoTransporteService').backend('vendas');
+  if (!lan) return null;
+  try { return await lan.periodo(grupoId, de, ate); } catch (err) {
+    console.error('[salesSyncService] histórico pela rede local falhou, indo à nuvem:', err?.message || err);
+    return null;
+  }
 }
 
 /** Atualiza na hora o espelho de vendas que mudaram (cancelamento,

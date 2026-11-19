@@ -390,16 +390,23 @@ function fiadoParaEnviar(db, grupoId) {
 // Firestore (trocável nos testes)
 // ---------------------------------------------------------------------------
 
+// Rede local (grupoTransporteService): com servidor na loja, tudo vai por
+// ele; senão, Firestore.
 let backend = {
   async lerTodos(grupoId, colecao) {
+    const lan = require('./grupoTransporteService').backend('replica');
+    if (lan) return lan.lerTodos(grupoId, colecao);
     const firestore = require('./licenseService').getLicenseFirestore();
     const { collection, getDocs } = require('firebase/firestore');
     const snap = await getDocs(collection(firestore, 'grupos_sincronizacao', grupoId, colecao));
     return new Map(snap.docs.map((d) => [d.id, d.data()]));
   },
   async gravarLote(grupoId, colecao, itens) {
+    const lan = require('./grupoTransporteService').backend('replica');
+    if (lan) return lan.gravarLote(grupoId, colecao, itens);
     const firestore = require('./licenseService').getLicenseFirestore();
     const { doc, writeBatch, serverTimestamp } = require('firebase/firestore');
+    require('./nuvemDisjuntorService').contar(`grupo_${colecao}`, itens.length);
     for (let i = 0; i < itens.length; i += LOTE) {
       const batch = writeBatch(firestore);
       for (const { docId, dados } of itens.slice(i, i + LOTE)) {
@@ -409,6 +416,8 @@ let backend = {
     }
   },
   escutar(grupoId, colecao, aoMudar, aoErrar) {
+    const lan = require('./grupoTransporteService').backend('replica');
+    if (lan) return lan.escutar(grupoId, colecao, aoMudar, aoErrar);
     const firestore = require('./licenseService').getLicenseFirestore();
     const { collection, onSnapshot } = require('firebase/firestore');
     return onSnapshot(collection(firestore, 'grupos_sincronizacao', grupoId, colecao), (snap) => {
@@ -442,6 +451,9 @@ async function enviarPendentesAgora() {
   const grupoId = grupoAtual();
   if (!grupoId) return { ok: true, grupo: false };
   if (juntouComGrupo !== grupoId) return { ok: true, grupo: true, esperando: true };
+  // Sem cota de escrita hoje: a fila (grupo_replica_pendente) fica como está
+  // e sai inteira quando a cota voltar.
+  if (!require('./grupoTransporteService').backend('replica') && !require('./nuvemDisjuntorService').podeEscrever()) return { ok: true, grupo: true, esperando: true, semCota: true };
   const db = getDb();
   const origem = origemDesteCaixa();
   let enviados = 0;

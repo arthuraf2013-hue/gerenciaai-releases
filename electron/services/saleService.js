@@ -1340,7 +1340,11 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   ).all(saleId);
 
   const stockSyncService = require('./stockSyncService');
-  const checagem = await stockSyncService.verificarEDebitarEstoqueRemoto(itens);
+  // Mesma venda com o mesmo carrinho = mesma operação: se a resposta do
+  // servidor da rede local se perder e o caixa tentar de novo, não debita
+  // duas vezes (lanArmazemService.verificarEDebitar).
+  const operacaoId = `${saleId}:${require('crypto').createHash('sha1').update(JSON.stringify(itens)).digest('hex').slice(0, 16)}`;
+  const checagem = await stockSyncService.verificarEDebitarEstoqueRemoto(itens, { operacaoId });
 
   if (!checagem.ok) {
     if (checagem.motivo === 'estoque_insuficiente') {

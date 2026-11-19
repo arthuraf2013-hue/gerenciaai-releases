@@ -166,54 +166,33 @@ function buildFiscalHtmlBlock(nfce, qrDataUrl) {
     <p class="center" style="font-size:9px;">${aviso}</p>`;
 }
 
-/** Fonte um pouco menor pro rolo de 58mm — cabe menos caractere por linha. */
-function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha = null) {
-  const isTermica = larguraMm === 58 || larguraMm === 80;
-  const fontSize = larguraMm === 58 ? 10 : isTermica ? 11 : 12;
-  const larguraCss = isTermica ? `${larguraMm}mm` : '190mm';
-
-  const linhas = items.map((i) => `
-    <tr>
-      <td>${escHtml(i.nome)}</td>
-      <td style="text-align:right">${escHtml(i.quantidade)}</td>
-      <td style="text-align:right">R$ ${i.preco_unitario.toFixed(2)}</td>
-      <td style="text-align:right">R$ ${(i.preco_unitario * i.quantidade).toFixed(2)}</td>
-    </tr>`).join('');
-
-  const linhasPagamento = payments.map((p) => `<div>${escHtml(p.metodo)}: R$ ${p.valor.toFixed(2)}</div>`).join('');
-
-  return `<!doctype html>
-  <html><head><meta charset="utf-8"><style>
-    @page { size: ${isTermica ? `${larguraMm}mm auto` : 'A4'}; margin: ${isTermica ? '2mm' : '15mm'}; }
-    body { font-family: 'Courier New', monospace; font-size: ${fontSize}px; width: ${larguraCss}; margin: 0 auto; padding: ${isTermica ? '4px' : '16px'}; color: #000; }
-    h1 { font-size: ${fontSize + 2}px; text-align: center; margin: 0 0 4px; }
-    .center { text-align: center; }
-    table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-    th, td { padding: 2px 0; font-size: ${fontSize - 1}px; }
-    hr { border: none; border-top: 1px dashed #000; }
-    .total { font-size: ${fontSize + 2}px; font-weight: bold; text-align: right; margin-top: 8px; }
-  </style></head>
-  <body>
-    ${senha ? `<div class="center" style="border:2px solid #000;padding:4px;margin-bottom:6px;"><div style="font-size:${fontSize}px;">SUA SENHA</div><div style="font-size:${fontSize * 3}px;font-weight:bold;line-height:1.1;">${escHtml(senha.numero)}</div>${senha.nome ? `<div>${escHtml(senha.nome)}</div>` : ''}<div style="font-size:${fontSize - 2}px;">Aguarde ser chamado no painel</div></div>` : ''}
-    <h1>${escHtml(location.nome)}</h1>
-    <p class="center">Venda ${escHtml(sale.id.slice(0, 8))} — ${new Date(sale.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</p>
-    <hr>
-    <table>
-      <thead><tr><th style="text-align:left">Item</th><th>Qtd</th><th>Unit.</th><th>Total</th></tr></thead>
-      <tbody>${linhas}</tbody>
-    </table>
-    <hr>
-    ${sale.desconto > 0 ? `<div>Desconto fidelidade: -R$ ${sale.desconto.toFixed(2)}</div>` : ''}
-    ${sale.desconto_gerente > 0 ? `<div>Desconto autorizado: -R$ ${sale.desconto_gerente.toFixed(2)}</div>` : ''}
-    ${sale.taxa_servico_percentual > 0 ? `<div>Taxa de serviço (${sale.taxa_servico_percentual}%): R$ ${calcularTaxaServico(sale, items.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0)).toFixed(2)}</div>` : ''}
-    <div class="total">Total: R$ ${(sale.total - sale.desconto - sale.desconto_gerente).toFixed(2)}</div>
-    ${valorFoiAjustadoManualmente(sale, items) ? '<div style="text-align:right;font-size:' + (fontSize - 2) + 'px">(valor ajustado manualmente após a venda)</div>' : ''}
-    <hr>
-    ${linhasPagamento}
-    ${buildFiscalHtmlBlock(nfce, qrDataUrl)}
-    <hr>
-    <p class="center">${escHtml(rodapeTexto || 'Obrigado pela preferência!')}</p>
-  </body></html>`;
+/**
+ * HTML da nota (recibo) -- o desenho vem do Estúdio de impressão
+ * (impressaoLayout.montarNota). O bloco da NFC-e e a senha do balcão são
+ * fixos: o estúdio não tira.
+ */
+function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha = null, extras = {}) {
+  const somaItens = items.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0);
+  let config = null;
+  try { config = require('./estudioImpressaoService').getConfig('nota'); } catch { config = null; }
+  return require('./impressaoLayout').montarNota(config, {
+    venda: sale,
+    itens: items.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '' })),
+    pagamentos: payments,
+    loja: location,
+    larguraMm,
+    rodape: rodapeTexto,
+    operador: extras.operador || '',
+    cliente: extras.cliente || '',
+    fiscalHtml: buildFiscalHtmlBlock(nfce, qrDataUrl),
+    senha,
+    totalFinal: sale.total - sale.desconto - sale.desconto_gerente,
+    descontoFidelidade: sale.desconto,
+    descontoGerente: sale.desconto_gerente,
+    taxaServicoPercentual: sale.taxa_servico_percentual,
+    taxaServicoValor: calcularTaxaServico(sale, somaItens),
+    ajustadoManualmente: valorFoiAjustadoManualmente(sale, items),
+  });
 }
 
 /** Abre uma janela oculta só com o recibo e dispara o diálogo de
@@ -324,7 +303,15 @@ async function printReceipt(saleId) {
   let senha = null;
   try { senha = db.prepare(`SELECT numero, nome FROM chamadas WHERE sale_id = ? AND status <> 'cancelada'`).get(saleId) || null; } catch { senha = null; }
 
-  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha);
+  const operador = db.prepare('SELECT nome FROM users WHERE id = ?').get(sale.operador_id)?.nome || '';
+  const cliente = sale.customer_id ? (db.prepare('SELECT nome FROM customers WHERE id = ?').get(sale.customer_id)?.nome || '') : '';
+  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha, { operador, cliente });
+  imprimirNoRolo(html, larguraMm);
+  return { ok: true };
+}
+
+/** Imprime HTML de recibo no formato configurado (rolo térmico ou A4). */
+function imprimirNoRolo(html, larguraMm) {
   const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
 
   const isTermica = larguraMm === 58 || larguraMm === 80;
@@ -340,7 +327,17 @@ async function printReceipt(saleId) {
       win.close();
     });
   });
+}
 
+/**
+ * Pré-nota: a conta aberta (balcão ou mesa) para o cliente conferir antes de
+ * pagar. Sem pessoaNumero sai a conta inteira; com ele, só a parte da pessoa.
+ * Não mexe em nada da venda (não envia à cozinha, não fecha conta).
+ */
+async function printPreNota({ saleId, pessoaNumero } = {}) {
+  const r = await require('./estudioImpressaoService').htmlDaPreNota({ saleId, pessoaNumero });
+  if (!r.ok) return r;
+  imprimirNoRolo(r.html, r.larguraMm);
   return { ok: true };
 }
 
@@ -485,4 +482,4 @@ function printDailyMenu(itens) {
   return { ok: true };
 }
 
-module.exports = { printReceipt, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml };
+module.exports = { printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml };
