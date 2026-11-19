@@ -358,6 +358,15 @@ troca e na volta. Total absoluto só em `recontarEstoqueDoGrupo` (botão em
 Configurações → Sincronização, só admin/suporte, só no servidor, depois de
 inventário). Lotes de no máximo 400 escritas (Firestore recusa >500).
 
+**O estoque do grupo não trava a venda (nov/2026, pedido do Arthur).** A
+checagem atômica continua (duas vendas da última unidade: a primeira leva),
+mas se o grupo disser que não tem, a venda fecha com o débito na fila
+(`finalizarComDebitoNaFila`, contador pode ficar negativo) e a divergência vai
+para a Auditoria (`venda_acima_do_estoque_do_grupo`). Serviço e prato feito na
+hora (`tipo = 'servico'`) ficam fora da checagem. Produto sem contador não
+trava nem ganha contador por variação: quem cria é o servidor
+(`garantirContadoresDoGrupo`, ao abrir e a cada 30 min, com o estoque dele).
+
 **Caixas do grupo como extensão um do outro** (`grupoReplicaService.js`,
 migração 13): produtos, clientes e o livro do fiado têm cópia completa em
 cada caixa (continua vendendo sem internet). Coleções do grupo `produtos`,

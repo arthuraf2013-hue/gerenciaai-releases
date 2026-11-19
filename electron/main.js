@@ -352,6 +352,13 @@ app.whenReady().then(() => {
     pushGrupo();
     setInterval(pushGrupo, 15 * 60 * 1000);
 
+    // Estoque do grupo (só no servidor): todo produto com estoque precisa de
+    // contador -- sem ele os outros caixas não tinham com o que conferir.
+    // Cria só os que faltam, com o estoque deste computador.
+    const contadoresGrupo = () => executarSeNaoEstiverRodando('contadoresGrupo', () => require('./services/stockSyncService').garantirContadoresDoGrupo());
+    setTimeout(contadoresGrupo, 60 * 1000);
+    setInterval(contadoresGrupo, 30 * 60 * 1000);
+
     // Vitrine online: publica o catálogo a cada 5 min, só se mudou e só se
     // a Central criou o endereço (ver vitrineService.js).
     require('./services/vitrineService').iniciarPublicacaoContinua();

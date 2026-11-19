@@ -207,7 +207,11 @@ function somarNoContador(db, grupoId, produtoId, delta) {
   ).run(grupoId, produtoId, delta, proximoSeq(db));
 }
 
-/** Variação (entrada, ajuste, devolução...). Cada movimentoId vale uma vez. */
+/**
+ * Variação (entrada, ajuste, devolução...). Cada movimentoId vale uma vez.
+ * Produto sem contador: registra e não cria contador (igual ao Firestore --
+ * quem cria é o servidor, com o estoque dele).
+ */
 function aplicarMovimento(grupoId, { productId, movimentoId, delta }) {
   const db = getDb();
   const d = Number(delta);
@@ -216,6 +220,7 @@ function aplicarMovimento(grupoId, { productId, movimentoId, delta }) {
   db.transaction(() => {
     if (db.prepare('SELECT 1 FROM lan_movimentos WHERE grupo_id = ? AND mov_id = ?').get(grupoId, movimentoId)) return;
     db.prepare('INSERT INTO lan_movimentos (grupo_id, mov_id, produto_id, delta) VALUES (?, ?, ?, ?)').run(grupoId, movimentoId, productId, d);
+    if (!db.prepare('SELECT 1 FROM lan_estoque WHERE grupo_id = ? AND produto_id = ?').get(grupoId, productId)) return;
     somarNoContador(db, grupoId, productId, d);
     aplicado = true;
   })();
@@ -225,7 +230,7 @@ function aplicarMovimento(grupoId, { productId, movimentoId, delta }) {
 /**
  * Venda: confere TODOS os itens e debita de uma vez (better-sqlite3 é
  * síncrono: duas vendas da última unidade nunca passam juntas). Produto
- * sem contador = 0 disponível (igual ao caminho pelo Firestore).
+ * sem contador não trava nem é debitado (o grupo ainda não controla).
  * `operacaoId` repetido (resposta perdida, caixa tentou de novo) não
  * debita duas vezes.
  */
@@ -239,12 +244,13 @@ function verificarEDebitar(grupoId, itens, operacaoId) {
     }
     const faltando = [];
     const ler = db.prepare('SELECT quantidade FROM lan_estoque WHERE grupo_id = ? AND produto_id = ?');
-    for (const it of itens) {
-      const disponivel = ler.get(grupoId, it.productId)?.quantidade || 0;
+    const comContador = itens.filter((it) => ler.get(grupoId, it.productId));
+    for (const it of comContador) {
+      const disponivel = ler.get(grupoId, it.productId).quantidade || 0;
       if (disponivel < it.quantidade) faltando.push(`${it.nome || it.productId} (pede ${it.quantidade}, tem ${disponivel})`);
     }
     if (faltando.length) { resultado = { ok: false, motivo: 'estoque_insuficiente', faltando }; return; }
-    for (const it of itens) somarNoContador(db, grupoId, it.productId, -it.quantidade);
+    for (const it of comContador) somarNoContador(db, grupoId, it.productId, -it.quantidade);
     if (operacaoId) db.prepare('INSERT INTO lan_movimentos (grupo_id, mov_id, produto_id, delta) VALUES (?, ?, NULL, 0)').run(grupoId, `venda:${operacaoId}`);
     resultado = { ok: true, debitado: true };
   })();

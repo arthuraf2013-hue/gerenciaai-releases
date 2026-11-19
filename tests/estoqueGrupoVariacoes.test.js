@@ -166,3 +166,41 @@ test('cancelar item de venda ABERTA não mexe no contador (ele só é debitado n
   assert.equal(r.ok, true, r.error);
   assert.equal(stockSyncService.contarVariacoesPendentes(), 0);
 });
+
+test('prato feito na hora / serviço (tipo servico) não entra na checagem do estoque do grupo', async () => {
+  const ctx = freshTestDb();
+  entrarNoGrupo(ctx.db, { servidor: false });
+  const caldinho = require('crypto').randomUUID();
+  ctx.db.prepare(`INSERT INTO products (id, nome, preco, custo, unidade, tipo, custom_fields) VALUES (?, 'CALDINHO DE CALDEIRADA', 15, 0, 'un', 'servico', '{"feito_na_hora":true}')`).run(caldinho);
+  const pedidos = [];
+  stockSyncService._definirBackendParaTeste({ async verificarEDebitar({ porProduto }) { pedidos.push([...porProduto.keys()]); return { ok: true, debitado: true }; } });
+  const saleId = venderUm(ctx, caldinho, 15);
+  const r = await saleService.finalizeSaleComVerificacaoDeGrupo(saleId);
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(pedidos, [], 'nada a conferir no grupo: só tinha o caldinho');
+});
+
+test('servidor garante contador para todo produto com estoque do grupo (inclusive sem movimento); serviço fica de fora', async () => {
+  const ctx = freshTestDb();
+  const g = grupoFalso();
+  g.lerContadoresExistentes = async () => new Set(g.contador.keys());
+  g.gravarContadores = async (_g, linhas, { somar }) => { for (const l of linhas) g.contador.set(l.product_id, (somar ? g.contador.get(l.product_id) || 0 : 0) + l.total); };
+  stockSyncService._definirBackendParaTeste(g);
+  const comEstoque = createProduct(ctx.db, { nome: 'Cerveja' });
+  addStock(ctx.db, { productId: comEstoque, locationId: ctx.locationId, quantidade: 24, operadorId: ctx.adminId });
+  const semMovimento = createProduct(ctx.db, { nome: 'Água' });
+  const servico = require('crypto').randomUUID();
+  ctx.db.prepare(`INSERT INTO products (id, nome, preco, custo, unidade, tipo) VALUES (?, 'Caldinho', 10, 0, 'un', 'servico')`).run(servico);
+
+  entrarNoGrupo(ctx.db, { servidor: false });
+  assert.equal((await stockSyncService.garantirContadoresDoGrupo()).servidor, false, 'caixa comum não cria contador');
+  entrarNoGrupo(ctx.db, { servidor: true });
+  const r = await stockSyncService.garantirContadoresDoGrupo();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(g.contador.get(comEstoque), 24);
+  assert.equal(g.contador.get(semMovimento), 0);
+  assert.equal(g.contador.has(servico), false);
+  g.contador.set(comEstoque, 5); // o grupo vendeu: a rede de segurança não regrava
+  await stockSyncService.garantirContadoresDoGrupo();
+  assert.equal(g.contador.get(comEstoque), 5);
+});

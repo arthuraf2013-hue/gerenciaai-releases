@@ -64,8 +64,10 @@ test('vendas do período pelo diaISO', () => {
   assert.deepEqual(armazem.vendasDoPeriodo(G, '2026-11-18', '2026-11-19').map((v) => v.id).sort(), ['v2', 'v3']);
 });
 
-test('estoque: débito confere tudo e debita junto; sem contador = 0; operação repetida não debita de novo', () => {
+test('estoque: débito confere tudo e debita junto; sem contador não trava; operação repetida não debita de novo', () => {
   freshTestDb();
+  assert.equal(armazem.aplicarMovimento(G, { productId: 'a', movimentoId: 'm0', delta: 3 }).aplicado, false, 'sem contador: movimento não cria um');
+  armazem.gravarContadores(G, [{ product_id: 'a', total: 0 }, { product_id: 'b', total: 0 }], { somar: true });
   armazem.aplicarMovimento(G, { productId: 'a', movimentoId: 'm1', delta: 3 });
   assert.equal(armazem.aplicarMovimento(G, { productId: 'a', movimentoId: 'm1', delta: 3 }).aplicado, false, 'movimento vale uma vez');
   armazem.aplicarMovimento(G, { productId: 'b', movimentoId: 'm2', delta: 1 });
@@ -73,7 +75,9 @@ test('estoque: débito confere tudo e debita junto; sem contador = 0; operação
   assert.equal(r.ok, false);
   assert.match(r.faltando[0], /Bolo \(pede 2, tem 1\)/);
   assert.equal(armazem.lerContadores(G).get('a'), 3, 'nada debitado se um item falta');
-  assert.equal(armazem.verificarEDebitar(G, [{ productId: 'zz', quantidade: 1 }], 'op0').ok, false, 'sem contador');
+  const semContador = armazem.verificarEDebitar(G, [{ productId: 'zz', quantidade: 1 }], 'op0');
+  assert.equal(semContador.ok, true, 'produto que o grupo ainda não controla não trava a venda');
+  assert.equal(armazem.lerContadores(G).has('zz'), false, 'e não ganha contador de mentira');
   r = armazem.verificarEDebitar(G, [{ productId: 'a', quantidade: 2 }, { productId: 'b', quantidade: 1 }], 'op2');
   assert.equal(r.ok, true);
   assert.equal(armazem.verificarEDebitar(G, [{ productId: 'a', quantidade: 2 }, { productId: 'b', quantidade: 1 }], 'op2').repetido, true);

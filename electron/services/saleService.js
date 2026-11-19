@@ -1333,11 +1333,10 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   // compartilhado (sem estoque próprio de verdade) — incluí-lo bloquearia
   // a venda por falta de "estoque remoto" de um produto que não existe
   // de verdade no grupo de sincronização.
-  const itens = db.prepare(
-    `SELECT si.product_id as productId, si.quantidade, COALESCE(si.nome_personalizado, p.nome) as nome
-     FROM sale_items si JOIN products p ON p.id = si.product_id
-     WHERE si.sale_id = ? AND si.cancelado = 0 AND si.eh_personalizado = 0`
-  ).all(saleId);
+  // Serviço e prato feito na hora (tipo 'servico') também ficam fora: não
+  // têm estoque próprio (quem acaba são os insumos da ficha técnica) -- o
+  // "Caldinho" travava a mesa com "tem 0" no grupo.
+  const itens = itensComEstoqueDoGrupo(db, saleId);
 
   const stockSyncService = require('./stockSyncService');
   // Mesma venda com o mesmo carrinho = mesma operação: se a resposta do
@@ -1347,12 +1346,23 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
   const checagem = await stockSyncService.verificarEDebitarEstoqueRemoto(itens, { operacaoId });
 
   if (!checagem.ok) {
+    // O estoque do GRUPO não trava mais a venda (pedido do Arthur, nov/2026:
+    // mesa travada com "tem 0" no grupo e o produto na prateleira). O
+    // contador do grupo pode estar desatualizado (produto novo, entrada não
+    // lançada no servidor); quem confere de verdade é o estoque deste caixa,
+    // já conferido ao lançar o item. Fecha a venda, o débito vai para a fila
+    // e a divergência fica na Auditoria para o gerente acertar o inventário.
     if (checagem.motivo === 'estoque_insuficiente') {
       db.prepare(
-        `UPDATE sales SET pendente_estoque_grupo = 0, pendente_estoque_tentativas = 0, pendente_estoque_proxima_tentativa = NULL WHERE id = ?`
-      ).run(saleId);
-      return checagem;
+        `INSERT INTO audit_log (id, tipo_evento, sale_id, solicitante_id, motivo, sucesso) VALUES (?, 'venda_acima_do_estoque_do_grupo', ?, ?, ?, 1)`
+      ).run(randomUUID(), saleId, db.prepare('SELECT operador_id FROM sales WHERE id = ?').get(saleId)?.operador_id || null, String(checagem.error || '').slice(0, 300));
+      return finalizarComDebitoNaFila(db, saleId, itens, 'venda acima do estoque do grupo');
     }
+    // Sem cota da nuvem hoje (nuvemDisjuntorService): esperar não adianta
+    // até a cota voltar -- fecha e o débito vai na fila.
+    let semCota = false;
+    try { semCota = require('./nuvemDisjuntorService').status().escritaPausada; } catch { /* sem disjuntor */ }
+    if (semCota) return finalizarComDebitoNaFila(db, saleId, itens, 'venda sem cota da nuvem');
 
     // motivo 'rede' (ou ausente, por segurança -- trata qualquer coisa
     // que não seja estoque insuficiente de verdade como "vale tentar de
@@ -1384,6 +1394,33 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
     db.prepare('UPDATE sales SET estoque_grupo_debitado = 0 WHERE id = ?').run(saleId);
     stockSyncService.estornarDebitoDaVenda(itens, 'finalização não concluída');
   }
+  return resultado;
+}
+
+function itensComEstoqueDoGrupo(db, saleId) {
+  return db.prepare(
+    `SELECT si.product_id as productId, si.quantidade, COALESCE(si.nome_personalizado, p.nome) as nome
+     FROM sale_items si JOIN products p ON p.id = si.product_id
+     WHERE si.sale_id = ? AND si.cancelado = 0 AND si.eh_personalizado = 0 AND p.tipo != 'servico'`
+  ).all(saleId);
+}
+
+/**
+ * Fecha a venda sem a confirmação atômica do grupo e manda o débito para a
+ * fila do estoque do grupo (variação, aplicada uma vez só quando der; o
+ * contador pode ficar negativo e aparece para corrigir no inventário).
+ * O estoque deste caixa já foi conferido ao lançar cada item.
+ */
+function finalizarComDebitoNaFila(db, saleId, itens, motivoFila) {
+  let resultado;
+  try { resultado = finalizeSale(saleId); } catch (err) { resultado = { ok: false, error: err?.message || 'Falha ao finalizar.' }; }
+  if (!resultado?.ok) return resultado;
+  db.prepare(
+    `UPDATE sales SET pendente_estoque_grupo = 0, pendente_estoque_tentativas = 0, pendente_estoque_proxima_tentativa = NULL,
+       estoque_grupo_debitado = 1 WHERE id = ?`
+  ).run(saleId);
+  const stockSyncService = require('./stockSyncService');
+  for (const it of itens) stockSyncService.enfileirarVariacao(it.productId, -Math.abs(Number(it.quantidade)), motivoFila);
   return resultado;
 }
 

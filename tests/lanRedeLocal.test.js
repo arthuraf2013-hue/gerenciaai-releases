@@ -130,10 +130,12 @@ test('caixa em modo rede local: a réplica e o estoque do grupo passam pelo serv
     assert.ok(getDb().prepare(`SELECT 1 FROM products WHERE nome = 'Arroz'`).get(), 'o do servidor entrou neste caixa');
 
     const stock = require('../electron/services/stockSyncService');
-    const semEstoque = await stock.verificarEDebitarEstoqueRemoto([{ productId: id, quantidade: 1, nome: 'Café do Caixa 2' }], { operacaoId: 'x1' });
-    assert.equal(semEstoque.ok, false);
-    assert.equal(semEstoque.motivo, 'estoque_insuficiente');
-    assert.match(semEstoque.error, /Café do Caixa 2/);
+    const semContador = await stock.verificarEDebitarEstoqueRemoto([{ productId: id, quantidade: 1, nome: 'Café do Caixa 2' }], { operacaoId: 'x1' });
+    assert.equal(semContador.ok, true, 'produto sem contador no grupo não trava');
+    const ultima = await stock.verificarEDebitarEstoqueRemoto([{ productId: 'prod-ultima', quantidade: 5, nome: 'Última' }], { operacaoId: 'x2' });
+    assert.equal(ultima.ok, false);
+    assert.equal(ultima.motivo, 'estoque_insuficiente');
+    assert.match(ultima.error, /Última/);
   } finally {
     transporte._definirModoParaTeste('nuvem');
   }

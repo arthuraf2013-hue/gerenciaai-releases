@@ -197,7 +197,7 @@ test('venda pelo celular desligada na configuração é recusada', () => {
   assert.throws(() => criar(ctx, 'venda-10', venda(ctx)), (err) => err.codigo === 'venda_desligada');
 });
 
-test('estoque do grupo recusado de verdade: a venda é desfeita pelo sistema (estoque devolvido) e marcada com erro', async () => {
+test('estoque do grupo dizendo que não tem: a venda do celular fecha mesmo assim (débito na fila, divergência na Auditoria)', async () => {
   const ctx = prepararLoja();
   const { saleId } = criar(ctx, 'venda-11', venda(ctx));
   const original = stockSyncService.verificarEDebitarEstoqueRemoto;
@@ -207,12 +207,10 @@ test('estoque do grupo recusado de verdade: a venda é desfeita pelo sistema (es
   } finally {
     stockSyncService.verificarEDebitarEstoqueRemoto = original;
   }
-  assert.equal(ctx.db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId).status, 'cancelada');
-  assert.equal(estoque(ctx), 10);
+  assert.equal(ctx.db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId).status, 'finalizada');
   const row = ctx.db.prepare('SELECT * FROM mobile_sales WHERE id = ?').get('venda-11');
-  assert.equal(row.status, 'erro');
-  assert.match(row.erro, /Sem estoque no grupo/);
-  assert.ok(ctx.db.prepare(`SELECT 1 FROM audit_log WHERE sale_id = ? AND tipo_evento = 'cancelamento_venda_automatico_sistema'`).get(saleId));
+  assert.equal(row.status, 'finalizada');
+  assert.ok(ctx.db.prepare(`SELECT 1 FROM audit_log WHERE sale_id = ? AND tipo_evento = 'venda_acima_do_estoque_do_grupo'`).get(saleId));
 });
 
 test('falha de REDE no estoque do grupo deixa pendente; quando o ciclo automático finaliza, a reconciliação marca finalizada', async () => {

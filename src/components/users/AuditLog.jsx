@@ -5,6 +5,7 @@ import Icon from '../common/Icon';
 
 const TIPO_LABEL = {
   cancelamento_item: 'Cancelamento de item',
+  venda_acima_do_estoque_do_grupo: 'Venda acima do estoque do grupo (débito na fila)',
   cancelamento_venda: 'Cancelamento de venda',
   devolucao: 'Devolução',
   desconto_manual: 'Desconto manual',

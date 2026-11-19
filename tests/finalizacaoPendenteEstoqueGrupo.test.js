@@ -91,7 +91,7 @@ test('tentativas de rede consecutivas incrementam o contador', async () => {
   assert.equal(sale.pendente_estoque_tentativas, 2);
 });
 
-test('estoque insuficiente DE VERDADE não marca pendência -- não há por que tentar de novo sozinho', async () => {
+test('estoque do GRUPO dizendo que não tem não trava mais a venda: fecha, o débito vai para a fila e fica na Auditoria', async () => {
   const ctx = abrirVendaComItem(freshTestDb());
 
   const result = await comEstoqueRemotoMockado(
@@ -99,16 +99,16 @@ test('estoque insuficiente DE VERDADE não marca pendência -- não há por que 
     () => saleService.finalizeSaleComVerificacaoDeGrupo(ctx.saleId)
   );
 
-  assert.equal(result.ok, false);
-  assert.equal(result.motivo, 'estoque_insuficiente');
-  assert.equal(result.pendente, undefined);
-
-  const sale = ctx.db.prepare('SELECT status, pendente_estoque_grupo FROM sales WHERE id = ?').get(ctx.saleId);
-  assert.equal(sale.status, 'aberta');
-  assert.equal(sale.pendente_estoque_grupo, 0, 'sem pendência marcada -- tentar de novo sozinho não resolveria');
+  assert.equal(result.ok, true, 'a mesa/venda não fica presa por um contador do grupo desatualizado');
+  const sale = ctx.db.prepare('SELECT status, pendente_estoque_grupo, estoque_grupo_debitado FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.status, 'finalizada');
+  assert.equal(sale.pendente_estoque_grupo, 0);
+  assert.equal(sale.estoque_grupo_debitado, 1, 'devolução depois devolve ao grupo');
+  const aud = ctx.db.prepare(`SELECT motivo FROM audit_log WHERE tipo_evento = 'venda_acima_do_estoque_do_grupo' AND sale_id = ?`).get(ctx.saleId);
+  assert.match(aud.motivo, /pede 1, tem 0/);
 });
 
-test('estoque insuficiente DE VERDADE limpa uma pendência de rede anterior (achou o conflito ao tentar de novo)', async () => {
+test('pendência de rede anterior e depois "não tem no grupo": fecha do mesmo jeito e limpa a pendência', async () => {
   const ctx = abrirVendaComItem(freshTestDb());
 
   await comEstoqueRemotoMockado({ ok: false, motivo: 'rede', error: 'offline' }, () =>
@@ -116,14 +116,30 @@ test('estoque insuficiente DE VERDADE limpa uma pendência de rede anterior (ach
   let sale = ctx.db.prepare('SELECT pendente_estoque_grupo FROM sales WHERE id = ?').get(ctx.saleId);
   assert.equal(sale.pendente_estoque_grupo, 1, 'pré-condição: ficou pendente depois da falha de rede');
 
-  await comEstoqueRemotoMockado(
+  const r = await comEstoqueRemotoMockado(
     { ok: false, motivo: 'estoque_insuficiente', error: 'acabou enquanto esperava' },
     () => saleService.finalizeSaleComVerificacaoDeGrupo(ctx.saleId)
   );
-
-  sale = ctx.db.prepare('SELECT pendente_estoque_grupo, pendente_estoque_tentativas FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(r.ok, true);
+  sale = ctx.db.prepare('SELECT status, pendente_estoque_grupo, pendente_estoque_tentativas FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.status, 'finalizada');
   assert.equal(sale.pendente_estoque_grupo, 0);
   assert.equal(sale.pendente_estoque_tentativas, 0);
+});
+
+test('sem cota da nuvem hoje, falha de rede não deixa a venda esperando: fecha e o débito vai na fila', async () => {
+  const disjuntor = require('../electron/services/nuvemDisjuntorService');
+  const ctx = abrirVendaComItem(freshTestDb());
+  disjuntor._zerarParaTeste();
+  disjuntor.registrarFaltaDeCota({ tipo: 'escrita' });
+  try {
+    const r = await comEstoqueRemotoMockado({ ok: false, motivo: 'rede', error: 'quota' }, () =>
+      saleService.finalizeSaleComVerificacaoDeGrupo(ctx.saleId));
+    assert.equal(r.ok, true);
+    assert.equal(ctx.db.prepare('SELECT status FROM sales WHERE id = ?').get(ctx.saleId).status, 'finalizada');
+  } finally {
+    disjuntor._zerarParaTeste();
+  }
 });
 
 test('tentarFinalizarVendasPendentesDeEstoque (forcar) finaliza as pendentes quando a rede volta', async () => {
@@ -168,7 +184,7 @@ test('tentarFinalizarVendasPendentesDeEstoque SEM forcar respeita o backoff -- n
   assert.equal(ctx.db.prepare('SELECT status FROM sales WHERE id = ?').get(ctx.saleId).status, 'aberta');
 });
 
-test('tentarFinalizarVendasPendentesDeEstoque identifica conflito real (estoque acabou enquanto esperava) sem tentar pra sempre', async () => {
+test('tentarFinalizarVendasPendentesDeEstoque: "não tem no grupo" ao tentar de novo fecha a venda (não fica presa)', async () => {
   const ctx = abrirVendaComItem(freshTestDb());
   await comEstoqueRemotoMockado({ ok: false, motivo: 'rede', error: 'offline' }, () =>
     saleService.finalizeSaleComVerificacaoDeGrupo(ctx.saleId));
@@ -178,12 +194,10 @@ test('tentarFinalizarVendasPendentesDeEstoque identifica conflito real (estoque 
     () => saleService.tentarFinalizarVendasPendentesDeEstoque({ forcar: true })
   );
 
-  assert.equal(resultado.finalizadas.length, 0);
-  assert.equal(resultado.comConflito.length, 1);
-  assert.equal(resultado.comConflito[0].id, ctx.saleId);
-  // Não fica tentando pra sempre -- a pendência já foi limpa (ver teste
-  // acima), então um próximo ciclo nem olha mais pra essa venda.
-  const sale = ctx.db.prepare('SELECT pendente_estoque_grupo FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.deepEqual(resultado.finalizadas, [ctx.saleId]);
+  assert.equal(resultado.comConflito.length, 0);
+  const sale = ctx.db.prepare('SELECT status, pendente_estoque_grupo FROM sales WHERE id = ?').get(ctx.saleId);
+  assert.equal(sale.status, 'finalizada');
   assert.equal(sale.pendente_estoque_grupo, 0);
 });
 
@@ -251,7 +265,7 @@ test('getOrOpenCurrentSale ignora venda pendente de confirmação de estoque -- 
   assert.equal(sale.pendente_estoque_grupo, 1);
 });
 
-test('tentarFinalizarVendasPendentesDeEstoque processa uma venda por vez, na ordem de chegada -- a mais antiga nunca perde a última unidade pra uma pendência mais nova', async () => {
+test('tentarFinalizarVendasPendentesDeEstoque processa uma venda por vez, na ordem de chegada -- a mais antiga leva a última unidade, a outra fecha com débito na fila', async () => {
   const ctx = abrirVendaComItem(freshTestDb(), { quantidadeEstoque: 10, quantidadeVenda: 1, preco: 10 });
   // Segunda venda pendente do MESMO produto, criada depois da primeira.
   const { id: saleId2 } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
@@ -281,13 +295,13 @@ test('tentarFinalizarVendasPendentesDeEstoque processa uma venda por vez, na ord
     saleService.tentarFinalizarVendasPendentesDeEstoque({ forcar: true }));
 
   assert.equal(resultado.tentadas, 2);
-  // A venda criada primeiro (ctx.saleId) ganha a unidade; a criada depois
-  // (saleId2) encontra o conflito real de estoque -- nunca as duas ao
-  // mesmo tempo.
-  assert.deepEqual(resultado.finalizadas, [ctx.saleId]);
-  assert.deepEqual(resultado.comConflito.map((c) => c.id), [saleId2]);
+  // A venda criada primeiro (ctx.saleId) ganha a unidade pela checagem
+  // atômica; a criada depois não fica presa: fecha com o débito na fila
+  // (o contador do grupo vai a -1 e aparece para corrigir no inventário).
+  assert.deepEqual(resultado.finalizadas, [ctx.saleId, saleId2]);
+  assert.equal(resultado.comConflito.length, 0);
   assert.equal(ctx.db.prepare('SELECT status FROM sales WHERE id = ?').get(ctx.saleId).status, 'finalizada');
   const sale2 = ctx.db.prepare('SELECT status, pendente_estoque_grupo FROM sales WHERE id = ?').get(saleId2);
-  assert.equal(sale2.status, 'aberta', 'não finalizou, mas também não se perde -- fica aberta pro operador decidir');
-  assert.equal(sale2.pendente_estoque_grupo, 0, 'conflito real -- não marca pra tentar de novo sozinho');
+  assert.equal(sale2.status, 'finalizada');
+  assert.equal(sale2.pendente_estoque_grupo, 0);
 });

@@ -34,8 +34,8 @@ async function pushEstoqueInicial() {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId || !syncStateService.ehServidorDoGrupo()) return { ok: false, error: 'Este computador não é o servidor do grupo.' };
-    const existentes = await backend.lerContadoresExistentes(grupoId);
-    const linhas = totaisLocais();
+    const existentes = await contadoresExistentes(grupoId);
+    const linhas = produtosComEstoqueNoGrupo(grupoId);
     const novos = linhas.filter((l) => !existentes.has(l.product_id));
     const { getDb } = require('../db/database');
     const db = getDb();
@@ -45,6 +45,7 @@ async function pushEstoqueInicial() {
     const filaAntes = db.prepare('SELECT id, product_id FROM estoque_grupo_pendente WHERE grupo_id = ?').all(grupoId)
       .filter((r) => idsNovos.has(r.product_id)).map((r) => r.id);
     if (novos.length > 0) await backend.gravarContadores(grupoId, novos, { somar: true });
+    for (const l of novos) existentes.add(l.product_id);
     const apagar = db.prepare('DELETE FROM estoque_grupo_pendente WHERE id = ?');
     for (const id of filaAntes) apagar.run(id);
     return { ok: true, criados: novos.length, mantidos: linhas.length - novos.length };
@@ -52,6 +53,49 @@ async function pushEstoqueInicial() {
     console.error('[stockSyncService] falha ao mandar o estoque inicial:', err.message);
     return { ok: false, error: 'Não foi possível falar com o grupo agora. Confira a internet e tente de novo.' };
   }
+}
+
+/**
+ * Produtos deste computador (servidor) que controlam estoque e já estão no
+ * grupo, com o estoque local (0 se nunca teve movimento). Serviço e prato
+ * feito na hora (tipo 'servico') não têm estoque próprio -- ficam de fora.
+ */
+function produtosComEstoqueNoGrupo(grupoId) {
+  const { getDb } = require('../db/database');
+  const db = getDb();
+  const totais = new Map(db.prepare('SELECT product_id, COALESCE(SUM(quantidade), 0) AS total FROM stock_movements GROUP BY product_id').all()
+    .map((l) => [l.product_id, l.total]));
+  // Id no grupo = o do documento do produto (grupo_replica); sem vínculo
+  // ainda, o próprio id (igual a idNoGrupo).
+  return db.prepare(
+    `SELECT p.id, r.doc_id FROM products p
+     LEFT JOIN grupo_replica r ON r.entidade = 'produtos' AND r.grupo_id = ? AND r.local_id = p.id
+     WHERE p.ativo = 1 AND p.tipo != 'servico'`
+  ).all(grupoId).map((p) => ({ product_id: p.doc_id || p.id, local_id: p.id, total: totais.get(p.id) || 0 }));
+}
+
+// Quais produtos o grupo já tem contador: lido da nuvem no máximo a cada 6 h
+// (cada leitura custa um documento por produto); no meio, vale o que este
+// computador já sabe e o que ele mesmo criou.
+const RELER_CONTADORES_MS = 6 * 60 * 60 * 1000;
+let cacheContadores = { grupoId: null, conjunto: null, lidoEm: 0 };
+async function contadoresExistentes(grupoId) {
+  if (cacheContadores.grupoId !== grupoId || !cacheContadores.conjunto || Date.now() - cacheContadores.lidoEm > RELER_CONTADORES_MS) {
+    cacheContadores = { grupoId, conjunto: await backend.lerContadoresExistentes(grupoId), lidoEm: Date.now() };
+  }
+  return cacheContadores.conjunto;
+}
+
+/**
+ * Rede de segurança do estoque do grupo (só no servidor, ao abrir e a cada
+ * 30 min): todo produto com estoque que está no grupo precisa de contador.
+ * Antes ele só era criado quando a máquina VIRAVA servidor -- se a internet
+ * (ou a cota) falhasse naquela hora, ou o produto fosse cadastrado depois, o
+ * contador nunca existia e a venda nos outros caixas travava em "tem 0".
+ */
+async function garantirContadoresDoGrupo() {
+  if (!syncStateService.getGrupoSincronizacaoId() || !syncStateService.ehServidorDoGrupo()) return { ok: true, servidor: false };
+  return pushEstoqueInicial();
 }
 
 /**
@@ -104,8 +148,13 @@ let backend = {
     await runTransaction(firestore, async (tx) => {
       const [mov, contador] = await Promise.all([tx.get(movRef), tx.get(contadorRef)]);
       if (mov.exists()) return; // já aplicado numa tentativa anterior (resposta perdida)
-      const atual = contador.exists() ? (contador.data().quantidade || 0) : 0;
-      tx.set(movRef, { delta, motivo: motivo || null, criadoEm: serverTimestamp() });
+      // Produto que o grupo ainda não controla (sem contador): a variação não
+      // cria um contador "de mentira" (ex.: +1 de uma devolução viraria o
+      // estoque inteiro do grupo). Quem cria é o servidor, com o estoque
+      // dele (garantirContadoresDoGrupo), e esse total já inclui isto.
+      tx.set(movRef, { delta, motivo: motivo || null, criadoEm: serverTimestamp(), semContador: !contador.exists() });
+      if (!contador.exists()) return;
+      const atual = contador.data().quantidade || 0;
       tx.set(contadorRef, { quantidade: atual + delta, atualizadoEm: serverTimestamp() }, { merge: true });
     });
   },
@@ -136,7 +185,7 @@ let backend = {
     }
   },
 };
-function _definirBackendParaTeste(b) { backend = { ...backend, ...b }; }
+function _definirBackendParaTeste(b) { backend = { ...backend, ...b }; cacheContadores = { grupoId: null, conjunto: null, lidoEm: 0 }; }
 
 function enfileirarVariacao(productId, delta, motivo) {
   const grupoId = syncStateService.getGrupoSincronizacaoId();
@@ -173,6 +222,7 @@ function registrarMovimentoDoServidor(productId, delta, motivo) {
  */
 function registrarDevolucaoDeVenda(saleId, productId, quantidade) {
   const { getDb } = require('../db/database');
+  if (getDb().prepare('SELECT tipo FROM products WHERE id = ?').get(productId)?.tipo === 'servico') return null; // sem estoque próprio
   const venda = getDb().prepare('SELECT estoque_grupo_debitado FROM sales WHERE id = ?').get(saleId);
   if (venda?.estoque_grupo_debitado === 1 || syncStateService.ehServidorDoGrupo()) {
     return enfileirarVariacao(productId, Math.abs(Number(quantidade)), 'devolução');
@@ -285,7 +335,11 @@ async function verificarEDebitarEstoqueRemoto(itens, { operacaoId = null } = {})
       snapshots.forEach((snap, i) => {
         const { productId } = refs[i];
         const pedido = porProduto.get(productId);
-        const disponivel = snap.exists() ? (snap.data().quantidade || 0) : 0;
+        // Sem contador no grupo (produto novo que o servidor ainda não
+        // cadastrou no estoque do grupo): não trava a venda -- vale o
+        // estoque deste caixa, já conferido ao lançar o item.
+        if (!snap.exists()) return;
+        const disponivel = snap.data().quantidade || 0;
         if (disponivel < pedido.quantidade) {
           faltando.push(`${pedido.nome || productId} (pede ${pedido.quantidade}, tem ${disponivel})`);
         }
@@ -299,9 +353,10 @@ async function verificarEDebitarEstoqueRemoto(itens, { operacaoId = null } = {})
       // uma venda não fica "meio finalizada" com um item debitado e
       // outro não.
       snapshots.forEach((snap, i) => {
+        if (!snap.exists()) return;
         const { productId, ref } = refs[i];
         const pedido = porProduto.get(productId);
-        const disponivel = snap.exists() ? (snap.data().quantidade || 0) : 0;
+        const disponivel = snap.data().quantidade || 0;
         tx.update(ref, { quantidade: disponivel - pedido.quantidade });
       });
     });
@@ -342,7 +397,10 @@ async function verificarEDebitarEstoqueRemoto(itens, { operacaoId = null } = {})
   }
 }
 
+function _zerarCacheParaTeste() { cacheContadores = { grupoId: null, conjunto: null, lidoEm: 0 }; }
+
 module.exports = {
+  garantirContadoresDoGrupo, produtosComEstoqueNoGrupo, enfileirarVariacao, _zerarCacheParaTeste,
   recontarEstoqueDoGrupo,
   pushEstoqueInicial, verificarEDebitarEstoqueRemoto,
   registrarMovimentoDoServidor, registrarDevolucaoDeVenda, estornarDebitoDaVenda,
