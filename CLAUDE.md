@@ -440,6 +440,17 @@ TODO o histórico de vendas (cota queimada); no checkLicense, um "não
 existe" da memória ainda recriaria o documento por cima. E
 `syncStateService.aplicarGrupoDaInstalacao` só mexe no grupo com o campo
 presente: só a Central tira, gravando null (corrigido nov/2026).
+Grupo vazio com rastro no computador volta SOZINHO ao abrir
+(`syncStateService.recuperarGrupoLocal`, chamado no começo da Etapa 1, só
+grava sync_state): último grupo confirmado pela Central
+(`sync_state.ultimo_grupo_id/ultimo_servidor`, v1.0.34+) > `lan_cliente`
+(caixa) > `lan_meta.hub_grupo` (servidor) > `grupo_replica`. Não volta se
+a Central tirou de propósito (`saiu_do_grupo`). Voltar ao mesmo grupo manda
+só o histórico pendente. A escuta da instalação religa sozinha depois de
+erro (2 min; 30 min sem cota) -- antes morria até reabrir o app. Servidor
+da loja: se a nuvem não responder em 2 min, o espelho fica "pronto" com a
+cópia daqui (`PRONTO_SEM_NUVEM_MS`) -- a rede local não depende mais do
+Firebase ter respondido uma vez.
 
 **Histórico do grupo**: espelho da venda leva `status` (cancelada),
 `valorDevolvido`, `ocultaHistorico` e `nomeComputador`; devolução tira a

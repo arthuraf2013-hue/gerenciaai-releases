@@ -319,6 +319,10 @@ app.whenReady().then(() => {
   });
 
   function iniciarEtapa1() {
+    // Grupo de sincronização sumiu daqui (bug até a v1.0.32, com o Firebase
+    // fora/sem cota) mas o computador tem rastro dele: volta antes de ligar
+    // rede local, réplicas e usuários -- sem esperar o Firebase.
+    try { require('./services/syncStateService').recuperarGrupoLocal(); } catch (err) { console.error('[grupo]', err?.message || err); }
     // Limpa o status de download/instalação no Firestore assim que o app
     // sobe — sem isso, depois que o cliente reinicia na versão nova, o
     // painel continuava mostrando "baixado, aguardando reiniciar" pra

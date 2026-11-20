@@ -821,7 +821,13 @@ CREATE TABLE IF NOT EXISTS sync_state (
   -- consulta de estoque na hora de finalizar uma venda, pra impedir
   -- duas máquinas venderem a última unidade do mesmo produto ao mesmo
   -- tempo. Atribuído pelo painel, junto com o grupo.
-  servidor_do_grupo        INTEGER NOT NULL DEFAULT 0
+  servidor_do_grupo        INTEGER NOT NULL DEFAULT 0,
+  -- Último grupo confirmado pela Central / Central tirou de propósito /
+  -- grupo voltou pelo rastro local (syncStateService.recuperarGrupoLocal).
+  ultimo_grupo_id          TEXT,
+  ultimo_servidor          INTEGER NOT NULL DEFAULT 0,
+  saiu_do_grupo            INTEGER NOT NULL DEFAULT 0,
+  grupo_recuperado         INTEGER NOT NULL DEFAULT 0
 );
 
 -- Espelho local dos módulos pagos (Consulta remota, App do garçom) do

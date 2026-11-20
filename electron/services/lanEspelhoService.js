@@ -16,6 +16,11 @@ const armazem = require('./lanArmazemService');
 const disjuntor = require('./nuvemDisjuntorService');
 
 const DIAS_DE_VENDAS = 60;
+// Nuvem que não responde (sem internet, Firebase fora, sem cota): a rede
+// local começa assim mesmo, só com a cópia daqui (o servidor manda o que
+// tem e os caixas o deles); quando a nuvem voltar, as versões acertam.
+// Antes a loja ficava presa no Firebase até ele responder uma vez.
+const PRONTO_SEM_NUVEM_MS = 2 * 60 * 1000;
 const INTERVALO_MS = 5000;
 const LOTE = 400;
 // Fotos (coleção `fotos` da cópia) NÃO sobem para a nuvem: ficam só na
@@ -83,6 +88,7 @@ function _definirNuvemParaTeste(n) { nuvem = { ...nuvem, ...n }; }
 let grupoAtivo = null;
 let paradas = [];
 let relogio = null;
+let prontoSemNuvem = null;
 let subindo = false;
 const contadorSubindo = new Map(); // produto -> último valor visto na nuvem durante a subida (ou undefined)
 const ouvintesPronto = new Set();
@@ -101,11 +107,23 @@ function iniciar(grupoId) {
   parar();
   grupoAtivo = grupoId;
   const faltam = new Set(['produtos', 'clientes', 'fiado', 'usuarios', 'estoque']);
-  const chegou = (nome) => {
-    if (!faltam.delete(nome) || faltam.size) return;
+  const ficarPronto = () => {
     if (!pronto(grupoId)) armazem.gravarMeta(chavePronto(grupoId), '1');
     for (const fn of ouvintesPronto) { try { fn(grupoId); } catch { /* quem escuta se vira */ } }
   };
+  const chegou = (nome) => {
+    if (!faltam.delete(nome) || faltam.size) return;
+    ficarPronto();
+  };
+  if (!pronto(grupoId)) {
+    prontoSemNuvem = setTimeout(() => {
+      prontoSemNuvem = null;
+      if (grupoAtivo !== grupoId || pronto(grupoId)) return;
+      console.warn('[lanEspelho] a nuvem não respondeu: a rede local começa com a cópia deste computador (acerta com a nuvem quando ela voltar).');
+      ficarPronto();
+    }, PRONTO_SEM_NUVEM_MS);
+    prontoSemNuvem.unref?.();
+  }
   const erro = (nome) => (err) => console.error(`[lanEspelho] escuta de ${nome} na nuvem falhou:`, err?.message || err);
 
   for (const colecao of ['produtos', 'clientes', 'fiado', 'usuarios']) {
@@ -143,6 +161,8 @@ function parar() {
   paradas = [];
   if (relogio) clearInterval(relogio);
   relogio = null;
+  if (prontoSemNuvem) clearTimeout(prontoSemNuvem);
+  prontoSemNuvem = null;
   grupoAtivo = null;
 }
 

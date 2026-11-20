@@ -568,6 +568,13 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sales', 'oculta_historico_motivo', 'TEXT');
   adicionarColunaSeFaltando(database, 'security_config', 'exigir_autorizacao_desconto', 'INTEGER NOT NULL DEFAULT 1');
   adicionarColunaSeFaltando(database, 'sync_state', 'servidor_do_grupo', 'INTEGER NOT NULL DEFAULT 0');
+  // Último grupo que a Central confirmou (e se a Central tirou a máquina de
+  // propósito): o grupo volta sozinho ao abrir, sem depender do Firebase --
+  // ver syncStateService.recuperarGrupoLocal.
+  adicionarColunaSeFaltando(database, 'sync_state', 'ultimo_grupo_id', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sync_state', 'ultimo_servidor', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sync_state', 'saiu_do_grupo', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'sync_state', 'grupo_recuperado', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_original', 'REAL');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_por_id', 'TEXT');
   adicionarColunaSeFaltando(database, 'sale_items', 'preco_alterado_motivo', 'TEXT');

@@ -43,6 +43,27 @@ test('espelho: fica pronto quando todas as coleções chegaram da nuvem uma vez'
   espelho.parar();
 });
 
+test('espelho: nuvem que não responde (sem cota) não prende a rede local -- fica pronto em 2 min com a cópia daqui', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  freshTestDb();
+  disjuntor._zerarParaTeste();
+  const n = nuvemFalsa(); // escuta aberta, mas nada chega
+  espelho._definirNuvemParaTeste(n.api);
+  let avisado = 0;
+  const tirar = espelho.aoFicarPronto(() => { avisado++; });
+  espelho.iniciar(G);
+  t.mock.timers.tick(119 * 1000);
+  assert.equal(espelho.pronto(G), false);
+  t.mock.timers.tick(2 * 1000);
+  assert.equal(espelho.pronto(G), true, 'pronto sem a nuvem');
+  assert.equal(avisado, 1, 'avisou o transporte (vira servidor da loja)');
+  // A nuvem volta depois: o que chegar entra pela versão, como sempre
+  n.escutas.produtos(new Map([['p9', { nome: 'Feijão', versaoMs: 3 }]]));
+  assert.equal(armazem.lerTodos(G, 'produtos').get('p9').nome, 'Feijão');
+  espelho.parar();
+  tirar();
+});
+
 test('espelho: sobe o que os caixas gravaram, num lote, e só com cota', async () => {
   freshTestDb();
   disjuntor._zerarParaTeste();

@@ -329,6 +329,14 @@ function contatoComercialLocal() {
 }
 
 let pararEscuta = null;
+const RELIGAR_ESCUTA_MS = 2 * 60 * 1000;
+const RELIGAR_ESCUTA_SEM_COTA_MS = 30 * 60 * 1000;
+let religarEscutaTimer = null;
+function agendarReligarEscuta(ms) {
+  if (religarEscutaTimer) return;
+  religarEscutaTimer = setTimeout(() => { religarEscutaTimer = null; iniciarEscutaTempoReal(); }, ms);
+  religarEscutaTimer.unref?.();
+}
 
 /**
  * Escuta em tempo real o próprio documento da instalação — assim,
@@ -365,11 +373,13 @@ function iniciarEscutaTempoReal() {
         require('./sincronizacaoForcadaService').aoMudarInstalacao(snap.data());
       },
       (err) => {
-        // Erro de conexão/permissão — não derruba nada, só loga. A
-        // checagem periódica continua cobrindo enquanto a escuta não
-        // se restabelece sozinha (o SDK do Firestore tenta reconectar
-        // automaticamente).
-        console.error('[licenseService] escuta em tempo real falhou:', err);
+        // Escuta que dá erro (sem cota, permissão) MORRE no SDK: não volta
+        // sozinha. Antes ficava morta até reabrir o app -- e a máquina não
+        // via a Central (grupo, bloqueio) até lá. Religa depois de um tempo.
+        console.error('[licenseService] escuta em tempo real falhou (religa sozinha):', err?.code || err?.message || err);
+        pararEscuta = null;
+        const semCota = /resource-exhausted|quota/i.test(`${err?.code || ''} ${err?.message || ''}`);
+        agendarReligarEscuta(semCota ? RELIGAR_ESCUTA_SEM_COTA_MS : RELIGAR_ESCUTA_MS);
       }
     );
   } catch (err) {
