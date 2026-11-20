@@ -1,0 +1,26 @@
+/* --- Rede local da loja (Configurações → Sincronização) --- */
+.rede-local { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.rede-local h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 15px; }
+.rede-local-estado {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px;
+  background: var(--color-warning-bg); color: var(--color-warning-text); font-size: 14px; margin-bottom: 8px;
+}
+.rede-local-estado.ok { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-text); }
+.rede-local-ponto { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; background: currentColor; opacity: .7; }
+.rede-local-estado.ok .rede-local-ponto { background: var(--color-primary); opacity: 1; }
+.rede-local-endereco { font-size: 13px; color: var(--color-text-muted); margin: 4px 0 12px; }
+.rede-local-endereco code { font-size: 13px; color: var(--color-text); }
+.rede-local-codigo {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+  padding: 12px 14px; border: 2px dashed var(--color-primary); border-radius: 10px; margin: 8px 0 12px; font-size: 14px;
+}
+.rede-local-codigo-valor {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 26px; font-weight: 800;
+  letter-spacing: 3px; color: var(--color-primary);
+}
+.rede-local-tabela { margin-top: 12px; }
+.rede-local-acoes { text-align: right; }
+.rede-local-dica { margin-top: 10px; }
+.rede-local-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 6px; }
+.rede-local-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rede-local-opcional { color: var(--color-text-muted); font-weight: 400; }

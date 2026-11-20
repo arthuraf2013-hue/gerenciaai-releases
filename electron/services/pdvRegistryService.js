@@ -29,7 +29,12 @@ function getOrCreateDeviceUid() {
 function getSyncStatus() {
   const syncStateService = require('./syncStateService');
   const sincronizacaoAtiva = !!syncStateService.getGrupoSincronizacaoId();
-  return { sincronizacaoAtiva, servidorDoGrupo: sincronizacaoAtiva && syncStateService.ehServidorDoGrupo() };
+  // Progresso das fotos (barra na tela). Nunca derruba o status.
+  let fotos = null;
+  if (sincronizacaoAtiva) {
+    try { fotos = require('./grupoFotoService').progresso(); } catch { fotos = null; }
+  }
+  return { sincronizacaoAtiva, servidorDoGrupo: sincronizacaoAtiva && syncStateService.ehServidorDoGrupo(), fotos };
 }
 
 module.exports = { getOrCreateDeviceUid, getSyncStatus };

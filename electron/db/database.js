@@ -542,6 +542,7 @@ function aplicarMigracoesComSeguranca(database) {
 function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'pessoas', 'INTEGER');
   adicionarColunaSeFaltando(database, 'restaurant_tables', 'reservado_para', 'TEXT');
+  adicionarColunaSeFaltando(database, 'restaurant_tables', 'ordem', 'INTEGER');
   adicionarColunaSeFaltando(database, 'sales', 'taxa_servico_percentual', 'REAL NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sale_items', 'enviado_cozinha', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sale_items', 'observacao', 'TEXT');

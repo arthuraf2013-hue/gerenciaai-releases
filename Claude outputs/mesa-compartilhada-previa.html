@@ -1,0 +1,1799 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Prévia — mesa compartilhada</title><style>
+:root {
+  --color-bg: #f5f7f8;
+  --color-surface: #ffffff;
+  --color-border: #e1e6e8;
+  --color-text: #1c2b30;
+  --color-text-muted: #5c6b70;
+  --color-primary: #0f6e63;
+  --color-primary-hover: #0b544c;
+  --color-danger: #b3402f;
+  --color-danger-hover: #8f3125;
+  --color-warning-bg: #fef3c7;
+  --color-warning-text: #7a5310;
+  --color-critical-bg: #fee2e2;
+  --color-critical-text: #9a2f22;
+  --font-display: 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Segoe UI', system-ui, sans-serif;
+  --radius: 10px;
+}
+
+/* Modo escuro — mesmas variáveis usadas em todo o app, só os valores
+ * mudam, então nenhum outro CSS precisa ser reescrito. Ativado
+ * adicionando data-theme="dark" na tag <html> (ver ThemeContext). */
+:root[data-theme="dark"] {
+  --color-bg: #10201d;
+  --color-surface: #1f312d;
+  --color-border: #3f5b53;
+  --color-text: #eef5f2;
+  --color-text-muted: #aec2ba;
+  --color-primary: #37ab99;
+  --color-primary-hover: #45c2ae;
+  --color-danger: #e0705d;
+  --color-danger-hover: #ea8973;
+  --color-warning-bg: #453a1f;
+  --color-warning-text: #f2ce7a;
+  --color-critical-bg: #46251f;
+  --color-critical-text: #f5a898;
+}
+
+* { box-sizing: border-box; }
+
+/* Barra de rolagem customizada — o padrão do navegador destoava do
+ * resto do app. Funciona em qualquer elemento com rolagem (Chromium). */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text-muted) 45%, transparent);
+  border-radius: 20px; border: 2px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-primary) 60%, transparent);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+/* html/body nunca rolam — só áreas internas específicas rolam
+ * (.main-content, e agora a lista de menu da sidebar). Sem isso, se o
+ * conteúdo de QUALQUER área (ex: sidebar com muitos itens de menu,
+ * numa janela mais baixa) crescer além da altura da tela, a PÁGINA
+ * INTEIRA passa a rolar — e como só .main-content tem fundo claro
+ * "de verdade" da tela (o body por trás é var(--color-bg), que muda
+ * com o tema), rolar a página expõe uma faixa clara por trás da
+ * sidebar escura, lendo como uma quebra de cor bem na borda dela. */
+html, body { height: 100%; overflow: hidden; }
+body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
+
+.pos-screen { display: flex; flex-direction: column; height: 100vh; }
+.pos-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 24px; background: var(--color-primary); color: white;
+}
+.pos-operator { font-size: 14px; opacity: 0.85; }
+.pos-operator-editable {
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.25); border-radius: 6px;
+  color: white; padding: 4px 10px; opacity: 1;
+}
+.pos-operator-editable:hover { background: rgba(255,255,255,0.2); }
+.close-cash-btn {
+  display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,0.12);
+  color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px;
+  padding: 8px 14px; font-size: 14px; font-weight: 600;
+}
+.close-cash-btn:hover { background: rgba(255,255,255,0.22); }
+.pos-header-right { display: flex; align-items: center; gap: 16px; }
+
+.cash-summary { background: var(--color-bg); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
+.cash-summary > div { display: flex; justify-content: space-between; padding: 3px 0; }
+.cash-summary-total { border-top: 1px solid var(--color-border); margin-top: 4px; padding-top: 6px !important; font-size: 14px; color: var(--color-primary); }
+
+.scan-feedback { padding: 12px 24px; color: var(--color-text-muted); font-size: 14px; }
+
+.pos-main-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px; display: flex; flex-direction: column; gap: 18px; }
+.cart-list { list-style: none; margin: 0; padding: 0; }
+.cart-item-obs { font-size: 12px; font-weight: normal; color: var(--color-warning-text); margin-top: 2px; }
+.cart-item-mesa {
+  padding: 14px 4px; border-bottom: 1px solid var(--color-border); cursor: pointer;
+}
+.cart-item-mesa-topo { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.cart-item-mesa-nome { font-size: 15px; }
+.cart-item-mesa-preco { font-weight: 700; white-space: nowrap; }
+.cart-item-mesa-controles { display: flex; align-items: center; gap: 14px; margin-top: 10px; flex-wrap: wrap; }
+.cart-list-mesa-wrapper {
+  margin: 16px 24px; padding: 4px 16px; border: 1px solid var(--color-border); border-radius: var(--radius);
+  background: var(--color-surface); flex: 1; min-height: 0; overflow-y: auto;
+}
+.cart-list-mesa-wrapper .cart-item-mesa:last-child { border-bottom: none; }
+.cart-item-pessoa { font-size: 12px; padding: 4px 6px; width: auto; }
+.screen-section-box { margin: 16px 24px; padding: 12px; border: 1px solid var(--color-border); border-radius: 8px; }
+.customer-filter-box { display: flex; align-items: center; gap: 12px; margin: 4px 0 16px; }
+.customer-filter-input-wrap { position: relative; width: 320px; }
+.customer-filter-suggestions {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin: 4px 0 0; padding: 0; list-style: none;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 220px; overflow-y: auto;
+}
+.customer-filter-suggestions li { padding: 8px 12px; cursor: pointer; }
+.customer-filter-suggestions li:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.customer-report-box { margin: 0 0 20px; padding: 16px; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+
+.scale-live-reading {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  border: 1px solid var(--color-primary); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+}
+.digital-menu-layout { display: flex; gap: 24px; margin-top: 16px; align-items: flex-start; flex-wrap: wrap; }
+.digital-menu-preview { flex: 1; min-width: 320px; }
+.digital-menu-iframe { width: 100%; height: 600px; border: 1px solid var(--color-border); border-radius: var(--radius); background: white; }
+
+.command-palette {
+  background: var(--color-surface); border-radius: 12px; width: 520px; max-width: 90vw;
+  padding: 16px; box-shadow: 0 16px 48px rgba(0,0,0,0.35);
+}
+.command-palette-list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 340px; overflow-y: auto; }
+.command-palette-item {
+  display: block; width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px;
+  background: none; border: none; color: var(--color-text); font-size: 14px;
+}
+.command-palette-item-active { background: var(--color-primary); color: white; }
+.sidebar-shortcut-hint { padding: 0 20px 16px; margin: -10px 0 0; font-size: 11px; color: rgba(255,255,255,0.45); }
+
+.license-block-screen {
+  position: fixed; inset: 0; z-index: 9999; background: var(--color-bg);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+.license-block-card {
+  max-width: 480px; text-align: center; background: var(--color-surface); border-radius: var(--radius);
+  padding: 40px 32px; box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+}
+.license-block-card h1 { color: var(--color-danger); margin-bottom: 12px; }
+.license-block-card p { color: var(--color-text-muted); line-height: 1.5; }
+.license-warning-banner {
+  background: var(--color-warning-bg); color: var(--color-warning-text); text-align: center;
+  padding: 10px 16px; font-size: 14px; font-weight: 600;
+}
+.home-message-banner {
+  position: relative; margin: 0 24px 12px; padding: 12px 40px 12px 16px;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border: 1px solid var(--color-primary); border-radius: var(--radius);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.home-message-item { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.home-message-personalizada { color: var(--color-warning-text); font-weight: 600; }
+.home-message-imagem { max-height: 80px; border-radius: 6px; }
+.home-message-close {
+  position: absolute; top: 8px; right: 10px; background: none; border: none; cursor: pointer;
+  color: var(--color-text-muted); font-size: 14px;
+}
+.update-block-card h1 { color: var(--color-primary) !important; }
+.update-progress-wrap { margin: 16px 0; }
+.update-progress-bar { width: 100%; height: 10px; background: var(--color-bg); border-radius: 6px; overflow: hidden; }
+.update-progress-fill { height: 100%; background: var(--color-primary); transition: width 0.3s; }
+.cart-item {
+  /* 4 colunas: nome, valor, "Editar preço" (só gerente/admin) e "Cancelar".
+   * Com 3, o "Cancelar" de quem é gerente caía numa linha de baixo esticado. */
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 16px; align-items: center;
+  padding: 12px 0; border-bottom: 1px solid var(--color-border);
+}
+
+.pos-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 24px; background: var(--color-surface); border-top: 1px solid var(--color-border);
+}
+.pos-total { font-size: 18px; }
+
+button { font-family: inherit; font-size: 14px; border-radius: var(--radius); border: none; padding: 10px 16px; cursor: pointer; color: var(--color-text); }
+
+.update-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.update-actions button {
+  padding: 16px 24px; font-size: 15px; min-height: 52px; min-width: 200px;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.btn-primary { background: var(--color-primary); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--color-primary-hover); }
+.btn-secondary { background: var(--color-border); color: var(--color-text); }
+.btn-danger { background: var(--color-danger); color: white; }
+.btn-danger:hover:not(:disabled) { background: var(--color-danger-hover); }
+.btn-link-danger {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger); padding: 6px 12px; border-radius: 7px;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.btn-link-danger:hover { background: color-mix(in srgb, var(--color-danger) 22%, transparent); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(15, 30, 32, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+  /* Respiro nas bordas em janela pequena/baixa -- sem isso um modal
+   * mais alto que a tela encostava direto na borda de cima/baixo. */
+  padding: 20px; overflow-y: auto;
+}
+.modal-card {
+  background: var(--color-surface); border-radius: var(--radius); padding: 24px;
+  /* min() em vez de largura fixa -- 380px sobrava numa janela normal,
+   * mas numa janela mais estreita (ou com o teclado/zoom do Windows
+   * aumentado) ficava maior que a área visível e uma parte do card
+   * saía cortada pra fora da tela (mesma causa-raiz do corte de texto
+   * relatado em telas com tabela larga -- ver .main-content abaixo).
+   * max-height + overflow-y: se o formulário dentro for mais alto que
+   * a tela, ele rola por dentro do próprio card em vez de espremer o
+   * botão "Salvar" pra fora da área visível, sem barra de rolagem
+   * nenhuma pra alcançar (o body inteiro tem overflow:hidden). */
+  width: min(380px, 100%); max-height: 90vh;
+  display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+}
+.modal-subtitle { color: var(--color-text-muted); font-size: 13px; margin: 0; }
+.modal-warning { color: var(--color-danger); font-size: 13px; }
+.modal-error { color: var(--color-danger); font-size: 13px; margin: 0; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--color-text-muted); }
+input, select, textarea {
+  font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--color-border);
+  background: var(--color-surface); color: var(--color-text); font-family: inherit;
+}
+input::placeholder, textarea::placeholder { color: var(--color-text-muted); opacity: 1; }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+/* O Chromium (base do Electron) força fundo claro + letra preta em
+   campo com sugestão de preenchimento automático — ignora `color` e
+   `background` normais, só dá pra corrigir com esse truque específico
+   (-webkit-text-fill-color + box-shadow inset simulando o fundo). Sem
+   isso, qualquer campo que já tenha sido preenchido antes (busca de
+   produto, nome de cliente, etc.) fica com letra preta ilegível em
+   cima do fundo escuro do app. */
+input:-webkit-autofill, input:-webkit-autofill:hover,
+input:-webkit-autofill:focus, input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--color-text) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--color-surface) inset !important;
+  caret-color: var(--color-text);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+.payment-panel { display: flex; flex-direction: column; gap: 12px; }
+.payment-summary { display: flex; justify-content: space-between; font-size: 14px; }
+.payment-summary.highlight { font-size: 16px; color: var(--color-primary); }
+.payment-service-charge { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+/* Era um grid de 3 colunas fixas (1.2fr 1fr auto) dentro do modal-card
+ * padrão (380px) -- exatamente o mesmo bug de min-width:auto do
+ * .form-grid (ver comentário lá em cima): numa forma de pagamento com
+ * rótulo mais longo (ex: "Cartão de crédito"), o <select> não encolhia
+ * o suficiente, e o botão "Adicionar" (coluna auto, a última) acabava
+ * empurrado pra fora da largura do card -- literalmente escondido, sem
+ * rolagem nem aviso nenhum. Com flex-wrap, se não couber tudo numa
+ * linha só, o botão desce pra linha de baixo em vez de sumir. */
+.payment-input-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.payment-input-row select { flex: 1 1 130px; min-width: 0; }
+.payment-input-row input { flex: 1 1 90px; min-width: 0; }
+.payment-input-row button { flex: 0 0 auto; }
+.payment-quick-values { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.quick-value-btn {
+  background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);
+  padding: 6px 12px; font-size: 13px; border-radius: 6px;
+}
+.quick-value-btn:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.payment-list { list-style: none; padding: 0; margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.payment-list-item { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; }
+.nfce-box { background: var(--color-bg); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.pix-box { background: var(--color-bg); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.customer-link-box { position: relative; }
+.customer-chip {
+  display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);
+  border-radius: var(--radius); padding: 8px 12px; font-size: 13px;
+}
+.customer-suggestions {
+  list-style: none; margin: 4px 0 0; padding: 4px; background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); position: absolute; z-index: 10; width: 100%; max-height: 160px; overflow-y: auto;
+}
+.customer-suggestions li button { width: 100%; text-align: left; padding: 6px 8px; }
+
+/* --- IA tutora (widget flutuante) --- */
+.tutor-fab {
+  position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; border-radius: 50%;
+  background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.25); z-index: 200;
+}
+.tutor-fab:hover { background: var(--color-primary-dark, var(--color-primary)); transform: scale(1.05); }
+
+.tutor-panel {
+  position: fixed; bottom: 90px; right: 24px; width: 340px; height: 460px; max-height: 70vh;
+  background: var(--color-surface); border-radius: 14px; box-shadow: 0 12px 32px rgba(0,0,0,0.28);
+  display: flex; flex-direction: column; overflow: hidden; z-index: 200;
+}
+.tutor-panel-header {
+  background: var(--color-primary); color: white; padding: 12px 14px; font-size: 13px; font-weight: 600;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.tutor-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.tutor-empty-hint { font-size: 12.5px; color: var(--color-text-muted); line-height: 1.5; margin: 0; }
+.tutor-bubble { max-width: 85%; padding: 8px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.tutor-bubble-user { align-self: flex-end; background: var(--color-primary); color: white; border-bottom-right-radius: 2px; }
+.tutor-bubble-assistant { align-self: flex-start; background: var(--color-bg); color: var(--color-text); border-bottom-left-radius: 2px; }
+.tutor-typing { opacity: 0.6; font-style: italic; }
+.tutor-error { margin: 0 14px 10px; font-size: 12px; }
+.tutor-input-row { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--color-border); }
+.tutor-input-row input { flex: 1; }
+
+.cart-item-name { display: flex; align-items: center; gap: 6px; }
+.cart-alert-wrap { position: relative; display: inline-flex; }
+.cart-alert-icon {
+  display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  border-radius: 50%; font-size: 11px; color: white; cursor: pointer; flex-shrink: 0; border: none; padding: 0;
+}
+.cart-alert-icon:hover { filter: brightness(1.1); }
+.cart-alert-critico { background: var(--color-danger); }
+.cart-alert-aviso { background: #f5a623; }
+
+.cart-alert-popover {
+  position: absolute; top: 26px; left: 0; z-index: 30; width: 260px;
+  background: var(--color-surface); border-radius: 10px; padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.22); text-align: left;
+}
+.cart-alert-popover-title { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.cart-alert-popover-critico { color: var(--color-danger); }
+.cart-alert-popover-aviso { color: var(--color-warning-text); }
+.cart-alert-popover ul { margin: 0; padding-left: 16px; font-size: 12.5px; color: var(--color-text); line-height: 1.5; }
+
+.pix-valor { font-size: 20px; font-weight: 600; color: var(--color-primary); margin: 0; }
+
+.login-screen { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.auth-logo { align-self: center; margin-bottom: 4px; }
+
+/* --- Tour guiado / ajuda --- */
+.help-btn {
+  width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.15);
+  color: white; font-weight: 700; font-size: 13px; padding: 0; display: flex;
+  align-items: center; justify-content: center; flex-shrink: 0;
+}
+.help-btn:hover { background: rgba(255,255,255,0.28); }
+
+.tour-tooltip {
+  position: fixed; z-index: 301; width: 320px; background: var(--color-surface);
+  border-radius: 12px; padding: 18px; box-shadow: 0 12px 32px rgba(0,0,0,0.28);
+  display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 32px); overflow-y: auto;
+}
+.tour-step-count { font-size: 11px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.tour-tooltip h3 { margin: 0; font-size: 16px; }
+.tour-tooltip p { margin: 0; font-size: 13.5px; color: var(--color-text-muted); line-height: 1.5; }
+.tour-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+
+.training-modal {
+  background: var(--color-surface); border-radius: 12px; width: 92vw; height: 92vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.training-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 20px; border-bottom: 1px solid var(--color-border);
+}
+.training-modal-header h2 { margin: 0; font-size: 16px; }
+.training-modal-frame { flex: 1; border: none; width: 100%; }
+
+.pdv-number-badge {
+  display: inline-block; background: var(--color-primary); color: white; font-weight: 700;
+  font-size: 13px; padding: 6px 12px; border-radius: 20px; margin-bottom: 12px;
+}
+.sidebar-pdv-number {
+  align-self: flex-start; background: rgba(255,255,255,0.15); color: white; font-weight: 700;
+  font-size: 11px; padding: 3px 8px; border-radius: 10px; margin-bottom: 2px;
+}
+
+/* --- Layout geral com sidebar --- */
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.sidebar {
+  /* A sidebar tem paleta própria, fixa, que NÃO muda com o tema
+   * claro/escuro do app (só o conteúdo principal reage às variáveis
+   * --color-*). --sidebar-accent é o "verde da própria sidebar",
+   * usado pra destacar o item ativo — antes disso usava
+   * var(--color-primary), que MUDA de tom com o tema (fica bem mais
+   * claro/vibrante no modo escuro) e criava uma faixa de cor
+   * visivelmente destoante, como um remendo de cor diferente dentro
+   * da área verde escura. Com um tom fixo da própria família da
+   * sidebar, o destaque parece parte contínua dela em vez de uma cor
+   * emprestada de outro lugar do app. */
+  --sidebar-accent: #1d5850;
+  width: 220px; flex-shrink: 0; background: #0d2b28; color: white;
+  display: flex; flex-direction: column; padding: 20px 0;
+  /* Trava a sidebar na altura da tela — sem isso, se a lista de menu
+   * (muitos itens) não coubesse na altura da janela, a sidebar (e o
+   * app-shell inteiro) crescia além da viewport e a PÁGINA passava a
+   * rolar, expondo o fundo claro do body por trás bem no fim dela —
+   * lido como uma quebra de cor na borda da barra lateral. Agora,
+   * quem rola internamente (se precisar) é só a lista de menu logo
+   * abaixo, e o resto da sidebar (logo, relógio, rodapé) fica sempre
+   * fixo, com o verde escuro cobrindo 100% da altura sempre. */
+  height: 100vh; overflow: hidden;
+}
+.sidebar-brand { font-size: 18px; font-weight: 600; padding: 0 20px 20px; display: flex; align-items: center; gap: 10px; }
+.sidebar-clock-wrap { padding: 0 20px 16px; }
+
+.clock { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255,255,255,0.75); }
+.clock-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.clock-dot-ok { background: #4ade80; }
+.clock-dot-warn { background: #f5a623; }
+.clock-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.clock-date { opacity: 0.8; }
+.clock-compact { color: rgba(255,255,255,0.9); font-size: 13px; }
+.sidebar > ul { list-style: none; margin: 0; padding: 0; flex: 1; min-height: 0; overflow-y: auto; }
+.nav-group-list { list-style: none; margin: 0; padding: 0; }
+.nav-section-title {
+  /* Vira botão clicável (esquema de gaveta: clica no título da seção
+   * pra mostrar/esconder os itens abaixo) — reset dos estilos padrão
+   * de <button> pra continuar parecendo um rótulo, só que agora com
+   * a seta indicando aberto/fechado. */
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 18px 20px 6px; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35);
+}
+.nav-section-title:hover { color: rgba(255,255,255,0.6); }
+/* O rótulo da seção fica propositalmente apagado (rgba acima), mas o
+ * ícone precisa se destacar mais que isso pra ser reconhecível de
+ * relance -- por isso ganha uma cor própria (definida por ícone em
+ * NAV_ICON_COLOR, no AppShell.jsx, via style inline -- o valor abaixo
+ * só entra como reserva, pra qualquer ícone que fique de fora desse
+ * mapa) em vez de herdar o mesmo currentColor apagado do texto. */
+.nav-section-icon { color: rgba(255,255,255,0.62); }
+.nav-section-arrow { flex-shrink: 0; transition: transform 0.15s ease; }
+.nav-section-arrow-fechado { transform: rotate(-90deg); }
+.nav-item {
+  width: 100%; text-align: left; background: none; color: rgba(255,255,255,0.75);
+  padding: 12px 20px; border-radius: 0; font-size: 14px;
+}
+.nav-item:hover { background: rgba(255,255,255,0.06); }
+/* Mesma ideia do ícone de seção: cor própria vinda de NAV_ICON_COLOR
+ * (inline), mantida igual mesmo com o item ativo -- o valor abaixo é
+ * só a reserva pra ícone fora do mapa. */
+.nav-icon { color: rgba(255,255,255,0.94); }
+.nav-item-active { background: var(--sidebar-accent); color: white; }
+.sidebar-footer {
+  /* Antes tinha um border-top rgba(255,255,255,0.1) aqui — na área já
+   * bem escura da sidebar, essa linha aparecia como uma quebra de cor
+   * nítida separando o menu do rodapé. Trocado por mais respiro
+   * (padding-top maior) em vez de uma linha, pra manter a sidebar
+   * inteira como uma superfície contínua. */
+  padding: 22px 20px 16px;
+  font-size: 12px; display: flex; flex-direction: column; gap: 12px; color: rgba(255,255,255,0.7);
+}
+.sidebar-user { display: flex; align-items: center; gap: 10px; }
+.sidebar-user-switch {
+  /* Agora é um <button> (clicar abre o modal de troca de operador) —
+   * reset dos estilos padrão de botão pra continuar com a mesma cara
+   * de antes, só que com affordance de clique. */
+  width: 100%; background: none; border: none; cursor: pointer; padding: 6px; margin: -6px;
+  border-radius: 8px; text-align: left; font: inherit;
+}
+.sidebar-user-switch:hover { background: rgba(255,255,255,0.08); }
+.sidebar-user-switch:hover .sidebar-user-switch-icon { opacity: 1; }
+.sidebar-user-switch-icon { color: rgba(255,255,255,0.45); opacity: 0; flex-shrink: 0; margin-left: auto; transition: opacity 0.15s ease; }
+.sidebar-user-avatar {
+  width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.12);
+  color: white; display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex-shrink: 0;
+}
+.sidebar-user-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sidebar-user-name { color: white; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-user-role { color: rgba(255,255,255,0.6); font-size: 11px; text-transform: capitalize; }
+.sidebar-footer-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sidebar-footer-actions .theme-toggle-btn { align-self: stretch; justify-content: center; }
+.sidebar-footer-actions .theme-toggle-btn-danger { grid-column: 1 / -1; }
+.theme-toggle-btn.ativo { background: var(--sidebar-accent); border-color: rgba(255,255,255,0.3); color: white; }
+.theme-toggle-btn {
+  display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.85); border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+  padding: 7px 10px; font-size: 12px; text-decoration: none; align-self: flex-start;
+}
+.theme-toggle-btn:hover { background: rgba(255,255,255,0.14); }
+.theme-toggle-btn-danger { align-self: stretch; color: rgba(224,112,93,0.9); border-color: rgba(224,112,93,0.25); }
+.theme-toggle-btn-danger:hover { background: rgba(224,112,93,0.25); border-color: rgba(224,112,93,0.4); color: white; }
+/* min-width: 0 é a correção principal do "texto/modal cortado" relatado
+ * em várias telas: .main-content é filho de um flex row (.app-shell)
+ * mas por padrão um item flex nunca encolhe abaixo da largura mínima do
+ * próprio conteúdo (min-width:auto implícito) -- então bastava UMA
+ * tabela larga (muitas colunas, um <select> ou par de botões numa
+ * célula) ou um parágrafo comprido em qualquer tela pra empurrar
+ * .main-content (e o app-shell inteiro) pra além da largura da janela.
+ * Como html/body ficam com overflow:hidden (ver comentário lá em cima,
+ * necessário por outro motivo), essa sobra ficava simplesmente CORTADA
+ * fora da área visível, sem faixa de rolagem nenhuma pra alcançar --
+ * exatamente o texto cortado na borda direita que aparecia em telas com
+ * tabela larga (inclusive a nova tela de Reservas) e, com uma tela
+ * mais estreita, também no formulário/hint acima. overflow-x: auto
+ * garante que, se AINDA ASSIM algo for largo demais (uma tabela de
+ * verdade não cabendo de jeito nenhum), agora aparece uma barra de
+ * rolagem horizontal local em vez de cortar o conteúdo sem avisar. */
+.main-content { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: auto; padding: 28px; }
+
+/* --- Telas genéricas (produtos, alertas, configurações, usuários) --- */
+.screen-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.screen-actions { display: flex; gap: 10px; }
+.screen-hint { color: var(--color-text-muted); font-size: 13px; margin: 4px 0 16px; }
+.period-selector { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.io-message { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); padding: 10px 14px; border-radius: 8px; font-size: 13px; }
+/* Mesma "caixa" do .io-message, mas com as cores de aviso -- usado pra
+   estados de "esperando algo resolver sozinho" (ex: venda aguardando
+   confirmação de estoque do grupo), que não são nem sucesso nem erro. */
+.io-message-aviso { background: var(--color-warning-bg); color: var(--color-warning-text); padding: 10px 14px; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+
+.search-input { width: 100%; max-width: 360px; margin-bottom: 16px; }
+.pos-search-row .search-input { font-size: 16px; padding: 14px 16px; max-width: none; }
+
+.data-table { width: 100%; border-collapse: collapse; background: var(--color-surface); border-radius: var(--radius); overflow: hidden; }
+.data-table th, .data-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--color-border); font-size: 14px; vertical-align: middle; }
+.data-table th { background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface)); font-size: 12px; text-transform: uppercase; color: var(--color-text-muted); }
+/* Célula de ações (Editar/Excluir/Devolver etc.) -- os botões ficam
+ * soltos, um do lado do outro, direto na <td> (sem wrapper com gap),
+ * então sem isso eles colavam uns nos outros em qualquer tela com
+ * mais de uma ação por linha (Histórico, Produtos, Clientes,
+ * Usuários...). margin-right em vez de gap porque não dá pra mudar a
+ * <td> pra display:flex sem afetar o alinhamento vertical do resto. */
+.data-table td .btn-link, .data-table td .btn-link-danger { margin-right: 8px; }
+.text-danger { color: var(--color-danger); font-weight: 600; }
+
+.dashboard-stats { display: flex; gap: 14px; margin-bottom: 22px; }
+.stat-card {
+  flex: 1; background: var(--color-surface); border-radius: var(--radius); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.stat-card span { font-size: 12px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.stat-card strong { font-size: 22px; color: var(--color-primary); }
+
+.dashboard-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.bar-row { display: grid; grid-template-columns: 70px 1fr 70px; align-items: center; gap: 10px; margin-bottom: 8px; }
+.bar-label { font-size: 12px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { background: var(--color-bg); border-radius: 6px; height: 14px; overflow: hidden; }
+.bar-fill { background: var(--color-primary); height: 100%; border-radius: 6px; }
+.bar-fill-gold { background: var(--gold, #d9a84e); }
+.bar-value { font-size: 12px; text-align: right; font-weight: 600; }
+.row-warning { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.badge-warning {
+  background: var(--color-warning-bg); color: var(--color-warning-text); padding: 2px 8px;
+  border-radius: 999px; display: inline-block; white-space: nowrap;
+}
+.row-critical { background: var(--color-critical-bg); color: var(--color-critical-text); }
+
+.btn-link {
+  /* Antes era só texto sublinhado (background:none + text-decoration)
+   * — em telas de lista (Produtos, Vendas, Usuários etc.) isso lia
+   * mal como botão de ação (Editar, Ajustar estoque, Excluir...).
+   * Agora tem fundo leve + cantos arredondados, como um botão
+   * compacto de verdade, mantendo o tamanho pequeno pra caber em
+   * linha de tabela. */
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary); padding: 6px 12px; border-radius: 7px;
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.btn-link:hover { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+/* Exceção: dentro da lista de sugestão de cliente (busca por nome no
+ * pagamento), o <button class="btn-link"> representa uma LINHA de
+ * lista clicável, não uma ação secundária — o estilo de botão/pill
+ * ficaria estranho ali (uma lista inteira de pills coloridos em vez
+ * de nomes). Mantém como item de lista normal, só com destaque no
+ * hover, igual ao padrão usado no menu de ações (dropdown-menu-item). */
+.customer-suggestions li button {
+  width: 100%; text-align: left; padding: 6px 8px; border-radius: 6px;
+  background: none; color: var(--color-text); font-weight: 400;
+}
+.customer-suggestions li button:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+
+.product-form { display: flex; flex-direction: column; gap: 14px; }
+.product-photo-section { display: flex; align-items: center; gap: 16px; }
+.product-photo-preview { width: 84px; height: 84px; border-radius: 12px; object-fit: cover; border: 1px solid var(--color-border); }
+.product-photo-placeholder { display: flex; align-items: center; justify-content: center; background: var(--color-bg); color: var(--color-text-muted); font-size: 12px; }
+.product-photo-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* minmax(0, 1fr) em vez de 1fr puro -- 1fr sozinho ainda respeita a
+ * largura mínima "de conteúdo" de cada célula (o mesmo bug de
+ * min-width:auto do flexbox, só que pro grid): um <input> ou <select>
+ * um pouco mais largo empurrava a coluna (e o modal-card inteiro) pra
+ * fora da largura definida, cortando a borda do formulário pra fora da
+ * tela em vez de simplesmente cada coluna ficar mais estreita. */
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.form-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.modal-card-wide { width: min(640px, 100%); max-width: 94vw; max-height: 85vh; overflow-y: auto; }
+.modal-card-fullscreen {
+  width: 95vw; height: 92vh; max-width: none; max-height: none;
+  display: flex; flex-direction: column;
+}
+.modal-card-fullscreen-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* --- Produto personalizado (CustomItemBuilder) --- */
+.custom-item-linhas { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+.custom-item-linha {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 10px;
+}
+.custom-item-linha-busca { position: relative; flex: 2 1 220px; min-width: 0; }
+.custom-item-linha-busca input { width: 100%; }
+.custom-item-modo-toggle { display: flex; gap: 4px; flex: 0 0 auto; }
+.btn-toggle-active { background: var(--color-primary); color: white; }
+.custom-item-qtd { flex: 1 1 110px; min-width: 0; font-size: 12.5px; }
+.custom-item-qtd input { width: 100%; }
+
+.settings-tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+/* Cada seção de Configurações vira um card próprio (mesma linguagem visual
+ * de .stat-card/.data-table/.nfce-box no resto do app) -- antes disso, as
+ * ~20 seções da tela ficavam todas soltas no mesmo fundo, sem separação
+ * visual nenhuma além do espaçamento e do <h2>. */
+.settings-section {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 20px 22px; margin-bottom: 18px;
+}
+.settings-section h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; margin: 0 0 4px; }
+/* Linha de botões de ação dentro de uma seção -- padroniza o que antes
+ * era repetido como style inline (display:flex, gap:10, flexWrap:wrap)
+ * em cada seção separadamente. */
+.settings-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.field-label { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; margin: 0 0 2px; }
+.tables-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-top: 16px; }
+.table-card {
+  border-radius: var(--radius); padding: 18px 14px; display: flex; flex-direction: column; gap: 8px;
+  align-items: center; text-align: center; cursor: pointer; border: 2px solid transparent;
+}
+.table-card-livre { background: var(--color-surface); border-color: var(--color-border); }
+.table-card-livre:hover { border-color: var(--color-primary); }
+.table-card-ocupada { background: color-mix(in srgb, var(--color-danger) 16%, var(--color-surface)); border-color: var(--color-danger); cursor: pointer; }
+.table-card-aguardando_limpeza { background: var(--color-warning-bg); border-color: color-mix(in srgb, var(--color-warning-text) 40%, transparent); cursor: default; }
+.table-card-reservada { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); border-color: var(--color-primary); }
+.table-card-numero { font-size: 17px; font-weight: 700; }
+.table-card-status { font-size: 13px; color: var(--color-text-muted); }
+.table-card-excluir {
+  font-size: 12px; font-weight: 600; color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  border: none; border-radius: 6px; padding: 3px 8px;
+}
+.table-card-excluir:hover { background: color-mix(in srgb, var(--color-danger) 22%, transparent); }
+.table-card-actions { display: flex; gap: 10px; }
+.table-card-action {
+  font-size: 12px; font-weight: 600; color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  border: none; border-radius: 6px; padding: 3px 8px;
+}
+.table-card-action:hover { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+.table-card-tempo-longo { color: var(--color-warning-text); font-weight: 600; }
+/* Indicador de reserva feita pelo chatbot do WhatsApp, vinculada a essa
+ * mesa (ver ReservasScreen) -- independente do status.reservada nativo
+ * da mesa (table-card-reservada acima), os dois convivem: uma mesa
+ * "livre" hoje pode já ter uma reserva vinculada pra daqui a 3 dias. */
+.table-reserva-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px; line-height: 1.4;
+}
+.table-reserva-badge-pendente { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.table-reserva-badge-aguardando_confirmacao { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); color: var(--color-primary); }
+.table-reserva-badge-confirmada { background: var(--color-primary); color: white; }
+/* Mesa compartilhada (mesas do servidor do grupo pela rede local). */
+.mesa-compartilhada-aviso {
+  display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 8px 12px; font-size: 13px;
+  border-radius: var(--radius); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); color: var(--color-text);
+}
+.mesa-tela .mesa-compartilhada-aviso { margin: 8px 24px 0; }
+.mesa-compartilhada-recebendo { background: var(--color-warning-bg); border-color: color-mix(in srgb, var(--color-warning-text) 40%, transparent); }
+.mesa-compartilhada-sem-servidor p { margin: 0 0 8px; }
+.mesa-compartilhada-acoes { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.table-card-pagando {
+  font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 999px; display: inline-flex; flex-wrap: wrap;
+  align-items: center; justify-content: center; gap: 6px; background: var(--color-warning-bg); color: var(--color-warning-text);
+}
+.table-card-pagando-aqui { background: var(--color-primary); color: white; }
+.mesas-daqui { margin-top: 18px; padding: 12px 14px; border: 1px dashed var(--color-border); border-radius: var(--radius); }
+.mesas-daqui h2 { font-size: 15px; margin: 0 0 2px; }
+.mesas-daqui .tables-grid { margin-top: 10px; }
+.mesa-catalogo-fechando { display: flex; align-items: center; justify-content: center; }
+.mesa-catalogo-fechando .empty-state { max-width: 360px; text-align: center; }
+
+.profile-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.profile-card {
+  flex: 1; min-width: 200px; text-align: left; background: var(--color-surface); border: 2px solid var(--color-border);
+  border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 6px;
+}
+.profile-card-active { border-color: var(--color-primary); }
+.profile-card span { font-size: 12px; color: var(--color-text-muted); }
+.profile-card-actions { display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.profile-card-new {
+  align-items: center; justify-content: center; color: var(--color-text-muted); border-style: dashed;
+  cursor: pointer;
+}
+.profile-editor { margin-top: 18px; background: var(--color-bg); padding: 18px; border-radius: var(--radius); }
+.profile-editor h3 { margin-top: 0; }
+.profile-editor h4 { margin-bottom: 2px; }
+.campo-extra-row {
+  display: grid; grid-template-columns: 1fr 140px 110px auto; gap: 10px; align-items: center; margin-bottom: 8px;
+}
+.campo-extra-obrigatorio { display: flex; align-items: center; gap: 6px; font-size: 12.5px; flex-direction: row !important; }
+.inline-form { display: flex; align-items: flex-end; gap: 12px; }
+
+.empty-state { color: var(--color-text-muted); font-size: 14px; }
+.alert-section { margin-bottom: 24px; }
+
+/* --- Navegador de categorias e grade de produtos (PDV) --- */
+.category-browser { display: flex; flex-direction: column; gap: 12px; }
+.category-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.category-btn {
+  background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);
+  font-size: 15px; padding: 12px 20px; border-radius: 24px; display: flex; align-items: center; gap: 8px;
+}
+.category-btn-active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+.category-count { font-size: 12.5px; opacity: 0.7; }
+
+.product-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px;
+}
+.product-grid-compacto { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.product-grid-compacto .product-card { padding: 6px; gap: 3px; }
+.product-grid-compacto .product-card-name { font-size: 11px; }
+.product-grid-compacto .product-card-price { font-size: 11px; }
+.product-card {
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  padding: 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+}
+.product-card:hover { border-color: var(--color-primary); }
+.product-card-name { font-size: 12.5px; line-height: 1.3; }
+.product-card-price { font-size: 13px; font-weight: 600; color: var(--color-primary); }
+.product-card-stock { font-size: 10.5px; color: var(--color-text-muted); }
+.product-card-stock-baixo { color: var(--color-warning-text); font-weight: 600; }
+.product-card-stock-zerado { color: var(--color-danger); font-weight: 600; }
+
+.product-thumb { border-radius: 10px; object-fit: cover; }
+.product-thumb-placeholder {
+  background: var(--color-bg); color: var(--color-text-muted); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-weight: 700;
+}
+
+/* --- Faixa de vendidos recentemente --- */
+.recent-strip { padding: 10px 24px; border-top: 1px solid var(--color-border); background: var(--color-surface); }
+.recent-strip-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-text-muted); }
+.recent-strip-items { display: flex; gap: 10px; overflow-x: auto; padding-top: 8px; }
+.recent-item {
+  background: none; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 56px; flex-shrink: 0;
+}
+.recent-item-name { font-size: 10.5px; color: var(--color-text-muted); max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Melhorias do PDV --- */
+.pos-search-row { padding: 0 24px; margin-top: 8px; display: flex; gap: 10px; align-items: flex-start; }
+.pos-search-row .product-search { flex: 1; }
+.qty-stepper {
+  display: flex; align-items: stretch; flex-shrink: 0; border: 1px solid var(--color-border);
+  border-radius: 8px; overflow: hidden; background: var(--color-surface); height: 52px;
+}
+.qty-stepper-input {
+  width: 44px; border: none; text-align: center; font-size: 16px; background: transparent;
+  color: var(--color-text); padding: 0;
+}
+.qty-stepper-input:focus { outline: none; box-shadow: none; }
+.qty-stepper-buttons { display: flex; flex-direction: column; border-left: 1px solid var(--color-border); }
+.qty-stepper-btn {
+  flex: 1; width: 26px; padding: 0; border: none; border-radius: 0; background: var(--color-surface);
+  color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.qty-stepper-btn:first-child { border-bottom: 1px solid var(--color-border); }
+.qty-stepper-btn:hover { background: var(--color-primary); color: white; }
+.connection-dot { font-size: 12px; font-weight: 600; margin-left: 12px; vertical-align: middle; }
+.connection-dot-ok { color: #2E9C59; }
+.connection-dot-off { color: var(--color-danger); }
+.pos-attach-btn { white-space: nowrap; }
+.combo-suggestion {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--color-warning-bg); color: var(--color-warning-text);
+  padding: 10px 16px; margin: 0 0 10px; border-radius: var(--radius); font-size: 13px;
+}
+.keyboard-key {
+  display: inline-block; padding: 4px 10px; border-radius: 6px;
+  background: var(--color-primary); color: white; font-size: 13px; font-weight: 600;
+  font-family: ui-monospace, monospace; white-space: nowrap;
+}
+.dropdown-menu-wrap { position: relative; display: inline-block; }
+.dropdown-menu-caret { font-size: 11px; }
+.dropdown-menu-list {
+  position: absolute; top: 100%; right: 0; z-index: 20; margin: 4px 0 0;
+  min-width: 240px; padding: 6px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.dropdown-menu-item {
+  display: block; width: 100%; text-align: left; padding: 9px 10px; border-radius: 6px;
+  background: none; border: none; color: var(--color-text); font-size: 14px; cursor: pointer;
+}
+.dropdown-menu-item:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.dropdown-menu-item:disabled { opacity: 0.5; cursor: not-allowed; }
+.dropdown-menu-item:disabled:hover { background: none; }
+.dropdown-menu-item-danger { color: var(--color-danger); }
+.dropdown-menu-item-danger:hover { background: color-mix(in srgb, var(--color-danger) 10%, var(--color-surface)); }
+.dropdown-menu-separator { height: 1px; background: var(--color-border); margin: 4px 2px; }
+.product-search { position: relative; }
+.product-search-results {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 10; margin-top: 4px;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  list-style: none; padding: 4px; max-height: 240px; overflow-y: auto;
+}
+.product-search-results button {
+  width: 100%; display: flex; justify-content: space-between; background: none; text-align: left; padding: 8px 10px;
+}
+.product-search-results button:hover { background: var(--color-bg); }
+.product-search-result-active { background: var(--color-bg); }
+.product-search-price { color: var(--color-text-muted); }
+.product-search-group-label { padding: 6px 10px; font-size: 12px; color: var(--color-text-muted); font-weight: 600; }
+.product-search-name-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 0; }
+.product-search-stock { font-size: 11px; color: var(--color-text-muted); }
+.product-search-stock-baixo { color: var(--color-warning-text); font-weight: 600; }
+.product-search-stock-zerado { color: var(--color-danger); font-weight: 600; }
+
+.product-search-results-blocks {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px;
+  max-height: 320px;
+}
+.product-search-results-blocks .product-card { width: 100%; }
+.product-card-personalizado {
+  border-style: dashed; border-color: var(--color-primary); border-width: 2px;
+}
+.product-card-personalizado-icon { font-size: 22px; }
+.product-search-result-personalizado {
+  color: var(--color-primary); font-weight: 600;
+}
+
+.scan-feedback { padding: 6px 24px 12px; font-size: 14px; border-radius: 0; }
+.scan-feedback-info { color: var(--color-text-muted); }
+.scan-feedback-success { color: var(--color-primary); font-weight: 500; }
+.scan-feedback-error { color: var(--color-danger); font-weight: 500; }
+
+.cart-item { cursor: pointer; }
+.cart-item-selected { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); border-radius: 6px; }
+.pos-shortcuts-hint { font-size: 12px; color: var(--color-text-muted); margin-right: auto; }
+.pos-actions { display: flex; align-items: center; gap: 12px; }
+
+.attachment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.attachment-item { padding: 10px; background: var(--color-bg); border-radius: 8px; }
+.attachment-row { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.attachment-actions { display: flex; gap: 4px; }
+.attachment-status { font-size: 12px; color: var(--color-text-muted); margin: 6px 0 0; }
+.attachment-extraction { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border); }
+.attachment-extraction-hint { font-size: 11px; color: var(--color-text-muted); margin: 0 0 6px; font-style: italic; }
+.attachment-extraction dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: 12px; }
+.attachment-extraction dt { color: var(--color-text-muted); }
+.attachment-extraction dd { margin: 0; }
+
+/* Modo leve (máquina de entrada -- ver src/utils/modoLeve.js): sem
+   transições nem rolagem animada, que redesenham a tela quadro a quadro
+   numa placa de vídeo integrada fraca. Animações de carregamento
+   (spinners) continuam -- sem elas, um carregamento parece travamento. */
+.modo-leve *, .modo-leve *::before, .modo-leve *::after {
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* Primeiros passos da implantação (Configurações) */
+.primeiros-passos-barra { height: 6px; border-radius: 3px; background: var(--color-border); margin: 10px 0 12px; overflow: hidden; }
+.primeiros-passos-barra span { display: block; height: 100%; background: var(--color-primary); }
+.primeiros-passos-lista { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px 16px; }
+.primeiros-passos-lista li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--color-text); }
+.primeiros-passos-lista li svg { margin-top: 2px; color: var(--color-warning-text); flex-shrink: 0; }
+.primeiros-passos-lista li.feito { color: var(--color-text-muted); }
+.primeiros-passos-lista li.feito svg { color: var(--color-primary); }
+.primeiros-passos-lista small { color: var(--color-text-muted); }
+
+/* Por que o resultado mudou (Painel) */
+.explicacao-manchete { font-size: 16px; font-weight: 600; margin: 4px 0 12px; color: var(--color-text); }
+.explicacao-efeitos { display: grid; gap: 8px; max-width: 640px; }
+.explicacao-efeito { display: grid; grid-template-columns: 170px 1fr 110px; align-items: center; gap: 10px; font-size: 13px; }
+.explicacao-efeito strong { text-align: right; font-variant-numeric: tabular-nums; }
+.explicacao-trilho { height: 8px; background: var(--color-border); border-radius: 4px; overflow: hidden; }
+.explicacao-trilho span { display: block; height: 100%; border-radius: 4px; }
+.explicacao-trilho span.pos { background: var(--color-primary); }
+.explicacao-trilho span.neg { background: var(--color-danger); }
+.explicacao-frases { margin: 12px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; color: var(--color-text); }
+
+/* Migrar do sistema antigo (MigracaoModal.jsx) */
+.migracao-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.migracao-passos { display: flex; gap: 6px; list-style: none; padding: 0; margin: 8px 0 0; flex-wrap: wrap; }
+.migracao-passos li { font-size: 12px; font-weight: 600; color: var(--color-text-muted); padding: 4px 10px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface)); }
+.migracao-passos li.atual { background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface)); color: var(--color-primary); }
+.migracao-inicio { max-width: 720px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; line-height: 1.5; }
+.migracao-lista { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.migracao-tipo { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.migracao-tipo > span { font-weight: 600; font-size: 14px; }
+.migracao-tipo button { display: inline-flex; align-items: center; gap: 6px; }
+.migracao-colunas select { width: 100%; max-width: 320px; }
+.migracao-colunas td:first-child { font-weight: 600; white-space: nowrap; }
+.migracao-exemplo { color: var(--color-text-muted); font-size: 13px; max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.migracao .obrigatorio { color: var(--color-danger); }
+.migracao-previa td { font-size: 13px; }
+.migracao-obs { color: var(--color-text-muted); max-width: 320px; }
+.row-critical .migracao-obs { color: inherit; }
+.chip-situacao { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.chip-novo { background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface)); color: var(--color-primary); }
+.chip-atualizar { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.chip-erro { background: color-mix(in srgb, var(--color-danger) 18%, var(--color-surface)); color: var(--color-danger); }
+.stat-card strong.valor-erro { color: var(--color-danger); }
+
+/* Teste grátis (LicenseGate.jsx) */
+.license-trial-banner {
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); color: var(--color-primary);
+  text-align: center; padding: 8px 16px; font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
+}
+.license-trial-banner a { color: inherit; text-decoration: underline; }
+.license-trial-banner-final { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.teste-fim-titulo { color: var(--color-primary) !important; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 24px; }
+.teste-fim-botao { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; padding: 12px 20px; border-radius: 10px; text-decoration: none; font-weight: 700; }
+
+/* Vitrine online (VitrineOnline.jsx) */
+.vitrine-link { display: flex; gap: 16px; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px 16px; max-width: 760px; }
+.vitrine-link img { border-radius: 8px; background: #fff; padding: 4px; flex-shrink: 0; }
+.vitrine-link-url { font-weight: 700; color: var(--color-primary); word-break: break-all; }
+.vitrine-link .btn-secondary { display: inline-flex; align-items: center; gap: 6px; }
+.vitrine-demo { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--color-border); }
+.vitrine-demo h3 { margin: 0; font-size: 15px; }
+.vitrine-demo .vitrine-link + .vitrine-link { margin-top: 10px; }
+.vitrine-link a.btn-secondary { padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--color-text); }
+
+/* Pix automático (PaymentPanel.jsx) */
+.pix-aguardando { display: flex; align-items: center; gap: 8px; margin: 0; font-weight: 600; color: var(--color-primary); }
+.pix-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--color-border); border-top-color: var(--color-primary); animation: pix-girar .8s linear infinite; }
+@keyframes pix-girar { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pix-spinner { animation: none; } }
+/* ERP, Fase 1 -- notas de compra (XML) e pedidos de compra */
+.chip-neutro { background: color-mix(in srgb, var(--color-text-muted) 16%, var(--color-surface)); color: var(--color-text-muted); }
+.erp-bloqueado { max-width: 640px; }
+.nfe-itens td { font-size: 13px; }
+.nfe-item-codigos { font-size: 12px; color: var(--color-text-muted); margin-top: 2px; }
+.nfe-item-ignorado td { color: var(--color-text-muted); text-decoration: line-through; }
+.nfe-item-ignorado td:last-child { text-decoration: none; }
+.nfe-rodape { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; margin-top: 20px; align-items: start; }
+.nfe-rodape .settings-section { margin: 0; }
+.nfe-opcoes-pagamento { display: flex; flex-direction: column; gap: 8px; }
+.nfe-opcao { flex-direction: row; align-items: center; gap: 8px; color: var(--color-text); font-size: 14px; }
+.nfe-opcao input[type="radio"] { width: auto; margin: 0; }
+/* ERP, Fases 2 a 4 -- financeiro, inventário e fiscal */
+.erp-duas-colunas { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.erp-duas-colunas .settings-section { margin-bottom: 18px; }
+.erp-grafico { width: 100%; height: auto; display: block; }
+.erp-grafico-grade { stroke: var(--color-border); stroke-width: 1; }
+.erp-grafico-zero { stroke: var(--color-danger); stroke-width: 1; stroke-dasharray: 4 3; }
+.erp-grafico-linha { fill: none; stroke: var(--color-primary); stroke-width: 2.5; stroke-linejoin: round; }
+.erp-grafico-prevista { stroke-dasharray: 6 5; opacity: 0.8; }
+.erp-grafico-rotulo { fill: var(--color-text-muted); font-size: 12px; }
+.erp-linha-prevista td { color: var(--color-text-muted); }
+.erp-dre td, .erp-dre th { white-space: nowrap; }
+.erp-dre-total td { font-weight: 700; background: color-mix(in srgb, var(--color-primary) 7%, var(--color-surface)); }
+.erp-dre-sub { padding-left: 28px !important; color: var(--color-text-muted); }
+.erp-dre-info td { color: var(--color-text-muted); font-style: italic; }
+.erp-pct { color: var(--color-text-muted); font-weight: 400; font-size: 12px; }
+.erp-problemas { display: flex; flex-wrap: wrap; gap: 4px; }
+.erp-lista { margin: 4px 0 0; padding-left: 20px; line-height: 1.7; font-size: 14px; }
+.erp-aviso { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 8px; background: var(--color-critical-bg); }
+.erp-barras-mes { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin-top: 18px; }
+.erp-barra-mes { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.erp-barra-mes-valor { width: 100%; background: var(--color-primary); border-radius: 4px 4px 0 0; opacity: 0.85; }
+.erp-barra-mes span { font-size: 11px; color: var(--color-text-muted); }
+@media (max-width: 1100px) { .erp-duas-colunas { grid-template-columns: 1fr; } }
+
+/* Glossário (ERP, terceira leva): termo com explicação ao passar o mouse e a lista da aba Glossário. */
+.termo-glossario { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }
+.glossario-lista { margin: 0; display: grid; gap: 10px; }
+.glossario-item { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface, transparent); }
+.glossario-item dt { font-weight: 700; margin-bottom: 4px; }
+.glossario-item dd { margin: 0; color: var(--color-text-muted); font-size: 14px; line-height: 1.45; }
+/* Tela Caixa */
+.caixa-mov-sangria { color: var(--color-danger, #c62828); }
+.caixa-mov-suprimento { color: var(--color-success, #2e7d32); }
+
+/* Restaurante: mesas unidas (TableOrderScreen / RestaurantTables). */
+.mesa-unidas-titulo { font-size: 15px; font-weight: 400; color: var(--color-text-muted); }
+.mesa-juntar-linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--color-border); font-size: 14px; }
+label.mesa-juntar-linha { justify-content: flex-start; cursor: pointer; }
+label.mesa-juntar-linha input { width: auto; }
+.table-card-unida { border-style: dashed; }
+.historico-pessoas { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 8px 0; }
+.historico-pessoa { border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 10px; background: var(--color-surface); font-size: 13px; }
+.historico-pessoa ul { margin: 4px 0 0; padding-left: 16px; color: var(--color-text-muted); }
+.historico-pessoa-sem { border-style: dashed; }
+
+/* Comanda da mesa em duas colunas: catálogo à esquerda, comanda por pessoa à direita. */
+.mesa-tela .pos-header h1 { font-size: 26px; }
+.mesa-corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 420px); border-top: 1px solid var(--color-border); }
+.mesa-catalogo { min-height: 0; overflow-y: auto; padding-bottom: 16px; }
+.mesa-catalogo .category-browser { padding: 0 24px; margin-top: 12px; }
+.mesa-comanda { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--color-border); background: var(--color-surface); }
+.mesa-lancar-para { padding: 12px 14px; border-bottom: 1px solid var(--color-border); }
+.mesa-lancar-titulo { display: block; font-size: 12px; color: var(--color-text-muted); margin-bottom: 6px; }
+.mesa-lancar-opcoes { display: flex; flex-wrap: wrap; gap: 6px; max-height: 104px; overflow-y: auto; }
+.mesa-chip { border: 1px solid var(--color-border); background: none; color: var(--color-text); border-radius: 8px; padding: 5px 10px; font-size: 13px; }
+.mesa-chip-sem { border-style: dashed; }
+.mesa-chip-ativo { background: var(--color-primary); border-color: var(--color-primary); border-style: solid; color: #fff; }
+.mesa-chip-adicionar { display: inline-flex; align-items: center; gap: 4px; border-style: dashed; border-color: var(--color-primary); color: var(--color-primary); }
+.mesa-comanda-lista { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.mesa-grupo { border: 1px solid var(--color-border); border-radius: 8px; padding: 8px 10px; }
+.mesa-grupo-ativo { border: 2px solid var(--color-primary); padding: 7px 9px; }
+.mesa-grupo-sem-pessoa { border-style: dashed; }
+.mesa-grupo-sem-pessoa.mesa-grupo-ativo { border-style: solid; }
+.mesa-grupo-cabecalho { display: flex; align-items: center; gap: 2px; }
+.mesa-grupo-nome { font-weight: 600; font-size: 14px; background: none; border: none; color: var(--color-text); padding: 0 4px 0 0; }
+button.mesa-grupo-nome { cursor: pointer; }
+.mesa-icone { display: inline-flex; background: none; border: none; color: var(--color-text-muted); padding: 3px; }
+.mesa-icone:hover { color: var(--color-primary); }
+.mesa-icone-cliente { color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface)); border-radius: 999px; }
+.vincular-cliente .search-input { width: 100%; max-width: none; box-sizing: border-box; }
+/* Ligar pessoa da mesa a um cliente do cadastro (VincularClienteModal.jsx). */
+.modal-card.vincular-cliente { width: min(460px, 100%); }
+.vincular-atual { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); font-size: 14px; }
+.vincular-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow-y: auto; }
+.vincular-lista button { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.vincular-lista button:hover:not(:disabled) { border-color: var(--color-primary); }
+.vincular-lista button:disabled { opacity: 0.6; cursor: default; }
+.mesa-grupo-subtotal { margin-left: auto; font-weight: 700; white-space: nowrap; }
+.mesa-grupo-itens { list-style: none; margin: 6px 0 0; padding: 0; }
+.mesa-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; border-top: 1px solid var(--color-border); }
+.mesa-item:first-child { border-top: none; }
+.mesa-item-selecionado { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.mesa-item-nome { flex: 1; min-width: 0; }
+.mesa-item-obs { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-warning-text); }
+.mesa-item-preco { white-space: nowrap; }
+.mesa-item .dropdown-menu-wrap .btn-secondary { padding: 2px 8px; font-size: 13px; }
+.mesa-sem-itens { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.mesa-sem-itens-pessoa { display: inline-flex; align-items: center; border: 1px dashed var(--color-border); border-radius: 8px; padding: 2px 4px 2px 8px; }
+.mesa-sem-itens-ativa { border: 2px solid var(--color-primary); }
+.mesa-sem-itens-rotulo { color: var(--color-text-muted); font-size: 12px; }
+.mesa-comanda-rodape { border-top: 1px solid var(--color-border); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.mesa-comanda-rodape .pos-pay-btn { width: 100%; }
+.mesa-por-pessoa { display: block; font-size: 13px; color: var(--color-text-muted); }
+@media (max-width: 1100px) {
+  .mesa-corpo { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .mesa-comanda { border-left: none; border-top: 1px solid var(--color-border); }
+}
+
+/* ---------- Ficha do cliente (FichaClienteModal.jsx) ---------- */
+.modal-card.ficha-cliente { width: min(1040px, 100%); max-height: 92vh; gap: 16px; padding: 28px; }
+.ficha-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.ficha-rotulo { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--color-primary); }
+.ficha-nome { margin: 4px 0 2px; font-size: 26px; line-height: 1.15; }
+.ficha-contato { margin: 0; color: var(--color-text-muted); font-size: 14px; }
+.ficha-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+.ficha-btn { display: inline-flex; align-items: center; gap: 6px; }
+.ficha-etiquetas { display: flex; flex-wrap: wrap; gap: 6px; }
+.ficha-etiqueta {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface)); color: var(--color-text-muted);
+}
+.ficha-etiqueta-alerta { background: var(--color-critical-bg); color: var(--color-critical-text); }
+.ficha-periodo { margin-bottom: 0; }
+.ficha-periodo-texto { margin: -8px 0 0; }
+.ficha-resumo { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ficha-numero {
+  display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-surface));
+}
+.ficha-numero span { font-size: 12px; color: var(--color-text-muted); }
+.ficha-numero strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.ficha-numero small { font-size: 11px; color: var(--color-text-muted); }
+.ficha-secao { display: flex; flex-direction: column; gap: 10px; }
+.ficha-secao h3 { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 15px; }
+.ficha-secao-topo { display: flex; justify-content: space-between; align-items: center; }
+.ficha-receitas td, .ficha-receitas th { padding: 6px 10px; font-size: 13px; }
+.ficha-receitas td { font-variant-numeric: tabular-nums; }
+.ficha-receita-inicio td { border-top: 2px solid var(--color-border); }
+.ficha-compra { border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); overflow: hidden; break-inside: avoid; }
+.ficha-compra-topo {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px;
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface)); border-bottom: 1px solid var(--color-border);
+}
+.ficha-compra-topo > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.ficha-compra-total { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-variant-numeric: tabular-nums; }
+.ficha-compra-total strong { font-size: 16px; }
+.ficha-receita-da-compra { margin: 0; padding: 8px 14px 0; }
+.ficha-itens { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ficha-itens th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); padding: 8px 14px 4px; font-weight: 600; }
+.ficha-itens td { padding: 8px 14px; border-top: 1px solid var(--color-border); vertical-align: top; }
+.ficha-itens .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ficha-itens td .screen-hint { font-size: 12px; margin: 2px 0 0; }
+.ficha-especificacoes { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
+.ficha-especificacoes > div { display: contents; }
+.ficha-especificacoes dt { color: var(--color-text-muted); }
+.ficha-especificacoes dd { margin: 0; font-weight: 600; }
+.ficha-observacao { margin-top: 4px; font-size: 12px; color: var(--color-warning-text); }
+.ficha-devolvido { font-size: 12px; color: var(--color-danger); }
+.cliente-nome-link {
+  background: none; border: none; padding: 0; font: inherit; color: var(--color-primary); font-weight: 600;
+  cursor: pointer; text-align: left; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px;
+}
+.cliente-nome-link:hover, .cliente-nome-link:focus-visible { text-decoration-color: currentColor; }
+.ficha-subtitulo { font-size: 12px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.ficha-tabela td { padding: 7px 12px; font-size: 13px; }
+.ficha-tabela .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ficha-linha-apagada td { color: var(--color-text-muted); }
+.ficha-status { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--color-text) 7%, var(--color-surface)); color: var(--color-text-muted); white-space: nowrap; }
+.ficha-status-agendado, .ficha-status-confirmado, .ficha-status-confirmada, .ficha-status-pendente, .ficha-status-em_rota, .ficha-status-orc-aberto,
+.ficha-status-aguardando_confirmacao { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.ficha-status-faltou, .ficha-status-orc-vencido, .ficha-status-nao_confirmada { background: var(--color-critical-bg); color: var(--color-critical-text); }
+.ficha-cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.ficha-cartao { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius); font-size: 13px; }
+.ficha-cartao > strong { font-size: 15px; }
+.ficha-pet-data { font-size: 13px; }
+.ficha-pet-atrasada { color: var(--color-critical-text); }
+.ficha-pet-atrasada strong, .ficha-pet-proxima strong { text-decoration: underline; text-underline-offset: 3px; }
+.ficha-pet-proxima { color: var(--color-warning-text); }
+.ficha-preferencias { display: flex; flex-wrap: wrap; gap: 18px; }
+.ficha-preferencias > div { display: flex; flex-direction: column; gap: 6px; }
+.ficha-etiqueta-forte { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.ficha-etiqueta small { font-weight: 500; opacity: 0.8; }
+.ficha-fiado-saldo { margin: 0; font-size: 14px; }
+.ficha-fiado-devendo strong { color: var(--color-danger); }
+.ficha-pago { color: var(--color-primary); }
+.ficha-selos { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.ficha-selo { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--color-warning-bg); color: var(--color-warning-text); }
+.ficha-selo-servico { margin-left: 6px; background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.ficha-garantia { margin-top: 4px; font-size: 12px; font-weight: 600; }
+.ficha-garantia-ok { color: var(--color-primary); }
+.ficha-garantia-vencida { color: var(--color-text-muted); }
+@media (max-width: 760px) {
+  .ficha-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ficha-topo { flex-direction: column; }
+}
+
+/* Impressão da ficha: só ela (o modal vai direto no <body> por portal), em
+   papel branco e com as cores claras mesmo no tema escuro. */
+@media print {
+  html:has(body.imprimindo-ficha), body.imprimindo-ficha { overflow: visible !important; height: auto !important; background: #fff !important; }
+  body.imprimindo-ficha > *:not(.ficha-cliente-fundo) { display: none !important; }
+  body.imprimindo-ficha .ficha-cliente-fundo { position: static; display: block; padding: 0; background: none; overflow: visible; }
+  body.imprimindo-ficha .modal-card.ficha-cliente {
+    width: 100%; max-height: none; overflow: visible; padding: 0; box-shadow: none;
+    --color-bg: #ffffff; --color-surface: #ffffff; --color-border: #d5dcdf; --color-text: #111b1e; --color-text-muted: #4a575c;
+    --color-primary: #0f6e63; --color-danger: #b3402f; --color-warning-text: #7a5310; --color-critical-bg: #fee2e2; --color-critical-text: #9a2f22;
+    color: var(--color-text); background: #fff;
+  }
+  body.imprimindo-ficha .ficha-cliente .nao-imprimir { display: none !important; }
+}
+
+/* ---- Senhas, pedido do site, cozinha e maquininha (nov/2026) ---- */
+.selo { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 12px; background: var(--color-warning-bg); color: var(--color-warning-text); white-space: nowrap; }
+.selo-ok { background: color-mix(in srgb, #16a34a 16%, var(--color-surface)); color: color-mix(in srgb, #14532d 70%, var(--color-text)); }
+.selo-aviso { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.senha-grande { font-size: 22px; font-weight: 900; color: var(--color-primary); }
+.senhas-colunas { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.senhas-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px 14px; }
+.senhas-card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); margin: 0 0 6px; }
+.senhas-card ul { list-style: none; margin: 0; padding: 0; }
+.senha-linha { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--color-border); }
+.senha-numero { font-size: 28px; font-weight: 900; min-width: 56px; font-variant-numeric: tabular-nums; color: var(--color-primary); }
+.senha-info { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.senha-botoes { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.chips-categorias { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.chips-categorias button { border: 1px solid var(--color-border); border-radius: 14px; padding: 4px 11px; background: var(--color-surface); color: var(--color-text); font-size: 12.5px; cursor: pointer; }
+.chips-categorias button.ativo { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.qr-mesas { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
+.qr-mesa { border: 1px solid var(--color-border); border-radius: var(--radius); padding: 10px; text-align: center; background: var(--color-surface); display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.qr-mesa img { width: 120px; height: 120px; }
+.painel-previa { border-radius: 10px; padding: 12px 14px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; max-width: 560px; margin-top: 10px; }
+.painel-previa h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.painel-previa .chip { display: inline-block; margin: 0 6px 6px 0; padding: 3px 8px; border-radius: 6px; font-weight: 800; font-size: 18px; background: rgba(255,255,255,.08); }
+.painel-previa .pronto { border-radius: 8px; padding: 6px 10px; font-weight: 900; font-size: 26px; margin-bottom: 6px; }
+.maquininha-espera { display: flex; gap: 12px; align-items: center; background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border)); border-radius: var(--radius); padding: 12px; margin-top: 8px; }
+
+/* --- Cadastro de prato e ficha técnica (restaurante/padaria, nov/2026) --- */
+.modo-item { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 4px; }
+.modo-item-opcao {
+  display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 10px 12px;
+  background: var(--color-surface); border: 1.5px solid var(--color-border); border-radius: var(--radius);
+}
+.modo-item-opcao strong { display: block; font-size: 13.5px; color: var(--color-text); }
+.modo-item-opcao small { display: block; font-size: 11.5px; color: var(--color-text-muted); margin-top: 2px; line-height: 1.35; }
+.modo-item-opcao svg { flex-shrink: 0; margin-top: 2px; color: var(--color-text-muted); }
+.modo-item-opcao:hover { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); }
+.modo-item-opcao.ativo { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface)); }
+.modo-item-opcao.ativo svg { color: var(--color-primary); }
+@media (max-width: 620px) { .modo-item { grid-template-columns: 1fr; } }
+
+.resumo-prato {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 22px; margin-top: 12px; padding: 12px 14px;
+  border-radius: var(--radius); background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface)); border: 1px solid var(--color-border);
+}
+.resumo-prato > div { display: flex; flex-direction: column; gap: 1px; }
+.resumo-prato small { font-size: 11px; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .02em; }
+.resumo-prato strong { font-size: 16px; color: var(--color-text); }
+.resumo-prato em { font-style: normal; font-size: 11.5px; font-weight: 700; }
+.resumo-prato .cmv-bom strong, .resumo-prato .cmv-bom em { color: var(--color-primary); }
+.resumo-prato .cmv-atencao strong, .resumo-prato .cmv-atencao em { color: var(--color-warning-text); }
+.resumo-prato .cmv-alto strong, .resumo-prato .cmv-alto em { color: var(--color-danger); }
+.resumo-prato-sugestao { margin-left: auto; padding: 7px 12px; font-size: 13px; }
+.resumo-prato-vazio { color: var(--color-text-muted); font-size: 13px; gap: 8px; }
+
+.check-linha { flex-direction: row; align-items: center; gap: 8px; color: var(--color-text); font-size: 14px; align-self: end; padding-bottom: 8px; }
+.check-linha input { width: 18px; height: 18px; accent-color: var(--color-primary); }
+
+.ficha-secao { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius); }
+.ficha-total { margin-left: auto; font-size: 13px; font-weight: 600; color: var(--color-primary); }
+.ficha-editor { display: flex; flex-direction: column; gap: 10px; }
+.ficha-rendimento { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px; }
+.ficha-rendimento input { width: 64px; text-align: center; font-weight: 700; }
+.ficha-dica { flex-basis: 100%; font-size: 12.5px; color: var(--color-text-muted); }
+.ficha-tabela { width: 100%; border-collapse: collapse; }
+.ficha-tabela th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); padding: 4px 6px; font-weight: 600; }
+.ficha-tabela td { padding: 6px; border-top: 1px solid var(--color-border); font-size: 14px; vertical-align: middle; }
+.ficha-tabela td:last-child { width: 1%; }
+.ficha-sub { font-size: 12px; color: var(--color-text-muted); }
+.ficha-qtd { display: flex; gap: 6px; align-items: center; }
+.ficha-qtd input { width: 90px; }
+.ficha-qtd select { width: 66px; }
+.ficha-qtd-vazia { border-color: var(--color-warning-text) !important; }
+.ficha-unidade { color: var(--color-text-muted); font-size: 13px; }
+.ficha-custo { font-weight: 600; white-space: nowrap; }
+.ficha-busca { position: relative; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1.5px dashed var(--color-border); border-radius: 8px; color: var(--color-text-muted); }
+.ficha-busca:focus-within { border-style: solid; border-color: var(--color-primary); }
+.ficha-busca input { flex: 1; border: none; box-shadow: none !important; padding: 10px 0; background: transparent; }
+.ficha-sugestoes {
+  list-style: none; margin: 0; padding: 4px; position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .14); max-height: 260px; overflow-y: auto;
+}
+.ficha-sugestoes button { width: 100%; display: flex; justify-content: space-between; gap: 10px; text-align: left; padding: 8px 10px; background: none; border-radius: 6px; }
+.ficha-sugestoes button.ativo { background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
+.ficha-sugestao-info { color: var(--color-text-muted); font-size: 12.5px; white-space: nowrap; }
+.ficha-sugestao-criar { display: inline-flex; align-items: center; gap: 6px; color: var(--color-primary); font-weight: 600; }
+.ficha-criar { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border)); }
+.ficha-criar > strong { display: inline-flex; align-items: center; gap: 6px; }
+.ficha-criar-linha { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.ficha-criar-linha label { flex: 1 1 140px; }
+.ficha-criar-resultado { flex: 1 1 140px; padding-bottom: 9px; font-size: 14px; }
+.ficha-criar-modo { display: inline-flex; gap: 4px; padding: 3px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; align-self: flex-start; }
+.ficha-criar-modo button { padding: 5px 10px; font-size: 12.5px; background: none; border-radius: 6px; }
+.ficha-criar-modo button.ativo { background: var(--color-primary); color: #fff; }
+.ficha-criar-acoes { display: flex; justify-content: flex-end; gap: 8px; }
+
+.secao-recolhivel { margin-top: 14px; border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0 14px; }
+.secao-recolhivel[open] { padding-bottom: 14px; }
+.secao-recolhivel > summary { cursor: pointer; padding: 12px 0; display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 15px; list-style: none; }
+.secao-recolhivel > summary::-webkit-details-marker { display: none; }
+.secao-recolhivel > summary::after { content: '▾'; margin-left: 6px; color: var(--color-text-muted); }
+.secao-recolhivel[open] > summary::after { content: '▴'; }
+.secao-recolhivel-resumo { margin-left: auto; font-weight: 400; font-size: 12.5px; color: var(--color-text-muted); }
+
+/* Insumos */
+.insumos-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.insumos-filtros .search-input { margin-bottom: 0; flex: 1 1 220px; }
+.pilula { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.pilula-ok { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary); }
+.pilula-acabando { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.pilula-sem { background: var(--color-critical-bg); color: var(--color-critical-text); }
+.pilula-neutra { background: color-mix(in srgb, var(--color-text-muted) 14%, var(--color-surface)); color: var(--color-text-muted); }
+.tabela-lancamento { width: 100%; border-collapse: collapse; }
+.tabela-lancamento th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--color-text-muted); padding: 4px 6px; }
+.tabela-lancamento td { padding: 6px; border-top: 1px solid var(--color-border); font-size: 14px; vertical-align: middle; }
+.tabela-lancamento input { width: 100%; min-width: 0; }
+.tabela-lancamento .num { text-align: right; white-space: nowrap; }
+.texto-alta { color: var(--color-danger); font-weight: 600; }
+.texto-baixa { color: var(--color-primary); font-weight: 600; }
+
+/* Cardápio do dia: montar */
+.cardapio-montar { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+.cardapio-item {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; width: 100%;
+  background: var(--color-surface); border: 1.5px solid var(--color-border); border-radius: var(--radius);
+}
+.cardapio-item.ligado { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+.cardapio-item-nome { flex: 1; min-width: 0; }
+.cardapio-item-nome strong { display: block; font-size: 14px; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cardapio-item-nome small { color: var(--color-text-muted); font-size: 12px; }
+.chave { width: 36px; height: 20px; border-radius: 999px; background: var(--color-border); position: relative; flex-shrink: 0; transition: background .15s; }
+.chave::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.cardapio-item.ligado .chave { background: var(--color-primary); }
+.cardapio-item.ligado .chave::after { left: 18px; }
+
+
+/* --- Menu da esquerda personalizado e Aparência (por usuário, nov/2026) --- */
+.menu-edicao-aviso {
+  margin: 0 12px 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14); font-size: 12px; color: rgba(255,255,255,0.8); display: flex; flex-direction: column; gap: 6px;
+}
+.menu-edicao-aviso strong { color: white; font-size: 13px; }
+.menu-edicao-aviso svg { vertical-align: -3px; }
+.menu-edicao-aviso div { display: flex; gap: 6px; }
+.menu-edicao-aviso button { flex: 1; padding: 6px 8px; font-size: 12px; border-radius: 7px; background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.18); }
+.menu-edicao-aviso .menu-edicao-pronto { background: #f5a623; color: #2b1d02; border-color: #f5a623; font-weight: 700; }
+.menu-edicao-acoes { display: flex; align-items: center; gap: 2px; padding-right: 8px; flex-shrink: 0; }
+.menu-edicao-acoes button {
+  width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border-radius: 6px;
+  background: none; border: none; color: rgba(255,255,255,0.55); cursor: pointer;
+}
+.menu-edicao-acoes button:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: white; }
+.menu-edicao-acoes button.ativo { color: #f5c542; }
+.menu-edicao-acoes button:disabled { opacity: 0.25; cursor: default; }
+.menu-em-edicao .nav-item { padding-right: 6px; }
+.nav-item-oculto .nav-item { opacity: 0.5; }
+
+.painel-aparencia {
+  position: fixed; left: 230px; bottom: 16px; z-index: 400; width: 340px; padding: 16px;
+  background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border);
+  border-radius: 14px; box-shadow: 0 18px 40px rgba(0,0,0,0.22); display: flex; flex-direction: column; gap: 12px;
+}
+.painel-aparencia hr { border: none; border-top: 1px solid var(--color-border); margin: 2px 0; }
+.aparencia-linha { display: flex; flex-direction: column; gap: 6px; }
+.aparencia-linha > span { font-size: 12px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.aparencia-linha small { font-size: 12px; color: var(--color-text-muted); }
+.aparencia-opcoes { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--color-border); border-radius: 9px; }
+.aparencia-opcoes button { flex: 1; padding: 6px 8px; font-size: 13px; background: none; border-radius: 7px; color: var(--color-text); }
+.aparencia-opcoes button.ativo { background: var(--color-primary); color: #fff; font-weight: 600; }
+.aparencia-zoom { display: flex; align-items: center; gap: 10px; }
+.aparencia-zoom button { width: 44px; padding: 6px 0; font-weight: 700; }
+.aparencia-zoom strong { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+.aparencia-check { flex-direction: row; align-items: center; gap: 8px; font-size: 13.5px; color: var(--color-text); }
+.aparencia-check input { width: 17px; height: 17px; accent-color: var(--color-primary); }
+.aparencia-dica { font-size: 12px; color: var(--color-text-muted); margin: 0; }
+
+/* --- PDV mais limpo (nov/2026): cabeçalho baixo, "Mais", categorias por usuário, modo foco --- */
+.pos-header { padding: 10px 20px; }
+.pos-header h1 { font-size: 20px; margin: 0; }
+.pos-header-right { gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.pos-operator { font-size: 13.5px; }
+.pos-header-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 13.5px; font-weight: 600;
+  background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.3); border-radius: 8px;
+}
+.pos-header-btn:hover { background: rgba(255,255,255,0.22); }
+.pos-header-btn.ativo { background: #f5a623; border-color: #f5a623; color: #2b1d02; }
+.pos-mais .btn-secondary { padding: 7px 12px; font-size: 13.5px; background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.3); }
+.pos-mais .btn-secondary:hover { background: rgba(255,255,255,0.22); }
+.pos-mais .dropdown-menu-list { right: 0; left: auto; min-width: 280px; z-index: 50; }
+.pos-mais .dropdown-menu-item { display: flex; align-items: center; gap: 8px; }
+.close-cash-btn { padding: 7px 12px; font-size: 13.5px; }
+.pos-categorias-btn { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 12px 14px; }
+.pos-categorias-btn.ativo { border: 1px solid var(--color-primary); color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+.category-suspenso { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.category-suspenso label { flex-direction: row; align-items: center; gap: 8px; font-weight: 600; color: var(--color-text); }
+.category-suspenso select { min-width: 260px; }
+.category-btn-compactar { border-style: dashed; color: var(--color-text-muted); font-size: 13.5px; padding: 10px 16px; }
+.recent-strip-ocultar { margin-left: 8px; padding: 0 6px; font-size: 11px; background: none; color: var(--color-primary); text-transform: none; letter-spacing: 0; }
+.recent-strip-ocultar:hover { text-decoration: underline; }
+/* Modo foco: só no PDV, a barra da esquerda some e a venda ocupa a largura toda. */
+.app-shell-foco .sidebar { display: none; }
+.pos-header-foco { background: color-mix(in srgb, var(--color-primary) 88%, #000); }
+
+/* --- Revisão visual geral (nov/2026) ---
+ * :where() deixa estas regras com especificidade zero: padronizam o que
+ * estava no padrão do navegador (h1 de 32 px etc.) sem passar por cima de
+ * nenhuma regra mais específica que já existia. */
+:where(.screen) h1 { font-size: 24px; line-height: 1.2; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; letter-spacing: -0.01em; }
+:where(.screen) h2 { font-size: 18px; line-height: 1.3; }
+.screen-header { flex-wrap: wrap; gap: 10px 16px; }
+.screen-actions { flex-wrap: wrap; align-items: center; }
+/* Abas das telas (Histórico, Produtos, Financeiro, Painel, Delivery,
+ * Configurações...): faixa com sublinhado em vez de pílulas grandes --
+ * lê como navegação da tela, não como filtro. */
+.settings-tabs { gap: 2px; border-bottom: 1px solid var(--color-border); margin-bottom: 18px; }
+.settings-tabs .category-btn {
+  background: none; border: none; border-radius: 0; padding: 10px 14px; font-size: 14px;
+  color: var(--color-text-muted); border-bottom: 2.5px solid transparent; margin-bottom: -1px;
+}
+.settings-tabs .category-btn:hover { color: var(--color-text); background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.settings-tabs .category-btn-active, .settings-tabs .category-btn-active:hover {
+  color: var(--color-primary); border-bottom-color: var(--color-primary); font-weight: 600; background: none;
+}
+.data-table tbody tr:hover td { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+/* Ações da linha em ícone (Produtos): título no hover, nome para leitor de tela. */
+.acao-icone {
+  width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; border-radius: 8px;
+  background: none; color: var(--color-text-muted); border: 1px solid transparent;
+}
+.acao-icone:hover { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); color: var(--color-primary); border-color: color-mix(in srgb, var(--color-primary) 25%, transparent); }
+.acao-icone-perigo:hover { background: var(--color-critical-bg); color: var(--color-danger); border-color: transparent; }
+.acoes-linha { display: flex; align-items: center; gap: 2px; justify-content: flex-end; white-space: nowrap; }
+/* Lista vazia que diz o próximo passo. */
+.vazio-guia { display: flex; align-items: center; gap: 12px; padding: 18px; border: 1.5px dashed var(--color-border); border-radius: var(--radius); color: var(--color-text-muted); font-size: 14px; }
+.vazio-guia strong { color: var(--color-text); }
+
+/* --- Modo compacto (notebook 1366×768; automático ou escolhido em Aparência) --- */
+html.densidade-compacta .main-content { padding: 16px 20px; }
+html.densidade-compacta .sidebar { width: 196px; padding: 14px 0; }
+html.densidade-compacta .sidebar-brand { padding: 0 16px 12px; font-size: 17px; }
+html.densidade-compacta .sidebar-clock-wrap { padding: 0 16px 8px; }
+html.densidade-compacta .sidebar-shortcut-hint { display: none; }
+html.densidade-compacta .nav-item { padding: 8px 16px; font-size: 13.5px; }
+html.densidade-compacta .nav-section-title { padding: 12px 16px 4px; }
+html.densidade-compacta .sidebar-footer { padding: 12px 14px 10px; gap: 8px; }
+html.densidade-compacta .painel-aparencia { left: 206px; bottom: 10px; }
+html.densidade-compacta :where(.screen) h1 { font-size: 21px; }
+html.densidade-compacta .screen-hint { margin: 2px 0 10px; font-size: 12.5px; }
+html.densidade-compacta .data-table th, html.densidade-compacta .data-table td { padding: 7px 10px; font-size: 13.5px; }
+html.densidade-compacta .settings-tabs { margin-bottom: 12px; }
+html.densidade-compacta .settings-tabs .category-btn { padding: 8px 12px; font-size: 13.5px; }
+html.densidade-compacta .settings-section { padding: 14px 16px; margin-bottom: 12px; }
+html.densidade-compacta .modal-card { padding: 18px; }
+html.densidade-compacta .dashboard-stats { gap: 10px; margin-bottom: 14px; }
+html.densidade-compacta .category-btn { padding: 8px 14px; font-size: 14px; }
+html.densidade-compacta .pos-search-row .search-input { padding: 10px 14px; }
+html.densidade-compacta .pos-categorias-btn { padding: 9px 12px; }
+html.densidade-compacta .scan-feedback { padding: 6px 20px; }
+html.densidade-compacta .cart-item { padding: 8px 0; }
+html.densidade-compacta .pos-footer { padding: 10px 20px; }
+html.densidade-compacta .recent-strip { padding: 6px 20px; }
+:where(html.densidade-compacta) button { padding: 8px 13px; }
+:where(html.densidade-compacta) :is(input, select, textarea) { padding: 7px 9px; }
+
+/* O PDV ocupa a altura da área de conteúdo (não da janela inteira): com a
+ * margem da área, 100vh empurrava o rodapé (Total, Ir para pagamento)
+ * para fora da tela em 1366×768. */
+.pos-screen-caixa { height: 100%; }
+/* Alertas: resumo no topo, só as seções com itens abertas */
+.resumo-alertas { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.resumo-alerta {
+  display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); text-decoration: none; font-size: 13.5px;
+}
+.resumo-alerta strong { margin-left: auto; font-size: 20px; }
+.resumo-alerta-ok { color: var(--color-text-muted); }
+.resumo-alerta-ok strong { color: var(--color-primary); }
+.resumo-alerta-critico { border-color: var(--color-danger); background: var(--color-critical-bg); color: var(--color-critical-text); }
+.resumo-alerta-aviso { border-color: color-mix(in srgb, var(--color-warning-text) 45%, var(--color-border)); background: var(--color-warning-bg); color: var(--color-warning-text); }
+a.resumo-alerta[href]:hover { filter: brightness(0.97); }
+.modo-item-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.secao-recolhivel-falta { color: var(--color-warning-text); font-weight: 600; }
+.titulo-ramo { font-weight: 400; color: var(--color-text-muted); font-size: 13px; }
+
+/* ===================================================================
+ * Tela de toque (html.modo-toque -- ToqueContext / src/utils/toque.js)
+ * Alvo mínimo de 44px (o tamanho de um dedo), nada que dependa de
+ * passar o mouse por cima, e sem seleção de texto ao segurar o dedo.
+ * =================================================================== */
+html.modo-toque { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+html.modo-toque body { -webkit-user-select: none; user-select: none; }
+html.modo-toque :is(input, textarea, [contenteditable="true"], .selecionavel) { -webkit-user-select: text; user-select: text; }
+html.modo-toque :is(button, a, select, input, label, summary, [role="button"]) { touch-action: manipulation; }
+html.modo-toque ::-webkit-scrollbar { width: 14px; height: 14px; }
+
+html.modo-toque button { min-height: 44px; }
+html.modo-toque button:active:not(:disabled) { filter: brightness(0.93); }
+html.modo-toque :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select) { min-height: 44px; font-size: 16px; }
+html.modo-toque textarea { font-size: 16px; }
+html.modo-toque :is(input[type="checkbox"], input[type="radio"]) { width: 22px; height: 22px; }
+html.modo-toque summary { min-height: 44px; }
+html.modo-toque :is(.btn-link, .btn-link-danger) { padding: 10px 14px; }
+html.modo-toque .acao-icone { width: 44px; height: 44px; }
+html.modo-toque :where(table) :where(td) { padding-top: 12px; padding-bottom: 12px; }
+html.modo-toque .dropdown-menu-item { min-height: 48px; font-size: 15px; }
+html.modo-toque .aparencia-opcoes button { min-height: 40px; }
+html.modo-toque .modal-actions button { min-height: 48px; }
+
+/* Menu da esquerda */
+html.modo-toque .nav-item { padding-top: 14px; padding-bottom: 14px; font-size: 15px; }
+html.modo-toque .sidebar-shortcut-hint { display: none; }
+html.modo-toque .sidebar-user-switch-icon { opacity: 1; }
+html.modo-toque .menu-edicao-acoes button { width: 40px; height: 40px; min-height: 40px; }
+
+/* PDV */
+html.modo-toque .pos-shortcuts-hint { display: none; }
+html.modo-toque .pos-pay-btn { min-height: 56px; font-size: 17px; padding-left: 28px; padding-right: 28px; }
+html.modo-toque .pos-footer button { min-height: 56px; }
+html.modo-toque .category-btn { padding: 14px 22px; font-size: 16px; }
+html.modo-toque :is(.product-grid, .product-grid-compacto) { grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 10px; }
+html.modo-toque :is(.product-grid, .product-grid-compacto) .product-card { padding: 14px 10px; gap: 6px; }
+html.modo-toque :is(.product-grid, .product-grid-compacto) .product-card-name { font-size: 14px; }
+html.modo-toque :is(.product-grid, .product-grid-compacto) .product-card-price { font-size: 15px; }
+html.modo-toque .cart-item { padding: 10px 0; }
+html.modo-toque .cart-item-name { font-size: 15px; }
+html.modo-toque .cart-alert-icon { min-height: 32px; width: 32px; height: 32px; }
+html.modo-toque .recent-item { min-width: 72px; }
+
+/* Quantidade: "− +" lado a lado em vez das setinhas empilhadas. */
+.qty-stepper-sinal { display: none; }
+html.modo-toque .qty-stepper-buttons { flex-direction: row-reverse; }
+html.modo-toque .qty-stepper-btn { width: 48px; min-height: 0; flex: none; border-left: 1px solid var(--color-border); }
+html.modo-toque .qty-stepper-btn:first-child { border-bottom: none; }
+html.modo-toque .qty-stepper-btn svg { display: none; }
+html.modo-toque .qty-stepper-sinal { display: inline; font-size: 24px; font-weight: 600; line-height: 1; color: var(--color-text); }
+html.modo-toque .qty-stepper-input { width: 52px; font-size: 18px; }
+
+/* Teclado numérico da tela (TecladoNumerico.jsx) */
+.teclado-numerico {
+  position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 10px;
+  padding: 12px; background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: 14px; box-shadow: 0 14px 36px rgba(15, 30, 32, 0.28);
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+.teclado-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.teclado-rotulo { font-size: 13px; font-weight: 600; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+:is(.teclado-numerico, .teclado-embutido) .teclado-esconder {
+  width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center;
+  background: none; color: var(--color-text-muted); border-radius: 8px; flex-shrink: 0;
+}
+.teclado-visor {
+  min-height: 52px; padding: 8px 14px; border-radius: 10px; background: var(--color-bg);
+  font-size: 28px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text);
+  border: 2px solid transparent;
+}
+/* Acabou de abrir num campo preenchido: o próximo número troca o valor todo. */
+.teclado-visor-substituir { border-color: color-mix(in srgb, var(--color-primary) 45%, transparent); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.teclado-visor-vazio { color: var(--color-text-muted); font-weight: 400; }
+.teclado-grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+:is(.teclado-numerico, .teclado-embutido) .teclado-tecla {
+  height: 58px; min-height: 58px; padding: 0; display: grid; place-items: center;
+  font-size: 24px; font-weight: 600; background: var(--color-bg); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: 10px;
+}
+:is(.teclado-numerico, .teclado-embutido) .teclado-tecla:active { background: color-mix(in srgb, var(--color-primary) 20%, var(--color-surface)); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-limpar { font-size: 20px; color: var(--color-danger); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-apagar { color: var(--color-text-muted); }
+:is(.teclado-numerico, .teclado-embutido) .teclado-ok {
+  grid-column: span 2; height: 58px; min-height: 58px; padding: 0;
+  background: var(--color-primary); color: #fff; font-size: 19px; font-weight: 700; border-radius: 10px;
+}
+:is(.teclado-numerico, .teclado-embutido) .teclado-ok-largo { grid-column: span 3; }
+:is(.teclado-numerico, .teclado-embutido) .teclado-ok:active { background: var(--color-primary-hover); }
+
+/* Login: um cartão por operador */
+.login-card-cartoes { width: min(560px, 100%); }
+.login-operadores { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.login-operador {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 8px;
+  background: var(--color-bg); border: 2px solid transparent; border-radius: 12px;
+}
+.login-operador:hover { border-color: var(--color-border); }
+.login-operador.ativo { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.login-operador-inicial {
+  width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--color-primary); color: #fff; font-size: 18px; font-weight: 700;
+}
+.login-operador-nome { font-size: 13.5px; font-weight: 600; color: var(--color-text); text-align: center; line-height: 1.25; overflow-wrap: break-word; }
+html.modo-toque .login-entrar { min-height: 54px; font-size: 16px; }
+
+/* Login na tela de toque: nomes e PIN à esquerda, teclado embutido à
+ * direita. Cabe em 1024x768 (o monitor de toque mais comum no caixa). */
+.login-coluna { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+html.modo-toque .login-screen { align-items: safe center; overflow-y: auto; padding: 16px; height: 100vh; }
+.login-card-toque.login-card {
+  width: min(880px, 100%); max-height: none; overflow: visible;
+  display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 28px; align-items: center; padding: 28px;
+}
+.login-card-toque .auth-logo { align-self: flex-start; }
+.login-card-toque h1 { margin: 0; }
+.login-card-toque .login-operadores { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.login-card-toque .login-operador { padding: 16px 8px; }
+.login-card-toque input[type="password"] { font-size: 22px; letter-spacing: 4px; min-height: 52px; caret-color: transparent; }
+.login-teclado .teclado-visor { display: none; } /* o próprio campo PIN já mostra os pontinhos */
+.teclado-embutido { display: flex; flex-direction: column; gap: 10px; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+@media (max-width: 760px) {
+  .login-card-toque.login-card { grid-template-columns: minmax(0, 1fr); }
+  .login-card-toque .teclado-embutido { width: min(300px, 100%); justify-self: center; }
+}
+
+/* Tela baixa (1024x768 com barra de título e do Windows): teclas um
+ * pouco menores para o teclado inteiro caber sem tampar o campo. */
+@media (max-height: 760px) {
+  :is(.teclado-numerico, .teclado-embutido) .teclado-tecla,
+  :is(.teclado-numerico, .teclado-embutido) .teclado-ok { height: 50px; min-height: 50px; }
+  .teclado-visor { min-height: 46px; font-size: 24px; }
+  .teclado-numerico { gap: 8px; padding: 10px; }
+}
+html.modo-toque input[type="number"]::-webkit-inner-spin-button,
+html.modo-toque input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* PDV na tela de toque: produtos à esquerda, carrinho fixo à direita.
+ * No mouse a seção some (display: contents) e tudo fica como era. */
+.pos-carrinho { display: contents; }
+.pos-carrinho-titulo, .pos-carrinho-vazio { display: none; }
+html.modo-toque .pos-main-scroll:has(> .category-browser) {
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 36%, 520px); gap: 20px;
+  overflow: hidden; padding-bottom: 12px;
+}
+html.modo-toque .pos-main-scroll:has(> .category-browser) > .category-browser { overflow-y: auto; min-height: 0; padding-bottom: 8px; }
+html.modo-toque .pos-main-scroll:has(> .category-browser) > .pos-carrinho {
+  display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 12px 16px;
+}
+html.modo-toque .pos-carrinho-titulo {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: 15px; font-weight: 700;
+}
+html.modo-toque .pos-carrinho-titulo span {
+  min-width: 24px; height: 24px; padding: 0 7px; border-radius: 12px; display: inline-grid; place-items: center;
+  background: var(--color-primary); color: #fff; font-size: 12.5px;
+}
+html.modo-toque .pos-carrinho-vazio { display: block; margin: 18px 0; color: var(--color-text-muted); font-size: 14px; text-align: center; }
+html.modo-toque .pos-carrinho .cart-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+html.modo-toque .pos-carrinho .cart-item-name { flex-basis: 100%; }
+html.modo-toque .pos-carrinho .cart-item > span:nth-child(2) { margin-right: auto; font-weight: 700; }
+html.modo-toque .pos-carrinho .combo-suggestion { flex-direction: column; align-items: stretch; }
+html.modo-toque .pos-carrinho .combo-suggestion > div { flex-wrap: wrap; }
+@media (max-width: 959px) {
+  html.modo-toque .pos-main-scroll:has(> .category-browser) { display: flex; overflow-y: auto; }
+  html.modo-toque .pos-main-scroll:has(> .category-browser) > .category-browser { overflow: visible; }
+  html.modo-toque .pos-main-scroll:has(> .category-browser) > .pos-carrinho { overflow: visible; }
+}
+html.modo-toque .recent-strip { padding-top: 6px; padding-bottom: 8px; }
+html.modo-toque .recent-strip-ocultar { min-height: 36px; padding: 6px 12px; margin: -6px 0; }
+html.modo-toque .pos-carrinho .combo-suggestion { padding: 10px 12px; gap: 8px; }
+html.modo-toque .pos-carrinho .combo-suggestion button { min-height: 40px; padding: 8px 10px; font-size: 13px; }
+html.modo-toque .pos-carrinho .combo-suggestion > div { flex-wrap: nowrap; gap: 6px; }
+
+/* − quantidade + na linha do carrinho e da comanda (QuantidadeDaLinha.jsx) */
+.cart-item-name .cart-item-nome-texto { min-width: 0; }
+.linha-qtd { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; flex-shrink: 0; }
+.linha-qtd .linha-qtd-btn {
+  width: 28px; height: 28px; min-height: 0; padding: 0; display: inline-grid; place-items: center;
+  border-radius: 8px; background: var(--color-bg); border: 1px solid var(--color-border);
+  font-size: 17px; font-weight: 700; line-height: 1; color: var(--color-text);
+}
+.linha-qtd .linha-qtd-btn:hover:not(:disabled) { border-color: var(--color-primary); color: var(--color-primary); }
+.linha-qtd .linha-qtd-btn:disabled { opacity: 0.35; }
+.linha-qtd-valor { min-width: 26px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+html.modo-toque .linha-qtd { gap: 4px; margin-left: 10px; }
+html.modo-toque .linha-qtd .linha-qtd-btn { width: 44px; height: 40px; font-size: 22px; }
+html.modo-toque .linha-qtd-valor { min-width: 32px; font-size: 16px; }
+html.modo-toque .cart-item-name .cart-item-nome-texto { flex: 1; }
+
+/* Pagamento individual na mesa (TableOrderScreen: PagamentoDaPessoa; PaymentPanel com `pessoa`) */
+.mesa-pessoa-pagamento { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; color: var(--color-text-muted); }
+.mesa-pagar-parte { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+.mesa-pessoa-paga { justify-content: flex-start; color: #1e7a46; font-weight: 600; }
+html[data-theme="dark"] .mesa-pessoa-paga { color: #6fd39a; }
+.mesa-ja-pago { display: block; font-size: 13px; font-weight: 600; color: var(--color-primary); }
+.pagamento-pessoa-topo {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); color: var(--color-text);
+}
+.pagamento-pessoa-ok {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; margin-bottom: 8px; border-radius: var(--radius);
+  background: color-mix(in srgb, #2e9c59 14%, var(--color-surface)); color: var(--color-text); font-weight: 600;
+}
+.pagamento-pessoa-ok span { flex: 1; min-width: 180px; }
+
+/* Comanda da mesa na tela de toque */
+html.modo-toque .mesa-chip { padding: 10px 14px; font-size: 14px; }
+html.modo-toque .mesa-lancar-opcoes { max-height: 140px; gap: 8px; }
+html.modo-toque .mesa-icone { min-height: 40px; min-width: 40px; justify-content: center; align-items: center; }
+html.modo-toque .mesa-item { padding: 8px 0; font-size: 14px; }
+html.modo-toque .mesa-item .dropdown-menu-wrap .btn-secondary { padding: 8px 14px; font-size: 16px; }
+html.modo-toque .mesa-grupo-nome { font-size: 15px; min-height: 40px; }
+html.modo-toque .mesa-pagar-parte { min-height: 44px; font-size: 14px; }
+/* Busca em cartões grandes na tela de toque */
+html.modo-toque .product-search-results-blocks { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; max-height: min(420px, 60vh); padding: 10px; }
+html.modo-toque .product-search-results-blocks .product-card { padding: 12px 10px; min-height: 150px; }
+html.modo-toque .product-search-results-blocks .product-card-name { font-size: 14px; }
+html.modo-toque .product-search-results-blocks .product-card-price { font-size: 15px; }
+/* Comanda da mesa dentro da tela Restaurante (abas em cima): ocupa só a
+ * altura que sobra, com o rodapé "Ir para pagamento" sempre à vista. */
+.screen:has(> .mesa-tela) { height: 100%; display: flex; flex-direction: column; }
+.screen:has(> .mesa-tela) > .settings-tabs { flex-shrink: 0; }
+.screen:has(> .mesa-tela) > .mesa-tela { flex: 1; min-height: 0; height: auto; }
+
+/* Teclado de toque do Windows aberto (TecladoDoSistema.jsx): a tela ganha
+ * espaço embaixo do tamanho dele, para o campo poder subir e ficar à vista,
+ * e as janelas (modais) passam a caber na parte de cima. */
+html.teclado-sistema-aberto :is(.main-content, .pos-main-scroll, .modal-card-fullscreen-scroll, .mesa-catalogo) {
+  padding-bottom: calc(var(--teclado-sistema, 0px) + 28px);
+}
+html.teclado-sistema-aberto .modal-overlay { padding-bottom: calc(var(--teclado-sistema, 0px) + 12px); }
+html.teclado-sistema-aberto .modal-overlay .modal-card { max-height: calc(100vh - var(--teclado-sistema, 0px) - 32px); }
+
+/* Mesas: cadastro rápido (quantas + de que número começa). */
+.mesas-cadastro.modal-card { width: min(460px, 100%); }
+.mesas-cadastro .mesas-modo { margin-top: 0; flex-wrap: nowrap; }
+.mesas-cadastro .mesas-atalhos { margin-top: -4px; }
+.mesas-cadastro .mesas-atalhos button { min-width: 44px; }
+.mesas-cadastro .mesas-previa { margin: 0; }
+.mesas-vazio { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.mesas-vazio p { margin: 0; }
+html.modo-toque .mesas-cadastro .chips-categorias button { min-height: 44px; padding: 8px 16px; font-size: 15px; }
+
+/* Histórico com grupo de caixas: "Todo o grupo" / "Só deste caixa" e
+ * venda cancelada em outro caixa riscada. */
+.historico-escopo { display: inline-flex; gap: 6px; }
+.data-table tr.linha-cancelada td { color: var(--color-text-muted); }
+.data-table tr.linha-cancelada td:nth-child(5) { text-decoration: line-through; }
+
+/* --- Campo de categoria do cadastro de produto (CampoCategoria.jsx) --- */
+.campo-categoria-campo { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--color-text-muted); min-width: 0; }
+.campo-categoria { position: relative; }
+.campo-categoria input { width: 100%; box-sizing: border-box; padding-right: 42px; }
+.campo-categoria-seta {
+  position: absolute; top: 50%; right: 3px; transform: translateY(-50%);
+  width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 6px; color: var(--color-text-muted); cursor: pointer; padding: 0;
+}
+.campo-categoria-seta:hover { background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); }
+.campo-categoria-lista {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  margin: 0; padding: 6px; list-style: none; max-height: 264px; overflow-y: auto;
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.campo-categoria-opcao {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 44px; padding: 8px 10px; border-radius: 6px; cursor: pointer;
+  font-size: 14px; color: var(--color-text);
+}
+.campo-categoria-opcao small { font-size: 12px; color: var(--color-text-muted); white-space: nowrap; }
+.campo-categoria-opcao:hover, .campo-categoria-opcao.ativa { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface)); }
+.campo-categoria-opcao.escolhida { font-weight: 600; }
+.campo-categoria-opcao.nova { color: var(--color-primary); font-weight: 600; border-top: 1px solid var(--color-border); margin-top: 4px; }
+.campo-categoria-opcao.nova:first-child { border-top: none; margin-top: 0; }
+.campo-categoria-nome { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.campo-categoria-vazia { padding: 12px; font-size: 13px; color: var(--color-text-muted); }
+.campo-categoria-dica { font-size: 12px; color: var(--color-text-muted); }
+
+/* --- Rede local da loja (Configurações → Sincronização) --- */
+.rede-local { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.rede-local h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: 15px; }
+.rede-local-estado {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px;
+  background: var(--color-warning-bg); color: var(--color-warning-text); font-size: 14px; margin-bottom: 8px;
+}
+.rede-local-estado.ok { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-text); }
+.rede-local-ponto { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; background: currentColor; opacity: .7; }
+.rede-local-estado.ok .rede-local-ponto { background: var(--color-primary); opacity: 1; }
+.rede-local-endereco { font-size: 13px; color: var(--color-text-muted); margin: 4px 0 12px; }
+.rede-local-endereco code { font-size: 13px; color: var(--color-text); }
+.rede-local-codigo {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+  padding: 12px 14px; border: 2px dashed var(--color-primary); border-radius: 10px; margin: 8px 0 12px; font-size: 14px;
+}
+.rede-local-codigo-valor {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 26px; font-weight: 800;
+  letter-spacing: 3px; color: var(--color-primary);
+}
+.rede-local-tabela { margin-top: 12px; }
+.rede-local-acoes { text-align: right; }
+.rede-local-dica { margin-top: 10px; }
+.rede-local-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 6px; }
+.rede-local-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rede-local-opcional { color: var(--color-text-muted); font-weight: 400; }
+html,body{height:auto!important;overflow:auto!important} body{background:var(--color-bg);padding:16px;font-family:var(--font-body)} .previa-rotulo{font:600 12px var(--font-body);color:var(--color-text-muted);text-transform:uppercase;letter-spacing:.04em;margin:22px 0 6px} .previa-tela{background:var(--color-bg);border:1px solid var(--color-border);border-radius:12px;padding:16px;height:auto!important} .previa-comanda{padding:0;overflow:hidden} .previa-comanda .mesa-tela{height:auto}</style></head><body>
+<div class="previa-rotulo">PDV2 — tela de Mesas (mesas do servidor)</div>
+<div class="screen previa-tela">
+  <div class="screen-header">
+    <h1 style="display:inline-flex;align-items:center;gap:6px">🍽 Mesas</h1>
+    <button class="btn-primary">＋ Cadastrar mesas</button>
+  </div>
+  <p class="screen-hint">Clique numa mesa livre ou reservada pra abrir uma comanda. Clique numa mesa ocupada pra continuar lançando itens ou fechar a conta.</p>
+  <p class="mesa-compartilhada-aviso">🔗 Mesas do servidor (PDV1-SERVIDOR): as mesmas nos dois computadores. Quem fecha a conta recebe no próprio caixa.</p>
+  <div class="tables-grid">
+    <div class="table-card table-card-ocupada"><span class="table-card-numero">Mesa 1</span><span class="table-card-status">Ocupada — 2 pessoa(s) — R$ 32,00<br><span>há 25min</span></span></div>
+    <div class="table-card table-card-ocupada"><span class="table-card-numero">Mesa 2</span><span class="table-card-pagando">💵 Pagando no PDV1-SERVIDOR</span><span class="table-card-status">Ocupada — R$ 58,50</span></div>
+    <div class="table-card table-card-ocupada"><span class="table-card-numero">Mesa 3</span><span class="table-card-pagando table-card-pagando-aqui">💵 Recebendo neste caixa</span><span class="table-card-status">Ocupada — R$ 24,00</span></div>
+    <div class="table-card table-card-livre"><span class="table-card-numero">Mesa 4</span><span class="table-card-status">Livre</span><div class="table-card-actions"><button class="table-card-action">Reservar</button></div></div>
+    <div class="table-card table-card-aguardando_limpeza"><span class="table-card-numero">Mesa 5</span><span class="table-card-status">Aguardando limpeza</span><button class="table-card-action">Marcar como limpa</button></div>
+  </div>
+</div>
+
+<div class="previa-rotulo">PDV2 — servidor desligado</div>
+<div class="screen previa-tela">
+  <div class="modal-error mesa-compartilhada-sem-servidor">
+    <p><strong>Sem conexão com o servidor das mesas.</strong> O servidor das mesas não respondeu pela rede. Confira se ele está ligado, com o GerenciaAI aberto.</p>
+    <div class="mesa-compartilhada-acoes"><button class="btn-secondary">Tentar de novo</button><button class="btn-link">Usar só as mesas deste caixa</button></div>
+  </div>
+</div>
+
+<div class="previa-rotulo">PDV2 — conta trazida para receber aqui (Mesa 3)</div>
+<div class="screen previa-tela previa-comanda">
+  <div class="pos-screen mesa-tela">
+    <header class="pos-header">
+      <h1>Mesa 3</h1>
+      <div class="pos-header-right">
+        <button class="close-cash-btn">🧾 Pré-nota</button>
+        <button class="close-cash-btn">↩ Devolver a mesa</button>
+        <button class="close-cash-btn">← Mesas</button>
+      </div>
+    </header>
+    <p class="mesa-compartilhada-aviso mesa-compartilhada-recebendo">💵 Recebendo aqui a conta que estava no servidor (PDV1-SERVIDOR). A mesa fica travada lá até terminar. O dinheiro entra no caixa deste computador.</p>
+    <div class="mesa-corpo" style="height:300px">
+      <section class="mesa-catalogo mesa-catalogo-fechando"><div class="empty-state"><p><strong>Só recebimento.</strong></p><p>Para lançar mais itens, use <em>Devolver a mesa</em> (antes de receber qualquer valor) e lance pela mesa de novo.</p></div></section>
+      <aside class="mesa-comanda">
+        <div class="mesa-comanda-lista">
+          <div class="mesa-grupo"><div class="mesa-grupo-cabecalho"><span class="mesa-grupo-nome">Ana</span><span class="mesa-grupo-subtotal">R$ 24,00</span></div>
+            <ul class="mesa-grupo-itens"><li class="mesa-item"><span class="mesa-item-nome">Caldinho de charque × 2</span><span class="mesa-item-preco">24.00</span></li></ul></div>
+        </div>
+        <footer class="mesa-comanda-rodape"><div class="pos-total">Total: <strong>R$ 24,00</strong></div><button class="btn-primary pos-pay-btn">Ir para pagamento</button></footer>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="previa-rotulo">PDV1-SERVIDOR — mesa sendo paga no PDV2 (gerente pode destravar)</div>
+<div class="screen previa-tela">
+  <div class="tables-grid">
+    <div class="table-card table-card-ocupada"><span class="table-card-numero">Mesa 3</span><span class="table-card-pagando">💵 Pagando no PDV2 <button class="table-card-action">Destravar</button></span><span class="table-card-status">Ocupada — R$ 24,00</span></div>
+  </div>
+</div>
+</body></html>

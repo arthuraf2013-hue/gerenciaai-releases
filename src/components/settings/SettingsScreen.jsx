@@ -48,6 +48,31 @@ const WHATSAPP_STATUS_COR = {
   erro: 'var(--color-danger)',
 };
 
+/** Uma fila de fotos: "120 de 340" e a barra. Tudo em dia quando não há o que fazer. */
+function LinhaProgressoFotos({ titulo, p }) {
+  const total = Number(p?.total) || 0;
+  const feitas = Number(p?.feitas) || 0;
+  const pendentes = Number(p?.pendentes) || 0;
+  if (total === 0 || pendentes === 0) {
+    return (
+      <div className="fotos-progresso-linha">
+        <span>{titulo}</span><span className="fotos-progresso-ok">Tudo em dia</span>
+      </div>
+    );
+  }
+  const pct = Math.min(100, Math.round((feitas / total) * 100));
+  return (
+    <div className="fotos-progresso-linha">
+      <div className="fotos-progresso-topo">
+        <span>{titulo}</span><span>{feitas} de {total}</span>
+      </div>
+      <div className="fotos-progresso-barra" role="progressbar" aria-label={titulo} aria-valuemin={0} aria-valuemax={total} aria-valuenow={feitas}>
+        <div className="fotos-progresso-preench" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export function SettingsScreen() {
   const { currentUser } = useSession();
   const [aba, setAba] = useState('geral');
@@ -95,6 +120,18 @@ export function SettingsScreen() {
   const [pixSaved, setPixSaved] = useState(false);
 
   const [sincronizacaoAtiva, setSincronizacaoAtiva] = useState(false);
+  const [fotosProgresso, setFotosProgresso] = useState(null);
+  // Enquanto a tela estiver aberta e a sincronização ativa, atualiza o progresso das fotos.
+  useEffect(() => {
+    if (!sincronizacaoAtiva) return undefined;
+    let vivo = true;
+    const ler = () => window.pdv.pdvRegistry.getStatus()
+      .then((s) => { if (vivo) setFotosProgresso(s.fotos || null); })
+      .catch(() => {});
+    ler();
+    const intervalo = setInterval(ler, 2000);
+    return () => { vivo = false; clearInterval(intervalo); };
+  }, [sincronizacaoAtiva]);
   const [estudioAberto, setEstudioAberto] = useState(false);
   const [servidorDoGrupo, setServidorDoGrupo] = useState(false);
   const [recontagem, setRecontagem] = useState({ rodando: false, msg: '', erro: false });
@@ -224,6 +261,7 @@ export function SettingsScreen() {
     window.pdv.pdvRegistry.getStatus().then((s) => {
       setSincronizacaoAtiva(s.sincronizacaoAtiva);
       setServidorDoGrupo(!!s.servidorDoGrupo);
+      setFotosProgresso(s.fotos || null);
     });
     window.pdv.loyalty.getConfig().then((l) => setLoyaltyForm({
       ativado: !!l.ativado, reaisPorPonto: l.reais_por_ponto, valorResgatePonto: l.valor_resgate_ponto,
@@ -1354,6 +1392,12 @@ export function SettingsScreen() {
             <>Sincronização não configurada para este terminal ainda.</>
           )}
         </div>
+        {sincronizacaoAtiva && fotosProgresso && (
+          <div className="fotos-progresso">
+            <LinhaProgressoFotos titulo="Fotos enviadas" p={fotosProgresso.enviar} />
+            <LinhaProgressoFotos titulo="Fotos recebidas" p={fotosProgresso.baixar} />
+          </div>
+        )}
         {sincronizacaoAtiva && (
           <p className="screen-hint">
             Os usuários são os mesmos em todos os caixas do grupo, com o mesmo PIN: quem for criado, desativado

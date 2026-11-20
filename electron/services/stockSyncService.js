@@ -397,9 +397,25 @@ async function verificarEDebitarEstoqueRemoto(itens, { operacaoId = null } = {})
   }
 }
 
+/**
+ * Saldo do grupo de um produto, lido do contador que o servidor guarda
+ * (lanArmazemService, a autoridade na rede local). null = o grupo ainda não
+ * controla esse produto (sem contador) ou este computador não está num grupo:
+ * quem chama não trava por causa do grupo. Só faz sentido no servidor.
+ */
+function saldoDoGrupoNoServidor(productId) {
+  try {
+    const grupoId = syncStateService.getGrupoSincronizacaoId();
+    if (!grupoId || !syncStateService.ehServidorDoGrupo()) return null;
+    const saldo = require('./lanArmazemService').lerContadores(grupoId).get(idNoGrupo(productId));
+    return Number.isFinite(saldo) ? saldo : null;
+  } catch { return null; }
+}
+
 function _zerarCacheParaTeste() { cacheContadores = { grupoId: null, conjunto: null, lidoEm: 0 }; }
 
 module.exports = {
+  saldoDoGrupoNoServidor,
   garantirContadoresDoGrupo, produtosComEstoqueNoGrupo, enfileirarVariacao, _zerarCacheParaTeste,
   recontarEstoqueDoGrupo,
   pushEstoqueInicial, verificarEDebitarEstoqueRemoto,

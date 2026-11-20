@@ -44,3 +44,39 @@ test('recusa quantidade e início fora do limite', () => {
   assert.equal(tableService.createTablesEmLote({ locationId, quantidade: 5, inicio: 9998 }).ok, false);
   assert.equal(numeros(db, locationId).length, 0);
 });
+
+test('mesas 1 e 2 excluídas: o próximo número volta a ser 1, não o fim da lista', () => {
+  const { db, locationId } = freshTestDb();
+  tableService.createTablesEmLote({ locationId, quantidade: 22 });
+  for (const n of ['1', '2']) {
+    const t = db.prepare('SELECT id FROM restaurant_tables WHERE location_id = ? AND numero = ?').get(locationId, n);
+    assert.equal(tableService.deleteTable(t.id).ok, true);
+  }
+  assert.equal(tableService.proximoNumeroDeMesa(locationId), 1);
+  assert.deepEqual(tableService.proximaFaixaLivre(locationId), { numero: 1, buracos: 2 });
+  const r = tableService.createTablesEmLote({ locationId, quantidade: 2 });
+  assert.deepEqual(r.criadas, ['1', '2']);
+  assert.deepEqual(tableService.proximaFaixaLivre(locationId), { numero: 23, buracos: 0 });
+});
+
+test('organizar: grava a ordem escolhida, mesa nova vai para o fim e dá para voltar à ordem por número', () => {
+  const { db, locationId } = freshTestDb();
+  tableService.createTablesEmLote({ locationId, quantidade: 4 });
+  const idDe = (n) => db.prepare('SELECT id FROM restaurant_tables WHERE location_id = ? AND numero = ?').get(locationId, n).id;
+  const lista = () => tableService.listTables(locationId).map((t) => t.numero);
+  assert.deepEqual(lista(), ['1', '2', '3', '4']);
+
+  assert.equal(tableService.reorderTables({ locationId, ids: [idDe('3'), idDe('1'), idDe('4'), idDe('2')] }).ok, true);
+  assert.deepEqual(lista(), ['3', '1', '4', '2']);
+
+  tableService.createTable({ locationId, numero: '5' });
+  assert.deepEqual(lista(), ['3', '1', '4', '2', '5']);
+
+  // id de outro local/inexistente é ignorado; mesa que ficou fora da lista não some
+  assert.equal(tableService.reorderTables({ locationId, ids: [idDe('2'), 'nao-existe'] }).ok, true);
+  assert.deepEqual(lista(), ['2', '3', '1', '4', '5']);
+
+  assert.equal(tableService.reorderTables({ locationId, ids: 'x' }).ok, false);
+  assert.equal(tableService.reorderTables({ locationId, ids: [] }).ok, true);
+  assert.deepEqual(lista(), ['1', '2', '3', '4', '5']);
+});

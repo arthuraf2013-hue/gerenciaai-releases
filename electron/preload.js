@@ -137,6 +137,7 @@ contextBridge.exposeInMainWorld('pdv', {
     list: invoke('table:list'),
     create: invoke('table:create'),
     createLote: invoke('table:createLote'),
+    reordenar: invoke('table:reordenar'),
     proximoNumero: invoke('table:proximoNumero'),
     delete: invoke('table:delete'),
     open: invoke('table:open'),

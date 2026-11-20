@@ -225,19 +225,20 @@ const CANAIS = {
   'table:vincularCliente': { fn: (a) => T().vincularClientePessoa({ tableId: a.tableId, numero: a.numero, customerId: a.customerId }) },
   'table:create': { gestao: true, fn: (a, c) => T().createTable({ locationId: c.locationId, numero: a.numero, nome: a.nome }) },
   'table:createLote': { gestao: true, fn: (a, c) => T().createTablesEmLote({ locationId: c.locationId, quantidade: a.quantidade, inicio: a.inicio }) },
-  'table:proximoNumero': { ler: true, gestao: true, fn: (a, c) => ({ ok: true, numero: T().proximoNumeroDeMesa(c.locationId) }) },
+  'table:reordenar': { gestao: true, fn: (a, c) => T().reorderTables({ locationId: c.locationId, ids: a.ids }) },
+  'table:proximoNumero': { ler: true, gestao: true, fn: (a, c) => ({ ok: true, ...T().proximaFaixaLivre(c.locationId) }) },
   'table:delete': { gestao: true, fn: (a) => T().deleteTable(a.tableId) },
   'sale:addItem': {
     venda: true,
     fn: (a, c) => S().addItem({
       saleId: a.saleId, productId: a.productId, locationId: c.locationId, quantidade: a.quantidade,
-      operadorId: c.usuarioId, deviceId: a.deviceId, pessoaNumero: a.pessoaNumero, observacao: a.observacao,
+      operadorId: c.usuarioId, deviceId: a.deviceId, pessoaNumero: a.pessoaNumero, observacao: a.observacao, conferirGrupo: true,
     }),
   },
   'sale:ajustarQuantidade': {
     venda: true,
     fn: (a, c) => S().ajustarQuantidadeItem({
-      saleId: a.saleId, saleItemId: a.saleItemId, delta: a.delta, locationId: c.locationId, operadorId: c.usuarioId, deviceId: a.deviceId,
+      saleId: a.saleId, saleItemId: a.saleItemId, delta: a.delta, locationId: c.locationId, operadorId: c.usuarioId, deviceId: a.deviceId, conferirGrupo: true,
     }),
   },
   'sale:cancelItem': {

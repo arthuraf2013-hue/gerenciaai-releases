@@ -62,6 +62,12 @@ export function RestaurantTables() {
     return { texto: `há ${horas}h${resto > 0 ? ` ${resto}min` : ''}`, longa: minutos >= 90 };
   }
 
+  // Modo "Organizar": arrastar (ou setas) para mudar a posição das mesas.
+  const [organizando, setOrganizando] = useState(false);
+  const [ordemEdit, setOrdemEdit] = useState([]);
+  const [arrastando, setArrastando] = useState(null);
+  const [salvandoOrdem, setSalvandoOrdem] = useState(false);
+
   const [showNew, setShowNew] = useState(false);
   useEscToClose(() => setShowNew(false), showNew);
   const [novoNumero, setNovoNumero] = useState('');
@@ -224,12 +230,70 @@ export function RestaurantTables() {
     // aguardando_limpeza: não abre nada, só os botões de ação no card cuidam disso
   }
 
+  // Mesas na ordem da edição; as que chegaram depois (outro caixa cadastrou) vão para o fim.
+  const mesasExibidas = organizando
+    ? [...tables].sort((a, b) => {
+      const ia = ordemEdit.indexOf(a.id);
+      const ib = ordemEdit.indexOf(b.id);
+      return (ia < 0 ? Infinity : ia) - (ib < 0 ? Infinity : ib);
+    })
+    : tables;
+
+  function iniciarOrganizar() {
+    setLoadError('');
+    setOrdemEdit(tables.map((t) => t.id));
+    setOrganizando(true);
+  }
+
+  function moverMesa(id, destinoId) {
+    if (!destinoId || id === destinoId) return;
+    setOrdemEdit((atual) => {
+      const base = mesasExibidas.map((t) => t.id);
+      const de = base.indexOf(id);
+      const para = base.indexOf(destinoId);
+      if (de < 0 || para < 0) return atual;
+      base.splice(para, 0, base.splice(de, 1)[0]);
+      return base;
+    });
+  }
+
+  function empurrarMesa(id, delta) {
+    const base = mesasExibidas.map((t) => t.id);
+    const alvo = base[base.indexOf(id) + delta];
+    moverMesa(id, alvo);
+  }
+
+  async function salvarOrdem() {
+    setSalvandoOrdem(true);
+    const r = await api.table.reordenar({ locationId: window.APP_LOCATION_ID, ids: mesasExibidas.map((t) => t.id) });
+    setSalvandoOrdem(false);
+    if (!r?.ok) return setLoadError(r?.error || 'Não foi possível salvar a ordem.');
+    setOrganizando(false);
+    setAvisoMesas('Ordem das mesas salva.');
+    reload();
+  }
+
+  async function ordemPorNumero() {
+    if (!confirm('Voltar todas as mesas para a ordem por número?')) return;
+    setSalvandoOrdem(true);
+    const r = await api.table.reordenar({ locationId: window.APP_LOCATION_ID, ids: [] });
+    setSalvandoOrdem(false);
+    if (!r?.ok) return setLoadError(r?.error || 'Não foi possível restaurar a ordem.');
+    setOrganizando(false);
+    setAvisoMesas('Mesas na ordem por número.');
+    reload();
+  }
+
   async function abrirNovaMesa() {
     setCreateError('');
     setModoNova('varias');
     setShowNew(true);
     const r = await api.table.proximoNumero({ locationId: window.APP_LOCATION_ID });
-    if (r?.ok) setInicioMesas(String(r.numero));
+    if (r?.ok) {
+      setInicioMesas(String(r.numero));
+      // Mesas excluídas no meio da lista: sugere refazer só esses buracos.
+      if (r.buracos > 0) setQtdMesas(String(r.buracos));
+    }
   }
 
   const qtdNum = Number(qtdMesas);
@@ -353,8 +417,23 @@ export function RestaurantTables() {
     <div className="screen">
       <div className="screen-header">
         <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={20} /> Mesas</h1>
-        <button className="btn-primary" onClick={abrirNovaMesa}><Icon name="add" size={15} /> Cadastrar mesas</button>
+        <div className="mesas-header-acoes">
+          {ehGestao && tables.length > 1 && !organizando && (
+            <button type="button" className="btn-secondary" onClick={iniciarOrganizar}>Organizar</button>
+          )}
+          <button className="btn-primary" onClick={abrirNovaMesa} disabled={organizando}><Icon name="add" size={15} /> Cadastrar mesas</button>
+        </div>
       </div>
+      {organizando && (
+        <div className="mesas-organizar-barra" role="status">
+          <span>Arraste as mesas (ou use as setas) para mudar a ordem. Fica igual nos dois PDVs.</span>
+          <span className="mesas-organizar-botoes">
+            <button type="button" className="btn-link" onClick={ordemPorNumero} disabled={salvandoOrdem}>Voltar à ordem por número</button>
+            <button type="button" className="btn-secondary" onClick={() => setOrganizando(false)} disabled={salvandoOrdem}>Cancelar</button>
+            <button type="button" className="btn-primary" onClick={salvarOrdem} disabled={salvandoOrdem}>{salvandoOrdem ? 'Salvando...' : 'Salvar ordem'}</button>
+          </span>
+        </div>
+      )}
       <p className="screen-hint">
         Clique numa mesa livre ou reservada pra abrir uma comanda (informando quantas pessoas —
         usado só pra calcular quanto fica por pessoa na hora de dividir a conta). Clique numa mesa
@@ -412,7 +491,27 @@ export function RestaurantTables() {
         </div>
       ) : (
         <div className="tables-grid">
-          {tables.map((t) => {
+          {mesasExibidas.map((t, pos) => {
+            if (organizando) {
+              return (
+                <div
+                  key={t.id}
+                  className={`table-card table-card-${t.status} table-card-organizar${arrastando === t.id ? ' table-card-arrastando' : ''}`}
+                  draggable
+                  onDragStart={(e) => { setArrastando(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id); }}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                  onDrop={(e) => { e.preventDefault(); moverMesa(arrastando, t.id); setArrastando(null); }}
+                  onDragEnd={() => setArrastando(null)}
+                >
+                  <Icon name="grip" size={14} />
+                  <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+                  <span className="table-card-organizar-setas">
+                    <button type="button" className="table-card-action" aria-label="Mover para antes" disabled={pos === 0} onClick={() => empurrarMesa(t.id, -1)}>&larr;</button>
+                    <button type="button" className="table-card-action" aria-label="Mover para depois" disabled={pos === mesasExibidas.length - 1} onClick={() => empurrarMesa(t.id, 1)}>&rarr;</button>
+                  </span>
+                </div>
+              );
+            }
             const tempo = t.status === 'ocupada' ? tempoOcupada(t.aberta_em) : null;
             return (
             <div

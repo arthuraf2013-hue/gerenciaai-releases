@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS restaurant_tables (
   pessoas     INTEGER, -- quantas pessoas na mesa, preenchido ao abrir — usado só pra dividir o valor da conta, não cria pagamentos separados
   reservado_para TEXT, -- data/hora combinada da reserva (formato ISO), só preenchido quando status = reservada
   sale_id     TEXT REFERENCES sales(id),
+  ordem       INTEGER, -- posição na tela de mesas (organizar); NULL = ordem por número
   criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_location_numero ON restaurant_tables(location_id, numero);

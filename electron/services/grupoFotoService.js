@@ -301,14 +301,34 @@ let trabalhando = null;
 function trabalhar(opcoes) {
   if (trabalhando) return trabalhando;
   trabalhando = (async () => {
+    progresso(); // guarda o tamanho da fila antes de mexer (total da barra)
     const enviadas = (await enviarFotos(opcoes)).enviadas || 0;
     const baixadas = (await baixarFotos(opcoes)).baixadas || 0;
+    progresso(); // fila zerou: o total da barra volta a zero
     return { enviadas, baixadas };
   })().catch((err) => {
     console.error('[grupoFoto]', err?.message || err);
     return { enviadas: 0, baixadas: 0 };
   }).finally(() => { trabalhando = null; });
   return trabalhando;
+}
+
+// Progresso para a tela: a fila encolhe conforme as fotos vão, então o total
+// é o maior tamanho que ela teve desde que esvaziou (o "pico"). Feitas =
+// pico - pendentes. Quando a fila zera, o pico volta a zero.
+const picoDaFila = { enviar: 0, baixar: 0 };
+function progressoDeFila(pendentes, chave) {
+  if (pendentes === 0) { picoDaFila[chave] = 0; return { pendentes: 0, total: 0, feitas: 0 }; }
+  if (pendentes > picoDaFila[chave]) picoDaFila[chave] = pendentes;
+  return { pendentes, total: picoDaFila[chave], feitas: picoDaFila[chave] - pendentes };
+}
+
+/** Quantas fotos faltam subir e baixar, e quantas já foram nesta leva. */
+function progresso() {
+  const db = getDb();
+  const enviar = db.prepare('SELECT COUNT(*) AS n FROM grupo_replica_foto_enviar').get().n;
+  const baixar = db.prepare('SELECT COUNT(*) AS n FROM grupo_replica_foto_baixar').get().n;
+  return { enviar: progressoDeFila(enviar, 'enviar'), baixar: progressoDeFila(baixar, 'baixar') };
 }
 
 function temTrabalho(grupoId, agora = Date.now()) {
@@ -321,6 +341,6 @@ function _definirCompressorParaTeste(fn) { comprimir = fn || comprimirComElectro
 function _definirPastaParaTeste(dir) { pastaDeTeste = dir || null; }
 
 module.exports = {
-  campoDaFoto, aoReceberProduto, enviarFotos, baixarFotos, trabalhar, temTrabalho,
+  campoDaFoto, aoReceberProduto, enviarFotos, baixarFotos, trabalhar, temTrabalho, progresso,
   hashDe, pareceImagem, MAX_BYTES, _definirCompressorParaTeste, _definirPastaParaTeste,
 };

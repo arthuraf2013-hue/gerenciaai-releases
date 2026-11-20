@@ -466,9 +466,10 @@ function registerIpcHandlers() {
   safeHandle('table:list', (_e, { locationId }) => tableService.listTables(locationId));
   // Criar/excluir mesa é configuração do salão, não operação de venda --
   // mesmo padrão de category/supplier/ingredient abaixo.
+  safeHandle('table:reordenar', (event, { locationId, ids } = {}) => guardRole(event, PAPEIS_GESTAO) || tableService.reorderTables({ locationId, ids }));
   safeHandle('table:create', (event, payload) => guardRole(event, PAPEIS_GESTAO) || tableService.createTable(payload));
   safeHandle('table:createLote', (event, payload) => guardRole(event, PAPEIS_GESTAO) || tableService.createTablesEmLote(payload));
-  safeHandle('table:proximoNumero', (event, { locationId } = {}) => guardRole(event, PAPEIS_GESTAO) || ({ ok: true, numero: tableService.proximoNumeroDeMesa(locationId) }));
+  safeHandle('table:proximoNumero', (event, { locationId } = {}) => guardRole(event, PAPEIS_GESTAO) || ({ ok: true, ...tableService.proximaFaixaLivre(locationId) }));
   safeHandle('table:delete', (event, { tableId }) => guardRole(event, PAPEIS_GESTAO) || tableService.deleteTable(tableId));
   safeHandle('table:open', (_e, payload) => tableService.openTable(payload));
   safeHandle('table:getCart', (_e, { saleId }) => tableService.getTableCart(saleId));

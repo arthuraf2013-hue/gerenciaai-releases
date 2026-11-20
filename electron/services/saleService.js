@@ -460,7 +460,7 @@ function setServiceCharge(saleId, percentual) {
  * (requisito: vendas diminuem estoque diretamente, não só no fechamento).
  * Roda em transação: se o movimento de estoque falhar, o item não é gravado.
  */
-function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao }) {
+function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao, conferirGrupo = false }) {
   const db = getDb();
 
   // Observação do item (ex.: "sem gelo"): o item com observação é sempre uma
@@ -489,7 +489,13 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   const ehServico = product.tipo === 'servico';
   const disponivel = ehServico ? null : getCurrentStock(productId, locationId);
   if (!ehServico && quantidade > disponivel) {
-    return { ok: false, error: `Estoque insuficiente. Disponível: ${disponivel} ${product.unidade}.` };
+    // Lançamento vindo de um caixa na mesa do servidor: o estoque que vale é
+    // o do GRUPO (o do servidor sozinho pode estar zerado enquanto o grupo tem).
+    const noGrupo = conferirGrupo ? require('./stockSyncService').saldoDoGrupoNoServidor(productId) : null;
+    if (noGrupo === null || noGrupo < quantidade) {
+      const mostrado = noGrupo === null ? disponivel : noGrupo;
+      return { ok: false, error: `Estoque insuficiente${noGrupo === null ? '' : ' no grupo'}. Disponível: ${mostrado} ${product.unidade}.` };
+    }
   }
 
   const custom = JSON.parse(product.custom_fields || '{}');
@@ -623,7 +629,7 @@ function itemAjustavel(db, item, product) {
  * cancelar um. Diminuir depois de entrar pagamento não passa por aqui: aí
  * é o Cancelar, que pede autorização (ver cancelSaleItem).
  */
-function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operadorId, deviceId }) {
+function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operadorId, deviceId, conferirGrupo = false }) {
   const db = getDb();
   const passo = Number(delta);
   if (passo !== 1 && passo !== -1) return { ok: false, error: 'Ajuste inválido.' };
@@ -645,7 +651,12 @@ function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operador
     if (!product.ativo) return { ok: false, error: 'Este produto foi desativado.' };
     if (!ehServico) {
       disponivel = getCurrentStock(product.id, locationId);
-      if (disponivel < 1) return { ok: false, error: `Estoque insuficiente. Disponível: ${disponivel} ${product.unidade}.` };
+      if (disponivel < 1) {
+        const noGrupo = conferirGrupo ? require('./stockSyncService').saldoDoGrupoNoServidor(product.id) : null;
+        if (noGrupo === null || noGrupo < 1) {
+          return { ok: false, error: `Estoque insuficiente${noGrupo === null ? '' : ' no grupo'}. Disponível: ${noGrupo === null ? disponivel : noGrupo} ${product.unidade}.` };
+        }
+      }
     }
   } else {
     if (item.quantidade <= 1) return { ok: false, error: 'Para tirar o último, use Cancelar.' };

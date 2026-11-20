@@ -263,3 +263,18 @@ test('reconhece imagem pelo começo do arquivo', () => {
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(20)]);
   assert.equal(fotos.pareceImagem(png, 'image/png'), true);
 });
+
+test('progresso das fotos: total = maior tamanho da fila, feitas = o que já saiu, zera quando acaba', () => {
+  const a = caixa();
+  const ins = a.db.prepare('INSERT INTO grupo_replica_foto_enviar (local_id, marca) VALUES (?, abs(random()))');
+  assert.deepEqual(fotos.progresso().enviar, { pendentes: 0, total: 0, feitas: 0 });
+  for (const id of ['a', 'b', 'c', 'd']) ins.run(id);
+  assert.deepEqual(fotos.progresso().enviar, { pendentes: 4, total: 4, feitas: 0 });
+  a.db.prepare(`DELETE FROM grupo_replica_foto_enviar WHERE local_id IN ('a', 'b')`).run();
+  assert.deepEqual(fotos.progresso().enviar, { pendentes: 2, total: 4, feitas: 2 });
+  ins.run('e'); ins.run('f'); ins.run('g'); // chegam mais fotos no meio
+  assert.deepEqual(fotos.progresso().enviar, { pendentes: 5, total: 5, feitas: 0 });
+  a.db.prepare('DELETE FROM grupo_replica_foto_enviar').run();
+  assert.deepEqual(fotos.progresso().enviar, { pendentes: 0, total: 0, feitas: 0 });
+  assert.deepEqual(fotos.progresso().baixar, { pendentes: 0, total: 0, feitas: 0 });
+});

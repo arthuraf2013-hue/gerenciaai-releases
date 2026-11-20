@@ -26,6 +26,7 @@ function Ring() {
 
 const ICONS = {
   // --- setas e ações de navegação/edição ---------------------------------
+  grip: <><circle cx="9" cy="7" r="1.4" fill="currentColor" /><circle cx="15" cy="7" r="1.4" fill="currentColor" /><circle cx="9" cy="12" r="1.4" fill="currentColor" /><circle cx="15" cy="12" r="1.4" fill="currentColor" /><circle cx="9" cy="17" r="1.4" fill="currentColor" /><circle cx="15" cy="17" r="1.4" fill="currentColor" /></>,
   arrowLeft: <><Ring /><path d="M14 7l-5 5 5 5" {...LINE} /></>,
   arrowRight: <><Ring /><path d="M10 7l5 5-5 5" {...LINE} /></>,
   arrowUp: <><Ring /><path d="M7 14l5-5 5 5" {...LINE} /></>,

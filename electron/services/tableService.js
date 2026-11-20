@@ -215,7 +215,7 @@ function listTables(locationId) {
      LEFT JOIN sales s ON s.id = t.sale_id
      LEFT JOIN restaurant_tables p ON p.id = t.unida_a_mesa_id
      WHERE t.location_id = ?
-     ORDER BY CAST(t.numero AS INTEGER), t.numero`
+     ORDER BY (t.ordem IS NULL), t.ordem, CAST(t.numero AS INTEGER), t.numero`
   ).all(locationId);
   // Na principal: os números das mesas unidas a ela ("4 + 5"), na ordem da lista.
   const unidas = new Map();
@@ -240,12 +240,31 @@ function createTable({ locationId, numero, nome }) {
   return { ok: true, id };
 }
 
-/** Próximo número livre: o maior número de mesa que é só dígitos, + 1. */
-function proximoNumeroDeMesa(locationId) {
+/**
+ * Primeira faixa de números livres: o menor número (só dígitos) que não
+ * está em uso e quantos seguidos estão livres a partir dele. Se as mesas
+ * 1 e 2 foram excluídas e existem 3 a 22, é { numero: 1, buracos: 2 };
+ * sem buraco, é o próximo depois da maior e `buracos` é 0.
+ */
+function proximaFaixaLivre(locationId) {
   const db = getDb();
-  const numeros = db.prepare('SELECT numero FROM restaurant_tables WHERE location_id = ?').all(locationId)
-    .map((r) => String(r.numero).trim()).filter((n) => /^\d+$/.test(n)).map(Number);
-  return numeros.length ? Math.max(...numeros) + 1 : 1;
+  const usados = new Set(
+    db.prepare('SELECT numero FROM restaurant_tables WHERE location_id = ?').all(locationId)
+      .map((r) => String(r.numero).trim()).filter((n) => /^\d+$/.test(n)).map(Number)
+  );
+  if (!usados.size) return { numero: 1, buracos: 0 };
+  const maior = Math.max(...usados);
+  let n = 1;
+  while (usados.has(n)) n += 1;
+  if (n > maior) return { numero: n, buracos: 0 };
+  let buracos = 0;
+  while (n + buracos < maior && !usados.has(n + buracos)) buracos += 1;
+  return { numero: n, buracos };
+}
+
+/** Próximo número livre: o menor que não está em uso (preenche mesa excluída antes de ir para o fim). */
+function proximoNumeroDeMesa(locationId) {
+  return proximaFaixaLivre(locationId).numero;
 }
 
 const MAX_MESAS_POR_VEZ = 200;
@@ -278,6 +297,32 @@ function createTablesEmLote({ locationId, quantidade, inicio } = {}) {
     }
   })();
   return { ok: true, criadas, jaExistiam };
+}
+
+/**
+ * Organizar a tela: grava a posição de cada mesa na ordem em que vieram.
+ * `ids` vazio/ausente volta tudo para a ordem por número. Mesa de outro
+ * local ou id que não existe é ignorado; mesa que ficou de fora da lista
+ * vai para o fim (não some).
+ */
+function reorderTables({ locationId, ids } = {}) {
+  if (!locationId) return { ok: false, error: 'Local não informado.' };
+  const db = getDb();
+  if (ids === undefined || ids === null || (Array.isArray(ids) && ids.length === 0)) {
+    db.prepare('UPDATE restaurant_tables SET ordem = NULL WHERE location_id = ?').run(locationId);
+    return { ok: true };
+  }
+  if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) return { ok: false, error: 'Ordem inválida.' };
+  db.transaction(() => {
+    const doLocal = new Set(db.prepare('SELECT id FROM restaurant_tables WHERE location_id = ?').all(locationId).map((r) => r.id));
+    const ordem = [...new Set(ids)].filter((i) => doLocal.has(i));
+    const resto = db.prepare(
+      'SELECT id FROM restaurant_tables WHERE location_id = ? ORDER BY (ordem IS NULL), ordem, CAST(numero AS INTEGER), numero'
+    ).all(locationId).map((r) => r.id).filter((i) => !ordem.includes(i));
+    const gravar = db.prepare('UPDATE restaurant_tables SET ordem = ? WHERE id = ?');
+    [...ordem, ...resto].forEach((id, i) => gravar.run(i + 1, id));
+  })();
+  return { ok: true };
 }
 
 function deleteTable(tableId) {
@@ -780,6 +825,8 @@ function removerPessoa({ tableId, numero } = {}) {
 module.exports = {
   createTablesEmLote,
   proximoNumeroDeMesa,
+  proximaFaixaLivre,
+  reorderTables,
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable, repararMesasUnidas,
   repararMesasComVendaFechada, liberarMesaDaVenda,
   markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,

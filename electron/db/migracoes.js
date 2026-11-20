@@ -921,6 +921,17 @@ const MIGRACOES = [
       `);
     },
   },
+  {
+    // Organizar as mesas na tela (arrastar): a posição de cada uma no servidor.
+    versao: 17,
+    nome: 'ordem das mesas',
+    up(db) {
+      addColuna(db, 'restaurant_tables', 'ordem', 'INTEGER');
+    },
+    down(db) {
+      dropColuna(db, 'restaurant_tables', 'ordem');
+    },
+  },
 ];
 
 function versoesAplicadas(db) {
