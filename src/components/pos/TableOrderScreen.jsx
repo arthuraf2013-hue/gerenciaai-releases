@@ -417,13 +417,17 @@ export function TableOrderScreen({
     setFeedback({ message: pessoa ? `Pré-nota de ${pessoa.nome || `Pessoa ${pessoa.numero}`} enviada para a impressora.` : 'Pré-nota enviada para a impressora.', type: 'success' });
   }
 
-  async function handleImprimirComanda() {
-    const result = await api.print.kitchenTicket({ saleId, mesaLabel: nome || `Mesa ${numero}` });
+  async function handleImprimirComanda(reimprimirTudo = false) {
+    const result = await api.print.kitchenTicket({ saleId, mesaLabel: nome || `Mesa ${numero}`, reimprimirTudo });
     if (!result.ok) {
+      if (result.nadaNovo) {
+        setFeedback({ message: 'Nada novo para a cozinha: tudo desta comanda já foi impresso. Para imprimir a comanda inteira de novo, use Mais › Reimprimir a comanda inteira.', type: 'aviso' });
+        return;
+      }
       setFeedback({ message: result.error, type: 'error' });
       return;
     }
-    setFeedback({ message: `Comanda enviada — ${result.totalItens} item(ns).`, type: 'success' });
+    setFeedback({ message: reimprimirTudo ? `Comanda inteira reimpressa — ${result.totalItens} item(ns).` : `Comanda enviada — ${result.totalItens} item(ns).`, type: 'success' });
   }
 
   /** Mesa do servidor: traz a conta para receber aqui (a tela troca para o recebimento). */
@@ -575,11 +579,12 @@ export function TableOrderScreen({
             title="Imprime a conta para o cliente conferir antes de pagar (não é documento fiscal)">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="receipt" size={15} /> Pré-nota</span>
           </button>
-          <button className="close-cash-btn" onClick={handleImprimirComanda} title="Imprimir a comanda para a cozinha">
+          <button className="close-cash-btn" onClick={() => handleImprimirComanda(false)} title="Imprimir a comanda para a cozinha (só o que ainda não saiu)">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Cozinha</span>
           </button>
           <DropdownMenu label="Mais">
             <DropdownMenuItem onClick={abrirEdicaoPessoas}>Número de pessoas ({pessoas || 0})</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleImprimirComanda(true)}>Reimprimir a comanda inteira (cozinha)</DropdownMenuItem>
             {!(grupo?.unidas?.length > 0) && <DropdownMenuItem onClick={abrirTransferencia}>Mudar de mesa (inteira ou algumas pessoas)</DropdownMenuItem>}
             <DropdownMenuItem danger onClick={requestDesocupar}>Desocupar mesa</DropdownMenuItem>
           </DropdownMenu>

@@ -123,3 +123,23 @@ test('tela Cozinha recebe o preço e a unidade de cada item', () => {
   assert.equal(i.preco_unitario, 70);
   assert.equal(i.unidade, 'kg');
 });
+
+test('reimprimir a comanda inteira: sai de novo mesmo com tudo já impresso; sem reimprimir, avisa que nada é novo', async () => {
+  const ctx = loja();
+  const saidas = impressoraFalsa();
+  cozinha.saveConfig({ ativa: true, tipo: 'rede', ip: '192.168.0.50', requestingUserId: ctx.gerenteId });
+  const { saleId } = mesaAberta(ctx, '7');
+  saleService.addItem({ saleId, productId: ctx.peixe, locationId: ctx.locationId, quantidade: 2, operadorId: ctx.adminId, deviceId: 'pc' });
+
+  assert.equal((await cozinha.imprimirItensDaVenda({ saleId })).ok, true);
+  const semNovidade = await cozinha.imprimirItensDaVenda({ saleId });
+  assert.equal(semNovidade.ok, false);
+  assert.equal(semNovidade.nadaNovo, true);
+  assert.equal(saidas.length, 1, 'não imprime de novo sem pedido');
+
+  const de_novo = await cozinha.imprimirItensDaVenda({ saleId, reimprimirTudo: true });
+  assert.equal(de_novo.ok, true, de_novo.error);
+  assert.equal(de_novo.totalItens, 1);
+  assert.equal(saidas.length, 2);
+  assert.match(saidas[1].dados.toString('latin1'), /MESA 7/);
+});

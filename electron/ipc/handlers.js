@@ -402,8 +402,12 @@ function registerIpcHandlers() {
 
   // --- Estoque ---
   safeHandle('stock:getForLocation', async (_e, { locationId }) => require('../services/estoqueServidorService').sobreporEstoque(stockService.getStockForLocation(locationId)));
-  safeHandle('stock:listLowStock', (_e, { locationId }) => stockService.listLowStock(locationId));
-  safeHandle('stock:listAlerts', (_e, { locationId }) => stockService.listAlerts(locationId, profileService.getActiveProfile()));
+  // Caixa com estoque no servidor: alertas e estoque baixo pelo saldo do servidor (estoqueServidorService).
+  safeHandle('stock:listLowStock', async (_e, { locationId }) => {
+    const es = require('../services/estoqueServidorService');
+    return es.apontado() ? es.estoqueBaixo(locationId) : stockService.listLowStock(locationId);
+  });
+  safeHandle('stock:listAlerts', (_e, { locationId }) => require('../services/estoqueServidorService').alertas(locationId, profileService.getActiveProfile()));
   safeHandle('stock:previsaoDeRuptura', (_e, { locationId }) => stockService.previsaoDeRuptura(locationId));
   safeHandle('stock:sugestoesDescontoValidade', (_e, { locationId }) => stockService.sugestoesDescontoValidade({ locationId }));
   // Ajuste manual de estoque (fora do fluxo normal de venda/entrada) é
@@ -1122,7 +1126,7 @@ function registerIpcHandlers() {
     return { ok: true, temTelefoneCliente: result.temTelefoneCliente };
   });
   safeHandle('print:label', (_e, payload) => printService.printLabel(payload));
-  safeHandle('print:kitchenTicket', (_e, { saleId, mesaLabel }) => printService.printKitchenTicket(saleId, mesaLabel));
+  safeHandle('print:kitchenTicket', (_e, { saleId, mesaLabel, reimprimirTudo }) => printService.printKitchenTicket(saleId, mesaLabel, { reimprimirTudo: reimprimirTudo === true }));
   safeHandle('print:dailyMenu', (_e, { itens }) => printService.printDailyMenu(itens));
   safeHandle('print:listPrinters', () => printService.listPrinters());
   safeHandle('print:testPage', () => printService.printTestPage());

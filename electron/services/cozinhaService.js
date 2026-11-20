@@ -234,7 +234,7 @@ const ultimaFalhaVenda = new Map();
  * do balcão com senha), das categorias da cozinha. Marca como enviados só
  * depois que a impressora aceitou.
  */
-async function imprimirItensDaVenda({ saleId, rotulo, subtitulo } = {}) {
+async function imprimirItensDaVenda({ saleId, rotulo, subtitulo, reimprimirTudo = false } = {}) {
   const config = getConfig();
   if (!config.ativa) return { ok: false, error: 'A impressora da cozinha está desligada (Configurações → Cozinha).', desligada: true };
   if (imprimindoVenda.has(saleId)) return { ok: false, error: 'Essa comanda já está sendo impressa.' };
@@ -246,10 +246,13 @@ async function imprimirItensDaVenda({ saleId, rotulo, subtitulo } = {}) {
               si.preco_unitario, p.unidade, sp.nome AS pessoa_nome
        FROM sale_items si JOIN products p ON p.id = si.product_id
        LEFT JOIN sale_people sp ON sp.sale_id = si.sale_id AND sp.numero = si.pessoa_numero
-       WHERE si.sale_id = ? AND si.cancelado = 0 AND si.enviado_cozinha = 0
+       WHERE si.sale_id = ? AND si.cancelado = 0 AND (? = 1 OR si.enviado_cozinha = 0)
        ORDER BY si.criado_em, si.rowid`
-    ).all(saleId).filter((i) => vaiPraCozinha(i.categoria, config.categorias));
-    if (!itens.length) return { ok: false, error: 'Nada novo para a cozinha nesta comanda.', nadaNovo: true };
+    ).all(saleId, reimprimirTudo ? 1 : 0).filter((i) => vaiPraCozinha(i.categoria, config.categorias));
+    if (!itens.length) {
+      if (reimprimirTudo) return { ok: false, error: 'Esta comanda não tem item para a cozinha.' };
+      return { ok: false, error: 'Nada novo para a cozinha nesta comanda.', nadaNovo: true };
+    }
 
     const comanda = comandaDaVenda(saleId, itens, { rotulo, subtitulo });
     const ids = itens.map((i) => i.id);

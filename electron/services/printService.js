@@ -437,13 +437,14 @@ function printLabel({ nome, preco, codigoBarras, barcodeDataUrl }) {
  * na mesa depois). Sem preço, sem forma de pagamento — só o que precisa
  * ser preparado, com letra grande pra ler rápido numa cozinha corrida.
  */
-function printKitchenTicket(saleId, mesaLabel) {
+function printKitchenTicket(saleId, mesaLabel, { reimprimirTudo = false } = {}) {
   // Impressora da cozinha configurada (Configurações → Cozinha): vai pra ela,
   // só com as categorias da cozinha, e só marca como enviado se imprimiu.
   const cozinha = require('./cozinhaService');
   if (cozinha.getConfig().ativa) {
-    return cozinha.imprimirItensDaVenda({ saleId, rotulo: mesaLabel ? String(mesaLabel).toUpperCase() : undefined });
+    return cozinha.imprimirItensDaVenda({ saleId, rotulo: mesaLabel ? String(mesaLabel).toUpperCase() : undefined, reimprimirTudo });
   }
+  if (reimprimirTudo) return { ok: false, error: 'Reimprimir a comanda inteira precisa da impressora da cozinha configurada (Configurações → Cozinha).' };
   const db = getDb();
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
