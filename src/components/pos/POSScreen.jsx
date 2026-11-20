@@ -205,7 +205,9 @@ export function POSScreen() {
 
     // Produto controlado que costuma exigir receita: só um lembrete, nunca
     // bloqueia a venda — o estoque pode ter itens que não são medicamentos.
-    if (result.avisoReceita) {
+    if (result.avisoEstoque) {
+      setFeedback({ message: `${product.nome} adicionado, mas ficou sem estoque. ${result.avisoEstoque}`, type: 'aviso' });
+    } else if (result.avisoReceita) {
       setFeedback({ message: `${product.nome} adicionado. É um controlado — considere anexar a receita.`, type: 'info' });
     } else {
       setFeedback({ message: `${product.nome} adicionado.`, type: 'success' });
@@ -336,6 +338,7 @@ export function POSScreen() {
       : i)));
     setTotal(r.novoTotal);
     if (delta > 0) playBeep();
+    if (r.avisoEstoque) setFeedback({ message: `${item.nome}: ficou sem estoque. ${r.avisoEstoque}`, type: 'aviso' });
   }
 
   async function confirmarPesagemManual(e) {

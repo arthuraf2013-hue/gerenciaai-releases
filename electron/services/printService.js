@@ -107,6 +107,27 @@ function imprimirEmJanelaInvisivel(html, opcoes, { prazoMs } = {}) {
   });
 }
 
+/**
+ * Gera um PDF a partir do HTML (o tamanho e a orientação da página vêm do
+ * @page do próprio HTML). Usa um arquivo temporário em vez de data: URL, que
+ * tem limite de tamanho -- folha de QR com muitas mesas e logo passa disso.
+ */
+async function gerarPdf(html) {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const temp = path.join(os.tmpdir(), `gerenciaai-${Date.now()}-${Math.random().toString(36).slice(2)}.html`);
+  fs.writeFileSync(temp, html, 'utf8');
+  const win = new (getBrowserWindow())({ show: false, webPreferences: { sandbox: true, javascript: false } });
+  try {
+    await win.loadFile(temp);
+    return await win.webContents.printToPDF({ preferCSSPageSize: true, printBackground: true, margins: { marginType: 'none' } });
+  } finally {
+    try { if (!win.isDestroyed()) win.destroy(); } catch { /* já fechada */ }
+    try { fs.unlinkSync(temp); } catch { /* já apagado */ }
+  }
+}
+
 /** Lista as impressoras instaladas no Windows, pra escolher uma como
  * padrão nas Configurações. Precisa de uma janela (mesmo invisível)
  * pra perguntar ao sistema operacional. */
@@ -428,35 +449,19 @@ function printKitchenTicket(saleId, mesaLabel) {
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
   const itens = db.prepare(
-    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id
-     WHERE si.sale_id = ? AND si.cancelado = 0 AND si.enviado_cozinha = 0`
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome, p.unidade, sp.nome AS pessoa_nome
+     FROM sale_items si JOIN products p ON p.id = si.product_id
+     LEFT JOIN sale_people sp ON sp.sale_id = si.sale_id AND sp.numero = si.pessoa_numero
+     WHERE si.sale_id = ? AND si.cancelado = 0 AND si.enviado_cozinha = 0
+     ORDER BY si.criado_em, si.rowid`
   ).all(saleId);
 
   if (itens.length === 0) return { ok: false, error: 'Nada novo pra enviar — todos os itens já foram impressos.' };
 
-  const agora = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' });
-  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const linhasHtml = itens.map((i) =>
-    `<div class="item"><span class="qtd">${i.quantidade}×</span> ${escapeHtml(i.nome)}
-      ${i.observacao ? `<div class="obs">⚠ ${escapeHtml(i.observacao)}</div>` : ''}
-    </div>`
-  ).join('');
-
-  const html = `<!doctype html>
-  <html><head><meta charset="utf-8"><style>
-    @page { size: 80mm auto; margin: 3mm; }
-    body { font-family: Arial, sans-serif; width: 74mm; margin: 0 auto; }
-    h1 { font-size: 20px; margin: 0 0 4px; }
-    .info { font-size: 12px; color: #333; margin-bottom: 10px; }
-    .item { font-size: 18px; font-weight: bold; padding: 6px 0; border-bottom: 1px dashed #999; }
-    .qtd { display: inline-block; min-width: 32px; }
-    .obs { font-size: 14px; font-weight: normal; color: #a33; margin: 3px 0 0 32px; }
-  </style></head>
-  <body>
-    <h1>${escapeHtml(mesaLabel || 'Comanda')}</h1>
-    <p class="info">${agora}</p>
-    ${linhasHtml}
-  </body></html>`;
+  // Mesmo layout da impressora da cozinha (estúdio de impressão): mesa em
+  // destaque (com as unidas), valores, pessoa e observação.
+  const comanda = cozinha.comandaDaVenda(saleId, itens, { rotulo: mesaLabel ? String(mesaLabel).toUpperCase() : undefined });
+  const html = cozinha.montarComandaHtml(comanda, { larguraMm: 80 });
 
   imprimirEmJanelaInvisivel(html, opcoesDeImpressao({ pageSize: { width: 80000, height: 1000000 } }));
 
@@ -514,4 +519,5 @@ function printDailyMenu(itens) {
   return { ok: true };
 }
 
-module.exports = { imprimirEmJanelaInvisivel, imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml, mesaDaVenda };
+module.exports = {
+  gerarPdf, imprimirEmJanelaInvisivel, imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml, mesaDaVenda };

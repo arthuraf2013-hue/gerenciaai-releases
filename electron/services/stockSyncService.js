@@ -429,6 +429,23 @@ function saldosNoServidor(grupoId, ids = null) {
 function arredondarSaldo(n) { return Math.round(Number(n) * 1000) / 1000; }
 
 /**
+ * Detalhe do estoque do grupo de um produto daqui (só no servidor, rede local):
+ * { contador, reservado (em comandas abertas aqui), saldo } ou null.
+ */
+function detalheDoGrupoNoServidor(productId) {
+  try {
+    const grupoId = syncStateService.getGrupoSincronizacaoId();
+    if (!grupoId || !syncStateService.ehServidorDoGrupo()) return null;
+    if (require('./grupoTransporteService').modoAtual() !== 'hub') return null;
+    const doc = idNoGrupo(productId);
+    const contador = require('./lanArmazemService').lerContadores(grupoId).get(doc);
+    if (!Number.isFinite(contador)) return null;
+    const saldo = saldosNoServidor(grupoId, [doc]).get(doc);
+    return { contador: arredondarSaldo(contador), reservado: arredondarSaldo(contador - saldo), saldo };
+  } catch { return null; }
+}
+
+/**
  * Saldo do grupo de um produto daqui, quando ESTE computador é o servidor com
  * a rede local ligada (o estoque do grupo é este). null = fora de grupo, não é
  * o servidor, ou o grupo não controla esse produto (sem contador): quem chama
@@ -448,7 +465,7 @@ function saldoDoGrupoNoServidor(productId) {
 function _zerarCacheParaTeste() { cacheContadores = { grupoId: null, conjunto: null, lidoEm: 0 }; }
 
 module.exports = {
-  saldoDoGrupoNoServidor, saldosNoServidor,
+  saldoDoGrupoNoServidor, saldosNoServidor, detalheDoGrupoNoServidor,
   garantirContadoresDoGrupo, produtosComEstoqueNoGrupo, enfileirarVariacao, _zerarCacheParaTeste,
   recontarEstoqueDoGrupo,
   pushEstoqueInicial, verificarEDebitarEstoqueRemoto,

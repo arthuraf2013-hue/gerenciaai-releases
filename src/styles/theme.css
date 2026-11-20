@@ -660,6 +660,21 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   background: var(--color-warning-bg); color: var(--color-warning-text);
   border-color: color-mix(in srgb, var(--color-warning-text) 35%, transparent);
 }
+/* Servidor do grupo (ServidorDoGrupo.jsx) */
+.servidor-grupo { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+.servidor-grupo-tabela { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+.servidor-grupo-tabela th { text-align: left; font-weight: 500; color: var(--color-text-muted); padding: 4px 6px; }
+.servidor-grupo-tabela td { padding: 8px 6px; border-top: 1px solid var(--color-border); }
+.servidor-grupo-acao { text-align: right; }
+.servidor-grupo-selo {
+  margin-left: 8px; font-size: 12px; padding: 2px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-primary);
+}
+.servidor-grupo-eu { color: var(--color-text-muted); }
+.servidor-grupo-confirmar { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--color-bg); border: 1px solid var(--color-border); }
+.servidor-grupo-confirmar p { margin: 0 0 8px; }
+.servidor-grupo-campos { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.servidor-grupo-campos input { max-width: 220px; }
 /* Ferramentas do suporte (FerramentasSuporte.jsx) */
 .suporte-botoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
 .suporte-botoes input[type="text"] { max-width: 220px; }
@@ -878,6 +893,7 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .scan-feedback-info { color: var(--color-text-muted); }
 .scan-feedback-success { color: var(--color-primary); font-weight: 500; }
 .scan-feedback-error { color: var(--color-danger); font-weight: 500; }
+.scan-feedback-aviso { color: var(--color-warning-text); background: var(--color-warning-bg); font-weight: 500; }
 
 .cart-item { cursor: pointer; }
 .cart-item-selected { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); border-radius: 6px; }
@@ -1779,4 +1795,59 @@ html.modo-toque .mesas-cadastro .chips-categorias button { min-height: 44px; pad
 .rede-local-dica { margin-top: 10px; }
 .rede-local-form { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; margin-top: 6px; }
 .rede-local-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.rede-local-procurar { margin: 8px 8px 0 0; }
 .rede-local-opcional { color: var(--color-text-muted); font-weight: 400; }
+
+/* QR das mesas: gerar PDF / imprimir (QrMesasPdfModal.jsx) */
+.qr-pdf-modal { max-width: 640px; }
+.qr-pdf-opcoes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 10px 0; }
+.qr-pdf-opcoes label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.qr-pdf-mesas-topo { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 13px; }
+.qr-pdf-mesas { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; max-height: 220px; overflow: auto; margin: 6px 0; }
+.qr-pdf-mesa { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: var(--radius); cursor: pointer; }
+.qr-pdf-mesa input { width: auto; }
+.qr-pdf-mesa-ativa { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+.qr-pdf-resumo { font-size: 13px; color: var(--color-text-muted); margin: 4px 0 0; }
+.estoque-negativo { color: var(--color-danger); font-weight: 600; }
+.estoque-venda h3 { margin: 18px 0 8px; display: flex; align-items: center; gap: 6px; font-size: 15px; }
+
+/* Avisos da mesa (pedido novo, chamar garçom, pedir a conta) em qualquer tela. */
+.avisos-mesa { position: fixed; bottom: 14px; right: 14px; z-index: 900; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 28px)); }
+.aviso-mesa { display: flex; align-items: flex-start; gap: 10px; background: var(--color-surface); border: 1px solid var(--color-border); border-left: 5px solid var(--color-primary); border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.18); animation: aviso-mesa-entra .18s ease-out; }
+.aviso-mesa-conta, .aviso-mesa-garcom { border-left-color: var(--color-warning-text, #b5521d); }
+.aviso-mesa-entrou { border-left-color: var(--color-text-muted); }
+.aviso-mesa-corpo { flex: 1; display: flex; flex-direction: column; gap: 2px; text-align: left; background: none; border: none; padding: 0; color: var(--color-text); cursor: pointer; font: inherit; min-height: 40px; }
+.aviso-mesa-corpo strong { font-size: 15px; }
+.aviso-mesa-corpo span { font-size: 13px; color: var(--color-text-muted); }
+.aviso-mesa-fechar { background: none; border: none; font-size: 22px; line-height: 1; color: var(--color-text-muted); cursor: pointer; min-width: 32px; min-height: 32px; }
+@keyframes aviso-mesa-entra { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Indicadores do QR no quadrado da mesa. */
+.mesa-indicadores { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin: 4px 0 2px; }
+.mesa-ind { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 999px; line-height: 1.2; }
+.mesa-ind-conta, .mesa-ind-garcom { background: var(--color-warning-bg); color: var(--color-warning-text); animation: mesa-ind-pisca 1.4s ease-in-out infinite; }
+.mesa-ind-pedido { background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface)); color: var(--color-primary); }
+.mesa-ind-qr { background: color-mix(in srgb, var(--color-text) 8%, var(--color-surface)); color: var(--color-text-muted); font-weight: 500; }
+.mesa-ind-atender { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--color-warning-text); background: var(--color-surface); color: var(--color-warning-text); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; min-height: 26px; }
+@keyframes mesa-ind-pisca { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-warning-text) 25%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .mesa-ind-conta, .mesa-ind-garcom { animation: none; } }
+
+.mesa-ind-mudanca { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); color: var(--color-text); flex-wrap: wrap; justify-content: center; border-radius: 10px; padding: 5px 8px; }
+.mesa-ind-sim, .mesa-ind-nao { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 3px 10px; min-height: 26px; cursor: pointer; border: 1px solid var(--color-primary); }
+.mesa-ind-sim { background: var(--color-primary); color: #fff; }
+.mesa-ind-nao { background: var(--color-surface); color: var(--color-primary); }
+
+/* Mudar de mesa: a mesa inteira ou só algumas pessoas. */
+.mudar-quem { display: flex; gap: 18px; margin: 4px 0 8px; flex-wrap: wrap; }
+.mudar-quem label { flex-direction: row; align-items: center; gap: 6px; font-weight: 600; }
+.mudar-quem input { width: auto; }
+.mudar-pessoas { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow: auto; flex: none; }
+.mudar-quem { flex: none; }
+.mudar-pessoas label { flex-direction: row; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; cursor: pointer; min-height: 44px; }
+.mudar-pessoas label.marcada { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface)); }
+.mudar-pessoas input { width: auto; }
+.mudar-pessoas span { flex: 1; }
+
+.mesa-contingencia { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.mesa-contingencia .btn-secondary { flex: none; }
+.mesa-contingencia-erros { display: block; margin: 8px 0; padding: 10px 14px; border-radius: 8px; background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent); }

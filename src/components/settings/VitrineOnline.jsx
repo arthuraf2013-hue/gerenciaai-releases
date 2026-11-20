@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '../../context/SessionContext';
 import Icon from '../common/Icon';
+import { QrMesasPdfModal } from '../pos/QrMesasPdfModal';
+import { MesaLocalConfig } from './MesaLocalConfig';
 
 // Vitrine online: página pública com os produtos e preços da loja, pedido
 // pelo WhatsApp. O endereço e o WhatsApp que recebe os pedidos são criados
@@ -75,24 +77,21 @@ function DemonstracoesAtivas() {
 
 // QR de cada mesa (pedido pelo celular do cliente, direto na comanda da mesa).
 // O link de cada mesa leva um segredo próprio: "Trocar QR" invalida o impresso.
-function QrDasMesas({ podeTrocar }) {
+function QrDasMesas({ podeTrocar, versao = 0 }) {
   const [dados, setDados] = useState(null);
   const [aviso, setAviso] = useState(null);
+  const [pdfAberto, setPdfAberto] = useState(false);
 
   async function carregar() {
     const r = await window.pdv.vitrine.qrDasMesas();
     setDados(r);
   }
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => { carregar(); }, [versao]);
 
   async function salvarPng(tableId) {
     const r = await window.pdv.vitrine.salvarQrPng({ tableId });
     if (r?.ok) setAviso({ tipo: 'ok', texto: `QR salvo em ${r.caminho}` });
     else if (!r?.cancelado) setAviso({ tipo: 'erro', texto: r?.error || 'Não consegui salvar.' });
-  }
-  async function imprimir() {
-    const r = await window.pdv.vitrine.imprimirQrMesas();
-    if (!r?.ok) setAviso({ tipo: 'erro', texto: r?.error || 'Não consegui imprimir.' });
   }
   async function trocar(m) {
     if (!confirm(`Trocar o QR da ${m.rotulo}? O QR impresso hoje para de funcionar.`)) return;
@@ -108,13 +107,14 @@ function QrDasMesas({ podeTrocar }) {
     <div style={{ marginTop: 16 }}>
       <h3 style={{ fontSize: 14, margin: '0 0 4px' }}>QR das mesas</h3>
       <p className="screen-hint" style={{ margin: 0 }}>
-        Cole um em cada mesa. O cliente lê, escolhe, informa o nome e o pedido cai na Separação já com a mesa; aceito, entra na comanda na pessoa com o nome dele.
+        Cole um em cada mesa. O cliente lê, entra na mesa com o nome, escolhe e o pedido cai na Separação já com a mesa; aceito, entra na comanda na pessoa com o nome dele.
+        {dados.modo === 'local' ? ' Os QRs apontam para este computador, pela rede da loja (sem internet).' : ' Os QRs apontam para a vitrine na internet.'}
       </p>
-      {!dados.pedidosOnline && <p className="io-message-aviso"><Icon name="warning" size={15} /> Ligue "Receber os pedidos direto no sistema" para os QRs das mesas funcionarem.</p>}
+      {dados.modo !== 'local' && !dados.pedidosOnline && <p className="io-message-aviso"><Icon name="warning" size={15} /> Ligue "Receber os pedidos direto no sistema" para os QRs das mesas funcionarem.</p>}
       {dados.mesas.length === 0 ? <p className="empty-state">Nenhuma mesa cadastrada (Restaurante → Mesas).</p> : (
         <>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-            <button type="button" className="btn-primary" onClick={imprimir}><Icon name="printer" size={15} /> Imprimir todos (ou salvar em PDF)</button>
+            <button type="button" className="btn-primary" onClick={() => setPdfAberto(true)}><Icon name="printer" size={15} /> Imprimir ou gerar PDF (escolha quantos por folha)</button>
           </div>
           <div className="qr-mesas">
             {dados.mesas.map((m) => (
@@ -131,6 +131,7 @@ function QrDasMesas({ podeTrocar }) {
         </>
       )}
       {aviso && <p className={aviso.tipo === 'erro' ? 'modal-error' : 'io-message'}>{aviso.texto}</p>}
+      {pdfAberto && <QrMesasPdfModal onFechar={() => setPdfAberto(false)} />}
     </div>
   );
 }
@@ -141,6 +142,7 @@ export function VitrineOnline() {
   const [form, setForm] = useState(null);
   const [mensagem, setMensagem] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [versaoQr, setVersaoQr] = useState(0);
 
   async function carregar() {
     const c = await window.pdv.vitrine.getConfig();
@@ -149,7 +151,7 @@ export function VitrineOnline() {
     setForm((f) => f || {
       ativa: c.ativa, ocultarSemEstoque: c.ocultarSemEstoque, avisoPoucasUnidades: String(c.avisoPoucasUnidades),
       mensagem: c.mensagem, modos: c.modos, pedidoMinimo: c.pedidoMinimo ? String(c.pedidoMinimo).replace('.', ',') : '',
-      pedidosOnline: !!c.pedidosOnline, pixOnline: !!c.pixOnline,
+      pedidosOnline: !!c.pedidosOnline, pixOnline: !!c.pixOnline, aceitarMesaAberta: c.aceitarMesaAberta !== false,
     });
   }
 
@@ -253,6 +255,10 @@ export function VitrineOnline() {
               Cliente pode pagar agora com Pix pelo site (usa o Pix automático; pago, o pedido é aceito sozinho)
               {config && !config.pixOnlineDisponivel && <span className="selo selo-aviso">ligue o Pix automático em Geral</span>}
             </label>
+            <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={form.aceitarMesaAberta} onChange={(e) => setForm({ ...form, aceitarMesaAberta: e.target.checked })} />
+              Pedido pelo QR de mesa já aberta entra sozinho na comanda (o primeiro pedido da mesa sempre passa pelo atendente)
+            </label>
             <div className="form-grid" style={{ marginTop: 8 }}>
               <label>
                 Mostrar "poucas unidades" com estoque até
@@ -270,7 +276,8 @@ export function VitrineOnline() {
             <button className="btn-primary" type="submit" disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar vitrine'}</button>
             {mensagem && <p className={mensagem.tipo === 'erro' ? 'modal-error' : 'io-message'}>{mensagem.texto}</p>}
           </form>
-          {config?.slug && <QrDasMesas podeTrocar={['gerente', 'admin', 'suporte'].includes(currentUser?.role)} />}
+          {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <MesaLocalConfig onMudou={() => setVersaoQr((v) => v + 1)} />}
+          <QrDasMesas podeTrocar={['gerente', 'admin', 'suporte'].includes(currentUser?.role)} versao={versaoQr} />
         </>
       )}
     </section>

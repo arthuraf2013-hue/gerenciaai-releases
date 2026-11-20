@@ -946,7 +946,9 @@ service cloud.firestore {
       }
       function pedidoLojaValido(d) {
         return pedidoBaseValido(d)
-          && d.keys().hasOnly(['slug', 'status', 'nome', 'modo', 'mesa', 'endereco', 'pagamento', 'trocoPara', 'observacao', 'itens', 'criadoEm'])
+          && d.keys().hasOnly(['slug', 'status', 'nome', 'telefone', 'aparelho', 'modo', 'mesa', 'endereco', 'pagamento', 'trocoPara', 'observacao', 'itens', 'criadoEm'])
+          && (!('telefone' in d) || (d.telefone is string && d.telefone.matches('^[1-9][0-9]{9,10}$')))
+          && (!('aparelho' in d) || (d.aparelho is string && d.aparelho.matches('^[A-Za-z0-9]{16,40}$') && 'mesa' in d))
           && d.modo in ['retirada', 'entrega', 'local']
           && (!('mesa' in d) || (d.mesa is string && d.mesa.matches('^[A-Za-z0-9]{24}$') && d.modo == 'local'));
       }

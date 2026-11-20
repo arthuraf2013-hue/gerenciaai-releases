@@ -98,6 +98,13 @@ function montarPedidoDemo({ slug, itens, nome, modo, endereco, pagamento, trocoP
   return pedido;
 }
 
+/** "(81) 91234-5678" / "+55 81 91234-5678" -> "81912345678"; inválido -> ''. */
+function telefoneLimpo(valor) {
+  let d = String(valor || '').replace(/\D/g, '');
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+  return /^[1-9][0-9]{9,10}$/.test(d) ? d : '';
+}
+
 // Pedido direto no sistema da loja (vitrine com "receber os pedidos direto
 // no sistema", ver electron/services/vitrinePedidoService.js). Pagamentos:
 const PAGAMENTOS_LOJA = {
@@ -126,7 +133,7 @@ function modosOferecidos(modosDaLoja, { mesaRotulo, pedidosOnline } = {}) {
 }
 
 /** Documento installations/{id}/pedidos_vitrine/{id} no formato que firestore.rules aceita. */
-function montarPedidoLoja({ slug, itens, nome, modo, endereco, pagamento, trocoPara, observacao, mesaToken }) {
+function montarPedidoLoja({ slug, itens, nome, modo, endereco, pagamento, trocoPara, observacao, mesaToken, telefone, aparelho }) {
   const modoFinal = ['retirada', 'entrega', 'local'].includes(modo) ? modo : 'retirada';
   const comMesa = modoFinal === 'local' && TOKEN_MESA.test(String(mesaToken || ''));
   const pedido = {
@@ -138,11 +145,16 @@ function montarPedidoLoja({ slug, itens, nome, modo, endereco, pagamento, trocoP
     itens: (itens || []).slice(0, 40).map((i) => ({ produtoId: String(i.id), quantidade: arred(i.quantidade, 3) })),
   };
   if (comMesa) pedido.mesa = String(mesaToken);
+  // Pedido da mesa: o código deste celular (cada celular é uma conta na mesa).
+  if (comMesa && /^[A-Za-z0-9]{16,40}$/.test(String(aparelho || ''))) pedido.aparelho = String(aparelho);
   if (modoFinal === 'entrega') pedido.endereco = String(endereco || '').trim().slice(0, 200);
   const troco = Number(String(trocoPara ?? '').replace(',', '.'));
   if (pedido.pagamento === 'dinheiro' && troco > 0) pedido.trocoPara = arred(Math.min(troco, 10000));
   const obs = String(observacao || '').trim().slice(0, 200);
   if (obs) pedido.observacao = obs;
+  // Celular opcional (liga o pedido ao cadastro da loja): só DDD + número.
+  const tel = telefoneLimpo(telefone);
+  if (tel) pedido.telefone = tel;
   return pedido;
 }
 
@@ -206,5 +218,5 @@ function normalizar(s) {
 export {
   formatarMoeda, unidadeFracionada, passoDa, quantidadeInicial, arred, formatarQuantidade, slugValido,
   itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS, montarPedidoDemo,
-  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, hashTokenMesa, passosDoPedido, tempoRestante,
+  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, passosDoPedido, tempoRestante,
 };

@@ -28,7 +28,7 @@ test.afterEach(() => { Date.now = original; });
 
 test('migração 1: aplica uma vez, desfaz e refaz em base populada sem perder dados antigos', () => {
   const { db, locationId, gerenteId } = freshTestDb();
-  assert.deepEqual(db.prepare('SELECT versao FROM schema_migrations').all().map((r) => r.versao), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(db.prepare('SELECT versao FROM schema_migrations').all().map((r) => r.versao), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
   assert.deepEqual(migracoes.aplicarMigracoes(db), [], 'segunda aplicação não faz nada');
 
   // Base populada: dado antigo e dado nas colunas novas.
@@ -36,15 +36,15 @@ test('migração 1: aplica uma vez, desfaz e refaz em base populada sem perder d
   db.prepare("INSERT INTO customers (id, nome, cpf, limite_fiado) VALUES (?, 'Ana', '52998224725', 150)").run(cliente);
   expenseService.create({ categoria: 'aluguel', descricao: 'Aluguel', valor: 900, dataVencimento: '2026-10-05', locationId, operadorId: gerenteId });
 
-  // Voltar ao zero desfaz da mais nova para a mais antiga (2 = vitrine de demonstração, 3 = mesas unidas, 4 = mesas da venda, 5 = comandos da mesa pelo celular, 6 = especificações no item vendido, 7 = pessoa da mesa vinculada a cliente, 8 = cozinha, senhas, QR da mesa e maquininha, 9 = Pix antecipado no pedido do site, 10 = preferências de tela por usuário, 11 = pagamento por pessoa da mesa, 12 = usuários do grupo multi-PDV, 13 = réplica de produtos/clientes do grupo, 14 = grupo pela rede local, 15 = mesa compartilhada, 16 = foto do produto no grupo, 17 = ordem das mesas).
-  assert.deepEqual(migracoes.reverterMigracoes(db, 0), [17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+  // Voltar ao zero desfaz da mais nova para a mais antiga (2 = vitrine de demonstração, 3 = mesas unidas, 4 = mesas da venda, 5 = comandos da mesa pelo celular, 6 = especificações no item vendido, 7 = pessoa da mesa vinculada a cliente, 8 = cozinha, senhas, QR da mesa e maquininha, 9 = Pix antecipado no pedido do site, 10 = preferências de tela por usuário, 11 = pagamento por pessoa da mesa, 12 = usuários do grupo multi-PDV, 13 = réplica de produtos/clientes do grupo, 14 = grupo pela rede local, 15 = mesa compartilhada, 16 = foto do produto no grupo, 17 = ordem das mesas, 18 = comanda da cozinha no estúdio, 19 = qr das mesas, 20 = integrantes da mesa pelo qr, 21 = chamados da mesa, 22 = mudança de mesa pelo qr, 23 = contingência das mesas).
+  assert.deepEqual(migracoes.reverterMigracoes(db, 0), [23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
   const colsCliente = db.prepare('PRAGMA table_info(customers)').all().map((c) => c.name);
   assert.ok(!colsCliente.includes('limite_fiado'));
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'journal_entries'").get().n, 0);
   assert.equal(db.prepare('SELECT nome FROM customers WHERE id = ?').get(cliente).nome, 'Ana', 'linha antiga intacta');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM expenses').get().n, 1);
 
-  assert.deepEqual(migracoes.aplicarMigracoes(db), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(migracoes.aplicarMigracoes(db), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
   assert.equal(db.prepare('SELECT limite_fiado FROM customers WHERE id = ?').get(cliente).limite_fiado, null, 'coluna volta vazia');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM natureza_operacao').get().n, migracoes.NATUREZAS.length);
 });

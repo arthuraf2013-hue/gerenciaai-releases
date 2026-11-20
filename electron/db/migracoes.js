@@ -931,8 +931,205 @@ const MIGRACOES = [
     down(db) {
       dropColuna(db, 'restaurant_tables', 'ordem');
     },
+  },  {
+    // Comanda da cozinha personalizada no estúdio de impressão (com valores e
+    // mesa): o CHECK de impressao_estudio passa a aceitar 'cozinha'.
+    versao: 18,
+    nome: 'comanda da cozinha no estudio',
+    up(db) { refazerEstudio(db, ['nota', 'prenota', 'cozinha']); },
+    down(db) {
+      db.prepare("DELETE FROM impressao_estudio WHERE tipo = 'cozinha'").run();
+      refazerEstudio(db, ['nota', 'prenota']);
+    },
+  },
+  {
+    // QR das mesas: display no estúdio ('qrmesa'), telefone opcional do
+    // cliente no pedido do QR e "aceitar sozinho com a mesa já aberta".
+    versao: 19,
+    nome: 'qr das mesas e venda sem estoque',
+    up(db) {
+      refazerEstudio(db, ['nota', 'prenota', 'cozinha', 'qrmesa']);
+      addColuna(db, 'bot_orders', 'telefone_informado', 'TEXT');
+      // Cada celular é uma conta na mesa: o aparelho fica preso à pessoa.
+      addColuna(db, 'bot_orders', 'aparelho', 'TEXT');
+      addColuna(db, 'sale_people', 'aparelho', 'TEXT');
+      // Venda sem estoque não trava (estoquePoliticaService): marca o item.
+      addColuna(db, 'sale_items', 'vendido_sem_estoque', 'INTEGER NOT NULL DEFAULT 0');
+      addColuna(db, 'sale_items', 'aviso_estoque', 'TEXT');
+      // Mesa que mudou de lugar: aponta para onde a comanda foi (pedido do
+      // QR/WhatsApp e celular do garçom que ainda miram a mesa antiga).
+      addColuna(db, 'restaurant_tables', 'transferida_para_id', 'TEXT');
+      // Entradas/ajustes de um caixa levados ao estoque do servidor ("Unificar
+      // estoque"): cada movimento vai uma vez só.
+      db.exec(`CREATE TABLE IF NOT EXISTS estoque_unificacao (
+  movement_id  TEXT PRIMARY KEY,
+  product_id   TEXT NOT NULL,
+  quantidade   REAL NOT NULL,
+  lote         TEXT NOT NULL,
+  unificado_em TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+      addColuna(db, 'vitrine_config', 'aceitar_mesa_aberta', 'INTEGER NOT NULL DEFAULT 1');
+      // Pedido pelo QR da mesa pela rede da loja, sem Firebase (mesaLocalService).
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_local_config (
+  id            TEXT PRIMARY KEY DEFAULT 'default',
+  ativo         INTEGER NOT NULL DEFAULT 0,
+  porta         INTEGER NOT NULL DEFAULT 47830,
+  endereco_fixo TEXT,
+  wifi_nome     TEXT,
+  wifi_senha    TEXT,
+  wifi_tipo     TEXT NOT NULL DEFAULT 'WPA',
+  mostrar_wifi  INTEGER NOT NULL DEFAULT 0,
+  atualizado_em TEXT
+)`);
+    },
+    down(db) {
+      db.prepare("DELETE FROM impressao_estudio WHERE tipo = 'qrmesa'").run();
+      refazerEstudio(db, ['nota', 'prenota', 'cozinha']);
+      dropColuna(db, 'bot_orders', 'telefone_informado');
+      dropColuna(db, 'bot_orders', 'aparelho');
+      dropColuna(db, 'sale_people', 'aparelho');
+      dropColuna(db, 'sale_items', 'vendido_sem_estoque');
+      dropColuna(db, 'sale_items', 'aviso_estoque');
+      dropColuna(db, 'restaurant_tables', 'transferida_para_id');
+      dropColuna(db, 'vitrine_config', 'aceitar_mesa_aberta');
+      db.exec('DROP TABLE IF EXISTS mesa_local_config');
+      db.exec('DROP TABLE IF EXISTS estoque_unificacao');
+    },
+  },
+  {
+    // Vários celulares na mesma mesa pelo QR (rede da loja): cada um entra
+    // com o nome e vira integrante da mesa -- já na comanda, se a mesa está
+    // aberta; senão, assim que ela abrir (mesaLocalService.entrarNaMesa).
+    versao: 20,
+    nome: 'integrantes da mesa pelo qr',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_local_membros (
+  table_id   TEXT NOT NULL,
+  aparelho   TEXT NOT NULL,
+  nome       TEXT NOT NULL,
+  telefone   TEXT,
+  sale_id    TEXT,
+  criado_em  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (table_id, aparelho)
+)`);
+    },
+    down(db) {
+      db.exec('DROP TABLE IF EXISTS mesa_local_membros');
+    },
+  },
+  {
+    // Chamados da mesa pelo QR (chamar garçom, pedir a conta): ficam
+    // marcados no quadrado da mesa até alguém atender (ou a mesa fechar).
+    versao: 21,
+    nome: 'chamados da mesa',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_chamados (
+  id           TEXT PRIMARY KEY,
+  table_id     TEXT NOT NULL,
+  tipo         TEXT NOT NULL CHECK (tipo IN ('garcom','conta')),
+  nome         TEXT,
+  criado_em    TEXT NOT NULL DEFAULT (datetime('now')),
+  atendido_em  TEXT,
+  atendido_por TEXT
+)`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mesa_chamados_abertos ON mesa_chamados(table_id, atendido_em)');
+    },
+    down(db) {
+      db.exec('DROP TABLE IF EXISTS mesa_chamados');
+    },
+  },
+  {
+    // Mudança de mesa pedida pelo celular (mesaMudancaService): levar a
+    // própria conta, mudar a mesa toda (o caixa aprova) ou só receber os
+    // pedidos em outra mesa.
+    versao: 22,
+    nome: 'mudanca de mesa pelo qr',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_mudancas (
+  id            TEXT PRIMARY KEY,
+  de_table_id   TEXT NOT NULL,
+  para_table_id TEXT NOT NULL,
+  aparelho      TEXT NOT NULL,
+  nome          TEXT,
+  tipo          TEXT NOT NULL CHECK (tipo IN ('minha','todos','entregar')),
+  status        TEXT NOT NULL CHECK (status IN ('pendente','ativa','aprovada','recusada','cancelada')),
+  erro          TEXT,
+  criado_em     TEXT NOT NULL DEFAULT (datetime('now')),
+  resolvido_em  TEXT,
+  resolvido_por TEXT
+)`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mesa_mudancas_aparelho ON mesa_mudancas(aparelho, status)');
+    },
+    down(db) {
+      db.exec('DROP TABLE IF EXISTS mesa_mudancas');
+    },
+  },
+  {
+    // Contingência do caixa (mesaContingenciaService): com o servidor das
+    // mesas fora do ar, o caixa segue com a cópia das mesas (espelho), guarda
+    // o que fez numa fila e manda na ordem quando o servidor voltar; o
+    // servidor não aplica a mesma operação duas vezes (mesa_ops_aplicadas).
+    versao: 23,
+    nome: 'contingencia das mesas',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_espelho (
+  hub_id        TEXT NOT NULL,
+  chave         TEXT NOT NULL,
+  json          TEXT NOT NULL,
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (hub_id, chave)
+)`);
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_fila_offline (
+  seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+  id            TEXT NOT NULL UNIQUE,
+  hub_id        TEXT,
+  canal         TEXT NOT NULL,
+  args_json     TEXT NOT NULL,
+  meta_json     TEXT NOT NULL DEFAULT '{}',
+  usuario_id    TEXT,
+  mesa_rotulo   TEXT,
+  estado        TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente','feito','erro')),
+  erro          TEXT,
+  tentativas    INTEGER NOT NULL DEFAULT 0,
+  criado_em     TEXT NOT NULL DEFAULT (datetime('now')),
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mesa_fila_offline_estado ON mesa_fila_offline(estado, seq)');
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_ids_offline (
+  temp_id  TEXT PRIMARY KEY,
+  real_id  TEXT NOT NULL,
+  tipo     TEXT NOT NULL,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+      db.exec(`CREATE TABLE IF NOT EXISTS mesa_ops_aplicadas (
+  op_id          TEXT PRIMARY KEY,
+  resultado_json TEXT,
+  criado_em      TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+      addColuna(db, 'mesa_remota_fechamentos', 'offline', 'INTEGER NOT NULL DEFAULT 0');
+    },
+    down(db) {
+      for (const t of ['mesa_espelho', 'mesa_fila_offline', 'mesa_ids_offline', 'mesa_ops_aplicadas']) db.exec(`DROP TABLE IF EXISTS ${t}`);
+      dropColuna(db, 'mesa_remota_fechamentos', 'offline');
+    },
   },
 ];
+
+/** Recria impressao_estudio com outro CHECK de tipo, mantendo as linhas. */
+function refazerEstudio(db, tipos) {
+  const lista = tipos.map((t) => `'${t}'`).join(', ');
+  db.exec(`
+    CREATE TABLE impressao_estudio_nova (
+      tipo          TEXT PRIMARY KEY CHECK (tipo IN (${lista})),
+      config_json   TEXT NOT NULL,
+      atualizado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
+    );
+    INSERT INTO impressao_estudio_nova (tipo, config_json, atualizado_em)
+      SELECT tipo, config_json, atualizado_em FROM impressao_estudio WHERE tipo IN (${lista});
+    DROP TABLE impressao_estudio;
+    ALTER TABLE impressao_estudio_nova RENAME TO impressao_estudio;
+  `);
+}
 
 function versoesAplicadas(db) {
   db.exec(SQL_TABELA);

@@ -92,6 +92,15 @@ contextBridge.exposeInMainWorld('pdv', {
     desconectar: invoke('scaleHardware:desconectar'),
     getLeituraAtual: invoke('scaleHardware:getLeituraAtual'),
   },
+  estoqueVenda: {
+    politica: invoke('estoqueVenda:politica'),
+    setPolitica: invoke('estoqueVenda:setPolitica'),
+    vendidosSemEstoque: invoke('estoqueVenda:vendidosSemEstoque'),
+    comandasEsquecidas: invoke('estoqueVenda:comandasEsquecidas'),
+    cancelarComandaEsquecida: invoke('estoqueVenda:cancelarComandaEsquecida'),
+    previaUnificacao: invoke('estoqueVenda:previaUnificacao'),
+    unificar: invoke('estoqueVenda:unificar'),
+  },
   stock: {
     getForLocation: invoke('stock:getForLocation'),
     listLowStock: invoke('stock:listLowStock'),
@@ -154,6 +163,10 @@ contextBridge.exposeInMainWorld('pdv', {
     cancelReservation: invoke('table:cancelReservation'),
     transfer: invoke('table:transfer'),
     updatePeople: invoke('table:updatePeople'),
+    atenderChamados: invoke('table:atenderChamados'),
+    moverConta: invoke('table:moverConta'),
+    aprovarMudanca: invoke('table:aprovarMudanca'),
+    recusarMudanca: invoke('table:recusarMudanca'),
     desocupar: invoke('table:desocupar'),
     montarLinkPedido: invoke('table:montarLinkPedido'),
     juntar: invoke('table:juntar'),
@@ -172,6 +185,9 @@ contextBridge.exposeInMainWorld('pdv', {
     definirModo: invoke('mesaCompartilhada:definirModo'),
     destravar: invoke('mesaCompartilhada:destravar'),
     pendencias: invoke('mesaCompartilhada:pendencias'),
+    contingencia: invoke('mesaCompartilhada:contingencia'),
+    enviarFila: invoke('mesaCompartilhada:enviarFila'),
+    descartarErrosContingencia: invoke('mesaCompartilhada:descartarErrosContingencia'),
   },
   ingredient: {
     list: invoke('ingredient:list'),
@@ -260,6 +276,23 @@ contextBridge.exposeInMainWorld('pdv', {
     trocarQrDaMesa: invoke('vitrine:trocarQrDaMesa'),
     salvarQrPng: invoke('vitrine:salvarQrPng'),
     imprimirQrMesas: invoke('vitrine:imprimirQrMesas'),
+    gerarPdfQrMesas: invoke('vitrine:gerarPdfQrMesas'),
+    // Pedido novo (vitrine ou QR da mesa) e chamados da mesa (garçom, conta):
+    // devolvem a função que para de ouvir.
+    onPedidoNovo: (callback) => {
+      const ouvinte = (_e, pedido) => callback(pedido);
+      ipcRenderer.on('vitrine:pedidoNovo', ouvinte);
+      return () => ipcRenderer.removeListener('vitrine:pedidoNovo', ouvinte);
+    },
+    onChamadoDaMesa: (callback) => {
+      const ouvinte = (_e, chamado) => callback(chamado);
+      ipcRenderer.on('mesa:chamado', ouvinte);
+      return () => ipcRenderer.removeListener('mesa:chamado', ouvinte);
+    },
+  },
+  mesaLocal: {
+    getConfig: invoke('mesaLocal:getConfig'),
+    saveConfig: invoke('mesaLocal:saveConfig'),
   },
   vitrinePix: {
     receberNoBalcao: invoke('vitrinePix:receberNoBalcao'),
@@ -427,6 +460,9 @@ contextBridge.exposeInMainWorld('pdv', {
     cancelarCodigo: invoke('lan:cancelarCodigo'),
     removerCaixa: invoke('lan:removerCaixa'),
     parear: invoke('lan:parear'),
+    procurarESincronizar: invoke('lan:procurarESincronizar'),
+    maquinasDoGrupo: invoke('grupo:maquinas'),
+    escolherServidor: invoke('grupo:escolherServidor'),
     desligar: invoke('lan:desligar'),
   },
   customers: {

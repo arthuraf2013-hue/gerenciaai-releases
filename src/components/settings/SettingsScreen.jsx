@@ -11,12 +11,14 @@ import { TerminaisPdvMobile } from './TerminaisPdvMobile';
 import { VitrineOnline } from './VitrineOnline';
 import { DemonstracaoSuporte } from './DemonstracaoSuporte';
 import { FerramentasSuporte } from './FerramentasSuporte';
+import { ServidorDoGrupo } from './ServidorDoGrupo';
 import { PixAutomaticoConfig } from './PixAutomaticoConfig';
 import { MaquininhaConfig } from './MaquininhaConfig';
 import { CozinhaConfig } from './CozinhaConfig';
 import { SenhasConfig } from './SenhasConfig';
 import { VerticeConfig } from './VerticeConfig';
 import { RedeLocalConfig } from './RedeLocalConfig';
+import { EstoqueNaVenda } from './EstoqueNaVenda';
 import { EstudioImpressao } from './EstudioImpressao';
 import { PrimeirosPassos } from './PrimeirosPassos';
 import { ResultadoCampanhas } from './ResultadoCampanhas';
@@ -195,6 +197,7 @@ export function SettingsScreen() {
   }, [sincronizacaoAtiva]);
   const [estudioAberto, setEstudioAberto] = useState(false);
   const [servidorDoGrupo, setServidorDoGrupo] = useState(false);
+  const [hubIdLigado, setHubIdLigado] = useState(null);
   const [recontagem, setRecontagem] = useState({ rodando: false, msg: '', erro: false });
 
   // Desempenho -- ver src/utils/modoLeve.js e electron/services/hardwareService.js.
@@ -322,6 +325,7 @@ export function SettingsScreen() {
     window.pdv.pdvRegistry.getStatus().then((s) => {
       setSincronizacaoAtiva(s.sincronizacaoAtiva);
       setServidorDoGrupo(!!s.servidorDoGrupo);
+      window.pdv.redeLocal.status().then((t) => setHubIdLigado(t?.cliente?.hubId || null)).catch(() => {});
       setFotosProgresso(s.fotos || null);
     });
     window.pdv.loyalty.getConfig().then((l) => setLoyaltyForm({
@@ -1088,6 +1092,8 @@ export function SettingsScreen() {
         {posDisplaySaved && <p className="io-message">Salvo.</p>}
       </section>
 
+      <EstoqueNaVenda podeMexer={['admin', 'suporte', 'gerente'].includes(currentUser.role)} />
+
       <section className="settings-section">
         <h2><Icon name="sliders" size={16} /> Preferências do PDV</h2>
         <label style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -1488,6 +1494,7 @@ export function SettingsScreen() {
             {recontagem.msg && <p className={recontagem.erro ? 'modal-error' : 'io-message'}>{recontagem.msg}</p>}
           </div>
         )}
+        {sincronizacaoAtiva && ['admin', 'suporte'].includes(currentUser.role) && <ServidorDoGrupo hubIdLigado={hubIdLigado} />}
         {sincronizacaoAtiva && <MesasNoServidor servidorDoGrupo={servidorDoGrupo} podeMexer={['admin', 'suporte', 'gerente'].includes(currentUser.role)} />}
         {sincronizacaoAtiva && <RedeLocalConfig podeMexer={['admin', 'suporte'].includes(currentUser.role)} />}
       </section>

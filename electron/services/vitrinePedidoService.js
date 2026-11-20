@@ -45,6 +45,46 @@ const estado = { pararEscuta: null, processando: new Set(), escutando: false };
 const arred = (v, casas = 2) => { const f = 10 ** casas; return Math.round((Number(v) + Number.EPSILON) * f) / f; };
 const moeda = (v) => `R$ ${Number(v || 0).toFixed(2).replace('.', ',')}`;
 
+/** Celular informado na página: só DDD + número (10 ou 11 dígitos), ou null. */
+function telefoneValido(valor) {
+  let d = String(valor ?? '').replace(/\D/g, '');
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+  return /^[1-9][0-9]{9,10}$/.test(d) ? d : null;
+}
+
+/**
+ * Pedido do QR de uma mesa que JÁ ESTÁ ABERTA (o atendente aceitou o primeiro
+ * pedido ou abriu a mesa): entra direto na comanda e na cozinha, sem esperar
+ * aceite -- a mesa aberta é a prova de que tem gente lá. Desligável em
+ * Configurações -> Vitrine ("Aceitar sozinho os pedidos de mesa já aberta").
+ */
+function aceitarSozinhoSeMesaAberta(orderId) {
+  const db = getDb();
+  const pedido = db.prepare('SELECT * FROM bot_orders WHERE id = ?').get(orderId);
+  if (!pedido || ![CANAL, 'mesa_local'].includes(pedido.canal) || pedido.status !== 'novo' || !pedido.mesa_numero) return { aceito: false };
+  if (!require('./vitrineService').getConfig().aceitarMesaAberta) return { aceito: false };
+  // Mesa transferida depois do QR lido: vale a mesa para onde a comanda foi.
+  let numero = pedido.mesa_numero;
+  const lida = db.prepare('SELECT * FROM restaurant_tables WHERE location_id = ? AND numero = ?').get(pedido.location_id, numero);
+  if (lida && lida.status === 'aguardando_limpeza') {
+    const foi = require('./tableService').destinoDaTransferencia(db, lida);
+    if (foi) numero = foi.numero;
+  }
+  const mesa = db.prepare(`
+    SELECT t.id, t.sale_id, s.operador_id FROM restaurant_tables t JOIN sales s ON s.id = t.sale_id
+    WHERE t.location_id = ? AND t.numero = ? AND t.status = 'ocupada' AND s.status = 'aberta'`).get(pedido.location_id, numero);
+  if (!mesa) return { aceito: false };
+  const r = require('./botOrderService').lancarPedidoNaMesa({ orderId, operadorId: mesa.operador_id, deviceId: 'vitrine-qr' });
+  if (!r.ok) return { aceito: false, erro: r.error };
+  try {
+    require('./authService').registrarEventoAuditoria({
+      tipoEvento: 'pedido_qr_aceito_sozinho', solicitanteId: mesa.operador_id,
+      motivo: `Pedido do QR da Mesa ${pedido.mesa_numero} (${pedido.cliente_nome}) entrou direto: a mesa já estava aberta.`,
+    });
+  } catch { /* auditoria é extra */ }
+  return { aceito: true, saleId: r.saleId, itensNaoLancados: r.itensNaoLancados || [] };
+}
+
 function limparTexto(valor, max) {
   return String(valor ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -93,7 +133,7 @@ function observacoesDoPedido({ pagamento, trocoPara, observacao, modo, mesaRotul
  * Cria o pedido local (bot_orders). Sem rede -- exportada pra teste.
  * Idempotente pelo id do documento (`pedidoId`).
  */
-function criarPedidoVitrine({ pedidoId, slug, nome, modo, mesa, endereco, pagamento, trocoPara, observacao, itens }) {
+function criarPedidoVitrine({ pedidoId, slug, nome, telefone, modo, mesa, endereco, pagamento, trocoPara, observacao, itens, aparelho }) {
   const db = getDb();
   if (typeof pedidoId !== 'string' || !/^[A-Za-z0-9]{10,40}$/.test(pedidoId)) return { ok: false, error: 'Pedido inválido.' };
   const ja = db.prepare('SELECT id FROM bot_orders WHERE canal = ? AND canal_ref = ?').get(CANAL, pedidoId);
@@ -154,8 +194,9 @@ function criarPedidoVitrine({ pedidoId, slug, nome, modo, mesa, endereco, pagame
         consumoLocal: modoFinal === 'local' && !mesaRow,
       });
       if (!r.ok) throw new Error(r.error);
-      db.prepare('UPDATE bot_orders SET canal = ?, canal_ref = ?, vitrine_slug = ?, pagamento_online = ? WHERE id = ?')
-        .run(CANAL, pedidoId, slug, pagamentoFinal === 'pix_online' ? 'aguardando' : '', r.id);
+      db.prepare('UPDATE bot_orders SET canal = ?, canal_ref = ?, vitrine_slug = ?, pagamento_online = ?, telefone_informado = ?, aparelho = ? WHERE id = ?')
+        .run(CANAL, pedidoId, slug, pagamentoFinal === 'pix_online' ? 'aguardando' : '', telefoneValido(telefone),
+          mesaRow && /^[A-Za-z0-9]{16,40}$/.test(String(aparelho || '')) ? aparelho : null, r.id);
       orderId = r.id;
     })();
   } catch (err) {
@@ -261,9 +302,13 @@ async function processarDocumento(docSnap, ctx) {
       const pix = await require('./vitrinePixService').criarParaPedido({ botOrderId: r.id });
       if (!pix.ok) console.error('[vitrinePedidoService] Pix do pedido do site:', pix.error);
     }
+    let automatico = { aceito: false };
+    if (!r.jaExistia && r.mesa) automatico = aceitarSozinhoSeMesaAberta(r.id);
     publicarEtapa(r.id).catch(() => {});
     if (!r.jaExistia) {
-      try { require('./notificationService').notifyNewVitrineOrder({ ...r, demo: false, aguardandoPix: !!r.pixOnline }); } catch { /* aviso é extra */ }
+      const aviso = { ...r, demo: false, aguardandoPix: !!r.pixOnline, aceitoSozinho: automatico.aceito };
+      try { require('./notificationService').notifyNewVitrineOrder(aviso); } catch { /* aviso é extra */ }
+      avisarTelas(aviso);
     }
   } catch (err) {
     console.error('[vitrinePedidoService] falha ao processar pedido da vitrine:', err);
@@ -278,6 +323,15 @@ function deveEscutar() {
   try { demo = require('./vitrineDemoService').ehMaquinaDemo(); } catch { demo = false; }
   const c = require('./vitrineService').getConfig();
   return demo || (!!c.slug && c.ativa && c.pedidosOnline);
+}
+
+/** Aviso na tela do GerenciaAI (qualquer tela): som + Aceitar/Recusar. */
+function avisarTelas(pedido) {
+  // Nesta máquina e nos caixas apontados para ela (avisosDoServidor).
+  require('./avisosDoServidor').registrar('vitrine:pedidoNovo', {
+    orderId: pedido.id, nome: pedido.nome, mesa: pedido.mesa || null, total: pedido.total, itens: pedido.itens,
+    modo: pedido.modo, aguardandoPix: !!pedido.aguardandoPix, aceitoSozinho: !!pedido.aceitoSozinho,
+  });
 }
 
 function pararEscuta() {
@@ -313,6 +367,7 @@ function atualizarEscuta() {
 }
 
 module.exports = {
+  aceitarSozinhoSeMesaAberta, telefoneValido, avisarTelas, itensValidos,
   criarPedidoVitrine, etapaDoPedido, publicarEtapa, atualizarEscuta, itensValidos, observacoesDoPedido,
   CANAL, TELEFONE_PEDIDO, PAGAMENTOS_ACEITOS,
 };

@@ -66,3 +66,8 @@
   .estudio-painel { overflow: visible; border-right: none; }
   .estudio-papel { min-height: 600px; }
 }
+
+/* Cor do display do QR da mesa */
+.estudio-cores { display: flex; gap: 8px; flex-wrap: wrap; }
+.estudio-cor { width: 30px; height: 30px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; }
+.estudio-cor-ativa { border-color: var(--color-text); box-shadow: 0 0 0 2px var(--color-surface) inset; }

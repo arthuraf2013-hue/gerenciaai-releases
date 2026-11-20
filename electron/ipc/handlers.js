@@ -176,7 +176,7 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'migracao:abrirArquivo', 'migracao:sugerirComIA', 'migracao:previa', 'migracao:importar',
   'vitrine:getConfig', 'vitrine:saveConfig', 'vitrine:publicarAgora', 'vitrine:listarDemos',
   'pixAuto:saveConfig', 'pixAuto:testar', 'pixAuto:listarSemVenda',
-  'vitrine:qrDasMesas', 'vitrine:trocarQrDaMesa', 'vitrine:salvarQrPng', 'vitrine:imprimirQrMesas', 'vitrinePix:listarParaEstornar',
+  'vitrine:qrDasMesas', 'vitrine:trocarQrDaMesa', 'vitrine:salvarQrPng', 'vitrine:imprimirQrMesas', 'vitrine:gerarPdfQrMesas', 'vitrinePix:listarParaEstornar',
   'maquininha:saveConfig', 'maquininha:listarTerminais', 'maquininha:ativarModoPdv', 'maquininha:listarSemVenda',
   'cozinha:saveConfig', 'cozinha:imprimirTeste',
   'chamada:saveConfig', 'chamada:gerarNovoLink',
@@ -507,8 +507,12 @@ function registerIpcHandlers() {
   safeHandle('table:markCleaned', (_e, { tableId }) => tableService.markCleaned(tableId));
   safeHandle('table:markReserved', (_e, { tableId, reservadoPara }) => tableService.markReserved(tableId, reservadoPara));
   safeHandle('table:cancelReservation', (_e, { tableId }) => tableService.cancelReservation(tableId));
-  safeHandle('table:transfer', (_e, { fromTableId, toTableId }) => tableService.transferTable({ fromTableId, toTableId }));
+  safeHandle('table:transfer', (_e, { fromTableId, toTableId, currentOperatorId }) => tableService.transferTable({ fromTableId, toTableId, operadorId: currentOperatorId || null }));
   safeHandle('table:updatePeople', (_e, { tableId, pessoas }) => tableService.updateTablePeople({ tableId, pessoas }));
+  safeHandle('table:moverConta', (event, { fromTableId, toTableId, pessoas } = {}) => require('../services/mesaMudancaService').moverConta({ fromTableId, toTableId, pessoas, operadorId: usuarioLogado(event) }));
+  safeHandle('table:aprovarMudanca', (event, { id } = {}) => require('../services/mesaMudancaService').aprovarMudanca({ id, operadorId: usuarioLogado(event) }));
+  safeHandle('table:recusarMudanca', (event, { id } = {}) => require('../services/mesaMudancaService').recusarMudanca({ id, operadorId: usuarioLogado(event) }));
+  safeHandle('table:atenderChamados', (event, { tableId, tipo } = {}) => require('../services/mesaLocalService').atenderChamados({ tableId, tipo, usuarioId: usuarioLogado(event) }));
   safeHandle('table:desocupar', (_e, payload) => tableService.desocuparMesa(payload));
   safeHandle('table:montarLinkPedido', (_e, payload) => tableService.montarLinkPedidoMesa(payload));
   // Mesas unidas e pessoas nomeadas (currentOperatorId vem sempre da sessão).
@@ -529,6 +533,14 @@ function registerIpcHandlers() {
   safeHandle('mesaCompartilhada:devolver', (_e, { saleId } = {}) => mesaCompartilhada().devolverMesa({ saleId }));
   safeHandle('mesaCompartilhada:definirModo', (_e, { modo } = {}) => mesaCompartilhada().definirModo(modo));
   safeHandle('mesaCompartilhada:destravar', (event, { tableId } = {}) => mesaCompartilhada().destravar({ tableId, operadorId: usuarioLogado(event) }));
+  // Contingência do caixa (servidor das mesas fora do ar).
+  safeHandle('mesaCompartilhada:contingencia', () => require('../services/mesaContingenciaService').resumo());
+  safeHandle('mesaCompartilhada:enviarFila', async () => {
+    const cont = require('../services/mesaContingenciaService');
+    cont.anotarSucesso(); // tenta agora, mesmo que tenha falhado há pouco
+    return { ok: true, ...(await cont.drenar()), resumo: cont.resumo() };
+  });
+  safeHandle('mesaCompartilhada:descartarErrosContingencia', (event) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/mesaContingenciaService').descartarErros());
   safeHandle('mesaCompartilhada:pendencias', async () => {
     await mesaCompartilhada().processarFila().catch(() => {});
     return mesaCompartilhada().pendenciasDaFila();
@@ -604,6 +616,14 @@ function registerIpcHandlers() {
   safeHandle('pdvMobile:saveConfig', (event, payload) => guardRole(event, PAPEIS_GESTAO) || require('../services/pdvMobileConfigService').saveConfig(payload));
   // Vitrine online (ver vitrineService.js) -- só gestão (PAPEL_POR_CANAL).
   safeHandle('vitrine:getConfig', () => require('../services/vitrineService').getConfigComQr());
+  // Pedido pela mesa na rede da loja (QR sem Firebase).
+  safeHandle('mesaLocal:getConfig', (event) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/mesaLocalService').getConfig());
+  safeHandle('mesaLocal:saveConfig', async (event, dados = {}) => {
+    const mesaLocal = require('../services/mesaLocalService');
+    const r = mesaLocal.saveConfig({ ...dados, requestingUserId: usuarioLogado(event) });
+    if (r.ok) { await mesaLocal.atualizar(); r.config = mesaLocal.getConfig(); }
+    return r;
+  });
   safeHandle('vitrine:saveConfig', (_e, payload) => require('../services/vitrineService').saveConfig(payload || {}));
   safeHandle('vitrine:publicarAgora', () => require('../services/vitrineService').publicarSeMudou());
   // Vitrine de demonstração (ver vitrineDemoService.js): só na máquina marcada na Central.
@@ -613,7 +633,12 @@ function registerIpcHandlers() {
   safeHandle('vitrine:trocarQrDaMesa', (event, payload) => require('../services/vitrineService').trocarQrDaMesa({ tableId: payload?.tableId, requestingUserId: usuarioLogado(event) }));
   // Exportar QR: PNG grande (caminho do diálogo do processo principal) e folha de cartões para imprimir/PDF.
   safeHandle('vitrine:salvarQrPng', (_e, payload) => require('../services/vitrineService').salvarQrPng({ tableId: payload?.tableId || null }));
-  safeHandle('vitrine:imprimirQrMesas', () => require('../services/vitrineService').imprimirQrMesas());
+  safeHandle('vitrine:gerarPdfQrMesas', (_e, p = {}) => require('../services/vitrineService').gerarPdfQrMesas({
+    tableIds: Array.isArray(p?.tableIds) ? p.tableIds.map(String) : null, porFolha: p?.porFolha, papel: p?.papel, orientacao: p?.orientacao,
+  }));
+  safeHandle('vitrine:imprimirQrMesas', (_e, p = {}) => require('../services/vitrineService').imprimirQrMesas({
+    tableIds: Array.isArray(p?.tableIds) ? p.tableIds.map(String) : null, porFolha: p?.porFolha, papel: p?.papel, orientacao: p?.orientacao,
+  }));
   // Pix antecipado do pedido do site (vitrinePixService.js).
   safeHandle('vitrinePix:receberNoBalcao', (_e, payload) => require('../services/vitrinePixService').receberNoBalcao({ botOrderId: payload?.botOrderId }));
   safeHandle('vitrinePix:listarParaEstornar', () => require('../services/vitrinePixService').listarParaEstornar());
@@ -932,8 +957,22 @@ function registerIpcHandlers() {
     || (require('../services/lanHubService').cancelarCodigo(), require('../services/grupoTransporteService').reavaliar().then(() => ({ ok: true }))));
   safeHandle('lan:removerCaixa', (event, { installId } = {}) => guardRole(event, ['admin', 'suporte'])
     || (require('../services/lanHubService').removerCaixa(String(installId || '')), require('../services/grupoTransporteService').reavaliar().then(() => ({ ok: true }))));
-  safeHandle('lan:parear', (event, { codigo, endereco } = {}) => guardRole(event, ['admin', 'suporte'])
-    || require('../services/lanClienteService').parear({ codigo, endereco }));
+  safeHandle('lan:parear', async (event, { codigo, endereco } = {}) => {
+    const g = guardRole(event, ['admin', 'suporte']); if (g) return g;
+    const r = await require('../services/lanClienteService').parear({ codigo, endereco });
+    // Ligou: já sincroniza tudo pela rede local (cadastros, usuários, fotos).
+    if (r?.ok) require('../services/lanSincronizarService').sincronizarAgora().catch(() => {});
+    return r;
+  });
+  // Servidor do grupo escolhido no próprio app (com a conta da Central).
+  safeHandle('grupo:maquinas', (event) => guardRole(event, ['admin', 'suporte'])
+    || require('../services/servidorDoGrupoService').listarMaquinas());
+  safeHandle('grupo:escolherServidor', (event, { instalacaoId, email, senha } = {}) => require('../services/servidorDoGrupoService')
+    .escolherServidor({ solicitanteId: usuarioLogado(event), instalacaoId, email, senha }));
+  // Procura o servidor na rede (nuvem, UDP e varredura) e, se este caixa já é
+  // ligado a ele, reconecta e sincroniza tudo.
+  safeHandle('lan:procurarESincronizar', (event) => guardRole(event, ['admin', 'suporte', 'gerente'])
+    || require('../services/lanSincronizarService').procurarESincronizar());
   safeHandle('lan:desligar', (event) => guardRole(event, ['admin', 'suporte'])
     || (require('../services/lanClienteService').desligar(), require('../services/grupoTransporteService').reavaliar().then(() => ({ ok: true }))));
 
@@ -1238,6 +1277,20 @@ function registerIpcHandlers() {
     demoDataService.trocarPerfil({ perfil, solicitanteId: usuarioLogado(event) })
   ));
   safeHandle('demo:limpar', (event) => reiniciarSePedido(demoDataService.limpar({ solicitanteId: usuarioLogado(event) })));
+
+  // --- Estoque na venda: vender sem estoque, vendido sem estoque, comandas esquecidas, unificar ---
+  const politica = () => require('../services/estoquePoliticaService');
+  safeHandle('estoqueVenda:politica', () => politica().getPolitica());
+  safeHandle('estoqueVenda:setPolitica', (event, { venderSemEstoque } = {}) => politica().setPolitica({ venderSemEstoque, requestingUserId: usuarioLogado(event) }));
+  safeHandle('estoqueVenda:vendidosSemEstoque', (_e, { dias } = {}) => politica().vendidosSemEstoque({ dias }));
+  safeHandle('estoqueVenda:comandasEsquecidas', (_e, { horas } = {}) => politica().comandasEsquecidas({ horas }));
+  safeHandle('estoqueVenda:cancelarComandaEsquecida', (event, { saleId, pin, motivo, locationId, deviceId } = {}) => politica().cancelarComandaEsquecida({
+    saleId, pin, motivo, locationId, deviceId, requestingUserId: usuarioLogado(event),
+  }));
+  safeHandle('estoqueVenda:previaUnificacao', () => politica().previaUnificacao());
+  safeHandle('estoqueVenda:unificar', (event, { productIds, locationId, deviceId } = {}) => politica().unificarNoServidor({
+    productIds, locationId, deviceId, requestingUserId: usuarioLogado(event),
+  }));
 
   // --- Ferramentas do suporte (aba Suporte; só o papel suporte) ---
   const suporte = () => require('../services/suporteService');

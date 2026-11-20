@@ -588,7 +588,7 @@ function computeAccessStatus() {
 }
 
 module.exports = {
-  nomeDoComputador,
+  nomeDoComputador, LICENSE_FIREBASE_CONFIG,
   checkLicense, computeAccessStatus, iniciarEscutaTempoReal, iniciarPingDePresenca, enviarPing, getLicenseFirestore, getLicenseApp,
   firebaseRealDesligado, _definirFetchDoPingParaTeste,
   aplicarDadosDoServidor, // exportada pra teste (não toca rede)

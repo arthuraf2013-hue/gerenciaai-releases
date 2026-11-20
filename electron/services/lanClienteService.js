@@ -161,16 +161,89 @@ async function anuncioNaNuvem(grupoId) {
   } catch { return []; }
 }
 
+// ------------------------------------------------------------ varrer a rede (TCP)
+//
+// Quando o anúncio na nuvem e a pergunta por UDP não acham o servidor
+// (broadcast bloqueado no roteador/firewall, Wi-Fi isolado...), o caixa bate em
+// cada endereço da rede da loja, na porta do servidor, perguntando "/v1/quem".
+// Rede maior que /22 (mais de 1022 endereços): só a faixa /24 deste computador.
+
+const MAX_ENDERECOS = 1022;
+
+function ipParaNumero(ip) { return ip.split('.').reduce((n, b) => (n * 256) + Number(b), 0); }
+function numeroParaIp(n) { return [24, 16, 8, 0].map((d) => Math.floor(n / (2 ** d)) % 256).join('.'); }
+
+/** Endereços a varrer, a partir das placas de rede deste computador (sem ele mesmo). */
+function enderecosDaRede(interfaces = os.networkInterfaces()) {
+  const meus = new Set();
+  const alvos = new Set();
+  for (const lista of Object.values(interfaces)) {
+    for (const i of lista || []) {
+      if (i.family !== 'IPv4' && i.family !== 4) continue;
+      if (i.internal || !i.netmask || i.address.startsWith('169.254.')) continue;
+      meus.add(i.address);
+      const ip = ipParaNumero(i.address);
+      let mascara = ipParaNumero(i.netmask);
+      let tamanho = 2 ** 32 - mascara;
+      if (tamanho - 2 > MAX_ENDERECOS) { mascara = ipParaNumero('255.255.255.0'); tamanho = 256; }
+      const rede = ip - (ip % tamanho);
+      for (let n = rede + 1; n < rede + tamanho - 1; n++) alvos.add(numeroParaIp(n));
+    }
+  }
+  for (const m of meus) alvos.delete(m);
+  return [...alvos];
+}
+
+let ultimaVarredura = 0;
+
+/**
+ * Procura o servidor do grupo batendo em cada endereço da rede (porta 47820).
+ * Devolve [{ endereco, hubId, nome }]. `concorrencia` pedidos ao mesmo tempo.
+ */
+async function varrerRede(grupoId, { porta = PORTA_PADRAO, concorrencia = 64, timeoutMs = 600, enderecos = null, aoProgresso = null } = {}) {
+  ultimaVarredura = Date.now();
+  const alvos = enderecos || enderecosDaRede();
+  const achados = new Map();
+  const corpo = JSON.stringify({ grupoId });
+  let proximo = 0;
+  let feitos = 0;
+  async function trabalhador() {
+    while (proximo < alvos.length) {
+      const ip = alvos[proximo++];
+      const endereco = `${ip}:${porta}`;
+      try {
+        const r = await postar(endereco, '/v1/quem', corpo, {}, timeoutMs);
+        if (r.status === 200) {
+          const d = JSON.parse(r.corpo || '{}');
+          if (d.servico === 'gerenciaai-lan' && d.grupoId === grupoId) {
+            achados.set(d.hubId || endereco, { endereco: `${ip}:${Number(d.porta) || porta}`, hubId: d.hubId || null, nome: d.nome || null });
+          }
+        }
+      } catch { /* ninguém nesse endereço */ }
+      feitos += 1;
+      if (aoProgresso && feitos % 32 === 0) aoProgresso({ feitos, total: alvos.length });
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concorrencia, alvos.length) }, trabalhador));
+  return [...achados.values()];
+}
+
+/** Tudo para achar o servidor: anúncio na nuvem, UDP e, se nada vier, varredura. */
+async function procurarServidor(grupoId, { varrer = 'se_preciso', ...opcoes } = {}) {
+  const rapidos = [...(await anuncioNaNuvem(grupoId)), ...(await procurarNaRede(grupoId))];
+  const deveVarrer = varrer === 'sempre' || (varrer === 'se_preciso' && !rapidos.length);
+  const varridos = deveVarrer ? await varrerRede(grupoId, opcoes) : [];
+  const vistos = new Set();
+  return [...varridos, ...rapidos].filter((x) => (vistos.has(x.endereco) ? false : vistos.add(x.endereco)));
+}
+
 async function candidatos(grupoId, enderecoDigitado) {
   const lista = [];
   const digitado = normalizarEndereco(enderecoDigitado);
   if (digitado) lista.push({ endereco: digitado });
   const c = config();
   if (c && c.grupoId === grupoId) for (const e of c.enderecos) lista.push({ endereco: e, hubId: c.hubId });
-  if (!digitado) {
-    lista.push(...(await anuncioNaNuvem(grupoId)));
-    lista.push(...(await procurarNaRede(grupoId)));
-  }
+  if (!digitado) lista.push(...(await procurarServidor(grupoId)));
   const vistos = new Set();
   return lista.filter((x) => (vistos.has(x.endereco) ? false : vistos.add(x.endereco)));
 }
@@ -220,11 +293,17 @@ async function parear({ codigo, endereco } = {}) {
   return { ok: false, error: ultimoErro || 'Não foi possível ligar ao servidor.' };
 }
 
-/** Atualiza a lista de endereços com o anúncio/descoberta (IP do servidor pode mudar). */
-async function reencontrar() {
+/**
+ * Atualiza a lista de endereços com o anúncio/descoberta (IP do servidor pode
+ * mudar). Sem achar pelos meios rápidos, varre a rede -- na tentativa automática
+ * no máximo a cada 10 min (`forcar` = agora, pelo botão).
+ */
+const VARRER_SOZINHO_A_CADA_MS = 10 * 60 * 1000;
+async function reencontrar({ forcar = false } = {}) {
   const c = config();
   if (!c) return false;
-  const achados = [...(await anuncioNaNuvem(c.grupoId)), ...(await procurarNaRede(c.grupoId))]
+  const varrer = forcar ? 'se_preciso' : (Date.now() - ultimaVarredura > VARRER_SOZINHO_A_CADA_MS ? 'se_preciso' : 'nunca');
+  const achados = (await procurarServidor(c.grupoId, { varrer }))
     .filter((a) => !a.hubId || a.hubId === c.hubId).map((a) => a.endereco);
   if (!achados.length) return false;
   const lista = [...new Set([...achados, ...c.enderecos])].slice(0, 5);
@@ -287,6 +366,7 @@ async function saldosDeEstoque(ids = null) { return pedido('/v1/estoque/saldos',
 async function ping() { return pedido('/v1/ping', {}, { timeoutMs: 4000 }); }
 
 module.exports = {
+  varrerRede, enderecosDaRede, procurarServidor,
   saldosDeEstoque,
   config, parear, desligar, reencontrar, pedido, ping, lerTodos, lerAlguns, gravarLote, escutar, vendasDoPeriodo,
   aplicarMovimento, verificarEDebitar, procurarNaRede, normalizarEndereco,

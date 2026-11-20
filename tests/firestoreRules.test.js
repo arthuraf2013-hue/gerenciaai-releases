@@ -1309,6 +1309,10 @@ test('pedido pelo site: só com "pedidos no sistema"; mesa leva o segredo e só 
   await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL5').set(pedidoLoja(slug, { modo: 'local', mesa: 'curto' })));
   await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL6').set(pedidoLoja(slug, { pagamento: 'boleto' })));
   await assertFails(col.doc('LLLLLLLLLLLLLLLLLLL7').set(pedidoLoja(slug, { preco: 1 })));
+  // Código do celular (cada celular é uma conta na mesa): só em pedido de mesa e no formato.
+  await assertSucceeds(col.doc('LLLLLLLLLLLLLLLLLLA1').set(pedidoLoja(slug, { modo: 'local', pagamento: 'mesa', mesa: 'AbCdEfGhIjKlMnOpQrStUvWx', aparelho: 'celularAnaAAAAAAAAAAAA' })));
+  await assertFails(col.doc('LLLLLLLLLLLLLLLLLLA2').set(pedidoLoja(slug, { aparelho: 'celularAnaAAAAAAAAAAAA' })));
+  await assertFails(col.doc('LLLLLLLLLLLLLLLLLLA3').set(pedidoLoja(slug, { modo: 'local', pagamento: 'mesa', mesa: 'AbCdEfGhIjKlMnOpQrStUvWx', aparelho: 'curto' })));
   const desligada = await semearLoja({ slug: 'sem-pedidos', installId: 'pc-loja2', pedidosOnline: false });
   await assertFails(semLogin().collection('installations/pc-loja2/pedidos_vitrine').doc('LLLLLLLLLLLLLLLLLLL8').set(pedidoLoja(desligada, { pagamento: 'pix' })));
 });

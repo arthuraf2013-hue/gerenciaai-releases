@@ -399,6 +399,40 @@ grupo (`/v1/suporte/resumo` no servidor). Ação vai à Auditoria
 (`erros_reportados`, contexto `suporte:*`). Tabela nova de configuração da loja
 = incluir em `CONFIG_DA_LOJA`; tabela do equipamento = `MANTER_AO_CLONAR`.
 
+**Achar o servidor varrendo a rede (nov/2026).** Ordem no caixa:
+endereço digitado > últimos que funcionaram > anúncio na nuvem > UDP > varredura
+TCP (`lanClienteService.varrerRede`: cada IP da rede das placas deste PC, porta
+47820, `POST /v1/quem` sem login -- o hub só responde a quem manda o grupoId
+dele; rede > /22 vira a /24 deste PC; 64 por vez, 600 ms). Ligação automática
+(`reencontrar`, a cada 4 falhas) varre no máximo a cada 10 min. Botão "Procurar
+o servidor e sincronizar" (`lan:procurarESincronizar`, `lanSincronizarService`):
+sem ligação, acha e preenche o endereço (ligar ainda pede o código); ligado,
+reconecta e roda réplica, usuários, vendas, estoque e fotos. Ligar com o código
+também já dispara essa sincronização.
+
+**Servidor do grupo escolhido no app (nov/2026, pedido do Arthur).**
+Configurações -> Sincronização -> "Servidor do grupo" (admin/suporte):
+`servidorDoGrupoService` lista as instalações do grupo (leitura aberta) e troca
+o servidor com o MESMO lote da Central (desmarca o anterior, marca o escolhido).
+`servidorDoGrupo` é campo de controle nas regras: o app pede e-mail/senha da
+Central e faz login num app Firebase à parte (`initializeAuth` em memória,
+`deleteApp` no fim) só para essa gravação -- nada fica salvo, senha nunca vai à
+auditoria (`servidor_do_grupo_trocado`). Cada máquina aplica pela escuta do
+próprio documento. Depois da troca os caixas precisam ligar de novo na rede
+local (chave é por servidor); a tela avisa quem está ligado ao servidor antigo.
+
+**Comanda da cozinha com valores e no estúdio (nov/2026, pedido do Arthur).**
+`impressaoLayout.PADRAO.cozinha` + `montarComandaCozinha` (HTML: impressora do
+Windows, prévia e o caminho sem impressora da cozinha em
+`printService.printKitchenTicket`) e `escposService.montarComandaEscPos` (rede)
+seguem a mesma config (`comanda.layout`). `cozinhaService.comandaDaVenda` monta
+mesa (com as unidas: "MESA 4 + 5"), senha, atendente, valor por item
+(`preco_unitario` x quantidade; kg mostra "0,750 kg x R$ 70,00/kg") e total.
+Mesa sai sempre que a venda é de mesa; sem mesa, senha ou BALCÃO. Aba "Comanda
+da cozinha" no Estúdio; migração 18 refaz `impressao_estudio` com 'cozinha' no
+CHECK. Tela Cozinha mostra o valor conforme `mostrarValores` (vem em
+`cozinha:getConfig`). Comanda antiga reimpressa sai como foi gravada.
+
 **App sem janela no Gerenciador de Tarefas** (nov/2026): toda impressão
 passa por `printService.imprimirEmJanelaInvisivel` (janela SEMPRE fecha:
 resposta, erro ou prazo de 90 s; com diálogo, 15 min) -- antes impressora
@@ -781,7 +815,7 @@ precisa ser respeitado ao mexer no código:
   `database.js`, migração 15) e a mesa libera. Fila no caixa:
   `mesa_remota_fechamentos`. Mesa travada: `recusaPorTrava` (handlers),
   `travaDoComandoCelular` (celular). Canal novo de mesa/venda que muda comanda =
-  incluir em `CANAIS` (ou `TAMBEM_TRAVADOS`). Teste com dois processos:
+  incluir em `CANAIS` (ou `TAMBEM_TRAVADOS`). Quem opera vai como id do grupo (`quemOpera` no caixa, `usuarioDoPedido` no servidor); suporte (de cada máquina, fora do grupo) vai como `usuarioLocal: {papel:'suporte'}` e o servidor usa o suporte dele; canal só de leitura (`ler` sem `gestao`) não exige usuário. Teste com dois processos:
   `tests/mesaCompartilhada.test.js`.
 - **`sqlite_stat4`**: o better-sqlite3 tem STAT4 ligado; com amostras
   nessa tabela, toda statement com parâmetro é repreparada a cada valor

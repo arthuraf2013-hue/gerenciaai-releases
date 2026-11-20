@@ -3,6 +3,7 @@ import { useSession } from '../../context/SessionContext';
 import { TableOrderScreen } from './TableOrderScreen';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
+import { QrMesasPdfModal } from './QrMesasPdfModal';
 import { apiDasMesas } from '../../utils/mesasApi';
 
 const STATUS_LABEL = {
@@ -40,6 +41,8 @@ export function RestaurantTables() {
   const [mesasDaqui, setMesasDaqui] = useState([]);
   const [pendencias, setPendencias] = useState([]);
   const [semServidor, setSemServidor] = useState('');
+  // Contingência: servidor das mesas fora do ar, este caixa segue pela cópia (fila).
+  const [conting, setConting] = useState(null);
   const ehGestao = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
   const [tables, setTables] = useState([]);
   const [reservasPorMesa, setReservasPorMesa] = useState({});
@@ -101,6 +104,8 @@ export function RestaurantTables() {
   const [qrMesa, setQrMesa] = useState(null); // mesa que está com o modal de QR code aberto
   useEscToClose(() => setQrMesa(null), !!qrMesa);
   const [qrDados, setQrDados] = useState(null); // { url, qrCodeDataUrl } | null
+  // PDF/impressão dos QR (todas as mesas ou uma): null | { mesaInicial }
+  const [qrPdf, setQrPdf] = useState(null);
   const [qrError, setQrError] = useState('');
   const [qrCarregando, setQrCarregando] = useState(false);
 
@@ -119,6 +124,7 @@ export function RestaurantTables() {
       // Sem resposta do servidor: continua mostrando a última lista, com o aviso.
       if (!Array.isArray(list)) { setSemServidor(list?.error || 'O servidor das mesas não respondeu.'); return; }
       setSemServidor('');
+      setConting(await window.pdv.mesaCompartilhada.contingencia?.().catch(() => null) || null);
       const daqui = await window.pdv.table.list({ locationId: window.APP_LOCATION_ID });
       setMesasDaqui(Array.isArray(daqui) ? daqui.filter((t) => t.status === 'ocupada' && !t.unida_a_mesa_id) : []);
     } else {
@@ -150,6 +156,23 @@ export function RestaurantTables() {
   async function voltarAsMesasDoServidor() {
     await window.pdv.mesaCompartilhada.definirModo({ modo: 'servidor' });
     await carregarCompartilhada();
+  }
+
+  // Cliente pediu pelo celular para mudar de mesa: aprovar ou recusar.
+  async function resolverMudanca(m, aprovar, e) {
+    e.stopPropagation();
+    if (aprovar && !confirm(`${m.tipo === 'todos' ? 'Mudar a mesa toda' : `Levar a conta de ${m.nome || 'cliente'}`} para ${m.para}?`)) return;
+    const r = aprovar ? await api.table.aprovarMudanca({ id: m.id }) : await api.table.recusarMudanca({ id: m.id });
+    if (r && r.ok === false) alert(r.error);
+    reload();
+  }
+
+  // Chamado pelo QR (garçom / conta) atendido: some do quadrado.
+  async function atenderChamados(table, e) {
+    e.stopPropagation();
+    const r = await api.table.atenderChamados({ tableId: table.id });
+    if (r && r.ok === false) { alert(r.error); return; }
+    reload();
   }
 
   async function destravarMesa(table, e) {
@@ -418,6 +441,9 @@ export function RestaurantTables() {
       <div className="screen-header">
         <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="plate" size={20} /> Mesas</h1>
         <div className="mesas-header-acoes">
+          {ehGestao && tables.length > 0 && !organizando && !remota && (
+            <button type="button" className="btn-secondary" onClick={() => setQrPdf({ mesaInicial: null })}><Icon name="mobile" size={15} /> QR das mesas</button>
+          )}
           {ehGestao && tables.length > 1 && !organizando && (
             <button type="button" className="btn-secondary" onClick={iniciarOrganizar}>Organizar</button>
           )}
@@ -439,11 +465,31 @@ export function RestaurantTables() {
         usado só pra calcular quanto fica por pessoa na hora de dividir a conta). Clique numa mesa
         ocupada pra continuar lançando itens ou fechar a conta.
       </p>
-      {remota && !semServidor && (
+      {remota && !semServidor && !tables.some((t) => t.offline) && (
         <p className="mesa-compartilhada-aviso" role="status">
           <Icon name="link" size={14} /> Mesas do servidor{compart.servidor ? ` (${compart.servidor})` : ''}: as mesmas nos dois computadores.
           Quem fecha a conta recebe no próprio caixa.
         </p>
+      )}
+      {remota && !semServidor && (tables.some((t) => t.offline) || conting?.pendentes > 0) && (
+        <div className="io-message-aviso mesa-contingencia" role="status">
+          <p style={{ margin: 0 }}>
+            <strong>{tables.some((t) => t.offline) ? 'Servidor das mesas fora do ar: vendendo pela cópia deste caixa.' : 'Enviando ao servidor o que foi feito sem ele...'}</strong>
+            {' '}Dá para abrir mesa, lançar, receber, limpar e abrir de novo.
+            {conting?.pendentes > 0 && ` ${conting.pendentes} operação(ões) esperando o servidor (vão sozinhas, na ordem).`}
+            {conting?.copiaDe && ` Cópia de ${new Date(`${String(conting.copiaDe).replace(' ', 'T')}Z`).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`}
+          </p>
+          <button type="button" className="btn-secondary" onClick={async () => { await window.pdv.mesaCompartilhada.enviarFila(); reload(); }}>Enviar agora</button>
+        </div>
+      )}
+      {remota && conting?.erros?.length > 0 && (
+        <div className="modal-error mesa-contingencia-erros" role="alert">
+          <p style={{ margin: '0 0 4px' }}><strong>O servidor recusou {conting.erros.length} operação(ões) feitas sem ele.</strong> Confira na mesa e lance de novo se precisar:</p>
+          <ul style={{ margin: '0 0 6px 18px', padding: 0 }}>
+            {conting.erros.slice(0, 6).map((e) => <li key={e.id}>{e.mesa_rotulo || 'Mesa'} — {e.erro}</li>)}
+          </ul>
+          {ehGestao && <button type="button" className="btn-secondary" onClick={async () => { await window.pdv.mesaCompartilhada.descartarErrosContingencia(); reload(); }}>Conferi</button>}
+        </div>
       )}
       {remota && semServidor && (
         <div className="modal-error mesa-compartilhada-sem-servidor" role="alert">
@@ -540,6 +586,7 @@ export function RestaurantTables() {
               onClick={() => handleClickMesa(t)}
             >
               <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+              <IndicadoresDaMesa ind={t.indicadores} onAtender={(e) => atenderChamados(t, e)} onMudanca={resolverMudanca} />
               <button
                 type="button" className="table-card-action" style={{ marginTop: 4 }}
                 onClick={(e) => abrirQrCode(t, e)}
@@ -713,13 +760,15 @@ export function RestaurantTables() {
           </form>
         </div>
       )}
+      {qrPdf && <QrMesasPdfModal mesaInicial={qrPdf.mesaInicial} onFechar={() => setQrPdf(null)} />}
       {qrMesa && (
         <div className="modal-overlay">
           <div className="modal-card">
             <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="mobile" size={18} /> QR do cardápio — {qrMesa.nome || `Mesa ${qrMesa.numero}`}</h2>
             <p className="screen-hint" style={{ margin: '0 0 8px' }}>
-              Imprima e cole na mesa: o cliente escaneia, o WhatsApp já abre com "Mesa {qrMesa.numero}"
-              preenchido, e o pedido feito por ali cai direto nessa comanda pra alguém confirmar.
+              {qrDados?.vitrine
+                ? <>Imprima e cole na mesa: o QR abre a vitrine só desta mesa. O cliente escolhe, informa o nome e o pedido chega no caixa já com a {qrMesa.nome || `Mesa ${qrMesa.numero}`}.</>
+                : <>Imprima e cole na mesa: o cliente escaneia, o WhatsApp já abre com "Mesa {qrMesa.numero}" preenchido, e o pedido feito por ali cai direto nessa comanda pra alguém confirmar.</>}
             </p>
             {qrCarregando && <p className="empty-state">Gerando...</p>}
             {qrError && <p className="modal-error">{qrError}</p>}
@@ -740,6 +789,19 @@ export function RestaurantTables() {
               </div>
             )}
             <div className="modal-actions">
+              {qrDados?.vitrine && ehGestao && (
+                <button type="button" className="btn-secondary" onClick={async () => {
+                  if (!confirm(`Trocar o QR da ${qrMesa.nome || `Mesa ${qrMesa.numero}`}? O QR impresso hoje para de funcionar.`)) return;
+                  const r = await window.pdv.vitrine.trocarQrDaMesa({ tableId: qrMesa.id });
+                  if (!r?.ok) return setQrError(r?.error || 'Não consegui trocar o QR.');
+                  abrirQrCode(qrMesa, { stopPropagation: () => {} });
+                }}><Icon name="refresh" size={15} /> Trocar QR</button>
+              )}
+              {qrDados?.vitrine && ehGestao && (
+                <button type="button" className="btn-primary" onClick={() => { setQrPdf({ mesaInicial: qrMesa.id }); setQrMesa(null); }}>
+                  <Icon name="printer" size={15} /> Imprimir / PDF
+                </button>
+              )}
               <button type="button" className="btn-secondary" onClick={() => setQrMesa(null)}><Icon name="close" size={15} /> Fechar</button>
             </div>
           </div>
@@ -747,5 +809,52 @@ export function RestaurantTables() {
       )}
     </div>
 
+  );
+}
+
+/** Indicadores do QR no quadrado da mesa: chamados (garçom/conta), pedidos esperando e celulares na mesa. */
+function IndicadoresDaMesa({ ind, onAtender, onMudanca }) {
+  if (!ind || (!ind.chamados?.length && !ind.pedidosEsperando && !ind.noQr && !ind.mudancas?.length && !ind.chegando?.length)) return null;
+  const garcom = ind.chamados?.filter((c) => c.tipo === 'garcom') || [];
+  const conta = ind.chamados?.filter((c) => c.tipo === 'conta') || [];
+  const quem = (lista) => [...new Set(lista.map((c) => c.nome).filter(Boolean))].join(', ');
+  return (
+    <div className="mesa-indicadores">
+      {conta.length > 0 && (
+        <span className="mesa-ind mesa-ind-conta" title={`Pediu a conta: ${quem(conta)}`}>
+          <Icon name="cash" size={13} /> Pediu a conta{quem(conta) ? ` · ${quem(conta)}` : ''}
+        </span>
+      )}
+      {garcom.length > 0 && (
+        <span className="mesa-ind mesa-ind-garcom" title={`Chamando o garçom: ${quem(garcom)}`}>
+          <Icon name="chat" size={13} /> Chamando o garçom{quem(garcom) ? ` · ${quem(garcom)}` : ''}
+        </span>
+      )}
+      {(conta.length > 0 || garcom.length > 0) && (
+        <button type="button" className="mesa-ind-atender" onClick={onAtender}><Icon name="checkCircle" size={13} /> Atendido</button>
+      )}
+      {(ind.mudancas || []).map((m) => (
+        <span key={m.id} className="mesa-ind mesa-ind-mudanca" title="Pedido pelo celular: o caixa aprova">
+          <Icon name="refresh" size={13} /> {m.tipo === 'todos' ? `Mesa toda quer ir p/ ${m.para}` : `${m.nome || 'Cliente'} quer ir p/ ${m.para}`}
+          <button type="button" className="mesa-ind-sim" onClick={(e) => onMudanca(m, true, e)}>Aprovar</button>
+          <button type="button" className="mesa-ind-nao" onClick={(e) => onMudanca(m, false, e)} aria-label="Recusar a mudança">Recusar</button>
+        </span>
+      ))}
+      {(ind.chegando || []).map((m) => (
+        <span key={m.id} className="mesa-ind mesa-ind-qr" title="Pedido de mudança esperando o caixa aprovar">
+          <Icon name="refresh" size={13} /> Chegando: {m.tipo === 'todos' ? `mesa toda do ${m.de}` : `${m.nome || 'cliente'} (do ${m.de})`}
+        </span>
+      ))}
+      {ind.pedidosEsperando > 0 && (
+        <span className="mesa-ind mesa-ind-pedido" title="Pedido do QR esperando o atendente confirmar (Separação)">
+          <Icon name="plate" size={13} /> {ind.pedidosEsperando === 1 ? '1 pedido esperando' : `${ind.pedidosEsperando} pedidos esperando`}
+        </span>
+      )}
+      {ind.noQr > 0 && (
+        <span className="mesa-ind mesa-ind-qr" title="Celulares que entraram nesta mesa pelo QR">
+          <Icon name="mobile" size={13} /> {ind.noQr} no QR
+        </span>
+      )}
+    </div>
   );
 }

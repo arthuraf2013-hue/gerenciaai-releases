@@ -197,8 +197,12 @@ async function atender(caminho, corpo, caixaId) {
       return [200, mesas().concluir(corpo, caixaDoPedido(caixaId))];
     case '/v1/mesas/devolver':
       return [200, mesas().devolver(corpo, caixaDoPedido(caixaId))];
-    case '/v1/mesas/versao':
-      return [200, { versao: await mesas().esperarMudanca(corpo.desde, corpo.esperarMs) }];
+    case '/v1/mesas/versao': {
+      const versao = await mesas().esperarMudanca(corpo.desde, corpo.esperarMs);
+      // Avisos (pedido novo, chamar garçom, pedir a conta) para as telas do caixa.
+      const avisos = corpo.avisosDesde === undefined ? null : require('./avisosDoServidor').desde(corpo.avisosDesde);
+      return [200, avisos ? { versao, avisosSeq: avisos.seq, avisos: avisos.avisos } : { versao }];
+    }
     // Ferramentas do suporte (suporteService): clonar o caixa e conferir cadastros.
     case '/v1/suporte/config-loja':
       return [200, require('./suporteService').configDaLoja()];
@@ -230,6 +234,14 @@ async function aoPedido(req, res) {
     let corpo = {};
     try { corpo = texto ? JSON.parse(texto) : {}; } catch { return responder(res, 400, { erro: 'json' }); }
     if (!contexto) return responder(res, 503, { erro: 'desligado' });
+
+    // Varredura da rede pelo caixa (lanClienteService.varrerRede): "você é o
+    // servidor deste grupo?". Sem login -- só confirma para quem já sabe o grupo,
+    // igual à pergunta por UDP; não entrega nenhum dado da loja.
+    if (caminho === '/v1/quem') {
+      if (!corpo || corpo.grupoId !== contexto.grupoId) return responder(res, 404, { erro: 'outro grupo' });
+      return responder(res, 200, { servico: 'gerenciaai-lan', grupoId: contexto.grupoId, hubId: contexto.hubId, nome: contexto.nome, porta });
+    }
 
     if (caminho === '/v1/parear/inicio' || caminho === '/v1/parear/fim') {
       const [st, obj] = caminho.endsWith('inicio') ? await pareamentoInicio(corpo) : await pareamentoFim(corpo);

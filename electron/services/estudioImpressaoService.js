@@ -23,7 +23,11 @@ function getTudo() {
     ok: true,
     nota: getConfig('nota'),
     prenota: getConfig('prenota'),
+    cozinha: getConfig('cozinha'),
+    qrmesa: getConfig('qrmesa'),
     padrao: layout.PADRAO,
+    // Largura da comanda: a da impressora da cozinha (Configurações -> Cozinha).
+    larguraCozinha: (() => { try { return require('./cozinhaService').getConfig().larguraMm; } catch { return 80; } })(),
     larguraMm: recibo.largura_mm || 80,
     rodapeNota: recibo.rodape_texto || '',
     pixConfigurado: !!db.prepare("SELECT pix_chave FROM payment_config WHERE id = 'default'").get()?.pix_chave,
@@ -83,6 +87,22 @@ async function previa({ tipo, config, larguraMm, rodapeNota }) {
     larguraMm: largura, loja: lojaAtual(db), rodapeNota: typeof rodapeNota === 'string' ? rodapeNota : (recibo.rodape_texto || ''),
   });
   const c = layout.normalizarConfig(tipo, config || {});
+  if (tipo === 'qrmesa') {
+    // Mesas de verdade (até uma folha) com QR de exemplo: a prévia não grava token nenhum.
+    const QRCode = require('qrcode');
+    const porFolha = c.papel === 'termica' || c.papel === 'a6' ? 1 : Number(c.porFolha) || 6;
+    let mesas = [];
+    try { mesas = db.prepare('SELECT numero, nome FROM restaurant_tables ORDER BY CAST(numero AS INTEGER), numero LIMIT ?').all(porFolha); } catch { mesas = []; }
+    if (!mesas.length) mesas = Array.from({ length: porFolha }, (_, i) => ({ numero: String(i + 1).padStart(2, '0'), nome: null }));
+    const qr = await QRCode.toDataURL('https://gerenciaai-garcom.web.app/loja.html?s=exemplo&m=EXEMPLOEXEMPLOEXEMPLO000', { margin: 1, width: 240 });
+    const html = layout.montarCartoesQr(c, { loja: lojaAtual(db), mesas: mesas.map((m) => ({ rotulo: m.nome || `Mesa ${m.numero}`, qrDataUrl: qr })) });
+    // Na tela a folha inteira não cabe: a prévia mostra reduzida (a impressão não muda).
+    return { ok: true, html: html.replace('</style>', 'body { zoom: .62; }</style>') };
+  }
+  if (tipo === 'cozinha') {
+    const lc = [58, 80].includes(Number(larguraMm)) ? Number(larguraMm) : (() => { try { return require('./cozinhaService').getConfig().larguraMm; } catch { return 80; } })();
+    return { ok: true, html: layout.montarComandaCozinha(c, layout.exemploComanda(), { larguraMm: lc }) };
+  }
   if (tipo === 'nota') return { ok: true, html: layout.montarNota(c, dados) };
   if (c.pixQr) {
     dados.pix = await pixDoValor(layout.valoresDaPreNota(dados).falta, 'PRENOTA');

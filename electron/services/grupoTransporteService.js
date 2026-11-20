@@ -218,7 +218,7 @@ function status() {
     servidor,
     hub: servidor ? hubService().status() : null,
     espelho: servidor ? espelho().status() : null,
-    cliente: !servidor && cfg ? { servidor: cfg.hubNome || cfg.hubId, enderecos: cfg.enderecos } : null,
+    cliente: !servidor && cfg ? { servidor: cfg.hubNome || cfg.hubId, hubId: cfg.hubId, enderecos: cfg.enderecos } : null,
     ultimoErro,
   };
 }

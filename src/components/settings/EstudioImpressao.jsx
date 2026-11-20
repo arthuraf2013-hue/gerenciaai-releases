@@ -10,7 +10,10 @@ import '../../styles/estudioImpressao.css';
 const ABAS = [
   { tipo: 'nota', rotulo: 'Nota (recibo)', icone: 'receipt' },
   { tipo: 'prenota', rotulo: 'Pré-nota (conferência)', icone: 'clipboard' },
+  { tipo: 'cozinha', rotulo: 'Comanda da cozinha', icone: 'plate' },
+  { tipo: 'qrmesa', rotulo: 'Display da mesa (QR)', icone: 'mobile' },
 ];
+const CORES_QR = [['verde', '#0f6e56'], ['azul', '#185fa5'], ['laranja', '#b5521d'], ['vinho', '#8a2337'], ['roxo', '#4b3fa8'], ['preto', '#141a26']];
 const PAPEIS = [
   { valor: 80, rotulo: 'Térmica 80mm' },
   { valor: 58, rotulo: 'Térmica 58mm' },
@@ -85,7 +88,7 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
     window.pdv.estudio.get().then((r) => {
       if (!r?.ok) { setMsg({ erro: true, texto: r?.error || 'Não consegui abrir o estúdio.' }); return; }
       setCarregado(r);
-      setConfigs({ nota: r.nota, prenota: r.prenota });
+      setConfigs({ nota: r.nota, prenota: r.prenota, cozinha: r.cozinha, qrmesa: r.qrmesa });
       setLarguraMm(r.larguraMm);
       setRodapeNota(r.rodapeNota || '');
     });
@@ -96,6 +99,8 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
     if (!carregado || !configs) return false;
     return JSON.stringify(configs.nota) !== JSON.stringify(carregado.nota)
       || JSON.stringify(configs.prenota) !== JSON.stringify(carregado.prenota)
+      || JSON.stringify(configs.cozinha) !== JSON.stringify(carregado.cozinha)
+      || JSON.stringify(configs.qrmesa) !== JSON.stringify(carregado.qrmesa)
       || larguraMm !== carregado.larguraMm || rodapeNota !== (carregado.rodapeNota || '');
   }, [carregado, configs, larguraMm, rodapeNota]);
 
@@ -103,7 +108,7 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
   useEffect(() => {
     if (!c) return undefined;
     const t = setTimeout(() => {
-      window.pdv.estudio.previa({ tipo: aba, config: c, larguraMm, rodapeNota }).then((r) => {
+      window.pdv.estudio.previa({ tipo: aba, config: c, larguraMm: aba === 'cozinha' ? carregado?.larguraCozinha : larguraMm, rodapeNota }).then((r) => {
         if (r?.ok) setPrevia(r.html);
       });
     }, 200);
@@ -146,13 +151,17 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
       if (!r1?.ok) throw new Error(r1?.error || 'Não consegui salvar a nota.');
       const r2 = await window.pdv.estudio.salvar({ tipo: 'prenota', config: configs.prenota });
       if (!r2?.ok) throw new Error(r2?.error || 'Não consegui salvar a pré-nota.');
+      const r4 = await window.pdv.estudio.salvar({ tipo: 'cozinha', config: configs.cozinha });
+      if (!r4?.ok) throw new Error(r4?.error || 'Não consegui salvar a comanda da cozinha.');
+      const r5 = await window.pdv.estudio.salvar({ tipo: 'qrmesa', config: configs.qrmesa });
+      if (!r5?.ok) throw new Error(r5?.error || 'Não consegui salvar o display da mesa.');
       if (larguraMm !== carregado.larguraMm) {
         const r3 = await window.pdv.print.updateReceiptConfig({ larguraMm });
         if (r3?.ok === false) throw new Error(r3.error);
       }
-      const novo = { ...carregado, nota: r1.config, prenota: r2.config, larguraMm, rodapeNota };
+      const novo = { ...carregado, nota: r1.config, prenota: r2.config, cozinha: r4.config, qrmesa: r5.config, larguraMm, rodapeNota };
       setCarregado(novo);
-      setConfigs({ nota: r1.config, prenota: r2.config });
+      setConfigs({ nota: r1.config, prenota: r2.config, cozinha: r4.config, qrmesa: r5.config });
       setConfirmarSaida(false);
       setMsg({ texto: 'Salvo. As próximas impressões já saem assim.' });
     } catch (err) {
@@ -178,8 +187,11 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
   }
 
   const ePre = aba === 'prenota';
+  const eCozinha = aba === 'cozinha';
+  const eQr = aba === 'qrmesa';
   // Largura da prévia na tela: 1mm ≈ 3,78px; A4 é reduzido para caber.
-  const larguraPreviaPx = larguraMm === 210 ? 760 : Math.round(larguraMm * 3.78) + 24;
+  const larguraPrevia = eCozinha ? (carregado?.larguraCozinha || 80) : larguraMm;
+  const larguraPreviaPx = eQr ? 700 : larguraPrevia === 210 ? 760 : Math.round(larguraPrevia * 3.78) + 24;
 
   return (
     <div className="modal-overlay">
@@ -215,6 +227,118 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
 
         <div className="estudio-corpo">
           <div className="estudio-painel">
+            {eQr ? (
+              <>
+                <section className="estudio-grupo">
+                  <h3>Folha</h3>
+                  <Escolha rotulo="Papel" valor={c.papel} onChange={(v) => mudar('papel', v)}
+                    opcoes={[['a4', 'A4'], ['carta', 'Carta'], ['oficio', 'Ofício'], ['a6', 'A6'], ['termica', 'Térmica']]} />
+                  {c.papel !== 'a6' && c.papel !== 'termica' && (
+                    <>
+                      <Escolha rotulo="Orientação da folha" valor={c.orientacao} onChange={(v) => mudar('orientacao', v)}
+                        opcoes={[['paisagem', 'Deitada'], ['retrato', 'Em pé']]} />
+                      <label className="estudio-campo">QR por folha
+                        <select value={c.porFolha} onChange={(e) => mudar('porFolha', Number(e.target.value))}>
+                          {[1, 2, 4, 6, 8, 9, 12, 16].map((n) => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </label>
+                    </>
+                  )}
+                  <Marcar rotulo="Linha tracejada para recortar" checked={c.linhaDeCorte} onChange={(v) => mudar('linhaDeCorte', v)} />
+                  <p className="estudio-dica">É o padrão. Na hora de gerar o PDF dá para mudar a quantidade por folha.</p>
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Cor</h3>
+                  <div className="estudio-cores" role="radiogroup" aria-label="Cor do display">
+                    {CORES_QR.map(([nome, hex]) => (
+                      <button key={nome} type="button" role="radio" aria-checked={c.cor === nome} aria-label={nome}
+                        className={c.cor === nome ? 'estudio-cor estudio-cor-ativa' : 'estudio-cor'} style={{ background: hex }} onClick={() => mudar('cor', nome)} />
+                    ))}
+                  </div>
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Logo e loja</h3>
+                  <div className="estudio-logo">
+                    {c.logo ? <img src={c.logo} alt="Logo atual" /> : <span className="estudio-logo-vazio"><Icon name="image" size={22} /></span>}
+                    <div className="estudio-logo-botoes">
+                      <button type="button" className="btn-secondary" onClick={() => arquivoRef.current?.click()}>
+                        <Icon name="image" size={15} /> {c.logo ? 'Trocar logo' : 'Colocar logo'}
+                      </button>
+                      {c.logo && <button type="button" className="btn-secondary" onClick={() => mudar('logo', '')}>Tirar</button>}
+                      <input ref={arquivoRef} type="file" accept="image/png,image/jpeg" hidden onChange={escolherLogo} />
+                    </div>
+                  </div>
+                  <Marcar rotulo="Mostrar o nome da loja" checked={c.mostrarNomeLoja} onChange={(v) => mudar('mostrarNomeLoja', v)} />
+                  {c.mostrarNomeLoja && (
+                    <label className="estudio-campo">Nome impresso (vazio = nome da loja)
+                      <input value={c.nomeLoja} maxLength={60} onChange={(e) => mudar('nomeLoja', e.target.value)} />
+                    </label>
+                  )}
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Textos</h3>
+                  <label className="estudio-campo">Chamada (embaixo do nome da mesa)
+                    <input value={c.titulo} maxLength={60} onChange={(e) => mudar('titulo', e.target.value)} placeholder="Peça por aqui" />
+                  </label>
+                  <label className="estudio-campo">Instrução (abaixo do QR)
+                    <textarea rows={2} maxLength={160} value={c.instrucao} onChange={(e) => mudar('instrucao', e.target.value)} />
+                  </label>
+                  <label className="estudio-campo">Rodapé (ex.: Wi-Fi, Instagram)
+                    <input value={c.rodape} maxLength={300} onChange={(e) => mudar('rodape', e.target.value)} placeholder="Wi-Fi: SaborDaTerra · @sabordaterra" />
+                  </label>
+                  <p className="estudio-dica">Com 12 ou 16 por folha, a logo e a instrução saem do cartão para o QR caber.</p>
+                </section>
+              </>
+            ) : eCozinha ? (
+              <>
+                <section className="estudio-grupo">
+                  <h3>Papel</h3>
+                  <p className="estudio-dica">A largura ({carregado?.larguraCozinha || 80} mm) e a impressora vêm de Configurações → Cozinha.</p>
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Letra</h3>
+                  <Escolha rotulo="Tipo de letra" valor={c.fonte} onChange={(v) => mudar('fonte', v)} opcoes={[['sans', 'Moderna'], ['mono', 'Cupom (mono)']]} />
+                  <Escolha rotulo="Tamanho dos itens" valor={c.tamanho} onChange={(v) => mudar('tamanho', v)} opcoes={[['pequena', 'Pequena'], ['normal', 'Normal'], ['grande', 'Grande']]} />
+                  <Escolha rotulo="Linha separadora" valor={c.separador} onChange={(v) => mudar('separador', v)} opcoes={[['tracejado', '- - - Tracejada'], ['continuo', '—— Contínua']]} />
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Mesa</h3>
+                  <Marcar rotulo="Número da mesa em destaque" checked={c.mostrarMesa} onChange={(v) => mudar('mostrarMesa', v)}
+                    dica="Comanda de mesa sai com a mesa (e as unidas: MESA 4 + 5). Sem mesa sai a senha ou BALCÃO." />
+                  {c.mostrarMesa && (
+                    <div className="estudio-sub">
+                      <Escolha rotulo="Tamanho do número da mesa" valor={c.mesaTamanho} onChange={(v) => mudar('mesaTamanho', v)}
+                        opcoes={[['normal', 'Normal'], ['grande', 'Grande'], ['enorme', 'Bem grande']]} />
+                      <Marcar rotulo="Número da mesa em negrito" checked={c.mesaNegrito} onChange={(v) => mudar('mesaNegrito', v)} />
+                    </div>
+                  )}
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Conteúdo</h3>
+                  <label className="estudio-campo">Título acima da mesa (opcional)
+                    <input value={c.titulo} maxLength={60} onChange={(e) => mudar('titulo', e.target.value)} placeholder="Ex: COZINHA ou CHAPA" />
+                  </label>
+                  <Marcar rotulo="Valor de cada item" checked={c.mostrarValores} onChange={(v) => mudar('mostrarValores', v)}
+                    dica="Diferencia variações do mesmo prato (ex.: peixe de R$ 45 e de R$ 60). Vale também para a tela Cozinha." />
+                  {c.mostrarValores && (
+                    <div className="estudio-sub">
+                      <Marcar rotulo="Total da comanda no fim" checked={c.mostrarTotal} onChange={(v) => mudar('mostrarTotal', v)} />
+                    </div>
+                  )}
+                  <Marcar rotulo="Data e hora" checked={c.mostrarDataHora} onChange={(v) => mudar('mostrarDataHora', v)} />
+                  <Marcar rotulo="Atendente que abriu a conta" checked={c.mostrarOperador} onChange={(v) => mudar('mostrarOperador', v)} />
+                  <Marcar rotulo="Nome do cliente (senha e pedidos do WhatsApp/QR)" checked={c.mostrarCliente} onChange={(v) => mudar('mostrarCliente', v)} />
+                  <Marcar rotulo="Pessoa da mesa de cada item" checked={c.mostrarPessoa} onChange={(v) => mudar('mostrarPessoa', v)} />
+                  <Marcar rotulo="Observações dos itens (ex: sem cebola)" checked={c.mostrarObservacoes} onChange={(v) => mudar('mostrarObservacoes', v)} />
+                </section>
+                <section className="estudio-grupo">
+                  <h3>Rodapé</h3>
+                  <textarea rows={2} maxLength={300} value={c.rodape} onChange={(e) => mudar('rodape', e.target.value)} aria-label="Rodapé da comanda" placeholder="Ex: Conferir antes de sair da cozinha" />
+                </section>
+              </>
+            ) : (
+              <>
+
             <section className="estudio-grupo">
               <h3>Papel</h3>
               <Escolha rotulo="Papel" valor={larguraMm} onChange={setLarguraMm} opcoes={PAPEIS.map((p) => [p.valor, p.rotulo])} />
@@ -314,6 +438,8 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
                 ? <p className="estudio-dica">"NÃO É DOCUMENTO FISCAL" sai sempre, em cima e embaixo.</p>
                 : <p className="estudio-dica">O rodapé da nota também vai na mensagem do WhatsApp. Os dados da NFC-e (chave, protocolo e QR) saem sempre que a venda tiver nota fiscal.</p>}
             </section>
+              </>
+            )}
           </div>
 
           <div className="estudio-previa" aria-label="Prévia da impressão">

@@ -276,11 +276,17 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
   if (!pedido.mesa_numero) return { ok: false, error: 'Esse pedido não é de mesa.' };
   if (pedido.sale_id) return { ok: true, saleId: pedido.sale_id }; // já lançado antes -- não duplica
 
-  const table = db.prepare('SELECT * FROM restaurant_tables WHERE location_id = ? AND numero = ?')
+  let table = db.prepare('SELECT * FROM restaurant_tables WHERE location_id = ? AND numero = ?')
     .get(pedido.location_id, pedido.mesa_numero);
   if (!table) return { ok: false, error: `Mesa ${pedido.mesa_numero} não existe mais.` };
 
   const tableService = require('./tableService');
+  // A mesa mudou de lugar depois do pedido (transferência): vai para a nova.
+  const transferida = table.status === 'aguardando_limpeza' ? tableService.destinoDaTransferencia(db, table) : null;
+  if (transferida) {
+    db.prepare('UPDATE bot_orders SET mesa_numero = ? WHERE id = ?').run(transferida.numero, orderId);
+    table = transferida;
+  }
   const saleService = require('./saleService');
   const { ok: abriuOk, saleId, error: erroAbrir } = tableService.openTable({
     tableId: table.id, locationId: pedido.location_id, operadorId, pessoas: table.pessoas,
@@ -307,7 +313,8 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
   // os itens vão para a PESSOA com esse nome na comanda (a conta por pessoa
   // e a ficha do cliente já funcionam com isso). Reaproveita a pessoa de
   // mesmo nome, ou uma vaga sem nome e sem item, ou cria uma nova.
-  const pessoaNumero = pedido.canal === 'vitrine' ? pessoaDoPedidoNaMesa(db, table.id, saleId, pedido.cliente_nome) : null;
+  // (vitrine pela internet ou QR da mesa pela rede da loja -- mesaLocalService)
+  const pessoaNumero = ['vitrine', 'mesa_local'].includes(pedido.canal) ? pessoaDoPedidoNaMesa(db, table.id, saleId, pedido.cliente_nome, pedido.aparelho) : null;
 
   const itensNaoLancados = [];
   const lancarItens = db.transaction(() => {
@@ -334,6 +341,7 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
   ).run(saleId, operadorId, orderId);
 
   aposMudarStatus(orderId, 'concluido');
+  if (pessoaNumero && pedido.telefone_informado) ligarPessoaAoCliente(db, { pedido, tableId: table.id, pessoaNumero });
   // Aceito pelo atendente: os itens vão direto pra impressora da cozinha
   // (se ligada) -- não espera o ciclo automático nem o botão da mesa.
   imprimirNaCozinha(() => require('./cozinhaService').imprimirItensDaVenda({ saleId }));
@@ -341,29 +349,88 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
   return { ok: true, saleId, itensNaoLancados, pessoaNumero };
 }
 
-function pessoaDoPedidoNaMesa(db, tableId, saleId, nome) {
+/**
+ * Celular informado no pedido do QR: liga a pessoa da mesa ao cliente do
+ * cadastro (acha pelo celular ou cria com nome + celular). Assim a ficha do
+ * cliente e a fidelidade enxergam o consumo. Nunca derruba o lançamento.
+ */
+function ligarPessoaAoCliente(db, { pedido, tableId, pessoaNumero }) {
+  try {
+    const tel = String(pedido.telefone_informado || '');
+    if (!/^[0-9]{10,11}$/.test(tel)) return null;
+    const final8 = tel.slice(-8);
+    const candidato = db.prepare("SELECT id, telefone FROM customers WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(telefone,''),' ',''),'-',''),'(',''),')',''),'+','') LIKE ?")
+      .all(`%${final8}`).find((c) => {
+        let d = String(c.telefone || '').replace(/\D/g, '');
+        if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+        return d === tel;
+      });
+    let customerId = candidato?.id || null;
+    if (!customerId) {
+      const fmt = tel.length === 11 ? `(${tel.slice(0, 2)}) ${tel.slice(2, 7)}-${tel.slice(7)}` : `(${tel.slice(0, 2)}) ${tel.slice(2, 6)}-${tel.slice(6)}`;
+      customerId = require('crypto').randomUUID();
+      db.prepare('INSERT INTO customers (id, nome, telefone) VALUES (?, ?, ?)').run(customerId, String(pedido.cliente_nome || 'Cliente').slice(0, 80), fmt);
+    }
+    db.prepare('UPDATE bot_orders SET customer_id = COALESCE(customer_id, ?) WHERE id = ?').run(customerId, pedido.id);
+    const r = require('./tableService').vincularClientePessoa({ tableId, numero: pessoaNumero, customerId });
+    return r?.ok === false ? null : customerId;
+  } catch (err) {
+    console.error('[botOrderService] não liguei a pessoa ao cliente pelo celular', err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Pessoa da comanda para o pedido do QR. Cada CELULAR é uma conta: com o
+ * aparelho informado, o mesmo celular cai sempre na mesma pessoa (mesmo se o
+ * nome vier escrito diferente), e dois "Ana" em celulares diferentes viram
+ * duas pessoas. Sem aparelho (vitrine antiga): pelo nome, como antes.
+ */
+function pessoaDoPedidoNaMesa(db, tableId, saleId, nome, aparelho = null) {
   const limpo = String(nome || '').replace(/\s+/g, ' ').trim();
   if (!limpo) return null;
+  const aparelhoValido = /^[A-Za-z0-9]{16,40}$/.test(String(aparelho || '')) ? aparelho : null;
+  const prender = (n) => {
+    if (aparelhoValido && n) {
+      try { db.prepare('UPDATE sale_people SET aparelho = COALESCE(aparelho, ?) WHERE sale_id = ? AND numero = ?').run(aparelhoValido, saleId, n); } catch { /* banco antigo */ }
+    }
+    return n;
+  };
   try {
     const tableService = require('./tableService');
-    const mesma = db.prepare('SELECT numero FROM sale_people WHERE sale_id = ? AND LOWER(nome) = LOWER(?)').get(saleId, limpo);
-    if (mesma) return mesma.numero;
+    if (aparelhoValido) {
+      const doCelular = db.prepare('SELECT numero FROM sale_people WHERE sale_id = ? AND aparelho = ?').get(saleId, aparelhoValido);
+      if (doCelular) return doCelular.numero;
+    }
+    const mesma = db.prepare('SELECT numero, aparelho FROM sale_people WHERE sale_id = ? AND LOWER(nome) = LOWER(?)').get(saleId, limpo);
+    // Mesmo nome de OUTRO celular: é outra pessoa (vira "Ana (2)").
+    if (mesma && (!aparelhoValido || !mesma.aparelho)) return prender(mesma.numero);
+    const nomeFinal = mesma ? nomeLivre(db, saleId, limpo) : limpo;
     const mesa = db.prepare('SELECT pessoas FROM restaurant_tables WHERE id = ?').get(tableId);
     const total = Math.max(Number(mesa?.pessoas) || 0, 0);
     for (let n = 1; n <= total; n++) {
       const temNome = db.prepare('SELECT 1 FROM sale_people WHERE sale_id = ? AND numero = ?').get(saleId, n);
       const temItem = db.prepare('SELECT 1 FROM sale_items WHERE sale_id = ? AND pessoa_numero = ? AND cancelado = 0').get(saleId, n);
       if (!temNome && !temItem) {
-        const r = tableService.renomearPessoa({ tableId, numero: n, nome: limpo });
-        if (r.ok) return n;
+        const r = tableService.renomearPessoa({ tableId, numero: n, nome: nomeFinal });
+        if (r.ok) return prender(n);
       }
     }
-    const r = tableService.adicionarPessoa({ tableId, nome: limpo });
-    return r.ok ? r.numero : null;
+    const r = tableService.adicionarPessoa({ tableId, nome: nomeFinal });
+    return r.ok ? prender(r.numero) : null;
   } catch (err) {
     console.error('[botOrderService] não consegui separar a pessoa do pedido da mesa', err?.message || err);
     return null;
   }
+}
+
+/** "Ana" já usado nesta conta -> "Ana (2)", "Ana (3)"... */
+function nomeLivre(db, saleId, nome) {
+  for (let i = 2; i < 50; i++) {
+    const candidato = `${nome.slice(0, 54)} (${i})`;
+    if (!db.prepare('SELECT 1 FROM sale_people WHERE sale_id = ? AND LOWER(nome) = LOWER(?)').get(saleId, candidato)) return candidato;
+  }
+  return nome;
 }
 
 /** Impressão da cozinha fora do fluxo (nunca derruba a operação). */
@@ -911,4 +978,5 @@ module.exports = {
   setTaxaEntrega, buscarPedidoEmAndamento, podeReceberModificacao, descreverStatusPedido,
   adicionarItensAoPedido, registrarSolicitacaoAlteracao,
   solicitarPesquisaSatisfacao, buscarPedidoAguardandoSatisfacao, registrarNotaSatisfacao,
+  pessoaDoPedidoNaMesa, ligarPessoaAoCliente,
 };

@@ -181,7 +181,11 @@ function mesaDoComando(db, mesaId, locationId) {
 /** Comanda aberta da mesa (qualquer mesa do grupo). */
 function comandaAberta(db, mesaId, locationId) {
   const { mesa, principal } = mesaDoComando(db, mesaId, locationId);
-  if (principal.status !== 'ocupada' || !principal.sale_id) throw new ErroComando(`${rotuloMesa(mesa)} não está ocupada.`);
+  if (principal.status !== 'ocupada' || !principal.sale_id) {
+    const foi = require('./tableService').destinoDaTransferencia(db, principal);
+    if (foi) throw new ErroComando(`${rotuloMesa(mesa)} foi transferida para ${rotuloMesa(foi)}. Abra a ${rotuloMesa(foi)}.`);
+    throw new ErroComando(`${rotuloMesa(mesa)} não está ocupada.`);
+  }
   const venda = db.prepare('SELECT * FROM sales WHERE id = ?').get(principal.sale_id);
   if (!venda || venda.status !== 'aberta') throw new ErroComando(`A comanda de ${rotuloMesa(principal)} não está mais aberta.`);
   return { mesa, principal, saleId: principal.sale_id, venda };
@@ -523,6 +527,7 @@ const ACOES = {
 
     const saleService = require('./saleService');
     const naoLancados = [];
+    const semEstoque = []; // entraram, mas sem estoque (loja que vende mesmo assim)
     let lancados = 0;
     for (const item of normalizados) {
       // Pessoa que não existe mais na mesa (removida enquanto o pedido estava
@@ -532,8 +537,10 @@ const ACOES = {
         saleId, productId: item.produtoId, locationId: ctx.locationId, quantidade: item.quantidade,
         operadorId: ctx.usuario.id, deviceId: ctx.dispositivo.id, pessoaNumero, observacao: item.observacao,
       });
-      if (r.ok) lancados += 1;
-      else naoLancados.push({ produtoId: item.produtoId, nome: item.nome || 'Item', motivo: r.error });
+      if (r.ok) {
+        lancados += 1;
+        if (r.avisoEstoque) semEstoque.push({ nome: item.nome || 'Item', aviso: r.avisoEstoque });
+      } else naoLancados.push({ produtoId: item.produtoId, nome: item.nome || 'Item', motivo: r.error });
     }
     if (lancados === 0) {
       throw new ErroComando(
@@ -541,7 +548,7 @@ const ACOES = {
         { naoLancados },
       );
     }
-    return { saleId, mesaId: principal.id, lancados, naoLancados };
+    return { saleId, mesaId: principal.id, lancados, naoLancados, semEstoque };
   },
 
   adicionar_pessoa(dados, ctx) {
@@ -671,7 +678,7 @@ const ACOES = {
     const db = getDb();
     const { principal } = mesaDoComando(db, dados.mesaId, ctx.locationId);
     const destino = mesaDoComando(db, dados.destinoId, ctx.locationId).mesa;
-    const r = require('./tableService').transferTable({ fromTableId: principal.id, toTableId: destino.id });
+    const r = require('./tableService').transferTable({ fromTableId: principal.id, toTableId: destino.id, operadorId: ctx.usuario?.id || null });
     if (!r.ok) throw new ErroComando(r.error);
     return { mesaId: destino.id, saleId: r.saleId };
   },

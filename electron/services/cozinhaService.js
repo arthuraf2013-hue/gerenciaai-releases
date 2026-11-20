@@ -71,6 +71,8 @@ function getConfig() {
     categorias: parseCategorias(r.categorias_json),
     copias: Math.min(3, Math.max(1, Number(r.copias) || 1)),
     cortarPapel: r.cortar_papel !== 0,
+    // Tela Cozinha mostra os valores conforme o estúdio (comanda da cozinha).
+    mostrarValores: (() => { try { return require('./estudioImpressaoService').getConfig('cozinha').mostrarValores !== false; } catch { return true; } })(),
   };
 }
 
@@ -133,11 +135,41 @@ function horaLocal() {
   return new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
 }
 
+/** "MESA 4 + 5" (com as mesas unidas), ou null se a venda não é de mesa. */
 function rotuloDaMesa(saleId) {
-  const mesa = getDb().prepare(
-    `SELECT numero, nome FROM restaurant_tables WHERE sale_id = ? AND unida_a_mesa_id IS NULL LIMIT 1`
+  const db = getDb();
+  const mesa = db.prepare(
+    `SELECT id, numero, nome FROM restaurant_tables WHERE sale_id = ? AND unida_a_mesa_id IS NULL LIMIT 1`
   ).get(saleId);
-  return mesa ? (mesa.nome || `MESA ${mesa.numero}`) : null;
+  if (!mesa) return null;
+  const unidas = db.prepare('SELECT numero, nome FROM restaurant_tables WHERE unida_a_mesa_id = ? ORDER BY CAST(numero AS INTEGER), numero').all(mesa.id);
+  return [mesa, ...unidas].map((m, i) => (m.nome || (i === 0 ? `MESA ${m.numero}` : m.numero))).join(' + ').toUpperCase();
+}
+
+/** Aparência da comanda escolhida no estúdio de impressão. */
+function layoutDoEstudio() {
+  try { return require('./estudioImpressaoService').getConfig('cozinha'); } catch { return {}; }
+}
+
+/** Comanda de uma venda (mesa ou balcão) a partir das linhas de sale_items. */
+function comandaDaVenda(saleId, itens, { rotulo, subtitulo } = {}) {
+  const db = getDb();
+  const senha = senhaDaVenda(saleId);
+  const mesa = rotuloDaMesa(saleId) || (rotulo && /^MESA\b/i.test(rotulo) ? String(rotulo).toUpperCase() : null);
+  const operador = db.prepare('SELECT u.nome FROM sales s JOIN users u ON u.id = s.operador_id WHERE s.id = ?').get(saleId)?.nome || null;
+  return {
+    mesa,
+    titulo: senha ? `SENHA ${senha.numero}` : (rotulo || mesa || 'BALCÃO'),
+    subtitulo: subtitulo || (senha?.nome ? senha.nome : null),
+    hora: horaLocal(),
+    operador,
+    itens: itens.map((i) => ({
+      quantidade: i.quantidade, unidade: i.unidade || 'un', nome: i.nome, precoUnitario: i.preco_unitario ?? null,
+      observacao: i.observacao || null,
+      pessoa: i.pessoa_nome || (i.pessoa_numero ? `Pessoa ${i.pessoa_numero}` : null),
+    })),
+    layout: layoutDoEstudio(),
+  };
 }
 
 function senhaDaVenda(saleId) {
@@ -150,32 +182,9 @@ function escHtml(v) {
   return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-/** HTML da comanda (impressora do Windows e prévia). */
+/** HTML da comanda (impressora do Windows): mesmo layout da prévia do estúdio. */
 function montarComandaHtml(comanda, { larguraMm = 80 } = {}) {
-  const largura = larguraMm === 58 ? 54 : 74;
-  const itens = (comanda.itens || []).map((i) => `
-    <div class="item"><span class="qtd">${escHtml(formatarQtd(i.quantidade))}</span> ${escHtml(i.nome)}
-      ${i.pessoa ? `<div class="pessoa">para: ${escHtml(i.pessoa)}</div>` : ''}
-      ${i.observacao ? `<div class="obs">&gt;&gt; ${escHtml(i.observacao)}</div>` : ''}
-    </div>`).join('');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-    @page { size: ${larguraMm}mm auto; margin: 2mm; }
-    body { font-family: Arial, sans-serif; width: ${largura}mm; margin: 0 auto; color: #000; }
-    h1 { font-size: ${larguraMm === 58 ? 22 : 28}px; margin: 0; text-align: center; }
-    .sub { font-size: 14px; font-weight: bold; text-align: center; margin: 2px 0; }
-    .hora { font-size: 12px; text-align: center; margin-bottom: 6px; }
-    .item { font-size: ${larguraMm === 58 ? 16 : 19}px; font-weight: bold; padding: 5px 0; border-top: 1px dashed #000; }
-    .qtd { display: inline-block; min-width: 34px; }
-    .pessoa { font-size: 13px; font-weight: normal; margin-left: 34px; }
-    .obs { font-size: 15px; margin-left: 34px; }
-    .rodape { border-top: 1px dashed #000; font-size: 12px; text-align: center; padding-top: 4px; }
-  </style></head><body>
-    <h1>${escHtml(comanda.titulo || 'COMANDA')}</h1>
-    ${comanda.subtitulo ? `<p class="sub">${escHtml(comanda.subtitulo)}</p>` : ''}
-    <p class="hora">${escHtml(comanda.hora || '')}</p>
-    ${itens}
-    ${comanda.rodape ? `<p class="rodape">${escHtml(comanda.rodape)}</p>` : ''}
-  </body></html>`;
+  return require('./impressaoLayout').montarComandaCozinha(comanda.layout || layoutDoEstudio(), comanda, { larguraMm });
 }
 
 function formatarQtd(q) {
@@ -234,7 +243,7 @@ async function imprimirItensDaVenda({ saleId, rotulo, subtitulo } = {}) {
     const db = getDb();
     const itens = db.prepare(
       `SELECT si.id, si.quantidade, si.observacao, si.pessoa_numero, COALESCE(si.nome_personalizado, p.nome) AS nome, p.categoria,
-              sp.nome AS pessoa_nome
+              si.preco_unitario, p.unidade, sp.nome AS pessoa_nome
        FROM sale_items si JOIN products p ON p.id = si.product_id
        LEFT JOIN sale_people sp ON sp.sale_id = si.sale_id AND sp.numero = si.pessoa_numero
        WHERE si.sale_id = ? AND si.cancelado = 0 AND si.enviado_cozinha = 0
@@ -242,16 +251,7 @@ async function imprimirItensDaVenda({ saleId, rotulo, subtitulo } = {}) {
     ).all(saleId).filter((i) => vaiPraCozinha(i.categoria, config.categorias));
     if (!itens.length) return { ok: false, error: 'Nada novo para a cozinha nesta comanda.', nadaNovo: true };
 
-    const senha = senhaDaVenda(saleId);
-    const comanda = {
-      titulo: rotulo || rotuloDaMesa(saleId) || (senha ? `SENHA ${senha.numero}` : 'BALCÃO'),
-      subtitulo: subtitulo || (senha?.nome ? senha.nome : null),
-      hora: horaLocal(),
-      itens: itens.map((i) => ({
-        quantidade: i.quantidade, nome: i.nome, observacao: i.observacao || null,
-        pessoa: i.pessoa_nome || (i.pessoa_numero ? `Pessoa ${i.pessoa_numero}` : null),
-      })),
-    };
+    const comanda = comandaDaVenda(saleId, itens, { rotulo, subtitulo });
     const ids = itens.map((i) => i.id);
     try {
       await enviarParaImpressora(comanda, config);
@@ -286,7 +286,7 @@ async function imprimirPedido({ botOrderId, forcar = false } = {}) {
     return { ok: true, jaImpresso: true };
   }
   const itens = db.prepare(
-    `SELECT i.quantidade, i.observacao, COALESCE(p.nome, i.descricao_livre) AS nome, p.categoria
+    `SELECT i.quantidade, i.observacao, COALESCE(p.nome, i.descricao_livre) AS nome, p.categoria, i.preco_unitario, p.unidade
      FROM bot_order_items i LEFT JOIN products p ON p.id = i.product_id
      WHERE i.bot_order_id = ? AND i.status_separacao <> 'indisponivel'`
   ).all(botOrderId).filter((i) => !i.categoria || vaiPraCozinha(i.categoria, config.categorias));
@@ -297,8 +297,10 @@ async function imprimirPedido({ botOrderId, forcar = false } = {}) {
     titulo: senha ? `SENHA ${senha.numero}` : (pedido.mesa_numero ? `MESA ${pedido.mesa_numero}` : 'PEDIDO'),
     subtitulo: `${pedido.cliente_nome} · ${modo}`,
     hora: horaLocal(),
-    itens: itens.map((i) => ({ quantidade: i.quantidade, nome: i.nome, observacao: i.observacao || null })),
+    mesa: pedido.mesa_numero ? `MESA ${pedido.mesa_numero}` : null,
+    itens: itens.map((i) => ({ quantidade: i.quantidade, unidade: i.unidade || 'un', nome: i.nome, precoUnitario: i.preco_unitario ?? null, observacao: i.observacao || null })),
     rodape: pedido.observacoes ? String(pedido.observacoes).slice(0, 200) : null,
+    layout: layoutDoEstudio(),
   };
   try {
     await enviarParaImpressora(comanda, config);
@@ -343,7 +345,9 @@ async function imprimirTeste() {
   try {
     await enviarParaImpressora({
       titulo: 'TESTE COZINHA', subtitulo: 'GerenciaAI', hora: horaLocal(),
-      itens: [{ quantidade: 2, nome: 'Pão de queijo', observacao: 'Ação, coração, maçã: acentos OK?' }, { quantidade: 1, nome: 'Suco de laranja', pessoa: 'João' }],
+      mesa: 'MESA 1',
+      itens: [{ quantidade: 2, nome: 'Pão de queijo', precoUnitario: 6, observacao: 'Ação, coração, maçã: acentos OK?' }, { quantidade: 1, nome: 'Suco de laranja', precoUnitario: 8, pessoa: 'João' }],
+      layout: layoutDoEstudio(),
     }, { ...config, copias: 1 });
     return { ok: true };
   } catch (err) {
@@ -421,5 +425,6 @@ function iniciar() {
 
 module.exports = {
   getConfig, saveConfig, listarCategorias, imprimirItensDaVenda, imprimirPedido, reimprimir, imprimirTeste, listarUltimas,
-  montarComandaHtml, vaiPraCozinha, comandasComItensNovos, cicloAutomatico, iniciar, _definirImpressorasParaTeste,
+  montarComandaHtml, comandaDaVenda, rotuloDaMesa, vaiPraCozinha, comandasComItensNovos, cicloAutomatico, iniciar, _definirImpressorasParaTeste,
+  enviarParaImpressora,
 };

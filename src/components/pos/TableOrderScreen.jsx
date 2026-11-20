@@ -81,6 +81,9 @@ export function TableOrderScreen({
   const [showTransferir, setShowTransferir] = useState(false);
   useEscToClose(() => setShowTransferir(false), showTransferir);
   const [mesasLivres, setMesasLivres] = useState([]);
+  // Mudança de mesa: a mesa inteira ou só algumas pessoas (números).
+  const [mudarQuem, setMudarQuem] = useState('todas');
+  const [mudarPessoas, setMudarPessoas] = useState([]);
   const [transferError, setTransferError] = useState('');
   const [showCustomItemBuilder, setShowCustomItemBuilder] = useState(false);
   // Pessoas da comanda (vagas 1..N, com nome opcional) e grupo de mesas unidas.
@@ -121,7 +124,7 @@ export function TableOrderScreen({
 
   useEffect(() => {
     if (!feedback) return;
-    const id = setTimeout(() => setFeedback(null), 4000);
+    const id = setTimeout(() => setFeedback(null), feedback.demorado ? 9000 : 4000);
     return () => clearTimeout(id);
   }, [feedback]);
 
@@ -153,7 +156,10 @@ export function TableOrderScreen({
     setTotal(result.novoTotal);
     setPendingQty('1');
     const destino = pessoasLista.find((p) => p.numero === pessoaAtiva);
-    setFeedback({ message: `${product.nome} adicionado${destino ? ` para ${destino.nome || `Pessoa ${destino.numero}`}` : ''}.`, type: 'success' });
+    const paraQuem = destino ? ` para ${destino.nome || `Pessoa ${destino.numero}`}` : '';
+    // Loja que vende mesmo sem estoque: entrou, mas avisa onde falta (acertar a entrada depois).
+    if (result.avisoEstoque) setFeedback({ message: `${product.nome} adicionado${paraQuem}, mas ficou sem estoque. ${result.avisoEstoque}`, type: 'aviso', demorado: true });
+    else setFeedback({ message: `${product.nome} adicionado${paraQuem}.`, type: 'success' });
   }
 
   async function ajustarQuantidade(item, delta) {
@@ -164,6 +170,7 @@ export function TableOrderScreen({
     setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, quantidade: r.quantidade } : i)));
     setTotal(r.novoTotal);
     if (delta > 0) playBeep();
+    if (r.avisoEstoque) setFeedback({ message: `${item.nome}: ficou sem estoque. ${r.avisoEstoque}`, type: 'aviso', demorado: true });
   }
 
   /** Item personalizado já foi gravado no backend pelo CustomItemBuilder —
@@ -282,19 +289,31 @@ export function TableOrderScreen({
 
   async function abrirTransferencia() {
     setTransferError('');
+    setMudarQuem('todas');
+    setMudarPessoas([]);
     const list = await api.table.list({ locationId: window.APP_LOCATION_ID });
-    setMesasLivres(Array.isArray(list) ? list.filter((t) => t.status === 'livre' && t.id !== tableId) : []);
+    // Destino: mesa livre (abre) ou ocupada (as contas se juntam).
+    setMesasLivres(Array.isArray(list) ? list.filter((t) => t.id !== tableId && !t.unida_a_mesa_id && !t.fechando_caixa_id
+      && (t.status === 'livre' || (t.status === 'ocupada' && t.sale_id && t.sale_id !== saleId))) : []);
     setShowTransferir(true);
   }
 
-  async function confirmarTransferencia(toTableId) {
-    const result = await api.table.transfer({ fromTableId: tableId, toTableId });
-    if (!result.ok) {
-      setTransferError(result.error);
+  async function confirmarTransferencia(destino) {
+    setTransferError('');
+    const so = mudarQuem === 'pessoas';
+    if (so && mudarPessoas.length === 0) { setTransferError('Marque quem muda de mesa.'); return; }
+    const rotuloDestino = destino.nome || `Mesa ${destino.numero}`;
+    const quem = so ? pessoasLista.filter((p) => mudarPessoas.includes(p.numero)).map((p) => p.nome || `Pessoa ${p.numero}`).join(', ') : 'A mesa inteira';
+    if (destino.status === 'ocupada' && !confirm(`${quem} vai para ${rotuloDestino}, que já está ocupada: a conta ${so ? 'dessas pessoas entra' : 'entra inteira'} na comanda de lá. Continuar?`)) return;
+    const result = await api.table.moverConta({ fromTableId: tableId, toTableId: destino.id, pessoas: so ? mudarPessoas : 'todas', currentOperatorId: currentUser.id });
+    if (!result?.ok) {
+      setTransferError(result?.error || 'Não consegui mudar de mesa.');
       return;
     }
     setShowTransferir(false);
-    onFechar(); // a comanda saiu dessa mesa, volta pra grade
+    if (result.inteira) { onFechar(); return; } // a comanda saiu dessa mesa, volta pra grade
+    setFeedback({ message: `${quem} foi para ${rotuloDestino}.`, type: 'success' });
+    recarregarComanda();
   }
 
   function abrirEdicaoPessoas() {
@@ -561,7 +580,7 @@ export function TableOrderScreen({
           </button>
           <DropdownMenu label="Mais">
             <DropdownMenuItem onClick={abrirEdicaoPessoas}>Número de pessoas ({pessoas || 0})</DropdownMenuItem>
-            {!(grupo?.unidas?.length > 0) && <DropdownMenuItem onClick={abrirTransferencia}>Transferir mesa</DropdownMenuItem>}
+            {!(grupo?.unidas?.length > 0) && <DropdownMenuItem onClick={abrirTransferencia}>Mudar de mesa (inteira ou algumas pessoas)</DropdownMenuItem>}
             <DropdownMenuItem danger onClick={requestDesocupar}>Desocupar mesa</DropdownMenuItem>
           </DropdownMenu>
           <button className="close-cash-btn" onClick={onFechar}>
@@ -583,7 +602,7 @@ export function TableOrderScreen({
         </p>
       )}
 
-      {feedback && <p className={feedback.type === 'error' ? 'modal-error' : 'io-message'} style={{ margin: '8px 24px' }}>{feedback.message}</p>}
+      {feedback && <p className={feedback.type === 'error' ? 'modal-error' : feedback.type === 'aviso' ? 'io-message-aviso' : 'io-message'} style={{ margin: '8px 24px' }}>{feedback.message}</p>}
 
       <div className="mesa-corpo">
         {fechando ? (
@@ -839,22 +858,48 @@ export function TableOrderScreen({
       {showTransferir && (
         <div className="modal-overlay">
           <div className="modal-card">
-            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="plate" size={18} /> Transferir pra qual mesa?</h2>
-            <p className="screen-hint" style={{ margin: '0 0 10px' }}>
-              A comanda inteira (itens, pessoas) vai pra mesa escolhida — essa mesa aqui fica
-              aguardando limpeza.
+            <h2 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="plate" size={18} /> Mudar de mesa</h2>
+            <div className="mudar-quem">
+              <label><input type="radio" checked={mudarQuem === 'todas'} onChange={() => setMudarQuem('todas')} /> A mesa inteira</label>
+              {pessoasLista.length > 0 && (
+                <label><input type="radio" checked={mudarQuem === 'pessoas'} onChange={() => setMudarQuem('pessoas')} /> Só algumas pessoas</label>
+              )}
+            </div>
+            {mudarQuem === 'pessoas' && (
+              <div className="mudar-pessoas">
+                {pessoasLista.map((p) => {
+                  const total = itensAtivos.filter((i) => i.pessoaNumero === p.numero).reduce((s, i) => s + i.quantidade * i.precoUnitario, 0);
+                  return (
+                    <label key={p.numero} className={mudarPessoas.includes(p.numero) ? 'marcada' : ''}>
+                      <input
+                        type="checkbox" checked={mudarPessoas.includes(p.numero)}
+                        onChange={(e) => setMudarPessoas((l) => (e.target.checked ? [...l, p.numero] : l.filter((n) => n !== p.numero)))}
+                      />
+                      <span>{p.nome || `Pessoa ${p.numero}`}</span>
+                      <strong>R$ {total.toFixed(2)}</strong>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <p className="screen-hint" style={{ margin: '8px 0 10px' }}>
+              {mudarQuem === 'pessoas'
+                ? 'Os itens de quem for marcado vão para a mesa escolhida; o resto fica aqui. Itens sem pessoa ficam aqui.'
+                : 'A comanda inteira (itens, pessoas, celulares do QR) vai para a mesa escolhida; esta fica aguardando limpeza.'}
+              {' '}Mesa ocupada: as contas se juntam. Itens que a cozinha já recebeu saem numa comanda "MUDOU DE MESA".
             </p>
             {transferError && <p className="modal-error">{transferError}</p>}
             {mesasLivres.length === 0 ? (
-              <p className="empty-state">Nenhuma mesa livre no momento.</p>
+              <p className="empty-state">Nenhuma mesa disponível no momento.</p>
             ) : (
               <div className="tables-grid">
                 {mesasLivres.map((t) => (
                   <button
-                    key={t.id} type="button" className="table-card table-card-livre"
-                    onClick={() => confirmarTransferencia(t.id)}
+                    key={t.id} type="button" className={`table-card table-card-${t.status}`}
+                    onClick={() => confirmarTransferencia(t)}
                   >
                     <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+                    <span className="table-card-status">{t.status === 'livre' ? 'Livre' : `Ocupada — junta as contas (R$ ${(t.total_atual || 0).toFixed(2)})`}</span>
                   </button>
                 ))}
               </div>

@@ -69,6 +69,41 @@ const PADRAO = {
   },
 };
 
+// Comanda da cozinha (impressora da cozinha e prévia do estúdio). A mesa sai
+// sempre que a comanda é de mesa; sem mesa, sai a senha ou "BALCÃO".
+PADRAO.cozinha = {
+  titulo: '',
+  fonte: 'sans',
+  tamanho: 'grande',
+  separador: 'tracejado',
+  mostrarDataHora: true,
+  mostrarMesa: true,
+  mesaTamanho: 'enorme',
+  mesaNegrito: true,
+  mostrarCliente: true,
+  mostrarOperador: true,
+  mostrarPessoa: true,
+  mostrarObservacoes: true,
+  mostrarValores: true,
+  mostrarTotal: true,
+  rodape: '',
+};
+
+// Display do QR de cada mesa (o cliente lê e cai na vitrine SÓ daquela mesa).
+PADRAO.qrmesa = {
+  papel: 'a4',
+  orientacao: 'paisagem',
+  porFolha: 6,
+  cor: 'verde',
+  logo: '',
+  mostrarNomeLoja: true,
+  nomeLoja: '',
+  titulo: 'Peça por aqui',
+  instrucao: 'Aponte a câmera do celular, escolha e informe seu nome.',
+  rodape: '',
+  linhaDeCorte: true,
+};
+
 const TIPOS = Object.keys(PADRAO);
 const ESCOLHAS = {
   alinhamento: ['centro', 'esquerda'],
@@ -76,8 +111,12 @@ const ESCOLHAS = {
   tamanho: ['pequena', 'normal', 'grande'],
   separador: ['tracejado', 'continuo'],
   mesaTamanho: ['normal', 'grande', 'enorme'],
+  papel: ['a4', 'carta', 'oficio', 'a6', 'termica'],
+  orientacao: ['paisagem', 'retrato'],
+  porFolha: [1, 2, 4, 6, 8, 9, 12, 16],
+  cor: ['verde', 'azul', 'laranja', 'vinho', 'roxo', 'preto'],
 };
-const TEXTOS = { nomeLoja: 60, cabecalhoTexto: 400, titulo: 60, rodape: 300 };
+const TEXTOS = { nomeLoja: 60, cabecalhoTexto: 400, titulo: 60, rodape: 300, instrucao: 160 };
 
 /** Configuração completa e segura: só as chaves conhecidas, nos limites. */
 function normalizarConfig(tipo, entrada) {
@@ -88,6 +127,7 @@ function normalizarConfig(tipo, entrada) {
   for (const [chave, valorPadrao] of Object.entries(padrao)) {
     const v = e[chave];
     if (chave === 'logo') c.logo = soImagemRaster(v);
+    else if (chave === 'porFolha') c[chave] = ESCOLHAS.porFolha.includes(Number(v)) ? Number(v) : valorPadrao;
     else if (ESCOLHAS[chave]) c[chave] = ESCOLHAS[chave].includes(v) ? v : valorPadrao;
     else if (typeof valorPadrao === 'boolean') c[chave] = typeof v === 'boolean' ? v : valorPadrao;
     else if (chave === 'logoLarguraPct') c[chave] = Number.isFinite(Number(v)) && v !== '' && v !== null ? Math.min(100, Math.max(20, Math.round(Number(v)))) : valorPadrao;
@@ -335,6 +375,203 @@ function montarPreNota(config, dados) {
   </body></html>`;
 }
 
+// ------------------------------------------------------------ comanda da cozinha
+
+const qtdDaComanda = (q, unidade) => {
+  const n = Number(q) || 0;
+  if (unidade === 'kg' || !Number.isInteger(n)) return `${n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}${unidade === 'kg' ? ' kg' : ''}`;
+  return `${n}x`;
+};
+
+/** "2 x R$ 8,00" / "0,750 kg x R$ 70,00/kg" (vazio quando é 1 unidade). */
+function detalheDoValor(i) {
+  const n = Number(i.quantidade) || 0;
+  if (!(Number(i.precoUnitario) >= 0) || i.precoUnitario === null || i.precoUnitario === undefined) return '';
+  if (i.unidade === 'kg') return `${qtdDaComanda(n, 'kg')} x ${dinheiro(i.precoUnitario)}/kg`;
+  return n === 1 ? '' : `${n.toLocaleString('pt-BR')} x ${dinheiro(i.precoUnitario)}`;
+}
+
+const valorDoItem = (i) => (Number.isFinite(Number(i.precoUnitario)) && i.precoUnitario !== null ? arred(Number(i.precoUnitario) * (Number(i.quantidade) || 0)) : null);
+
+/** Total da comanda (só itens com preço). */
+function totalDaComanda(itens) {
+  return arred((itens || []).reduce((s, i) => s + (valorDoItem(i) || 0), 0));
+}
+
+/**
+ * Comanda da cozinha em HTML (impressora do Windows e prévia do estúdio).
+ * comanda: { mesa ("MESA 4 + 5" ou null), titulo (senha/BALCÃO/PEDIDO), subtitulo (cliente),
+ *            hora, operador, itens[{ quantidade, unidade, nome, precoUnitario, pessoa, observacao }], rodape }
+ */
+function montarComandaCozinha(config, comanda, { larguraMm = 80 } = {}) {
+  const c = normalizarConfig('cozinha', config);
+  const estreita = larguraMm === 58;
+  const largura = estreita ? 54 : 74;
+  const fonteItem = ({ pequena: 15, normal: 17, grande: 20 }[c.tamanho] || 17) - (estreita ? 2 : 0);
+  const familia = c.fonte === 'mono' ? "'Courier New', monospace" : 'Arial, Helvetica, sans-serif';
+  const linha = c.separador === 'continuo' ? 'solid' : 'dashed';
+  const tamMesa = { normal: fonteItem + 4, grande: fonteItem + 10, enorme: Math.round(fonteItem * 2) }[c.mesaTamanho] || fonteItem + 10;
+  const temMesa = c.mostrarMesa && comanda.mesa;
+  const destaque = temMesa ? comanda.mesa : (comanda.titulo || 'COMANDA');
+  // Comanda de mesa com senha (pedido pelo QR): a senha sai embaixo da mesa.
+  const segunda = temMesa && comanda.titulo && comanda.titulo !== comanda.mesa ? comanda.titulo : '';
+  const itens = (comanda.itens || []).map((i) => {
+    const valor = c.mostrarValores ? valorDoItem(i) : null;
+    const detalhe = c.mostrarValores ? detalheDoValor(i) : '';
+    return `<div class="item">
+      <div class="linha"><span><span class="qtd">${escHtml(qtdDaComanda(i.quantidade, i.unidade))}</span> ${escHtml(i.nome)}</span>${valor !== null ? `<span class="valor">${dinheiro(valor)}</span>` : ''}</div>
+      ${detalhe ? `<div class="det">${escHtml(detalhe)}</div>` : ''}
+      ${c.mostrarPessoa && i.pessoa ? `<div class="pessoa">para: ${escHtml(i.pessoa)}</div>` : ''}
+      ${c.mostrarObservacoes && i.observacao ? `<div class="obs">&gt;&gt; ${escHtml(i.observacao)}</div>` : ''}
+    </div>`;
+  }).join('');
+  const total = c.mostrarValores && c.mostrarTotal && (comanda.itens || []).some((i) => valorDoItem(i) !== null)
+    ? `<p class="total">Total desta comanda: ${dinheiro(totalDaComanda(comanda.itens))}</p>` : '';
+  const info = [c.mostrarDataHora && comanda.hora ? escHtml(comanda.hora) : '', c.mostrarOperador && comanda.operador ? `Atendente: ${escHtml(comanda.operador)}` : '']
+    .filter(Boolean).join(' · ');
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @page { size: ${larguraMm}mm auto; margin: 2mm; }
+    body { font-family: ${familia}; width: ${largura}mm; margin: 0 auto; color: #000; background: #fff; }
+    .tit { font-size: ${fonteItem - 3}px; font-weight: bold; text-align: center; margin: 0; letter-spacing: .5px; }
+    h1 { font-size: ${temMesa ? tamMesa : fonteItem + 8}px; font-weight: ${!temMesa || c.mesaNegrito ? 'bold' : 'normal'}; margin: 0; text-align: center; line-height: 1.1; overflow-wrap: anywhere; }
+    .seg { font-size: ${fonteItem}px; font-weight: bold; text-align: center; margin: 2px 0; }
+    .sub { font-size: ${fonteItem - 4}px; font-weight: bold; text-align: center; margin: 2px 0; }
+    .hora { font-size: ${fonteItem - 6}px; text-align: center; margin: 2px 0 6px; }
+    .item { padding: 5px 0; border-top: 1px ${linha} #000; }
+    .linha { display: flex; justify-content: space-between; gap: 6px; font-size: ${fonteItem}px; font-weight: bold; }
+    .qtd { display: inline-block; min-width: 30px; }
+    .valor { white-space: nowrap; }
+    .det { font-size: ${fonteItem - 5}px; margin-left: 30px; }
+    .pessoa { font-size: ${fonteItem - 5}px; margin-left: 30px; }
+    .obs { font-size: ${fonteItem - 3}px; font-weight: bold; margin-left: 30px; }
+    .total { border-top: 1px ${linha} #000; font-size: ${fonteItem - 3}px; font-weight: bold; text-align: right; margin: 0; padding-top: 4px; }
+    .rodape { border-top: 1px ${linha} #000; font-size: ${fonteItem - 5}px; text-align: center; padding-top: 4px; margin: 4px 0 0; white-space: pre-line; }
+  </style></head><body>
+    ${c.titulo ? `<p class="tit">${escHtml(c.titulo)}</p>` : ''}
+    <h1>${escHtml(destaque)}</h1>
+    ${segunda ? `<p class="seg">${escHtml(segunda)}</p>` : ''}
+    ${c.mostrarCliente && comanda.subtitulo ? `<p class="sub">${escHtml(comanda.subtitulo)}</p>` : ''}
+    ${info ? `<p class="hora">${info}</p>` : ''}
+    ${itens}
+    ${total}
+    ${comanda.rodape ? `<p class="rodape">${escHtml(comanda.rodape)}</p>` : ''}
+    ${c.rodape ? `<p class="rodape">${escHtml(c.rodape)}</p>` : ''}
+  </body></html>`;
+}
+
+// ------------------------------------------------------------ display do QR da mesa
+
+const CORES_QR = { verde: '#0f6e56', azul: '#185fa5', laranja: '#b5521d', vinho: '#8a2337', roxo: '#4b3fa8', preto: '#141a26' };
+// Papel (mm) e grade de cartões por folha (colunas x linhas). A6 e térmica: 1 por folha/cupom.
+const PAPEIS_QR = { a4: [210, 297], carta: [216, 279], oficio: [216, 356], a6: [105, 148], termica: [80, null] };
+// colunas x linhas. Folha deitada (paisagem) com 6 = 3 x 2: cartões em pé.
+const GRADES_QR = {
+  retrato: { 1: [1, 1], 2: [1, 2], 4: [2, 2], 6: [2, 3], 8: [2, 4], 9: [3, 3], 12: [3, 4], 16: [4, 4] },
+  paisagem: { 1: [1, 1], 2: [2, 1], 4: [2, 2], 6: [3, 2], 8: [4, 2], 9: [3, 3], 12: [4, 3], 16: [4, 4] },
+};
+const PAGINA_CSS = { a4: 'A4', carta: 'letter', oficio: '216mm 356mm', a6: 'A6', termica: '80mm auto' };
+
+/** Medidas de cada cartão para o papel e a quantidade por folha. Exportada pra teste. */
+function medidasDoCartao(papel, porFolha, orientacao = 'paisagem') {
+  const termica = papel === 'termica';
+  const umPorFolha = termica || papel === 'a6';
+  const deitada = orientacao === 'paisagem' && !umPorFolha;
+  const grades = GRADES_QR[deitada ? 'paisagem' : 'retrato'];
+  const [cols, linhas] = umPorFolha ? [1, 1] : (grades[porFolha] || grades[6]);
+  const [l0, a0] = PAPEIS_QR[papel] || PAPEIS_QR.a4;
+  const [lp, ap] = deitada ? [a0, l0] : [l0, a0];
+  const margem = termica ? 2 : papel === 'a6' ? 5 : 8;
+  const vao = 3;
+  const largura = (lp - 2 * margem - (cols - 1) * vao) / cols;
+  const altura = termica ? largura * 1.55 : (ap - 2 * margem - (linhas - 1) * vao) / linhas;
+  // QR: o maior que cabe deixando espaço para mesa, título e instrução.
+  const qr = Math.max(18, Math.min(largura * 0.78, altura * 0.5));
+  const escala = Math.min(largura / 90, altura / 110);
+  return {
+    cols, linhas, porPagina: cols * linhas, margem, vao, largura, altura, qr, termica, deitada,
+    mesa: Math.max(11, 34 * escala), titulo: Math.max(7, 15 * escala), texto: Math.max(6, 10.5 * escala),
+  };
+}
+
+/**
+ * Cartões com o QR de cada mesa, vários por folha para recortar, com a
+ * aparência do estúdio. dados: { loja, mesas: [{ rotulo, qrDataUrl }] }.
+ */
+function montarCartoesQr(config, { loja = {}, mesas = [] } = {}) {
+  const c = normalizarConfig('qrmesa', config);
+  const m = medidasDoCartao(c.papel, Number(c.porFolha), c.orientacao);
+  const cor = CORES_QR[c.cor] || CORES_QR.verde;
+  const nome = (c.nomeLoja || '').trim() || loja.nome || '';
+  const logo = soImagemRaster(c.logo);
+  const pequeno = m.largura < 60; // 12 ou 16 por folha: corta o texto longo
+  // QR do Wi-Fi da loja ao lado do QR da mesa (pedido pela rede da loja):
+  // primeiro o cliente entra no Wi-Fi, depois aponta para o QR da mesa.
+  const wifi = loja.wifi && /^data:image\/png;base64,/.test(loja.wifi.qrDataUrl || '') && !pequeno ? loja.wifi : null;
+  const qrDaMesa = (mesa) => (mesa.qrDataUrl && /^data:image\/png;base64,/.test(mesa.qrDataUrl) ? `<img class="qr" src="${mesa.qrDataUrl}" alt="">` : '<div class="qr semqr">QR indisponível</div>');
+  const blocoQr = (mesa) => (wifi
+    ? `<div class="qrs">
+        <div class="passo"><span class="num">1</span><img class="qrwifi" src="${wifi.qrDataUrl}" alt=""><span class="legenda">Wi-Fi<br><b>${escHtml(wifi.nome)}</b></span></div>
+        <div class="passo"><span class="num">2</span>${qrDaMesa(mesa)}</div>
+      </div>`
+    : qrDaMesa(mesa));
+  const cartao = (mesa) => `
+    <div class="cartao">
+      ${logo && !pequeno ? `<img class="logo" src="${logo}" alt="">` : ''}
+      ${c.mostrarNomeLoja && nome ? `<div class="loja">${escHtml(nome)}</div>` : ''}
+      <div class="mesa">${escHtml(mesa.rotulo)}</div>
+      ${c.titulo ? `<div class="titulo">${escHtml(c.titulo)}</div>` : ''}
+      ${blocoQr(mesa)}
+      ${c.instrucao && !pequeno ? `<div class="instrucao">${escHtml(c.instrucao)}</div>` : ''}
+      ${c.rodape ? `<div class="rodape">${escHtml(c.rodape)}</div>` : ''}
+    </div>`;
+  // Uma grade por folha: a quebra de página nunca corta um cartão ao meio.
+  const folhas = [];
+  for (let i = 0; i < mesas.length; i += m.porPagina) folhas.push(mesas.slice(i, i + m.porPagina));
+  const mm = (v) => `${Math.round(v * 10) / 10}mm`;
+  const pt = (v) => `${Math.round(v * 10) / 10}pt`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>QR das mesas</title><style>
+    @page { size: ${PAGINA_CSS[c.papel] || 'A4'}${m.deitada ? ' landscape' : ''}; margin: ${mm(m.margem)}; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; color: #141a26; }
+    .folha { display: grid; grid-template-columns: repeat(${m.cols}, ${mm(m.largura)}); grid-auto-rows: ${mm(m.altura)}; gap: ${mm(m.vao)}; page-break-after: always; break-after: page; }
+    .folha:last-child { page-break-after: auto; break-after: auto; }
+    .cartao {
+      width: ${mm(m.largura)}; height: ${mm(m.altura)}; padding: ${mm(Math.min(4, m.largura * 0.05))}; text-align: center; overflow: hidden;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: ${mm(Math.max(0.8, m.altura * 0.012))};
+      border: ${c.linhaDeCorte && !m.termica ? '1px dashed #9aa4b2' : 'none'}; border-radius: 2mm;
+    }
+    .logo { max-width: 45%; max-height: ${mm(m.altura * 0.13)}; object-fit: contain; }
+    .loja { font-size: ${pt(m.texto + 1)}; color: #4a5568; }
+    .mesa { font-size: ${pt(m.mesa)}; font-weight: 800; line-height: 1.05; color: ${m.termica ? '#000' : cor}; overflow-wrap: anywhere; }
+    .titulo { font-size: ${pt(m.titulo)}; font-weight: 700; color: #fff; background: ${m.termica ? '#000' : cor}; padding: 0.6mm 3mm; border-radius: 1.5mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .qr { width: ${mm(m.qr)}; height: ${mm(m.qr)}; }
+    .qrs { display: flex; align-items: flex-end; justify-content: center; gap: ${mm(Math.max(2, m.largura * 0.04))}; }
+    .passo { display: flex; flex-direction: column; align-items: center; gap: 0.6mm; }
+    .num { font-size: ${pt(m.texto)}; font-weight: 800; color: #fff; background: ${m.termica ? '#000' : cor}; border-radius: 50%; width: ${pt(m.texto * 1.7)}; height: ${pt(m.texto * 1.7)}; line-height: ${pt(m.texto * 1.7)}; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .qrwifi { width: ${mm(m.qr * 0.45)}; height: ${mm(m.qr * 0.45)}; }
+    .legenda { font-size: ${pt(Math.max(6, m.texto - 1))}; line-height: 1.15; max-width: ${mm(m.qr * 0.6)}; overflow-wrap: anywhere; }
+    .semqr { display: flex; align-items: center; justify-content: center; border: 1px solid #999; font-size: 8pt; }
+    .instrucao { font-size: ${pt(m.texto)}; max-width: 92%; line-height: 1.25; }
+    .rodape { font-size: ${pt(Math.max(6, m.texto - 1))}; color: #4a5568; }
+  </style></head><body>${folhas.map((f) => `<div class="folha">${f.map(cartao).join('')}</div>`).join('')}</body></html>`;
+}
+
+/** Comanda de exemplo para a prévia do estúdio. */
+function exemploComanda() {
+  return {
+    mesa: 'MESA 5', titulo: 'MESA 5', subtitulo: null,
+    hora: new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }),
+    operador: 'Carla',
+    itens: [
+      { quantidade: 1, unidade: 'un', nome: 'Peixe frito (inteiro)', precoUnitario: 60, pessoa: 'Ana', observacao: 'bem passado' },
+      { quantidade: 1, unidade: 'un', nome: 'Peixe frito (posta)', precoUnitario: 45, pessoa: 'Bruno', observacao: '' },
+      { quantidade: 0.75, unidade: 'kg', nome: 'Peixe no peso', precoUnitario: 70, pessoa: null, observacao: '' },
+      { quantidade: 2, unidade: 'un', nome: 'Suco de laranja', precoUnitario: 8, pessoa: null, observacao: 'sem gelo' },
+    ],
+    rodape: null,
+  };
+}
+
 /** Venda de exemplo para a prévia do estúdio (nada do banco). */
 function exemplo(tipo, { larguraMm = 80, loja = { nome: 'Minha Loja' }, rodapeNota = '' } = {}) {
   const itens = [
@@ -361,4 +598,8 @@ function exemplo(tipo, { larguraMm = 80, loja = { nome: 'Minha Loja' }, rodapeNo
   };
 }
 
-module.exports = { PADRAO, TIPOS, LOGO_MAX_CARACTERES, normalizarConfig, montarNota, montarPreNota, valoresDaPreNota, exemplo, escHtml };
+module.exports = {
+  PADRAO, TIPOS, LOGO_MAX_CARACTERES, normalizarConfig, montarNota, montarPreNota, valoresDaPreNota, exemplo, escHtml,
+  montarComandaCozinha, exemploComanda, totalDaComanda, detalheDoValor, qtdDaComanda,
+  montarCartoesQr, medidasDoCartao, CORES_QR,
+};

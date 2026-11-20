@@ -680,7 +680,7 @@ CREATE TABLE IF NOT EXISTS receipt_config (
 -- impressaoLayout.normalizarConfig; sem linha = padrão. O rodapé da nota
 -- continua em receipt_config.rodape_texto (WhatsApp usa o mesmo).
 CREATE TABLE IF NOT EXISTS impressao_estudio (
-  tipo          TEXT PRIMARY KEY CHECK (tipo IN ('nota', 'prenota')),
+  tipo          TEXT PRIMARY KEY CHECK (tipo IN ('nota', 'prenota', 'cozinha', 'qrmesa')),
   config_json   TEXT NOT NULL,
   atualizado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
@@ -2001,6 +2001,19 @@ CREATE INDEX IF NOT EXISTS idx_pix_cobrancas_sale ON pix_cobrancas(sale_id);
 -- Vitrine online (vitrineService.js): o que a loja escolheu mostrar e o
 -- endereço criado na Central (slug, vem de installations/{id}.vitrineSlug).
 -- ultimo_hash evita republicar o catálogo quando nada mudou.
+-- Pedido pelo QR da mesa pela rede da loja, sem Firebase (mesaLocalService).
+CREATE TABLE IF NOT EXISTS mesa_local_config (
+  id            TEXT PRIMARY KEY DEFAULT 'default',
+  ativo         INTEGER NOT NULL DEFAULT 0,
+  porta         INTEGER NOT NULL DEFAULT 47830,
+  endereco_fixo TEXT,
+  wifi_nome     TEXT,
+  wifi_senha    TEXT,
+  wifi_tipo     TEXT NOT NULL DEFAULT 'WPA',
+  mostrar_wifi  INTEGER NOT NULL DEFAULT 0,
+  atualizado_em TEXT
+);
+
 CREATE TABLE IF NOT EXISTS vitrine_config (
   id                    TEXT PRIMARY KEY DEFAULT 'default',
   ativa                 INTEGER NOT NULL DEFAULT 0,

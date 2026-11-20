@@ -456,22 +456,56 @@ function setServiceCharge(saleId, percentual) {
 }
 
 /**
- * Estoque que vale para lançar um item (null = pode lançar):
+ * Estoque que vale para lançar um item. null = tem estoque. Senão
+ * { mensagem, ... } explicando ONDE falta:
  * - caixa com "Mesas e estoque no servidor": o saldo que o servidor informou
- *   (`saldoServidor`); sem resposta dele ou produto sem contador no grupo, não
- *   trava -- a baixa vai para o servidor ao finalizar (vende e acerta depois);
+ *   (`saldoServidor`); sem resposta dele ou produto sem contador no grupo,
+ *   não falta nada (a baixa vai ao finalizar);
  * - no servidor do grupo (rede local): o estoque do grupo (contador menos as
- *   vendas abertas), que já inclui o que os caixas venderam;
- * - fora disso: o estoque local, como sempre.
+ *   comandas abertas), que já inclui o que os caixas venderam;
+ * - fora disso: o estoque local.
+ * Se a loja "vende mesmo sem estoque" (estoquePoliticaService), quem chama
+ * só AVISA; senão, trava com a mesma mensagem.
  */
 function faltaDeEstoque({ productId, product, quantidade, disponivel, estoqueNoServidor, saldoServidor }) {
-  const msg = (onde, n) => ({ ok: false, error: `Estoque insuficiente${onde}. Disponível: ${Math.round(Number(n) * 1000) / 1000} ${product.unidade}.` });
+  const n = (v) => (Math.round(Number(v) * 1000) / 1000).toLocaleString('pt-BR');
+  const u = product.unidade || 'un';
+  const local = Number(disponivel) || 0;
   if (estoqueNoServidor) {
-    return Number.isFinite(saldoServidor) && quantidade > saldoServidor ? msg(' no servidor', saldoServidor) : null;
+    if (!Number.isFinite(saldoServidor) || quantidade <= saldoServidor) return null;
+    return {
+      onde: 'servidor', disponivel: saldoServidor,
+      mensagem: `Estoque insuficiente no servidor. Disponível: ${n(saldoServidor)} ${u}.${local > 0 ? ` Neste caixa ficaram ${n(local)} ${u} de entradas antigas: use "Unificar estoque" no Suporte.` : ''}`,
+    };
   }
-  const noGrupo = require('./stockSyncService').saldoDoGrupoNoServidor(productId);
-  if (noGrupo !== null) return quantidade > noGrupo ? msg(' no grupo', noGrupo) : null;
-  return quantidade > disponivel ? msg('', disponivel) : null;
+  const grupo = require('./stockSyncService').detalheDoGrupoNoServidor?.(productId) || null;
+  if (grupo) {
+    if (quantidade <= grupo.saldo) return null;
+    const preso = grupo.reservado > 0 ? ` ${n(grupo.reservado)} ${u} estão em comandas abertas.` : '';
+    return {
+      onde: 'grupo', disponivel: grupo.saldo,
+      mensagem: `Estoque insuficiente no grupo. Disponível: ${n(grupo.saldo)} ${u}.${preso}${local > grupo.saldo ? ` Neste computador constam ${n(local)} ${u}.` : ''}`,
+    };
+  }
+  if (quantidade <= local) return null;
+  return {
+    onde: 'local', disponivel: local,
+    mensagem: `Estoque insuficiente neste computador. Disponível: ${n(local)} ${u}.${local <= 0 ? ' Se é prato feito na hora, cadastre como "feito na hora" para não conferir estoque.' : ''}`,
+  };
+}
+
+/** Marca o item para o relatório "Vendido sem estoque" (nunca derruba a venda). */
+function marcarSemEstoque(db, saleItemId, aviso) {
+  try {
+    db.prepare('UPDATE sale_items SET vendido_sem_estoque = 1, aviso_estoque = ? WHERE id = ?').run(String(aviso).slice(0, 300), saleItemId);
+  } catch { /* banco sem as colunas (antes da migração) */ }
+}
+
+/** Falta de estoque: trava (política) ou deixa passar com aviso. */
+function decidirEstoque(falta) {
+  if (!falta) return { bloqueio: null, aviso: null };
+  if (require('./estoquePoliticaService').venderSemEstoque()) return { bloqueio: null, aviso: falta.mensagem };
+  return { bloqueio: { ok: false, error: falta.mensagem, semEstoque: true }, aviso: null };
 }
 
 /**
@@ -507,8 +541,8 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // insumo/ficha técnica (ver dentro da transação abaixo).
   const ehServico = product.tipo === 'servico';
   const disponivel = ehServico ? null : getCurrentStock(productId, locationId);
-  const semEstoque = ehServico ? null : faltaDeEstoque({ productId, product, quantidade, disponivel, estoqueNoServidor, saldoServidor });
-  if (semEstoque) return semEstoque;
+  const estoque = decidirEstoque(ehServico ? null : faltaDeEstoque({ productId, product, quantidade, disponivel, estoqueNoServidor, saldoServidor }));
+  if (estoque.bloqueio) return estoque.bloqueio;
 
   const custom = JSON.parse(product.custom_fields || '{}');
   const avisoReceita = !!(custom.controlado && custom.exige_receita);
@@ -557,6 +591,7 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
         `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, pessoa_numero, observacao) VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run(itemId, saleId, productId, quantidade, precoDeVenda, pessoa, obs);
     }
+    if (estoque.aviso) marcarSemEstoque(db, itemId, estoque.aviso);
 
     if (!ehServico) {
       db.prepare(
@@ -618,7 +653,10 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // da linha (novo ou existente), usado só pra exibir/registrar o preço
   // do item em si, não pra fazer conta de total no front.
   const linhaFinal = db.prepare('SELECT * FROM sale_items WHERE id = ?').get(itemId);
-  return { ok: true, itemId, precoUnitario: precoParaTotal, novoTotal, avisoReceita, alerta, quantidadeTotal, ajustavel: itemAjustavel(db, linhaFinal, product) };
+  return {
+    ok: true, itemId, precoUnitario: precoParaTotal, novoTotal, avisoReceita, alerta, quantidadeTotal, ajustavel: itemAjustavel(db, linhaFinal, product),
+    ...(estoque.aviso ? { avisoEstoque: estoque.aviso } : {}),
+  };
 }
 
 /**
@@ -659,12 +697,13 @@ function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operador
   const ehServico = product.tipo === 'servico';
 
   let disponivel = null;
+  let avisoEstoque = { aviso: null };
   if (passo === 1) {
     if (!product.ativo) return { ok: false, error: 'Este produto foi desativado.' };
     if (!ehServico) {
       disponivel = getCurrentStock(product.id, locationId);
-      const semEstoque = faltaDeEstoque({ productId: product.id, product, quantidade: 1, disponivel, estoqueNoServidor, saldoServidor });
-      if (semEstoque) return semEstoque;
+      avisoEstoque = decidirEstoque(faltaDeEstoque({ productId: product.id, product, quantidade: 1, disponivel, estoqueNoServidor, saldoServidor }));
+      if (avisoEstoque.bloqueio) return avisoEstoque.bloqueio;
     }
   } else {
     if (item.quantidade <= 1) return { ok: false, error: 'Para tirar o último, use Cancelar.' };
@@ -676,6 +715,7 @@ function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operador
   let novoTotal;
   db.transaction(() => {
     db.prepare('UPDATE sale_items SET quantidade = ? WHERE id = ?').run(novaQuantidade, item.id);
+    if (avisoEstoque.aviso) marcarSemEstoque(db, item.id, avisoEstoque.aviso);
     if (!ehServico) {
       db.prepare(
         `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, sale_id, sale_item_id, operador_id, device_id)
@@ -699,7 +739,7 @@ function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operador
   const alerta = passo === 1 && !ehServico
     ? computeProductAlert({ product, estoqueAtual: disponivel - 1, profile: profileService.getActiveProfile() })
     : undefined;
-  return { ok: true, quantidade: novaQuantidade, novoTotal, ...(alerta !== undefined ? { alerta } : {}) };
+  return { ok: true, quantidade: novaQuantidade, novoTotal, ...(alerta !== undefined ? { alerta } : {}), ...(avisoEstoque.aviso ? { avisoEstoque: avisoEstoque.aviso } : {}) };
 }
 
 /**
@@ -1391,6 +1431,10 @@ async function finalizeSaleComVerificacaoDeGrupo(saleId) {
     let semCota = false;
     try { semCota = require('./nuvemDisjuntorService').status().escritaPausada; } catch { /* sem disjuntor */ }
     if (semCota) return finalizarComDebitoNaFila(db, saleId, itens, 'venda sem cota da nuvem');
+    // Loja que vende mesmo sem estoque (restaurante): sem conexão com o servidor
+    // nem com a nuvem, a conta fecha igual e a baixa do grupo vai na fila
+    // (contingência: a mesa não pode ficar presa esperando a rede).
+    if (require('./estoquePoliticaService').venderSemEstoque()) return finalizarComDebitoNaFila(db, saleId, itens, 'venda sem conexão com o servidor do grupo');
 
     // motivo 'rede' (ou ausente, por segurança -- trata qualquer coisa
     // que não seja estoque insuficiente de verdade como "vale tentar de

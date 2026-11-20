@@ -367,3 +367,33 @@ test('suporte: o caixa busca a configuração da loja e confere os cadastros com
   assert.equal(r.servidor, false);
   assert.ok(r.produtos && typeof r.produtos.noGrupo === 'number');
 });
+
+test('rede local: a varredura acha o servidor do grupo e ignora quem é de outro grupo', async () => {
+  const achados = await cliente.varrerRede(G, { enderecos: ['127.0.0.1'], porta: S.porta, timeoutMs: 2000 });
+  assert.equal(achados.length, 1);
+  assert.equal(achados[0].endereco, `127.0.0.1:${S.porta}`);
+  assert.equal(achados[0].nome, 'PDV1-SERVIDOR');
+  const outro = await cliente.varrerRede('outro-grupo', { enderecos: ['127.0.0.1'], porta: S.porta, timeoutMs: 2000 });
+  assert.deepEqual(outro, []);
+});
+
+test('suporte logado no caixa (fora do grupo) vê e mexe nas mesas como o suporte do servidor; outro usuário fora do grupo só olha', async () => {
+  db.prepare("INSERT INTO users (id, nome, role, pin_hash) VALUES ('cx-suporte', 'Suporte', 'suporte', ?)").run(bcrypt.hashSync('9999', 4));
+  db.prepare("INSERT INTO users (id, nome, role, pin_hash) VALUES ('cx-novo', 'Joana', 'operador', ?)").run(bcrypt.hashSync('3333', 4));
+
+  const lista = await chamar('table:list', {}, 'cx-suporte');
+  assert.ok(Array.isArray(lista) && lista.length >= 4, 'suporte vê as mesas do servidor');
+  assert.ok(Array.isArray(await chamar('table:list', {}, 'cx-novo')), 'só olhar não depende de usuário');
+
+  const criada = await chamar('table:create', { numero: '90' }, 'cx-suporte');
+  assert.equal(criada.ok, true, criada.error);
+  const mesa = (await sqlNoServidor("SELECT id FROM restaurant_tables WHERE numero = '90'"))[0];
+  const negado = await chamar('table:open', { tableId: mesa.id, pessoas: 1 }, 'cx-novo');
+  assert.equal(negado.ok, false);
+  assert.match(negado.error, /Joana ainda não é do grupo/);
+
+  const aberta = await chamar('table:open', { tableId: mesa.id, pessoas: 1 }, 'cx-suporte');
+  assert.equal(aberta.ok, true, aberta.error);
+  const venda = (await sqlNoServidor('SELECT operador_id FROM sales WHERE id = ?', aberta.saleId))[0];
+  assert.equal(venda.operador_id, 'srv-suporte', 'no servidor, quem abriu é o suporte de lá');
+});

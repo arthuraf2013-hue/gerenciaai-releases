@@ -456,6 +456,11 @@ app.whenReady().then(() => {
     // Pedido pela vitrine / QR da mesa: escuta só com "pedidos no sistema"
     // ligado (ou máquina de demonstração).
     require('./services/vitrinePedidoService').atualizarEscuta();
+    // QR da mesa pela rede da loja (sem Firebase). Só no servidor do grupo
+    // (ou fora de grupo); confere de minuto em minuto se o papel mudou.
+    const mesaLocal = require('./services/mesaLocalService');
+    mesaLocal.atualizar();
+    setInterval(() => { try { mesaLocal.atualizar(); } catch (err) { console.error('[mesaLocal]', err?.message || err); } }, 60 * 1000);
     // Pix antecipado do pedido do site: confere as cobranças pendentes e
     // cancela o pedido cujo Pix venceu. Só consulta quando há pendente.
     require('./services/vitrinePixService').iniciarConferencia();

@@ -16,6 +16,7 @@ import { CommandPalette } from './CommandPalette';
 import { KeyboardHelpModal, useKeyboardHelpShortcut } from './KeyboardHelpModal';
 import { Clock } from './Clock';
 import { SwitchUserModal } from '../auth/SwitchUserModal';
+import { AvisosDaMesa } from './AvisosDaMesa';
 import Icon from '../common/Icon';
 
 // Todas as telas abaixo só entram na árvore quando `screen` vira o id
@@ -546,6 +547,7 @@ export function AppShell() {
         </Suspense>
       </main>
       <CommandPalette items={visibleItems} onNavigate={setScreen} />
+      <AvisosDaMesa onAbrir={(destino) => { if (visibleItems.some((i) => i.id === destino)) setScreen(destino); }} />
       {keyboardHelp.open && <KeyboardHelpModal onClose={keyboardHelp.close} />}
       {trocarUsuarioAberto && (
         <SwitchUserModal

@@ -133,6 +133,10 @@ test('diagnóstico fora de grupo vira um relatório legível', async () => {
   const texto = suporte.relatorioEmTexto(d);
   assert.match(texto, /Grupo: - \(fora de grupo\)/);
   assert.match(texto, /1 produtos ativos/);
+  assert.match(texto, /Fotos: 0 para enviar \| 0 para baixar/);
+  assert.doesNotMatch(texto, /\?/, 'nada de campo com "?"');
+  d.grupo = { ...d.grupo, papel: 'servidor', redeLocal: { ligada: true, enderecos: ['192.168.1.74:47820'], caixas: [{ nome: 'PDV2', ultimoContato: '2026-11-20 14:45:51' }] } };
+  assert.match(suporte.relatorioEmTexto(d), /PDV2 \(último contato 20\/11\/2026, 11:45:51\)/, 'horário de Brasília');
 });
 
 test('pendências: lista o que ainda não saiu deste computador', () => {

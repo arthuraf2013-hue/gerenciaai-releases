@@ -18,6 +18,8 @@ const usuario = (id, nome, role, pin, doc) => {
 };
 usuario('srv-operador', 'Geyse', 'operador', '1111', 'doc-operador');
 usuario('srv-gerente', 'Gerente', 'gerente', '2222', 'doc-gerente');
+// Suporte é de cada máquina: existe no servidor, mas não está no grupo.
+db.prepare("INSERT INTO users (id, nome, role, pin_hash) VALUES ('srv-suporte', 'Suporte', 'suporte', ?)").run(bcrypt.hashSync('9999', 4));
 const produto = (nome, preco, doc, extra = {}) => {
   const id = createProduct(db, { nome, preco, ...extra });
   db.prepare(`INSERT INTO grupo_replica (entidade, local_id, grupo_id, doc_id, versao_ms) VALUES ('produtos', ?, ?, ?, 1)`).run(id, G, doc);
@@ -43,7 +45,7 @@ const saleService = require('../../electron/services/saleService');
   const { codigo } = hub.gerarCodigo();
   process.stdout.write(JSON.stringify({ porta, codigo, mesas, ids, locationId }) + '\n');
   let buf = '';
-  process.stdin.on('data', (b) => {
+  process.stdin.on('data', async (b) => {
     buf += b.toString();
     let i;
     while ((i = buf.indexOf('\n')) >= 0) {
@@ -60,6 +62,11 @@ const saleService = require('../../electron/services/saleService');
           r = { ok: true };
         } else if (c.cmd === 'destravar') r = mc.destravar({ tableId: c.tableId, operadorId: 'srv-gerente' });
         else if (c.cmd === 'codigo') r = hub.gerarCodigo();
+        else if (c.cmd === 'desligar') { hub.desligar(); r = { ok: true }; } // servidor "cai"
+        else if (c.cmd === 'religar') {
+          await hub.ligar({ grupoId: G, hubId: 'servidor-mesa-0001', nome: 'PDV1-SERVIDOR' }, { portaPreferida: c.porta, descoberta: false, host: '127.0.0.1' });
+          r = { ok: true, porta: hub.status().porta };
+        }
       } catch (err) { r = { erro: err.message }; }
       process.stdout.write(JSON.stringify({ r: r === undefined ? null : r }) + '\n');
     }

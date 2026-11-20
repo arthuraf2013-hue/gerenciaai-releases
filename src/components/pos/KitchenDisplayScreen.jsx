@@ -38,6 +38,11 @@ function minutosDesde(criadoEm) {
 export function KitchenDisplayScreen() {
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  // Valor do item na tela (Estúdio de impressão -> Comanda da cozinha -> Valores).
+  const [mostrarValores, setMostrarValores] = useState(true);
+  useEffect(() => {
+    window.pdv.cozinha?.getConfig?.().then((c) => setMostrarValores(c?.mostrarValores !== false)).catch(() => {});
+  }, []);
   const [atualizandoId, setAtualizandoId] = useState(null);
 
   async function carregar() {
@@ -99,7 +104,14 @@ export function KitchenDisplayScreen() {
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                      <strong style={{ fontSize: 16 }}>{item.quantidade}× {item.nome}</strong>
+                      <strong style={{ fontSize: 16 }}>
+                        {item.unidade === 'kg' ? `${Number(item.quantidade).toLocaleString('pt-BR', { minimumFractionDigits: 3 })} kg` : `${item.quantidade}×`} {item.nome}
+                        {mostrarValores && item.preco_unitario != null && (
+                          <span style={{ fontWeight: 600, color: 'var(--color-primary)' }}>
+                            {' · '}{(Number(item.preco_unitario) * Number(item.quantidade)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        )}
+                      </strong>
                       <span style={{ fontSize: 12, color: atrasado ? 'var(--color-danger, #c0392b)' : 'var(--color-text-muted)', fontWeight: atrasado ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         {minutos} min{atrasado && <Icon name="warning" size={12} />}
                       </span>

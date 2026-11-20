@@ -164,8 +164,16 @@ function impressaoDasMesas(db) {
         FROM sale_people sp WHERE sp.sale_id IN (SELECT sale_id FROM restaurant_tables WHERE sale_id IS NOT NULL)) AS p,
        (SELECT COUNT(*) || '|' || TOTAL(valor) FROM payments WHERE sale_id IN (SELECT sale_id FROM restaurant_tables WHERE sale_id IS NOT NULL)) AS g,
        (SELECT IFNULL(group_concat(id || desconto || desconto_gerente || taxa_servico_percentual || status, ';'), '')
-        FROM sales WHERE id IN (SELECT sale_id FROM restaurant_tables WHERE sale_id IS NOT NULL)) AS s`
+        FROM sales WHERE id IN (SELECT sale_id FROM restaurant_tables WHERE sale_id IS NOT NULL)) AS s,
+       (SELECT COUNT(*) || '|' || IFNULL(MAX(rowid), 0) FROM bot_orders WHERE mesa_numero IS NOT NULL AND status = 'novo') AS b`
   ).get();
+  // Indicadores do QR (chamados, celulares na mesa): também mudam a versão.
+  try {
+    l.q = db.prepare(`SELECT
+        (SELECT COUNT(*) || '|' || IFNULL(MAX(criado_em), '') || '|' || IFNULL(MAX(atendido_em), '') FROM mesa_chamados) AS c,
+        (SELECT COUNT(*) || '|' || IFNULL(MAX(criado_em), '') FROM mesa_local_membros) AS m`).get();
+    l.u = db.prepare(`SELECT COUNT(*) || '|' || IFNULL(MAX(criado_em), '') || '|' || IFNULL(MAX(resolvido_em), '') AS u FROM mesa_mudancas`).get();
+  } catch { /* banco sem as tabelas */ }
   return createHash('sha1').update(JSON.stringify(l)).digest('hex');
 }
 
@@ -203,13 +211,28 @@ const S = () => require('./saleService');
  */
 const CANAIS = {
   'table:list': { ler: true, fn: (a, c) => T().listTables(c.locationId) },
-  'table:getCart': { ler: true, venda: true, fn: (a) => T().getTableCart(a.saleId) },
+  'table:getCart': { ler: true, venda: true, fn: (a) => contaParaOCaixa(T().getTableCart(a.saleId), a.saleId) },
+  // Contingência: itens que o caixa já imprimiu na cozinha dele sem o servidor.
+  'cozinha:marcarEnviado': {
+    fn: (a) => {
+      const ids = (Array.isArray(a.saleItemIds) ? a.saleItemIds : []).filter((x) => typeof x === 'string').slice(0, 200);
+      const db = getDb();
+      const upd = db.prepare('UPDATE sale_items SET enviado_cozinha = 1 WHERE id = ? AND sale_id IN (SELECT sale_id FROM restaurant_tables WHERE sale_id IS NOT NULL)');
+      let n = 0;
+      for (const id of ids) n += upd.run(id).changes;
+      return { ok: true, marcados: n };
+    },
+  },
   'table:open': { fn: (a, c) => T().openTable({ tableId: a.tableId, locationId: c.locationId, operadorId: c.usuarioId, pessoas: a.pessoas }) },
   'table:markCleaned': { fn: (a) => T().markCleaned(a.tableId) },
   'table:markReserved': { fn: (a) => T().markReserved(a.tableId, a.reservadoPara) },
   'table:cancelReservation': { fn: (a) => T().cancelReservation(a.tableId) },
-  'table:transfer': { fn: (a) => T().transferTable({ fromTableId: a.fromTableId, toTableId: a.toTableId }) },
+  'table:transfer': { fn: (a, c) => T().transferTable({ fromTableId: a.fromTableId, toTableId: a.toTableId, operadorId: c.usuarioId }) },
   'table:updatePeople': { fn: (a) => T().updateTablePeople({ tableId: a.tableId, pessoas: a.pessoas }) },
+  'table:moverConta': { fn: (a, c) => require('./mesaMudancaService').moverConta({ fromTableId: a.fromTableId, toTableId: a.toTableId, pessoas: a.pessoas, operadorId: c.usuarioId }) },
+  'table:aprovarMudanca': { fn: (a, c) => require('./mesaMudancaService').aprovarMudanca({ id: a.id, operadorId: c.usuarioId }) },
+  'table:recusarMudanca': { fn: (a, c) => require('./mesaMudancaService').recusarMudanca({ id: a.id, operadorId: c.usuarioId }) },
+  'table:atenderChamados': { ler: true, fn: (a, c) => require('./mesaLocalService').atenderChamados({ tableId: a.tableId, tipo: a.tipo, usuarioId: c.usuarioId }) },
   'table:desocupar': {
     fn: (a, c) => T().desocuparMesa({
       tableId: a.tableId, locationId: c.locationId, currentOperatorId: c.usuarioId,
@@ -266,6 +289,34 @@ const CANAIS = {
 
 const PAPEIS_GESTAO = ['gerente', 'admin', 'suporte'];
 
+/**
+ * Comanda para o caixa, com o que ele precisa para receber a conta mesmo se
+ * o servidor cair depois (contingência): o produto de cada item no grupo,
+ * item avulso, custo e quem abriu.
+ */
+function contaParaOCaixa(cart, saleId) {
+  try {
+    const db = getDb();
+    const grupoId = grupoAtual();
+    const venda = db.prepare('SELECT criado_em, operador_id, customer_id FROM sales WHERE id = ?').get(saleId);
+    const extra = new Map(db.prepare(`SELECT id, product_id, eh_personalizado, nome_personalizado, custo_unitario, preco_original, preco_alterado_motivo, especificacoes_json, criado_em
+                                       FROM sale_items WHERE sale_id = ?`).all(saleId).map((i) => [i.id, i]));
+    return {
+      ...cart,
+      venda: venda ? { criadoEm: venda.criado_em, operadorDoc: docDoUsuario(db, grupoId, venda.operador_id), clienteDoc: venda.customer_id ? docDe(db, grupoId, 'clientes', venda.customer_id) : null } : null,
+      items: (cart.items || []).map((i) => {
+        const e = extra.get(i.id);
+        if (!e) return i;
+        return {
+          ...i, produtoDoc: e.eh_personalizado ? null : docDe(db, grupoId, 'produtos', e.product_id), ehPersonalizado: !!e.eh_personalizado,
+          nomePersonalizado: e.nome_personalizado || null, custoUnitario: e.custo_unitario ?? null, precoOriginal: e.preco_original ?? null,
+          precoAlteradoMotivo: e.preco_alterado_motivo || null, especificacoesJson: e.especificacoes_json || null, criadoEm: e.criado_em,
+        };
+      }),
+    };
+  } catch { return cart; }
+}
+
 function locationDoServidor(db) {
   const l = db.prepare('SELECT id FROM locations LIMIT 1').get();
   if (!l) throw new Error('Nenhum local cadastrado no servidor.');
@@ -300,10 +351,20 @@ async function atenderChamada(corpo, caixa) {
   const grupoId = grupoAtual();
   const c = CANAIS[corpo?.canal];
   if (!c) return { ok: false, error: 'Pedido de mesa desconhecido (atualize o GerenciaAI nos dois computadores).' };
+  // Operação da fila de contingência de um caixa: a mesma nunca é aplicada duas
+  // vezes (a resposta pode ter se perdido e o caixa manda de novo).
+  const opId = typeof corpo?.opId === 'string' && /^[A-Za-z0-9:-]{8,80}$/.test(corpo.opId) ? corpo.opId : null;
+  if (opId) {
+    try {
+      const ja = db.prepare('SELECT resultado_json FROM mesa_ops_aplicadas WHERE op_id = ?').get(opId);
+      if (ja) return pessoasParaOGrupo(db, grupoId, { ...(JSON.parse(ja.resultado_json || '{}') || {}), repetida: true });
+    } catch { /* banco sem a tabela */ }
+  }
   const a = corpo.args && typeof corpo.args === 'object' && !Array.isArray(corpo.args) ? { ...corpo.args } : {};
 
-  const usuarioId = usuarioDoDoc(db, grupoId, corpo.usuarioDoc);
-  if (!usuarioId) return { ok: false, error: 'O usuário deste caixa ainda não chegou no servidor. Espere a sincronização de usuários e tente de novo.' };
+  const quem = usuarioDoPedido(db, grupoId, corpo);
+  const usuarioId = quem.usuarioId;
+  if (!usuarioId && (!c.ler || c.gestao)) return { ok: false, error: quem.erro };
   if (c.gestao && !require('./authService').requireRole(usuarioId, PAPEIS_GESTAO).ok) return { ok: false, error: 'Você não tem permissão para fazer isso.' };
   if (c.venda && !vendaEhDeMesa(db, a)) return { ok: false, error: 'Essa comanda não é de uma mesa do servidor (pode ter sido fechada).' };
 
@@ -331,6 +392,12 @@ async function atenderChamada(corpo, caixa) {
   }
 
   const r = await c.fn(a, { usuarioId, locationId: locationDoServidor(db) });
+  if (opId && !(r && r.ok === false)) {
+    try {
+      db.prepare('INSERT OR IGNORE INTO mesa_ops_aplicadas (op_id, resultado_json) VALUES (?, ?)').run(opId, JSON.stringify(r ?? { ok: true }));
+      db.prepare("DELETE FROM mesa_ops_aplicadas WHERE criado_em < datetime('now', '-15 days')").run();
+    } catch { /* banco sem a tabela */ }
+  }
   if (!c.ler && !(r && r.ok === false)) {
     versaoAtual();
     avisarTelas({ origem: 'caixa', caixa: caixa?.nome || null, canal: corpo.canal });
@@ -348,12 +415,27 @@ function auditar(db, tipo, saleId, usuarioId, motivo) {
   } catch (err) { console.error('[mesaCompartilhada] auditoria:', err?.message || err); }
 }
 
+/**
+ * Quem opera no servidor, pelo pedido do caixa: o usuário do grupo
+ * (`usuarioDoc`) ou, para o suporte logado no caixa (o suporte é de cada
+ * máquina e não entra no grupo), o suporte ativo deste servidor.
+ */
+function usuarioDoPedido(db, grupoId, corpo) {
+  const id = corpo?.usuarioDoc ? usuarioDoDoc(db, grupoId, corpo.usuarioDoc) : null;
+  if (id) return { usuarioId: id };
+  if (corpo?.usuarioLocal?.papel === 'suporte') {
+    const s = db.prepare("SELECT id FROM users WHERE role = 'suporte' AND ativo = 1 ORDER BY criado_em LIMIT 1").get()?.id || null;
+    return s ? { usuarioId: s } : { usuarioId: null, erro: 'O servidor não tem usuário de suporte ativo. Entre no caixa com um usuário do grupo.' };
+  }
+  return { usuarioId: null, erro: 'O usuário deste caixa ainda não chegou no servidor. Espere a sincronização de usuários e tente de novo.' };
+}
+
 /** Caixa quer receber a conta da mesa: trava e manda a conta. */
 function puxar(corpo, caixa) {
   const db = getDb();
   const grupoId = grupoAtual();
-  const usuarioId = usuarioDoDoc(db, grupoId, corpo?.usuarioDoc);
-  if (!usuarioId) return { ok: false, error: 'O usuário deste caixa ainda não chegou no servidor. Espere a sincronização de usuários e tente de novo.' };
+  const { usuarioId, erro } = usuarioDoPedido(db, grupoId, corpo);
+  if (!usuarioId) return { ok: false, error: erro };
   const mesa = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(String(corpo?.mesaId || ''));
   if (!mesa) return { ok: false, error: 'Mesa não encontrada no servidor.' };
   return db.transaction(() => {
@@ -590,32 +672,80 @@ async function status() {
   if (!base.ativa) return { ...base, online: false };
   try {
     await pedir('/v1/mesas/versao', { desde: -1, esperarMs: 0 }, { timeoutMs: 4000 });
+    CONT().anotarSucesso();
     iniciarEscuta();
-    return { ...base, online: true };
+    return { ...base, online: true, contingencia: CONT().resumo() };
   } catch (err) {
-    return { ...base, online: false, erro: err.message };
+    if (err.rede) CONT().anotarFalha();
+    iniciarEscuta();
+    return { ...base, online: false, erro: err.message, contingencia: CONT().resumo() };
   }
 }
 
-function usuarioDoc(db, usuarioId) {
-  const doc = docDoUsuario(db, grupoAtual(), usuarioId);
-  if (!doc) throw Object.assign(new Error('Seu usuário ainda não foi sincronizado com o grupo. Espere um pouco e tente de novo.'), { usuario: true });
-  return doc;
+/**
+ * Quem opera, para mandar ao servidor: o usuário do grupo (id do grupo). O
+ * suporte é de cada máquina (não entra no grupo): vai como "suporte" e o
+ * servidor usa o suporte dele. Outro usuário fora do grupo: `erro`.
+ */
+function quemOpera(db, grupoId, usuarioId) {
+  const doc = docDoUsuario(db, grupoId, usuarioId);
+  if (doc) return { doc };
+  const u = db.prepare('SELECT nome, role, pin_hash, pin_temporario FROM users WHERE id = ?').get(usuarioId);
+  if (u?.role === 'suporte') return { usuarioLocal: { papel: 'suporte', nome: u.nome } };
+  const fabrica = !!u && u.pin_temporario === 1 && (() => { try { return require('bcryptjs').compareSync('0000', u.pin_hash); } catch { return false; } })();
+  return {
+    erro: fabrica
+      ? `${u.nome} ainda está com o PIN 0000 de fábrica e por isso não entra no grupo. Troque o PIN ou entre com um usuário do grupo.`
+      : `${u?.nome || 'Este usuário'} ainda não é do grupo, então não mexe nas mesas do servidor. Entre com um usuário do grupo (ou espere a sincronização de usuários).`,
+  };
 }
 
 // Campos com o operador: sempre quem está logado aqui (vai como usuarioDoc).
 const CAMPOS_DE_OPERADOR = ['operadorId', 'currentOperatorId'];
 
 /** Pedido da tela deste caixa para as mesas do servidor. */
+const CONT = () => require('./mesaContingenciaService');
+
+/**
+ * Pedido das telas deste caixa. Servidor fora do ar (ou fila da contingência
+ * ainda sendo enviada): segue pela cópia das mesas e guarda na fila
+ * (mesaContingenciaService) -- a venda não para.
+ */
 async function chamar(canal, args, usuarioId) {
+  if (!ativa()) return chamarNoServidor(canal, args, usuarioId);
+  const cont = CONT();
+  if (cont.temFila()) {
+    // Tenta mandar a fila primeiro (rápido); se não esvaziar, segue na contingência.
+    if (cont.podeTentar()) await Promise.race([cont.drenar().catch(() => {}), new Promise((ok) => { const t = setTimeout(ok, 3000); t.unref?.(); })]);
+    if (cont.temFila()) return cont.executar(canal, args, usuarioId);
+  }
+  if (!cont.podeTentar() && cont.suporta(canal)) {
+    // O servidor acabou de falhar: não faz a tela esperar de novo.
+    return cont.executar(canal, args, usuarioId);
+  }
+  const r = await chamarNoServidor(canal, args, usuarioId);
+  if (r && r.ok === false && r.rede) {
+    cont.anotarFalha();
+    if (cont.suporta(canal)) return cont.executar(canal, args, usuarioId);
+    return r;
+  }
+  cont.anotarSucesso();
+  if (!(r && r.ok === false)) cont.anotarResposta(canal, args, r);
+  return r;
+}
+
+async function chamarNoServidor(canal, args, usuarioId, { opId = null } = {}) {
   const c = CANAIS[canal];
   if (!c) return { ok: false, error: 'Pedido de mesa desconhecido.' };
   if (!ativa()) return { ok: false, error: 'Este caixa não está usando as mesas do servidor.' };
   const db = getDb();
   const grupoId = grupoAtual();
   if (c.gestao && !require('./authService').requireRole(usuarioId, PAPEIS_GESTAO).ok) return { ok: false, error: 'Você não tem permissão para fazer isso.' };
-  let doc;
-  try { doc = usuarioDoc(db, usuarioId); } catch (err) { return { ok: false, error: err.message }; }
+  // Só olhar (listar, ver a conta) não depende de usuário.
+  const quem = quemOpera(db, grupoId, usuarioId);
+  if (quem.erro && (!c.ler || c.gestao)) return { ok: false, error: quem.erro };
+  const doc = quem.doc || null;
+  const usuarioLocal = quem.usuarioLocal || null;
 
   const a = args && typeof args === 'object' && !Array.isArray(args) ? { ...args } : {};
   for (const k of [...CAMPOS_DE_OPERADOR, 'locationId']) delete a[k];
@@ -629,7 +759,7 @@ async function chamar(canal, args, usuarioId) {
 
   let r;
   try {
-    r = await pedir('/v1/mesas/chamar', { canal, args: a, usuarioDoc: doc }, { timeoutMs: canal === 'table:montarLinkPedido' ? 20000 : 10000 });
+    r = await pedir('/v1/mesas/chamar', { canal, args: a, usuarioDoc: doc, usuarioLocal, ...(opId ? { opId } : {}) }, { timeoutMs: canal === 'table:montarLinkPedido' ? 20000 : 10000 });
   } catch (err) {
     return { ok: false, error: err.message, rede: !!err.rede };
   }
@@ -662,9 +792,17 @@ function importarConta(db, conta, hubId) {
   const locationId = db.prepare('SELECT id FROM locations LIMIT 1').get()?.id;
   if (!locationId) throw new Error('Nenhum local cadastrado neste computador.');
   const operadorId = usuarioDoDoc(db, grupoId, conta.venda.operadorDoc) || conta.usuarioIdAqui;
-  const ancora = conta.itens.some((i) => i.ehPersonalizado) ? require('./customItemService').garantirProdutoPersonalizado() : null;
+  let ancora = conta.itens.some((i) => i.ehPersonalizado) ? require('./customItemService').garantirProdutoPersonalizado() : null;
   const itens = conta.itens.map((i) => {
-    const productId = i.ehPersonalizado ? ancora : localDe(db, grupoId, 'produtos', i.produtoDoc);
+    let productId = i.productIdLocal || (i.ehPersonalizado ? ancora : localDe(db, grupoId, 'produtos', i.produtoDoc));
+    if (!productId && conta.offline) {
+      // Sem o servidor: acha pelo nome; senão entra como item avulso com o nome e o preço da conta.
+      productId = db.prepare('SELECT id FROM products WHERE nome = ? AND ativo = 1 LIMIT 1').get(i.produtoNome)?.id || null;
+      if (!productId) {
+        ancora = ancora || require('./customItemService').garantirProdutoPersonalizado();
+        return { ...i, productId: ancora, ehPersonalizado: true, nomePersonalizado: i.produtoNome };
+      }
+    }
     if (!productId) throw new Error(`O produto "${i.produtoNome}" ainda não chegou neste caixa. Espere a sincronização de produtos e tente de novo.`);
     return { ...i, productId };
   });
@@ -693,7 +831,7 @@ function importarConta(db, conta, hubId) {
       );
     }
     const inserirPessoa = db.prepare('INSERT INTO sale_people (id, sale_id, numero, nome, customer_id) VALUES (?, ?, ?, ?, ?)');
-    for (const p of conta.pessoas || []) inserirPessoa.run(randomUUID(), saleId, p.numero, p.nome, localDe(db, grupoId, 'clientes', p.clienteDoc));
+    for (const p of conta.pessoas || []) inserirPessoa.run(randomUUID(), saleId, p.numero, p.nome, p.clienteIdLocal || localDe(db, grupoId, 'clientes', p.clienteDoc));
     const inserirMesa = db.prepare('INSERT INTO sale_mesas (id, sale_id, table_id, numero, nome, principal) VALUES (?, ?, ?, ?, ?, ?)');
     inserirMesa.run(randomUUID(), saleId, conta.mesa.id, conta.mesa.numero, conta.mesa.nome, 1);
     for (const u of conta.unidas || []) inserirMesa.run(randomUUID(), saleId, u.id, u.numero, u.nome, 0);
@@ -720,12 +858,20 @@ function rotuloDaConta(conta) {
 async function puxarParaPagar({ tableId, usuarioId }) {
   if (!ativa()) return { ok: false, error: 'Este caixa não está usando as mesas do servidor.' };
   const db = getDb();
-  let doc;
-  try { doc = usuarioDoc(db, usuarioId); } catch (err) { return { ok: false, error: err.message }; }
+  const cont = CONT();
+  // Servidor fora (ou fila da contingência pendente): recebe pela cópia.
+  if (cont.temFila() || !cont.podeTentar() || require('./mesaContingenciaService').ehProvisorio(tableIdDaVenda(tableId))) {
+    if (cont.temFila() && cont.podeTentar()) await cont.drenar().catch(() => {});
+    if (cont.temFila() || !cont.podeTentar()) return cont.puxarOffline({ tableId, usuarioId });
+  }
+  const quem = quemOpera(db, grupoAtual(), usuarioId);
+  if (quem.erro) return { ok: false, error: quem.erro };
   let conta;
   try {
-    conta = await pedir('/v1/mesas/puxar', { mesaId: tableId, usuarioDoc: doc }, { timeoutMs: 10000 });
+    conta = await pedir('/v1/mesas/puxar', { mesaId: tableId, usuarioDoc: quem.doc || null, usuarioLocal: quem.usuarioLocal || null }, { timeoutMs: 10000 });
+    cont.anotarSucesso();
   } catch (err) {
+    if (err.rede) { cont.anotarFalha(); return cont.puxarOffline({ tableId, usuarioId }); }
     return { ok: false, error: err.message };
   }
   if (!conta?.ok) return conta || { ok: false, error: 'O servidor não mandou a conta.' };
@@ -743,6 +889,14 @@ async function puxarParaPagar({ tableId, usuarioId }) {
     pedir('/v1/mesas/devolver', { vendaServidorId: conta.vendaServidorId }).catch(() => {});
     return { ok: false, error: err.message };
   }
+}
+
+/** Venda da mesa na cópia (para saber se a comanda é provisória). */
+function tableIdDaVenda(tableId) {
+  try {
+    const l = CONT()._lerEspelho('lista') || [];
+    return l.find((m) => m.id === tableId)?.sale_id || null;
+  } catch { return null; }
 }
 
 /** Desistiu de receber aqui: apaga a cópia (se não tem pagamento) e destrava no servidor. */
@@ -764,7 +918,8 @@ async function devolverMesa({ saleId }) {
   }
   try {
     db.transaction(() => {
-      db.prepare(`UPDATE mesa_remota_fechamentos SET estado = 'devolver', atualizado_em = datetime('now') WHERE sale_id = ?`).run(saleId);
+      // Puxada sem o servidor: ele nem ficou sabendo, não há o que destravar lá.
+      db.prepare(`UPDATE mesa_remota_fechamentos SET estado = ?, atualizado_em = datetime('now') WHERE sale_id = ?`).run(f.offline ? 'feito' : 'devolver', saleId);
       if (venda) {
         for (const t of ['sale_mesas', 'sale_people', 'sale_person_payments', 'stock_movements', 'sale_items']) db.prepare(`DELETE FROM ${t} WHERE sale_id = ?`).run(saleId);
         db.prepare('DELETE FROM sales WHERE id = ?').run(saleId);
@@ -774,6 +929,7 @@ async function devolverMesa({ saleId }) {
     console.error('[mesaCompartilhada] não deu para apagar a cópia da conta:', err?.message || err);
     return { ok: false, error: 'Não deu para devolver a mesa agora. Termine de receber aqui.' };
   }
+  if (f.offline) { CONT().devolverOffline(f); return { ok: true }; }
   await processarFila();
   return { ok: true };
 }
@@ -782,10 +938,12 @@ async function devolverMesa({ saleId }) {
 function aoFinalizarVenda(saleId) {
   try {
     const db = getDb();
-    const f = db.prepare(`SELECT estado FROM mesa_remota_fechamentos WHERE sale_id = ?`).get(saleId);
+    const f = db.prepare(`SELECT estado, offline FROM mesa_remota_fechamentos WHERE sale_id = ?`).get(saleId);
     if (!f || f.estado !== 'pagando') return;
     const venda = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
     if (venda?.status !== 'finalizada') return;
+    // Recebida sem o servidor (ou com fila pendente): a conclusão vai pela fila, na ordem.
+    if (f.offline || CONT().temFila()) { CONT().enfileirarConclusao(saleId); CONT().drenar().catch(() => {}); return; }
     db.prepare(`UPDATE mesa_remota_fechamentos SET estado = 'concluir', atualizado_em = datetime('now') WHERE sale_id = ?`).run(saleId);
     processarFila().catch(() => {});
   } catch (err) { console.error('[mesaCompartilhada] após finalizar:', err?.message || err); }
@@ -799,11 +957,12 @@ function processarFila() {
   processando = (async () => {
     const db = getDb();
     // Venda paga (ou cancelada) aqui sem a fila saber -- ex.: ficou esperando o estoque do grupo.
-    for (const f of db.prepare(`SELECT f.sale_id, s.status FROM mesa_remota_fechamentos f LEFT JOIN sales s ON s.id = f.sale_id WHERE f.estado = 'pagando'`).all()) {
+    for (const f of db.prepare(`SELECT f.sale_id, f.offline, s.status FROM mesa_remota_fechamentos f LEFT JOIN sales s ON s.id = f.sale_id WHERE f.estado = 'pagando'`).all()) {
+      if (f.offline) { if (f.status === 'finalizada') CONT().enfileirarConclusao(f.sale_id); continue; } // vai pela fila da contingência
       if (f.status === 'finalizada') db.prepare(`UPDATE mesa_remota_fechamentos SET estado = 'concluir' WHERE sale_id = ?`).run(f.sale_id);
       else if (f.status === 'cancelada' || f.status == null) db.prepare(`UPDATE mesa_remota_fechamentos SET estado = 'devolver' WHERE sale_id = ?`).run(f.sale_id);
     }
-    const fila = db.prepare(`SELECT * FROM mesa_remota_fechamentos WHERE estado IN ('concluir', 'devolver') ORDER BY criado_em`).all();
+    const fila = db.prepare(`SELECT * FROM mesa_remota_fechamentos WHERE estado IN ('concluir', 'devolver') AND offline = 0 ORDER BY criado_em`).all();
     if (!fila.length) return { ok: true, pendentes: 0 };
     const cfg = cliente().config();
     let pendentes = 0;
@@ -830,7 +989,7 @@ function processarFila() {
 }
 
 function pendenciasDaFila() {
-  return getDb().prepare(`SELECT sale_id, mesa_rotulo, estado, tentativas, erro FROM mesa_remota_fechamentos WHERE estado IN ('concluir', 'devolver')`).all();
+  return getDb().prepare(`SELECT sale_id, mesa_rotulo, estado, tentativas, erro FROM mesa_remota_fechamentos WHERE estado IN ('concluir', 'devolver') AND offline = 0`).all();
 }
 
 // ------------------------------------------------------------------ escuta (caixa)
@@ -848,16 +1007,29 @@ function iniciarEscuta() {
   escutando = true;
   (async () => {
     let desde = -1;
+    let avisosDesde = -1;
     let semConexao = false;
     while (ativa()) {
       try {
-        const r = await pedir('/v1/mesas/versao', { desde, esperarMs: desde < 0 ? 0 : ESPERA_MAX_MUDANCA_MS }, { timeoutMs: ESPERA_MAX_MUDANCA_MS + 10000 });
+        const r = await pedir('/v1/mesas/versao', { desde, avisosDesde, esperarMs: desde < 0 ? 0 : ESPERA_MAX_MUDANCA_MS }, { timeoutMs: ESPERA_MAX_MUDANCA_MS + 10000 });
+        CONT().anotarSucesso();
+        // Voltou a conexão: primeiro a fila da contingência (na ordem), depois a cópia.
+        if (CONT().temFila()) await CONT().drenar().catch(() => {});
+        if (semConexao || desde < 0 || r.versao !== desde) CONT().atualizarEspelho().catch(() => {});
         // Voltou a conexão, ou mudou alguma mesa: as telas recarregam.
         if (semConexao || (desde >= 0 && r.versao !== desde)) avisarTelas({ origem: 'servidor' });
+        // Pedido novo / chamado da mesa no servidor: aparece aqui também.
+        if (Array.isArray(r.avisos)) {
+          for (const a of r.avisos) {
+            if (['mesa:chamado', 'vitrine:pedidoNovo'].includes(a?.evento)) require('./avisosDoServidor').enviarAsJanelas(a.evento, a.dados);
+          }
+        }
+        if (Number.isFinite(r.avisosSeq)) avisosDesde = r.avisosSeq < avisosDesde ? -1 : r.avisosSeq; // servidor reiniciou: recomeça
         semConexao = false;
         desde = r.versao;
       } catch (err) {
         if (err.status === 404) break; // servidor antigo
+        if (err.rede) CONT().anotarFalha();
         if (!semConexao) avisarTelas({ origem: 'servidor', semConexao: true });
         semConexao = true;
         desde = -1;
@@ -878,7 +1050,9 @@ module.exports = {
   CANAIS, atenderChamada, puxar, concluir, devolver, destravar, versaoAtual, esperarMudanca,
   recusaPorTrava, travaDoComandoCelular,
   // caixa
-  ativa, podeUsar, status, situacao, definirModo, chamar, puxarParaPagar, devolverMesa, aoFinalizarVenda, processarFila,
+  ativa, podeUsar, status, situacao, definirModo, chamar, chamarNoServidor, puxarParaPagar, devolverMesa, aoFinalizarVenda, processarFila,
+  importarConta, meuIdDaqui: () => meuId(), anotarTravasDaqui: (l) => anotarTravas(getDb(), l), avisarTelasDaqui: (e) => avisarTelas(e),
+  pedirAoServidor: (...a) => pedir(...a),
   pendenciasDaFila, iniciarEscuta, pararEscuta,
   // testes
   _ultimoContato: () => ultimoContato,

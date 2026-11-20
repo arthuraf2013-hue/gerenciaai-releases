@@ -321,25 +321,38 @@ async function diagnostico() {
   };
 }
 
+// Horário de Brasília (o banco guarda em UTC 'AAAA-MM-DD HH:MM:SS').
+function horaLocal(valor) {
+  if (!valor) return '?';
+  const s = String(valor);
+  const data = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s.replace(' ', 'T')}Z`);
+  if (Number.isNaN(data.getTime())) return s;
+  return data.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 /** Texto do diagnóstico para copiar/salvar e mandar ao suporte. */
 function relatorioEmTexto(d) {
   const l = [];
-  l.push(`Diagnóstico GerenciaAI - ${d.geradoEm}`);
-  l.push(`Computador: ${d.computador.nome || '?'} | ${d.computador.pdv || 'sem número de PDV'} | versão ${d.computador.versao || '?'}`);
-  l.push(`Instalação: ${d.computador.instalacao || '?'}`);
+  l.push(`Diagnóstico GerenciaAI - ${horaLocal(d.geradoEm)}`);
+  l.push(`Computador: ${d.computador.nome || 'sem nome'} | ${d.computador.pdv || 'sem número de PDV'} | versão ${d.computador.versao || 'desconhecida'}`);
+  l.push(`Instalação: ${d.computador.instalacao || 'sem identificação'}`);
   l.push(`Grupo: ${d.grupo.id || '-'} (${d.grupo.papel}) | modo: ${d.grupo.modo || '-'}`);
   const r = d.grupo.redeLocal;
   if (r && 'ligada' in r) {
     l.push(`Rede local (servidor): ${r.ligada ? 'ligada' : 'DESLIGADA'} em ${r.enderecos.join(', ') || '-'}`);
-    l.push(`Caixas ligados: ${r.caixas.length ? r.caixas.map((c) => `${c.nome} (último contato ${c.ultimoContato || '?'})`).join('; ') : 'nenhum'}`);
+    l.push(`Caixas ligados: ${r.caixas.length ? r.caixas.map((c) => `${c.nome} (último contato ${horaLocal(c.ultimoContato)})`).join('; ') : 'nenhum'}`);
   } else if (r) {
-    l.push(`Rede local (caixa): servidor ${r.servidor || '?'} em ${r.enderecos.join(', ') || '-'}`);
-    if (r.teste) l.push(r.teste.ok ? `Servidor respondeu em ${r.teste.ms} ms (versão ${r.teste.versao || 'antiga'})` : `Servidor NÃO respondeu (${r.teste.erro})`);
+    l.push(`Rede local (caixa): servidor ${r.servidor || 'sem nome'} em ${r.enderecos.join(', ') || '-'}`);
+    if (r.teste) l.push(r.teste.ok ? `Servidor respondeu em ${r.teste.ms} ms (versão ${r.teste.versao || 'anterior à 1.0.38'})` : `Servidor NÃO respondeu (${r.teste.erro})`);
   }
-  if (d.grupo.mesas) l.push(`Mesas: ${d.grupo.mesas}`);
+  const MESAS = {
+    sem_grupo: 'só deste computador (fora de grupo)', servidor: 'este computador é o servidor das mesas',
+    sem_rede_local: 'só deste caixa (não ligado ao servidor pela rede local)', local: 'só deste caixa (escolhido "usar só as mesas deste caixa")',
+  };
+  if (d.grupo.mesas) l.push(`Mesas: ${MESAS[d.grupo.mesas] || d.grupo.mesas}`);
   if (d.grupo.ultimoErro) l.push(`Último erro da rede: ${d.grupo.ultimoErro}`);
   l.push(`Filas: ${d.filas.length ? d.filas.map((p) => `${p.n} ${p.texto}`).join('; ') : 'nada pendente'}`);
-  if (d.fotos) l.push(`Fotos: enviar ${d.fotos.enviar?.faltam ?? '?'} | baixar ${d.fotos.baixar?.faltam ?? '?'}`);
+  if (d.fotos) l.push(`Fotos: ${d.fotos.enviar?.pendentes ?? 0} para enviar | ${d.fotos.baixar?.pendentes ?? 0} para baixar`);
   const c = d.contagens;
   l.push(`Cadastros aqui: ${c.produtos} produtos ativos, ${c.clientes} clientes, ${c.usuarios} usuários ativos, ${c.mesas} mesas, ${c.vendasFinalizadas} vendas finalizadas`);
   return l.join('\n');

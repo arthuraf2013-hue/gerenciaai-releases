@@ -41,6 +41,25 @@ export function RedeLocalConfig({ podeMexer }) {
     return r;
   }
 
+  // Caixa: procura o servidor na rede (nuvem, UDP e cada endereço da rede);
+  // ligado, reconecta e sincroniza tudo.
+  async function procurar() {
+    setOcupado('procurar'); setMensagem(null);
+    const r = await window.pdv.redeLocal.procurarESincronizar().catch((e) => ({ ok: false, error: e?.message }));
+    setOcupado('');
+    if (r?.ligado === false && r?.achados?.length) {
+      const a = r.achados[0];
+      setEndereco(a.endereco);
+      setMensagem({ tipo: 'ok', texto: `Achei o servidor ${a.nome || ''} em ${a.endereco}. Digite o código que aparece nele para ligar.` });
+    } else if (r?.ok) {
+      setMensagem({ tipo: 'ok', texto: `Conectado ao ${r.servidor || 'servidor'} (${(r.enderecos || [])[0] || ''}) e sincronizado: ${(r.passos || []).map((p) => p.passo.split(' (')[0]).join(', ')}.` });
+    } else {
+      const falhas = (r?.passos || []).filter((p) => !p.ok).map((p) => `${p.passo}${p.detalhe ? ` (${p.detalhe})` : ''}`);
+      setMensagem({ tipo: 'erro', texto: r?.error || (falhas.length ? `Conectado, mas falhou: ${falhas.join('; ')}.` : 'Não deu certo.') });
+    }
+    await carregar();
+  }
+
   if (!st || !st.grupo) return null;
 
   if (st.servidor) {
@@ -152,6 +171,11 @@ export function RedeLocalConfig({ podeMexer }) {
           </button>
         </form>
       )}
+      <button type="button" className="btn-secondary rede-local-procurar" disabled={!!ocupado} onClick={procurar}>
+        <Icon name="refresh" size={15} /> {ocupado === 'procurar'
+          ? 'Procurando em toda a rede…'
+          : cli ? 'Procurar o servidor e sincronizar agora' : 'Procurar o servidor na rede'}
+      </button>
       {cli && podeMexer && (
         <button type="button" className="btn-secondary" disabled={!!ocupado}
           onClick={() => window.confirm('Desligar este caixa da rede local? Ele volta a sincronizar só pela internet.')

@@ -85,10 +85,13 @@ function colunasDa(largura) {
 }
 
 /**
- * Comanda da cozinha em ESC/POS. `comanda` vem de cozinhaService.montarComanda:
- * { titulo, subtitulo, hora, itens: [{ quantidade, nome, pessoa, observacao }], rodape }.
+ * Comanda da cozinha em ESC/POS. `comanda` vem de cozinhaService:
+ * { mesa, titulo, subtitulo, hora, operador, itens: [{ quantidade, unidade, nome, precoUnitario, pessoa, observacao }],
+ *   rodape, layout } -- `layout` é a configuração do estúdio (impressaoLayout.PADRAO.cozinha).
  */
 function montarComandaEscPos(comanda, { largura = 80, codepage = 'cp860', cortar = true } = {}) {
+  const layout = require('./impressaoLayout');
+  const c = layout.normalizarConfig('cozinha', comanda.layout || {});
   const cp = TABELAS[codepage] ? codepage : null;
   const col = colunasDa(largura);
   const metade = Math.floor(col / 2);
@@ -98,38 +101,71 @@ function montarComandaEscPos(comanda, { largura = 80, codepage = 'cp860', cortar
   const alinhar = (n) => b.push(ESC, 0x61, n);
   const negrito = (on) => b.push(ESC, 0x45, on ? 1 : 0);
   const tamanho = (n) => b.push(GS, 0x21, n); // 0x00 normal, 0x11 dobro, 0x01 altura dobrada
+  const traco = () => { txt((c.separador === 'continuo' ? '_' : '-').repeat(col)); nl(); };
+  const dinheiro = (v) => `R$ ${(Number(v) || 0).toFixed(2).replace('.', ',')}`;
+  // Texto à esquerda e valor à direita na mesma linha (quebra o texto se precisar).
+  const comValor = (texto, valor, larguraTexto = col) => {
+    const v = valor ? ` ${valor}` : '';
+    const linhas = quebrarLinhas(texto, Math.max(8, larguraTexto - v.length));
+    linhas.forEach((l, k) => {
+      if (k === linhas.length - 1 && v) txt(l + ' '.repeat(Math.max(1, larguraTexto - l.length - v.length)) + v.trimStart().padStart(v.length));
+      else txt(l);
+      nl();
+    });
+  };
 
   b.push(ESC, 0x40);
   if (cp) b.push(ESC, 0x74, TABELAS[cp].escT);
 
   alinhar(1);
   negrito(true);
-  tamanho(0x11);
-  for (const l of quebrarLinhas(comanda.titulo || 'COMANDA', metade)) { txt(l); nl(); }
+  if (c.titulo) { for (const l of quebrarLinhas(c.titulo, col)) { txt(l); nl(); } }
+  const temMesa = c.mostrarMesa && comanda.mesa;
+  const destaque = temMesa ? comanda.mesa : (comanda.titulo || 'COMANDA');
+  const tam = temMesa ? ({ normal: 0x01, grande: 0x11, enorme: 0x22 }[c.mesaTamanho] || 0x11) : 0x11;
+  const porLinha = tam === 0x22 ? Math.floor(col / 3) : tam === 0x11 ? metade : col;
+  if (temMesa && !c.mesaNegrito) negrito(false);
+  tamanho(tam);
+  for (const l of quebrarLinhas(destaque, porLinha)) { txt(l); nl(); }
   tamanho(0x00);
-  if (comanda.subtitulo) { for (const l of quebrarLinhas(comanda.subtitulo, col)) { txt(l); nl(); } }
+  negrito(true);
+  if (temMesa && comanda.titulo && comanda.titulo !== comanda.mesa) { tamanho(0x01); txt(comanda.titulo); nl(); tamanho(0x00); }
+  if (c.mostrarCliente && comanda.subtitulo) { for (const l of quebrarLinhas(comanda.subtitulo, col)) { txt(l); nl(); } }
   negrito(false);
-  if (comanda.hora) { txt(comanda.hora); nl(); }
+  const info = [c.mostrarDataHora && comanda.hora ? comanda.hora : '', c.mostrarOperador && comanda.operador ? `Atendente: ${comanda.operador}` : ''].filter(Boolean).join(' - ');
+  if (info) { for (const l of quebrarLinhas(info, col)) { txt(l); nl(); } }
   alinhar(0);
-  txt('-'.repeat(col)); nl();
+  traco();
 
+  // Letra dos itens: grande = altura dupla; normal/pequena = normal.
+  const alturaItem = c.tamanho === 'grande' ? 0x01 : 0x00;
   for (const item of comanda.itens || []) {
     negrito(true);
-    tamanho(0x01);
-    const qtd = `${formatarQtd(item.quantidade)} `;
-    const linhas = quebrarLinhas(String(item.nome || ''), col - qtd.length);
-    linhas.forEach((l, i) => { txt(i === 0 ? qtd + l : ' '.repeat(qtd.length) + l); nl(); });
+    tamanho(alturaItem);
+    const qtd = `${layout.qtdDaComanda(item.quantidade, item.unidade)} `;
+    const valorNum = c.mostrarValores && item.precoUnitario !== null && item.precoUnitario !== undefined && Number.isFinite(Number(item.precoUnitario))
+      ? Math.round(Number(item.precoUnitario) * (Number(item.quantidade) || 0) * 100) / 100 : null;
+    comValor(qtd + String(item.nome || ''), valorNum !== null ? dinheiro(valorNum) : '');
     tamanho(0x00);
     negrito(false);
-    if (item.pessoa) { for (const l of quebrarLinhas(`   para: ${item.pessoa}`, col)) { txt(l); nl(); } }
-    if (item.observacao) {
+    const detalhe = c.mostrarValores ? layout.detalheDoValor(item) : '';
+    if (detalhe) { for (const l of quebrarLinhas(`   ${detalhe}`, col)) { txt(l); nl(); } }
+    if (c.mostrarPessoa && item.pessoa) { for (const l of quebrarLinhas(`   para: ${item.pessoa}`, col)) { txt(l); nl(); } }
+    if (c.mostrarObservacoes && item.observacao) {
       negrito(true);
       for (const l of quebrarLinhas(`   >> ${item.observacao}`, col)) { txt(l); nl(); }
       negrito(false);
     }
-    txt('-'.repeat(col)); nl();
+    traco();
   }
-  if (comanda.rodape) { alinhar(1); for (const l of quebrarLinhas(comanda.rodape, col)) { txt(l); nl(); } alinhar(0); }
+  if (c.mostrarValores && c.mostrarTotal && (comanda.itens || []).some((i) => i.precoUnitario !== null && i.precoUnitario !== undefined)) {
+    negrito(true);
+    alinhar(2);
+    txt(`Total desta comanda: ${dinheiro(layout.totalDaComanda(comanda.itens))}`); nl();
+    alinhar(0);
+    negrito(false);
+  }
+  for (const r of [comanda.rodape, c.rodape].filter(Boolean)) { alinhar(1); for (const l of quebrarLinhas(r, col)) { txt(l); nl(); } alinhar(0); }
   if (cortar) {
     b.push(GS, 0x56, 66, 3); // avança 3 linhas e corta (parcial)
   } else {

@@ -29,7 +29,7 @@ async function trocarAsync(obj, nome, valor, fn) {
   obj[nome] = valor;
   try { return await fn(); } finally { obj[nome] = original; }
 }
-const comSaldoDoGrupo = (saldo, fn) => trocar(stockSyncService, 'saldoDoGrupoNoServidor', () => saldo, fn);
+const comSaldoDoGrupo = (saldo, fn) => trocar(stockSyncService, 'detalheDoGrupoNoServidor', () => (saldo === null ? null : { contador: saldo, reservado: 0, saldo }), fn);
 
 // ---------------------------------------------------------------- no servidor
 
@@ -55,7 +55,7 @@ test('sem contador no grupo (ou fora de grupo): vale o estoque local, como sempr
   comSaldoDoGrupo(null, () => {
     const r = saleService.addItem({ saleId, productId: produto, locationId, quantidade: 1, operadorId, deviceId: DEV });
     assert.equal(r.ok, false);
-    assert.match(r.error, /^Estoque insuficiente\. Disponível: 0 /);
+    assert.match(r.error, /^Estoque insuficiente neste computador\. Disponível: 0 /);
   });
 });
 

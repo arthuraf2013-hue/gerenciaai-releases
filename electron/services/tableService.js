@@ -28,7 +28,15 @@ function membrosDe(db, principalId) {
 }
 
 /** Libera a principal e todas as unidas a ela de uma vez. */
+const mesaLocal = () => require('./mesaLocalService');
+
 function liberarGrupo(db, principalId, status) {
+  const doGrupo = db.prepare('SELECT id FROM restaurant_tables WHERE id = ? OR unida_a_mesa_id = ?').all(principalId, principalId).map((m) => m.id);
+  mesaLocal().esquecerMembros(db, doGrupo); // o próximo grupo começa sem integrantes
+  try { // mesa fechou: os chamados dela acabaram
+    const upd = db.prepare("UPDATE mesa_chamados SET atendido_em = datetime('now') WHERE table_id = ? AND atendido_em IS NULL");
+    for (const id of doGrupo) upd.run(id);
+  } catch { /* banco sem a tabela */ }
   db.prepare(
     `UPDATE restaurant_tables SET status = ?, sale_id = NULL, pessoas = NULL, unida_a_mesa_id = NULL
      WHERE id = ? OR unida_a_mesa_id = ?`
@@ -224,7 +232,13 @@ function listTables(locationId) {
     if (!unidas.has(m.unida_a_mesa_id)) unidas.set(m.unida_a_mesa_id, []);
     unidas.get(m.unida_a_mesa_id).push(m.numero);
   }
-  return mesas.map((m) => ({ ...m, mesas_unidas: unidas.has(m.id) ? unidas.get(m.id).join(' + ') : null }));
+  // Indicadores do QR no quadrado: chamados, pedidos esperando, celulares na mesa.
+  let indicadores = new Map();
+  try { indicadores = mesaLocal().indicadoresDasMesas(db, mesas); } catch (err) { console.error('[mesas] indicadores', err?.message || err); }
+  return mesas.map((m) => ({
+    ...m, mesas_unidas: unidas.has(m.id) ? unidas.get(m.id).join(' + ') : null,
+    indicadores: (!m.unida_a_mesa_id && indicadores.get(m.id)) || null,
+  }));
 }
 
 function createTable({ locationId, numero, nome }) {
@@ -354,12 +368,16 @@ function openTable({ tableId, locationId, operadorId, pessoas }) {
     return { ok: true, saleId: table.sale_id };
   }
   if (table.status === 'aguardando_limpeza') {
+    const foi = destinoDaTransferencia(db, table);
+    if (foi) return { ok: false, error: `A comanda de ${rotuloMesa(table)} foi transferida para ${rotuloMesa(foi)}.`, transferidaPara: foi.id };
     return { ok: false, error: 'Essa mesa ainda está aguardando limpeza — marque como limpa antes de abrir de novo.' };
   }
 
   const { id: saleId } = saleService.openSale({ locationId, operadorId });
-  db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = ?, reservado_para = NULL WHERE id = ?`)
+  db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = ?, reservado_para = NULL, transferida_para_id = NULL WHERE id = ?`)
     .run(saleId, pessoas ? Number(pessoas) : null, tableId);
+  // Quem já tinha entrado na mesa pelo QR (celular) vira pessoa da comanda.
+  mesaLocal().incluirMembrosPendentes(db, tableId, saleId);
   return { ok: true, saleId };
 }
 
@@ -420,7 +438,8 @@ function markCleaned(tableId) {
   const table = db.prepare('SELECT status FROM restaurant_tables WHERE id = ?').get(tableId);
   if (!table) return { ok: false, error: 'Mesa não encontrada.' };
   if (table.status !== 'aguardando_limpeza') return { ok: false, error: 'Essa mesa não está aguardando limpeza.' };
-  db.prepare(`UPDATE restaurant_tables SET status = 'livre', sale_id = NULL, pessoas = NULL, unida_a_mesa_id = NULL WHERE id = ?`).run(tableId);
+  db.prepare(`UPDATE restaurant_tables SET status = 'livre', sale_id = NULL, pessoas = NULL, unida_a_mesa_id = NULL, transferida_para_id = NULL WHERE id = ?`).run(tableId);
+  mesaLocal().esquecerMembros(db, [tableId]);
   return { ok: true };
 }
 
@@ -450,27 +469,78 @@ function cancelReservation(tableId) {
  * pra "aguardando limpeza" (alguém sentou lá, precisa limpar antes do
  * próximo grupo), a de destino assume a comanda como se tivesse sido
  * aberta ali desde o início (mesmos itens, mesmo total, mesma hora de
- * abertura). */
-function transferTable({ fromTableId, toTableId }) {
+ * abertura, mesmas pessoas e contas por pessoa).
+ *
+ * Junto com a comanda vão:
+ *   - os pedidos do QR/WhatsApp ainda não lançados (mesa_numero);
+ *   - o "endereço" da mesa antiga (transferida_para_id): um pedido que
+ *     ainda chegue para ela (cliente com a página do QR aberta) entra na
+ *     mesa nova, e o celular do garçom recebe "foi para a Mesa X".
+ * Mesa sendo paga em outro caixa não muda de lugar. */
+function transferTable({ fromTableId, toTableId, operadorId = null }) {
   const db = getDb();
+  if (!fromTableId || !toTableId) return { ok: false, error: 'Escolha a mesa de destino.' };
+  if (fromTableId === toTableId) return { ok: false, error: 'Escolha outra mesa para transferir.' };
+  repararMesasComVendaFechada(db);
+  repararMesasUnidas(db);
   const from = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(fromTableId);
   const to = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(toTableId);
   if (!from || !to) return { ok: false, error: 'Mesa não encontrada.' };
-  if (from.status !== 'ocupada' || !from.sale_id) return { ok: false, error: 'A mesa de origem não está ocupada.' };
-  if (to.status !== 'livre') return { ok: false, error: 'A mesa de destino precisa estar livre.' };
+  if (from.location_id !== to.location_id) return { ok: false, error: 'As duas mesas precisam ser do mesmo local.' };
   if (from.unida_a_mesa_id || membrosDe(db, from.id).length > 0) {
     return { ok: false, error: 'Separe as mesas unidas antes de transferir.' };
   }
+  if (from.status !== 'ocupada' || !from.sale_id) return { ok: false, error: `${rotuloMesa(from)} não está ocupada (atualize a tela de mesas).` };
+  const venda = db.prepare('SELECT status FROM sales WHERE id = ?').get(from.sale_id);
+  if (!venda || venda.status !== 'aberta') return { ok: false, error: `A comanda de ${rotuloMesa(from)} já foi fechada.` };
+  if (from.fechando_caixa_id) return { ok: false, error: `${rotuloMesa(from)} está sendo paga no ${from.fechando_caixa_nome || 'outro caixa'}. Espere terminar o pagamento lá.` };
+  if (to.status !== 'livre' || to.sale_id || to.unida_a_mesa_id) {
+    const motivo = to.status === 'ocupada' ? 'está ocupada' : to.status === 'reservada' ? 'está reservada' : to.status === 'aguardando_limpeza' ? 'está aguardando limpeza' : 'não está livre';
+    return { ok: false, error: `${rotuloMesa(to)} ${motivo}. A mesa de destino precisa estar livre.` };
+  }
 
+  let pedidosMovidos = 0;
   const tx = db.transaction(() => {
-    db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = ? WHERE id = ?`)
-      .run(from.sale_id, from.pessoas, toTableId);
-    db.prepare(`UPDATE restaurant_tables SET status = 'aguardando_limpeza', sale_id = NULL, pessoas = NULL WHERE id = ?`)
-      .run(fromTableId);
+    // Condição no WHERE: se outra tela mexeu numa das mesas no meio, nada muda.
+    const r1 = db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = ?, reservado_para = NULL, transferida_para_id = NULL
+                           WHERE id = ? AND status = 'livre' AND sale_id IS NULL`).run(from.sale_id, from.pessoas, toTableId);
+    const r2 = db.prepare(`UPDATE restaurant_tables SET status = 'aguardando_limpeza', sale_id = NULL, pessoas = NULL, transferida_para_id = ?
+                           WHERE id = ? AND status = 'ocupada' AND sale_id = ?`).run(toTableId, fromTableId, from.sale_id);
+    if (r1.changes !== 1 || r2.changes !== 1) throw new Error('MESA_MUDOU');
+    mesaLocal().moverMembros(db, fromTableId, toTableId); // os celulares vão junto
+    try { db.prepare('UPDATE mesa_chamados SET table_id = ? WHERE table_id = ? AND atendido_em IS NULL').run(toTableId, fromTableId); } catch { /* banco sem a tabela */ }
+    // Quem tinha transferido PARA a origem passa a apontar para o destino.
+    db.prepare('UPDATE restaurant_tables SET transferida_para_id = ? WHERE transferida_para_id = ?').run(toTableId, fromTableId);
+    try {
+      pedidosMovidos = db.prepare(`UPDATE bot_orders SET mesa_numero = ? WHERE location_id = ? AND mesa_numero = ? AND status IN ('novo','em_separacao','pronto')`)
+        .run(to.numero, from.location_id, from.numero).changes;
+    } catch { /* banco sem a tabela de pedidos */ }
   });
-  tx();
+  try { tx(); } catch (err) {
+    if (err.message === 'MESA_MUDOU') return { ok: false, error: 'Uma das mesas mudou agora há pouco em outra tela. Atualize e tente de novo.' };
+    throw err;
+  }
 
-  return { ok: true, saleId: from.sale_id };
+  try {
+    require('./authService').registrarEventoAuditoria({
+      tipoEvento: 'mesa_transferida', solicitanteId: operadorId, saleId: from.sale_id,
+      motivo: `${rotuloMesa(from)} -> ${rotuloMesa(to)}${pedidosMovidos ? ` (${pedidosMovidos} pedido(s) do QR/WhatsApp foram junto)` : ''}`,
+    });
+  } catch { /* auditoria é extra */ }
+  return { ok: true, saleId: from.sale_id, destino: { id: to.id, numero: to.numero, nome: to.nome }, pedidosMovidos };
+}
+
+/**
+ * Para onde foi a comanda de uma mesa transferida (a mesa nova, se ainda
+ * estiver com uma comanda aberta), ou null. Segue no máximo 5 saltos.
+ */
+function destinoDaTransferencia(db, mesa) {
+  let atual = mesa;
+  for (let i = 0; i < 5 && atual && atual.transferida_para_id && atual.status !== 'ocupada'; i++) {
+    atual = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(atual.transferida_para_id);
+  }
+  if (!atual || atual.id === mesa.id || atual.status !== 'ocupada' || !atual.sale_id) return null;
+  return principalDe(db, atual);
 }
 
 /** Atualiza o número de pessoas de uma mesa já ocupada — pra quando o
@@ -668,8 +738,8 @@ function juntarMesas({ tableId, mesaIds, currentOperatorId } = {}) {
           .run(deslocamento, origem);
         db.prepare('UPDATE sale_items SET sale_id = ? WHERE sale_id = ?').run(saleId, origem);
         db.prepare(
-          `INSERT INTO sale_people (id, sale_id, numero, nome, customer_id, criado_em)
-           SELECT lower(hex(randomblob(16))), ?, numero + ?, nome, customer_id, criado_em FROM sale_people WHERE sale_id = ?`
+          `INSERT INTO sale_people (id, sale_id, numero, nome, customer_id, aparelho, criado_em)
+           SELECT lower(hex(randomblob(16))), ?, numero + ?, nome, customer_id, aparelho, criado_em FROM sale_people WHERE sale_id = ?`
         ).run(saleId, deslocamento, origem);
         db.prepare('DELETE FROM sale_people WHERE sale_id = ?').run(origem);
         // Pedidos do garçom/WhatsApp lançados nela passam a apontar para a comanda que tem os itens.
@@ -687,7 +757,11 @@ function juntarMesas({ tableId, mesaIds, currentOperatorId } = {}) {
         `UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = NULL, reservado_para = NULL, unida_a_mesa_id = ?
          WHERE id = ?`
       ).run(saleId, principal.id, t.id);
+      // Celulares que entraram pelo QR desta mesa passam a ser da principal.
+      mesaLocal().moverMembros(db, t.id, principal.id);
+      try { db.prepare('UPDATE mesa_local_membros SET sale_id = ? WHERE table_id = ? AND sale_id IS NOT NULL').run(saleId, principal.id); } catch { /* banco sem a tabela */ }
     }
+    mesaLocal().incluirMembrosPendentes(db, principal.id, saleId);
     db.prepare('UPDATE restaurant_tables SET pessoas = ? WHERE id = ?').run(pessoas || null, principal.id);
     recalcularTotal(db, saleId);
     registrarAuditoria(db, {
@@ -829,7 +903,8 @@ module.exports = {
   reorderTables,
   listTables, createTable, deleteTable, openTable, getTableCart, releaseTable, repararMesasUnidas,
   repararMesasComVendaFechada, liberarMesaDaVenda,
-  markCleaned, markReserved, cancelReservation, transferTable, updateTablePeople, desocuparMesa,
+  markCleaned, markReserved, cancelReservation, transferTable, destinoDaTransferencia, updateTablePeople, desocuparMesa,
   existeMesa, montarLinkPedidoMesa,
   juntarMesas, separarMesa, adicionarPessoa, renomearPessoa, removerPessoa, vincularClientePessoa,
+  _totalDePessoas: totalDePessoas,
 };

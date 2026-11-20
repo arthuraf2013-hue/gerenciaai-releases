@@ -1,7 +1,7 @@
 import {
   formatarMoeda, unidadeFracionada, passoDa, quantidadeInicial, arred, formatarQuantidade, slugValido,
   itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS, montarPedidoDemo,
-  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, hashTokenMesa, passosDoPedido, tempoRestante,
+  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, passosDoPedido, tempoRestante,
 } from './loja-util.js';
 
 /**
@@ -192,10 +192,25 @@ function gravarPedidoSalvo(slug, p) {
 }
 
 /** Grava o pedido na loja (o id é gerado aqui: 20 letras, como a regra exige). */
+/** Código aleatório deste celular (fica só nele): cada celular é uma conta na mesa. */
+function aparelhoDesteCelular() {
+  try {
+    let a = localStorage.getItem('gerenciaai-aparelho') || '';
+    if (!/^[A-Za-z0-9]{16,40}$/.test(a)) {
+      const letras = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+      const bytes = new Uint8Array(20);
+      crypto.getRandomValues(bytes);
+      a = Array.from(bytes, (n) => letras[n % letras.length]).join('');
+      localStorage.setItem('gerenciaai-aparelho', a);
+    }
+    return a;
+  } catch { return ''; }
+}
+
 async function enviarPedidoLoja(loja, dados) {
   const { F, db } = loja;
   const ref = F.doc(F.collection(db, 'installations', loja.installId, 'pedidos_vitrine'));
-  await F.setDoc(ref, { ...montarPedidoLoja({ slug: loja.slug, mesaToken: loja.mesaToken, ...dados }), criadoEm: F.serverTimestamp() });
+  await F.setDoc(ref, { ...montarPedidoLoja({ slug: loja.slug, mesaToken: loja.mesaToken, aparelho: aparelhoDesteCelular(), ...dados }), criadoEm: F.serverTimestamp() });
   return ref.id;
 }
 
@@ -318,7 +333,7 @@ function montar(slug, loja) {
   const gravar = () => { try { localStorage.setItem(chave, JSON.stringify({ carrinho, cliente })); } catch { /* sem armazenamento */ } };
   const salvo = ler();
   let carrinho = typeof salvo.carrinho === 'object' && salvo.carrinho ? salvo.carrinho : {};
-  const cliente = { nome: '', modo: loja.modos[0] || 'retirada', endereco: '', pagamento: '', trocoPara: '', ...(salvo.cliente || {}) };
+  const cliente = { nome: '', telefone: '', modo: loja.modos[0] || 'retirada', endereco: '', pagamento: '', trocoPara: '', ...(salvo.cliente || {}) };
   if (!loja.modos.includes(cliente.modo)) cliente.modo = loja.modos[0] || 'retirada';
   // Pelo QR da mesa, abre sempre em "comer aqui".
   if (loja.mesaRotulo) cliente.modo = 'local';
@@ -438,6 +453,8 @@ function montar(slug, loja) {
           <div class="loja-total"><span>Total estimado</span><span>${formatarMoeda(total)}</span></div>
           ${loja.pedidoMinimo && total < loja.pedidoMinimo ? `<p class="loja-erro">Pedido mínimo da loja: ${formatarMoeda(loja.pedidoMinimo)}.</p>` : ''}
           <label>Seu nome<input id="p-nome" maxlength="60" autocomplete="name" value="${escapeHtml(cliente.nome)}"></label>
+          ${pedidoDireto ? `<label>Celular (opcional)<input id="p-telefone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" value="${escapeHtml(cliente.telefone || '')}" placeholder="(81) 91234-5678"></label>
+          <p class="loja-nota">Com o celular, a loja reconhece você nas próximas visitas.</p>` : ''}
           ${loja.modos.length > 1 ? `<div class="loja-opcoes" role="radiogroup" aria-label="Como receber">
             ${loja.modos.map((m) => `<button data-modo="${escapeHtml(m)}" class="${cliente.modo === m ? 'ativo' : ''}" role="radio" aria-checked="${cliente.modo === m}">${escapeHtml(rotuloModo(m, loja.mesaRotulo))}</button>`).join('')}</div>`
             : `<p class="loja-nota">${escapeHtml(cliente.modo === 'entrega' ? 'A loja entrega.' : (cliente.modo === 'local' ? rotuloModo('local', loja.mesaRotulo) : 'Retirada na loja.'))}</p>`}
@@ -459,6 +476,7 @@ function montar(slug, loja) {
       const $ = (s) => fundo.querySelector(s);
       const lerCampos = () => {
         cliente.nome = ($('#p-nome')?.value || '').trim().slice(0, 60);
+        if ($('#p-telefone')) cliente.telefone = $('#p-telefone').value.trim().slice(0, 20);
         if ($('#p-endereco')) cliente.endereco = $('#p-endereco').value.trim().slice(0, 200);
         if ($('#p-pagamento')) cliente.pagamento = $('#p-pagamento').value || 'pix';
         if ($('#p-troco')) cliente.trocoPara = $('#p-troco').value.trim().slice(0, 10);
@@ -482,6 +500,7 @@ function montar(slug, loja) {
         const erro = $('#p-erro');
         const falhar = (t) => { erro.textContent = t; erro.hidden = false; };
         if (cliente.nome.length < 2) return falhar('Escreva seu nome.');
+        if (pedidoDireto && cliente.telefone && !telefoneLimpo(cliente.telefone)) return falhar('Confira o celular (DDD + número) ou deixe em branco.');
         if (cliente.modo === 'entrega' && cliente.endereco.length < 6) return falhar('Escreva o endereço de entrega.');
         if (loja.pedidoMinimo && total < loja.pedidoMinimo) return falhar(`O pedido mínimo é ${formatarMoeda(loja.pedidoMinimo)}.`);
         if (pedidoDireto) {
@@ -492,7 +511,7 @@ function montar(slug, loja) {
           try {
             const id = await enviarPedidoLoja(loja, {
               itens, nome: cliente.nome, modo: cliente.modo, endereco: cliente.endereco,
-              pagamento, trocoPara: cliente.trocoPara, observacao: ($('#p-obs')?.value || ''),
+              pagamento, trocoPara: cliente.trocoPara, observacao: ($('#p-obs')?.value || ''), telefone: cliente.telefone,
             });
             const salvoPedido = { id, em: Date.now(), pagamento, mesa: cliente.modo === 'local' && !!loja.mesaRotulo };
             gravarPedidoSalvo(slug, salvoPedido);

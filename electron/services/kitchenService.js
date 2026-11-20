@@ -22,7 +22,7 @@ const STATUS_VALIDOS = ['pendente', 'preparando', 'pronto'];
 function listActiveItems(locationId) {
   const db = getDb();
   return db.prepare(
-    `SELECT si.id, si.sale_id, si.quantidade, si.observacao, si.status_preparo, si.criado_em, si.pessoa_numero,
+    `SELECT si.id, si.sale_id, si.quantidade, si.observacao, si.status_preparo, si.criado_em, si.pessoa_numero, si.preco_unitario, p.unidade,
             sp.nome as pessoa_nome,
             COALESCE(si.nome_personalizado, p.nome) as nome,
             rt.numero as mesa_numero, rt.nome as mesa_nome
