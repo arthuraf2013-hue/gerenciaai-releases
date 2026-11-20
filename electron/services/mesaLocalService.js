@@ -684,5 +684,5 @@ function status() {
 module.exports = {
   CANAL, PORTA_PADRAO, getConfig, saveConfig, enderecosDaMaquina, linkDaMesa, textoQrWifi, cardapio, criarPedido, andamento,
   entrarNaMesa, estadoDaMesa, chamar, atenderChamados, indicadoresDasMesas, incluirMembrosPendentes, esquecerMembros, moverMembros, status,
-  iniciar, parar, atualizar, atender, deveRodar,
+  iniciar, parar, atualizar, atender, deveRodar, mesaEfetiva, vendaAberta, rotuloMesa,
 };

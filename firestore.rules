@@ -992,6 +992,66 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Chamar o garçom / pedir a conta pelo QR da mesa PELA INTERNET (cliente sem
+    // o Wi-Fi da loja; vitrineMesaService.js). A página grava um chamado com o
+    // segredo do QR da mesa; a máquina (sem login) escuta os 'novo', registra e
+    // marca 'recebido'. Só vale com a vitrine ativa recebendo pedidos.
+    match /installations/{installId}/chamados_vitrine/{chamadoId} {
+      function enderecoDaLoja(slug) {
+        let caminho = /databases/$(database)/documents/vitrines/$(slug);
+        return exists(caminho)
+          && get(caminho).data.get('installId', null) == installId
+          && get(caminho).data.get('ativa', true) != false
+          && get(caminho).data.get('demo', null) == null;
+      }
+      function lojaAceitaChamado(slug) {
+        let config = /databases/$(database)/documents/installations/$(installId)/vitrine/config;
+        return enderecoDaLoja(slug)
+          && exists(config)
+          && get(config).data.get('ativa', false) == true
+          && get(config).data.get('pedidosOnline', false) == true;
+      }
+      function chamadoValido(d) {
+        return d.keys().hasAll(['slug', 'mesa', 'tipo', 'status', 'criadoEm'])
+          && d.keys().hasOnly(['slug', 'mesa', 'tipo', 'aparelho', 'status', 'criadoEm'])
+          && d.slug is string && d.slug.matches('^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$')
+          && d.mesa is string && d.mesa.matches('^[A-Za-z0-9]{24}$')
+          && d.tipo in ['garcom', 'conta']
+          && (!('aparelho' in d) || (d.aparelho is string && d.aparelho.matches('^[A-Za-z0-9]{16,40}$')))
+          && d.status == 'novo'
+          && d.criadoEm == request.time;
+      }
+      allow create: if chamadoId.matches('^[A-Za-z0-9]{20}$')
+        && chamadoValido(request.resource.data)
+        && lojaAceitaChamado(request.resource.data.slug);
+      // A página acompanha o PRÓPRIO chamado pelo id (aleatório, 20 letras).
+      allow get: if true;
+      // A máquina (sem login) escuta só os 'novo' e marca o resultado, uma vez.
+      allow list: if request.auth == null && resource.data.status == 'novo';
+      allow update: if request.auth == null
+        && resource.data.status == 'novo'
+        && request.resource.data.status in ['recebido', 'erro']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'erro', 'processadoEm']);
+      allow delete: if false;
+    }
+
+    // Conta da mesa para o cliente do QR pela internet (vitrineMesaService.js).
+    // O documento tem o NOME DE QUEM ESTÁ NA MESA e o que pediu; por isso a chave
+    // é derivada do segredo do QR (sha256('conta|' + segredo), 32 hex) -- não é o
+    // hash público da vitrine --, ninguém lista e só a máquina (sem login) grava.
+    match /installations/{installId}/contas_mesa/{chave} {
+      allow get: if chave.matches('^[0-9a-f]{32}$');
+      allow list: if false;
+      allow create, update: if request.auth == null
+        && chave.matches('^[0-9a-f]{32}$')
+        && request.resource.data.keys().hasOnly(['rotulo', 'aberta', 'totalMesa', 'pessoas', 'atualizadoEm'])
+        && request.resource.data.rotulo is string && request.resource.data.rotulo.size() <= 40
+        && request.resource.data.aberta is bool
+        && request.resource.data.totalMesa is number
+        && request.resource.data.pessoas is list && request.resource.data.pessoas.size() <= 30;
+      allow delete: if false;
+    }
+
     // Painel de chamada (TV / digital signage): o computador publica
     // (chamadaService.js) e a página pwa-mobile/painel.html lê. O token de 32
     // caracteres no caminho É o acesso (fica só no link do painel). Só número,

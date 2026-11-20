@@ -632,7 +632,7 @@ function registerIpcHandlers() {
   safeHandle('vitrine:qrDasMesas', () => require('../services/vitrineService').qrDasMesas());
   safeHandle('vitrine:trocarQrDaMesa', (event, payload) => require('../services/vitrineService').trocarQrDaMesa({ tableId: payload?.tableId, requestingUserId: usuarioLogado(event) }));
   // Exportar QR: PNG grande (caminho do diálogo do processo principal) e folha de cartões para imprimir/PDF.
-  safeHandle('vitrine:salvarQrPng', (_e, payload) => require('../services/vitrineService').salvarQrPng({ tableId: payload?.tableId || null }));
+  safeHandle('vitrine:salvarQrPng', (_e, payload) => require('../services/vitrineService').salvarQrPng({ tableId: payload?.tableId || null, via: payload?.via === 'internet' ? 'internet' : undefined }));
   safeHandle('vitrine:gerarPdfQrMesas', (_e, p = {}) => require('../services/vitrineService').gerarPdfQrMesas({
     tableIds: Array.isArray(p?.tableIds) ? p.tableIds.map(String) : null, porFolha: p?.porFolha, papel: p?.papel, orientacao: p?.orientacao,
   }));

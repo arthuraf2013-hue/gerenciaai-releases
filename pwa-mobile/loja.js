@@ -1,7 +1,7 @@
 import {
   formatarMoeda, unidadeFracionada, passoDa, quantidadeInicial, arred, formatarQuantidade, slugValido,
   itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS, montarPedidoDemo,
-  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, passosDoPedido, tempoRestante,
+  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, chaveDaContaMesa, chaveDoAparelho, passosDoPedido, tempoRestante,
 } from './loja-util.js';
 
 /**
@@ -214,6 +214,65 @@ async function enviarPedidoLoja(loja, dados) {
   return ref.id;
 }
 
+/** Chamar o garçom / pedir a conta pelo QR da mesa (a loja escuta e marca o quadrado da mesa). */
+async function chamarDaMesa(loja, tipo) {
+  const { F, db } = loja;
+  const ref = F.doc(F.collection(db, 'installations', loja.installId, 'chamados_vitrine'));
+  const aparelho = aparelhoDesteCelular();
+  await F.setDoc(ref, {
+    slug: loja.slug, mesa: loja.mesaToken, tipo, status: 'novo', ...(aparelho ? { aparelho } : {}), criadoEm: F.serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** "Minha conta": o que este celular pediu e o total da mesa (a loja publica a conta pelo segredo do QR). */
+async function telaConta(loja) {
+  const { F, db } = loja;
+  const [chave, meu] = await Promise.all([chaveDaContaMesa(loja.mesaToken), chaveDoAparelho(aparelhoDesteCelular())]);
+  const fundo = document.createElement('div');
+  fundo.className = 'loja-fundo';
+  document.body.appendChild(fundo);
+  let conta;
+  let carregou = false;
+  let aviso = '';
+  let parar = () => {};
+  const fechar = () => { try { parar(); } catch { /* já parada */ } fundo.remove(); };
+  const render = () => {
+    const minha = conta?.aberta && meu ? (conta.pessoas || []).find((p) => p && p.chave === meu) : null;
+    let corpo;
+    if (!carregou) corpo = '<p class="loja-nota"><span class="loja-spinner"></span> Buscando a conta...</p>';
+    else if (!conta || conta.aberta !== true) corpo = '<p class="loja-nota">A conta aparece aqui depois que o atendente aceitar o seu primeiro pedido.</p>';
+    else {
+      const linhas = (itens) => (itens || []).map((i) => `<div class="loja-linha"><span class="loja-linha-nome">${escapeHtml(formatarQuantidade(i.quantidade, 'un'))} ${escapeHtml(i.nome)}</span><span class="loja-linha-total">${formatarMoeda(i.total)}</span></div>`).join('');
+      corpo = `<h3 class="loja-conta-sub">${escapeHtml(minha ? `Você${minha.nome ? ` (${minha.nome})` : ''}` : 'Seus pedidos')}</h3>
+        ${minha && minha.itens?.length ? linhas(minha.itens) + `<div class="loja-total"><span>Sua parte</span><span>${formatarMoeda(minha.total)}</span></div>` : '<p class="loja-nota">Você ainda não tem itens lançados nesta mesa.</p>'}
+        <h3 class="loja-conta-sub">Mesa toda</h3>
+        ${(conta.pessoas || []).filter((p) => p !== minha).map((p) => `<div class="loja-linha"><span class="loja-linha-nome">${escapeHtml(p.nome || 'Mesa')}</span><span class="loja-linha-total">${formatarMoeda(p.total)}</span></div>`).join('')}
+        <div class="loja-total"><span>Total da mesa</span><span>${formatarMoeda(conta.totalMesa)}</span></div>
+        <p class="loja-nota">Valores lançados até agora; o atendente confere na hora de fechar.</p>`;
+    }
+    fundo.innerHTML = `<div class="loja-sheet" role="dialog" aria-modal="true">
+      <h2>${escapeHtml(conta?.rotulo || loja.mesaRotulo || 'Minha conta')}</h2>
+      ${corpo}
+      ${aviso ? `<p class="loja-nota" role="status">${escapeHtml(aviso)}</p>` : ''}
+      ${conta?.aberta ? '<button class="loja-enviar" id="conta-pedir">Pedir a conta ao garçom</button>' : ''}
+      <button class="loja-secundario" id="conta-fechar">Fechar</button></div>`;
+    fundo.querySelector('#conta-fechar').addEventListener('click', fechar);
+    fundo.querySelector('#conta-pedir')?.addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      try { await chamarDaMesa(loja, 'conta'); aviso = 'Pronto! O garçom foi avisado e já vem com a conta.'; } catch { aviso = 'Não consegui avisar agora. Chame um atendente.'; }
+      render();
+    });
+  };
+  render();
+  if (!chave) { carregou = true; render(); return; }
+  parar = F.onSnapshot(F.doc(db, 'installations', loja.installId, 'contas_mesa', chave), (snap) => {
+    conta = snap.exists() ? snap.data() : null;
+    carregou = true;
+    render();
+  }, () => { carregou = true; render(); });
+}
+
 let audioCtx = null;
 function avisarPronto() {
   try { navigator.vibrate?.([300, 120, 300, 120, 500]); } catch { /* sem vibração */ }
@@ -353,7 +412,9 @@ function montar(slug, loja) {
       <h1>${escapeHtml(loja.nomeLoja)}</h1>
       ${loja.mensagem ? `<p>${escapeHtml(loja.mensagem)}</p>` : ''}
       <p>${loja.demo || pedidoDireto ? 'Monte o pedido aqui. Ele chega na hora no sistema da loja.' : 'Monte o pedido aqui e envie pelo WhatsApp da loja.'}</p>
-      ${loja.mesaRotulo ? `<span class="loja-mesa">${escapeHtml(loja.mesaRotulo)}</span>` : ''}
+      ${loja.mesaRotulo ? `<span class="loja-mesa">${escapeHtml(loja.mesaRotulo)}</span>
+      <div class="loja-mesa-acoes"><button type="button" id="mesa-garcom">Chamar garçom</button><button type="button" id="mesa-conta">Minha conta</button></div>
+      <p class="loja-nota loja-mesa-aviso" id="mesa-aviso" role="status" hidden></p>` : ''}
       ${loja.mesaInvalida ? '<p class="loja-erro">Este QR de mesa não vale mais. Você ainda pode pedir para retirar; para a mesa, chame um atendente.</p>' : ''}
     </header>
     <div id="acompanhar"></div>
@@ -569,6 +630,18 @@ function montar(slug, loja) {
     render();
   }
 
+  // QR da mesa pela internet: chamar o garçom e ver/pedir a conta (a loja escuta pelo Firebase).
+  if (loja.mesaRotulo && loja.mesaToken) {
+    const aviso = raiz.querySelector('#mesa-aviso');
+    const falar = (texto) => { aviso.textContent = texto; aviso.hidden = false; };
+    const botaoGarcom = raiz.querySelector('#mesa-garcom');
+    botaoGarcom.addEventListener('click', async () => {
+      botaoGarcom.disabled = true;
+      try { await chamarDaMesa(loja, 'garcom'); falar('Garçom avisado! Já vem até a sua mesa.'); } catch { falar('Não consegui avisar agora. Levante a mão ou chame um atendente.'); }
+      setTimeout(() => { botaoGarcom.disabled = false; }, 30000);
+    });
+    raiz.querySelector('#mesa-conta').addEventListener('click', () => { telaConta(loja).catch(() => falar('Não consegui abrir a conta agora.')); });
+  }
   raiz.querySelector('#busca').addEventListener('input', (e) => { busca = e.target.value; renderLista(); });
   raiz.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
     categoria = b.dataset.cat;

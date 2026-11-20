@@ -166,6 +166,23 @@ async function hashTokenMesa(token) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 24);
 }
 
+async function sha256Hex(texto) {
+  const buf = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(texto)));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Chave do documento da conta da mesa (igual a vitrineMesaService.chaveDaConta): só quem tem o QR calcula. */
+async function chaveDaContaMesa(token) {
+  if (!TOKEN_MESA.test(String(token || ''))) return null;
+  return (await sha256Hex(`conta|${token}`)).slice(0, 32);
+}
+
+/** Identificador deste celular dentro da conta (igual a vitrineMesaService.chaveDoAparelho). */
+async function chaveDoAparelho(aparelho) {
+  if (!/^[A-Za-z0-9]{16,40}$/.test(String(aparelho || ''))) return null;
+  return (await sha256Hex(`aparelho|${aparelho}`)).slice(0, 16);
+}
+
 /**
  * Passo a passo do acompanhamento, a partir do pedido gravado (status do
  * documento: novo/recebido/erro) e da etapa publicada pela loja.
@@ -218,5 +235,5 @@ function normalizar(s) {
 export {
   formatarMoeda, unidadeFracionada, passoDa, quantidadeInicial, arred, formatarQuantidade, slugValido,
   itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS, montarPedidoDemo,
-  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, passosDoPedido, tempoRestante,
+  PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, chaveDaContaMesa, chaveDoAparelho, passosDoPedido, tempoRestante,
 };

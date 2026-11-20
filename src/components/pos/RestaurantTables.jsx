@@ -774,12 +774,26 @@ export function RestaurantTables() {
             {qrError && <p className="modal-error">{qrError}</p>}
             {qrDados && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-                {qrDados.qrCodeDataUrl && (
-                  <img
-                    src={qrDados.qrCodeDataUrl} alt={`QR code de pedido da Mesa ${qrMesa.numero}`}
-                    style={{ width: 220, height: 220, borderRadius: 8, border: '1px solid var(--color-border)' }}
-                  />
-                )}
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {qrDados.qrCodeDataUrl && (
+                    <figure className="qr-mesa-fig">
+                      <img
+                        src={qrDados.qrCodeDataUrl} alt={`QR code de pedido da Mesa ${qrMesa.numero}`}
+                        style={{ width: qrDados.qrInternetDataUrl ? 180 : 220, height: qrDados.qrInternetDataUrl ? 180 : 220, borderRadius: 8, border: '1px solid var(--color-border)' }}
+                      />
+                      {qrDados.qrInternetDataUrl && <figcaption>Na loja (Wi-Fi)</figcaption>}
+                    </figure>
+                  )}
+                  {qrDados.qrInternetDataUrl && (
+                    <figure className="qr-mesa-fig">
+                      <img
+                        src={qrDados.qrInternetDataUrl} alt={`QR code da Mesa ${qrMesa.numero} pela internet`}
+                        style={{ width: 180, height: 180, borderRadius: 8, border: '1px solid var(--color-border)' }}
+                      />
+                      <figcaption>Sem Wi-Fi (internet do cliente)</figcaption>
+                    </figure>
+                  )}
+                </div>
                 <button type="button" className="btn-secondary" onClick={() => window.open(qrDados.url, '_blank')}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="link" size={14} /> Abrir o link</span>
                 </button>

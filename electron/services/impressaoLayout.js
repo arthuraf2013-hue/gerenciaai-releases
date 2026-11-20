@@ -507,13 +507,27 @@ function montarCartoesQr(config, { loja = {}, mesas = [] } = {}) {
   // QR do Wi-Fi da loja ao lado do QR da mesa (pedido pela rede da loja):
   // primeiro o cliente entra no Wi-Fi, depois aponta para o QR da mesa.
   const wifi = loja.wifi && /^data:image\/png;base64,/.test(loja.wifi.qrDataUrl || '') && !pequeno ? loja.wifi : null;
-  const qrDaMesa = (mesa) => (mesa.qrDataUrl && /^data:image\/png;base64,/.test(mesa.qrDataUrl) ? `<img class="qr" src="${mesa.qrDataUrl}" alt="">` : '<div class="qr semqr">QR indisponível</div>');
-  const blocoQr = (mesa) => (wifi
-    ? `<div class="qrs">
+  const qrImg = (url) => (url && /^data:image\/png;base64,/.test(url) ? `<img class="qr" src="${url}" alt="">` : '<div class="qr semqr">QR indisponível</div>');
+  const qrDaMesa = (mesa) => qrImg(mesa.qrDataUrl);
+  // Cartão com dois caminhos: Wi-Fi da loja (QR local) ou a internet do cliente
+  // (QR da vitrine). Cartão pequeno (12/16 por folha) leva só o da internet,
+  // que funciona em qualquer lugar.
+  const duplo = (mesa) => !!mesa.qrInternetDataUrl && /^data:image\/png;base64,/.test(mesa.qrInternetDataUrl);
+  const blocoQr = (mesa) => {
+    if (duplo(mesa) && pequeno) return qrImg(mesa.qrInternetDataUrl);
+    if (duplo(mesa)) {
+      return `<div class="qrs dual">
+        <div class="passo">${wifi ? `<div class="rotulo">Na loja, com o Wi-Fi</div><div class="par"><img class="qrwifi" src="${wifi.qrDataUrl}" alt=""><span class="legenda">Wi-Fi<br><b>${escHtml(wifi.nome)}</b></span></div>` : '<div class="rotulo">Na loja, com o Wi-Fi</div>'}${qrDaMesa(mesa)}</div>
+        <div class="passo"><div class="rotulo">Sem Wi-Fi? Use a sua internet</div>${qrImg(mesa.qrInternetDataUrl)}</div>
+      </div>`;
+    }
+    return wifi
+      ? `<div class="qrs">
         <div class="passo"><span class="num">1</span><img class="qrwifi" src="${wifi.qrDataUrl}" alt=""><span class="legenda">Wi-Fi<br><b>${escHtml(wifi.nome)}</b></span></div>
         <div class="passo"><span class="num">2</span>${qrDaMesa(mesa)}</div>
       </div>`
-    : qrDaMesa(mesa));
+      : qrDaMesa(mesa);
+  };
   const cartao = (mesa) => `
     <div class="cartao">
       ${logo && !pequeno ? `<img class="logo" src="${logo}" alt="">` : ''}
@@ -548,6 +562,12 @@ function montarCartoesQr(config, { loja = {}, mesas = [] } = {}) {
     .qrs { display: flex; align-items: flex-end; justify-content: center; gap: ${mm(Math.max(2, m.largura * 0.04))}; }
     .passo { display: flex; flex-direction: column; align-items: center; gap: 0.6mm; }
     .num { font-size: ${pt(m.texto)}; font-weight: 800; color: #fff; background: ${m.termica ? '#000' : cor}; border-radius: 50%; width: ${pt(m.texto * 1.7)}; height: ${pt(m.texto * 1.7)}; line-height: ${pt(m.texto * 1.7)}; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .dual { align-items: flex-start; gap: ${mm(Math.max(1.5, m.largura * 0.03))}; }
+    .dual .qr { width: ${mm(Math.min(m.qr * 0.8, (m.largura - 2 * Math.min(4, m.largura * 0.05)) / 2 - 2))}; height: ${mm(Math.min(m.qr * 0.8, (m.largura - 2 * Math.min(4, m.largura * 0.05)) / 2 - 2))}; }
+    .dual .qrwifi { width: ${mm(m.qr * 0.28)}; height: ${mm(m.qr * 0.28)}; }
+    .dual .legenda { max-width: ${mm(m.qr * 0.5)}; text-align: left; }
+    .rotulo { font-size: ${pt(Math.max(6, m.texto - 1))}; font-weight: 700; line-height: 1.1; max-width: ${mm(m.qr * 1.1)}; }
+    .par { display: flex; align-items: center; gap: 1mm; }
     .qrwifi { width: ${mm(m.qr * 0.45)}; height: ${mm(m.qr * 0.45)}; }
     .legenda { font-size: ${pt(Math.max(6, m.texto - 1))}; line-height: 1.15; max-width: ${mm(m.qr * 0.6)}; overflow-wrap: anywhere; }
     .semqr { display: flex; align-items: center; justify-content: center; border: 1px solid #999; font-size: 8pt; }

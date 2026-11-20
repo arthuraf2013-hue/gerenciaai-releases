@@ -461,6 +461,11 @@ app.whenReady().then(() => {
     const mesaLocal = require('./services/mesaLocalService');
     mesaLocal.atualizar();
     setInterval(() => { try { mesaLocal.atualizar(); } catch (err) { console.error('[mesaLocal]', err?.message || err); } }, 60 * 1000);
+    // QR da mesa pela internet (cliente sem o Wi-Fi da loja): chamar garçom, pedir
+    // a conta e ver a conta pela vitrine. Só liga com a vitrine recebendo pedidos.
+    const vitrineMesa = require('./services/vitrineMesaService');
+    vitrineMesa.atualizar();
+    setInterval(() => { try { vitrineMesa.atualizar(); } catch (err) { console.error('[vitrineMesa]', err?.message || err); } }, 60 * 1000);
     // Pix antecipado do pedido do site: confere as cobranças pendentes e
     // cancela o pedido cujo Pix venceu. Só consulta quando há pendente.
     require('./services/vitrinePixService').iniciarConferencia();

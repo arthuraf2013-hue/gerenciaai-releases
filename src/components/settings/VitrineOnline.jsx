@@ -88,8 +88,8 @@ function QrDasMesas({ podeTrocar, versao = 0 }) {
   }
   useEffect(() => { carregar(); }, [versao]);
 
-  async function salvarPng(tableId) {
-    const r = await window.pdv.vitrine.salvarQrPng({ tableId });
+  async function salvarPng(tableId, via) {
+    const r = await window.pdv.vitrine.salvarQrPng({ tableId, via });
     if (r?.ok) setAviso({ tipo: 'ok', texto: `QR salvo em ${r.caminho}` });
     else if (!r?.cancelado) setAviso({ tipo: 'erro', texto: r?.error || 'Não consegui salvar.' });
   }
@@ -108,7 +108,11 @@ function QrDasMesas({ podeTrocar, versao = 0 }) {
       <h3 style={{ fontSize: 14, margin: '0 0 4px' }}>QR das mesas</h3>
       <p className="screen-hint" style={{ margin: 0 }}>
         Cole um em cada mesa. O cliente lê, entra na mesa com o nome, escolhe e o pedido cai na Separação já com a mesa; aceito, entra na comanda na pessoa com o nome dele.
-        {dados.modo === 'local' ? ' Os QRs apontam para este computador, pela rede da loja (sem internet).' : ' Os QRs apontam para a vitrine na internet.'}
+        {dados.modo === 'local'
+          ? (dados.duplo
+            ? ' Cada mesa tem dois QRs: o da rede da loja (cliente no Wi-Fi) e o da internet (cliente sem o Wi-Fi, com o 4G dele). O cartão impresso leva os dois.'
+            : ' Os QRs apontam para este computador, pela rede da loja (sem internet). Para o cliente sem Wi-Fi também poder pedir, ligue a vitrine online com "Receber os pedidos direto no sistema".')
+          : ' Os QRs apontam para a vitrine na internet.'}
       </p>
       {dados.modo !== 'local' && !dados.pedidosOnline && <p className="io-message-aviso"><Icon name="warning" size={15} /> Ligue "Receber os pedidos direto no sistema" para os QRs das mesas funcionarem.</p>}
       {dados.mesas.length === 0 ? <p className="empty-state">Nenhuma mesa cadastrada (Restaurante → Mesas).</p> : (
@@ -120,9 +124,13 @@ function QrDasMesas({ podeTrocar, versao = 0 }) {
             {dados.mesas.map((m) => (
               <div className="qr-mesa" key={m.tableId}>
                 <strong>{m.rotulo}</strong>
-                {m.qrDataUrl && <img src={m.qrDataUrl} alt={`QR da ${m.rotulo}`} />}
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                  {m.qrDataUrl && <figure className="qr-mesa-fig"><img src={m.qrDataUrl} alt={`QR da ${m.rotulo}`} />{dados.duplo && <figcaption>Wi-Fi da loja</figcaption>}</figure>}
+                  {m.qrInternetDataUrl && <figure className="qr-mesa-fig"><img src={m.qrInternetDataUrl} alt={`QR da ${m.rotulo} pela internet`} /><figcaption>Sem Wi-Fi</figcaption></figure>}
+                </div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <button type="button" className="btn-link" onClick={() => salvarPng(m.tableId)}><Icon name="export" size={13} /> PNG</button>
+                  <button type="button" className="btn-link" onClick={() => salvarPng(m.tableId)}><Icon name="export" size={13} /> PNG{m.qrInternetDataUrl ? ' (Wi-Fi)' : ''}</button>
+                  {m.qrInternetDataUrl && <button type="button" className="btn-link" onClick={() => salvarPng(m.tableId, 'internet')}><Icon name="export" size={13} /> PNG (sem Wi-Fi)</button>}
                   {podeTrocar && <button type="button" className="btn-link" onClick={() => trocar(m)}><Icon name="refresh" size={13} /> Trocar</button>}
                 </div>
               </div>

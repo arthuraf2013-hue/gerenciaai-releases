@@ -136,6 +136,15 @@ function destinoDoQr() {
   return null;
 }
 
+/**
+ * A vitrine na internet recebe pedido de mesa? (Central criou o endereço,
+ * vitrine ligada e "pedidos direto no sistema".) Com a rede da loja ligada,
+ * o cartão da mesa ganha um SEGUNDO QR, para quem está sem o Wi-Fi da loja.
+ */
+function internetDisponivel() {
+  try { const c = getConfig(); return !!(c.slug && c.ativa && c.pedidosOnline); } catch { return false; }
+}
+
 /** QR do Wi-Fi para o cartão da mesa (quando a loja escolheu mostrar). */
 async function wifiDoCartao() {
   try {
@@ -156,6 +165,7 @@ async function qrDasMesas() {
   const location = db.prepare('SELECT id FROM locations LIMIT 1').get();
   const mesas = location ? db.prepare('SELECT id, numero, nome FROM restaurant_tables WHERE location_id = ? ORDER BY CAST(numero AS INTEGER), numero').all(location.id) : [];
   const QRCode = require('qrcode');
+  const duplo = destino.modo === 'local' && internetDisponivel();
   const lista = [];
   for (const m of mesas) {
     const token = garantirTokenMesa(db, m.id);
@@ -163,11 +173,17 @@ async function qrDasMesas() {
     const link = destino.link(token);
     let qrDataUrl = null;
     try { qrDataUrl = await QRCode.toDataURL(link, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { qrDataUrl = null; }
-    lista.push({ tableId: m.id, numero: m.numero, rotulo: rotuloMesa(m), link, qrDataUrl });
+    const item = { tableId: m.id, numero: m.numero, rotulo: rotuloMesa(m), link, qrDataUrl, linkInternet: null, qrInternetDataUrl: null };
+    // Rede da loja ligada + vitrine ativa: segundo QR (pela internet, sem o Wi-Fi da loja).
+    if (duplo) {
+      item.linkInternet = linkPublico(config.slug, token);
+      try { item.qrInternetDataUrl = await QRCode.toDataURL(item.linkInternet, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { item.qrInternetDataUrl = null; }
+    }
+    lista.push(item);
   }
-  if (lista.length && destino.modo === 'internet') publicarSeMudou().catch(() => {});
+  if (lista.length && (destino.modo === 'internet' || duplo)) publicarSeMudou().catch(() => {});
   return {
-    ok: true, modo: destino.modo, pedidosOnline: destino.modo === 'local' ? true : config.pedidosOnline,
+    ok: true, modo: destino.modo, duplo, pedidosOnline: destino.modo === 'local' ? true : config.pedidosOnline,
     ativa: destino.modo === 'local' ? true : config.ativa, mesas: lista, wifi: await wifiDoCartao(),
   };
 }
@@ -186,8 +202,15 @@ async function qrDaMesa(tableId) {
   const link = destino.link(token);
   let qrDataUrl = null;
   try { qrDataUrl = await require('qrcode').toDataURL(link, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { qrDataUrl = null; }
-  if (destino.modo === 'internet') publicarSeMudou().catch(() => {});
-  return { url: link, qrCodeDataUrl: qrDataUrl, rotulo: rotuloMesa(m), vitrine: true, modo: destino.modo };
+  // Rede da loja ligada + vitrine ativa: também o link/QR pela internet (cliente sem o Wi-Fi da loja).
+  let urlInternet = null;
+  let qrInternetDataUrl = null;
+  if (destino.modo === 'local' && internetDisponivel()) {
+    urlInternet = linkPublico(config.slug, token);
+    try { qrInternetDataUrl = await require('qrcode').toDataURL(urlInternet, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { qrInternetDataUrl = null; }
+  }
+  if (destino.modo === 'internet' || urlInternet) publicarSeMudou().catch(() => {});
+  return { url: link, qrCodeDataUrl: qrDataUrl, urlInternet, qrInternetDataUrl, rotulo: rotuloMesa(m), vitrine: true, modo: destino.modo };
 }
 
 /** Troca o QR de uma mesa (o impresso antigo para de funcionar). */
@@ -213,7 +236,7 @@ function nomeArquivo(texto) {
  * gráfica, colar no Instagram ou imprimir. O caminho vem SEMPRE do diálogo
  * do processo principal (nunca do renderer).
  */
-async function salvarQrPng({ tableId } = {}) {
+async function salvarQrPng({ tableId, via } = {}) {
   const config = getConfig();
   const alvoDoQr = tableId ? destinoDoQr() : null;
   if (tableId ? !alvoDoQr : !config.slug) return { ok: false, error: 'A Central ainda não criou o endereço da vitrine desta loja.' };
@@ -225,8 +248,8 @@ async function salvarQrPng({ tableId } = {}) {
     if (!m) return { ok: false, error: 'Mesa não encontrada.' };
     const token = garantirTokenMesa(db, m.id);
     if (!token) return { ok: false, error: 'Não consegui gerar o QR desta mesa.' };
-    link = alvoDoQr.link(token);
-    rotulo = rotuloMesa(m);
+    link = via === 'internet' && internetDisponivel() ? linkPublico(config.slug, token) : alvoDoQr.link(token);
+    rotulo = via === 'internet' ? `${rotuloMesa(m)}-sem-wifi` : rotuloMesa(m);
     publicarSeMudou().catch(() => {});
   }
   const { dialog } = require('electron');
@@ -466,7 +489,7 @@ function iniciarPublicacaoContinua() {
 
 module.exports = {
   getConfig, getConfigComQr, saveConfig, aplicarDaInstalacao, montarCatalogo, publicarSeMudou, iniciarPublicacaoContinua, linkPublico, faixaDeEstoque,
-  qrDasMesas, qrDaMesa, trocarQrDaMesa, mesaPeloToken, hashTokenMesa, mapaPublicoDasMesas, garantirTokenMesa,
+  qrDasMesas, qrDaMesa, internetDisponivel, trocarQrDaMesa, mesaPeloToken, hashTokenMesa, mapaPublicoDasMesas, garantirTokenMesa,
   salvarQrPng, imprimirQrMesas, montarFolhaQrMesas, gerarPdfQrMesas, configDoQrComEscolhas,
   SLUG_VALIDO, MODOS_VALIDOS,
 };

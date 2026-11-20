@@ -92,3 +92,10 @@ button { cursor: pointer; }
 .loja-pix-qr { width: 220px; height: 220px; margin: 4px auto; background: #fff; border-radius: 10px; padding: 8px; }
 .loja-copiar { min-height: 46px; border-radius: 12px; border: 2px solid var(--primary); background: transparent; color: var(--primary); font-weight: 800; }
 .loja-selo-ok { background: #dcfce7; color: #14532d; margin: 0 auto; }
+
+/* QR da mesa pela internet: chamar o garçom e ver a conta */
+.loja-mesa-acoes { display: flex; gap: 8px; margin-top: 10px; }
+.loja-mesa-acoes button { flex: 1; min-height: 44px; border-radius: 10px; border: 1px solid var(--primary); background: transparent; color: var(--primary); font-weight: 700; }
+.loja-mesa-acoes button:disabled { opacity: .6; }
+.loja-mesa-aviso { margin-top: 8px; color: var(--text); font-size: 13px; }
+.loja-conta-sub { margin: 4px 0 0; font-size: 14px; color: var(--muted); }

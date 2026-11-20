@@ -1317,6 +1317,47 @@ test('pedido pelo site: só com "pedidos no sistema"; mesa leva o segredo e só 
   await assertFails(semLogin().collection('installations/pc-loja2/pedidos_vitrine').doc('LLLLLLLLLLLLLLLLLLL8').set(pedidoLoja(desligada, { pagamento: 'pix' })));
 });
 
+test('chamado da mesa pela internet: só com a vitrine recebendo pedidos; segredo no formato; a máquina marca uma vez', SK, async () => {
+  await setupTestEnv();
+  const slug = await semearLoja();
+  const col = semLogin().collection('installations/pc-loja/chamados_vitrine');
+  const chamado = (extra = {}) => ({ slug, mesa: 'AbCdEfGhIjKlMnOpQrStUvWx', tipo: 'garcom', status: 'novo', criadoEm: serverTs(), ...extra });
+  await assertSucceeds(col.doc('CCCCCCCCCCCCCCCCCCH1').set(chamado()));
+  await assertSucceeds(col.doc('CCCCCCCCCCCCCCCCCCH2').set(chamado({ tipo: 'conta', aparelho: 'celularAnaAAAAAAAAAAAA' })));
+  await assertFails(col.doc('CCCCCCCCCCCCCCCCCCH3').set(chamado({ tipo: 'apagar' })));
+  await assertFails(col.doc('CCCCCCCCCCCCCCCCCCH4').set(chamado({ mesa: 'curto' })));
+  await assertFails(col.doc('CCCCCCCCCCCCCCCCCCH5').set(chamado({ aparelho: 'curto' })));
+  await assertFails(col.doc('CCCCCCCCCCCCCCCCCCH6').set(chamado({ status: 'recebido' })));
+  await assertFails(col.doc('CCCCCCCCCCCCCCCCCCH7').set(chamado({ criadoEm: new Date(Date.now() - 3600000) })));
+  await assertFails(col.doc('CCCCCCCCCCCCCCCCCCH8').set(chamado({ extra: 'x' })));
+  await assertFails(col.doc('curto').set(chamado()));
+  const desligada = await semearLoja({ slug: 'sem-pedidos', installId: 'pc-loja2', pedidosOnline: false });
+  await assertFails(semLogin().collection('installations/pc-loja2/chamados_vitrine').doc('CCCCCCCCCCCCCCCCCCH9').set(chamado({ slug: desligada })));
+  // Ninguém lista tudo; a máquina (sem login) lista só os 'novo' e marca o resultado uma vez.
+  await assertSucceeds(semLogin().collection('installations/pc-loja/chamados_vitrine').where('status', '==', 'novo').get());
+  await assertFails(semLogin().collection('installations/pc-loja/chamados_vitrine').get());
+  const ref = semLogin().doc('installations/pc-loja/chamados_vitrine/CCCCCCCCCCCCCCCCCCH1');
+  await assertFails(ref.update({ tipo: 'conta' }));
+  await assertSucceeds(ref.update({ status: 'recebido', processadoEm: serverTs() }));
+  await assertFails(ref.update({ status: 'erro', erro: 'de novo' }));
+  await assertFails(ref.delete());
+});
+
+test('conta da mesa pela internet: lê só com a chave (32 hex); ninguém lista; só a máquina grava', SK, async () => {
+  await setupTestEnv();
+  const chave = 'a'.repeat(32);
+  const ref = semLogin().doc(`installations/pc-loja/contas_mesa/${chave}`);
+  const conta = { rotulo: 'Mesa 5', aberta: true, totalMesa: 31.5, pessoas: [{ nome: 'Ana', chave: 'b'.repeat(16), itens: [{ nome: 'Suco', quantidade: 1, total: 8 }], total: 8 }], atualizadoEm: serverTs() };
+  await assertSucceeds(ref.set(conta));
+  await assertSucceeds(ref.get());
+  await assertFails(semLogin().collection('installations/pc-loja/contas_mesa').get());
+  await assertFails(semLogin().doc('installations/pc-loja/contas_mesa/curta').get());
+  await assertFails(semLogin().doc(`installations/pc-loja/contas_mesa/${'b'.repeat(32)}`).set({ ...conta, telefone: '81999' }));
+  await assertFails(semLogin().doc(`installations/pc-loja/contas_mesa/${'b'.repeat(32)}`).set({ ...conta, pessoas: Array.from({ length: 31 }, () => ({})) }));
+  await assertFails(ref.delete());
+  await assertFails(testEnv.authenticatedContext('qualquer').firestore().doc(`installations/pc-loja/contas_mesa/${chave}`).set(conta));
+});
+
 test('vitrine demo: nunca aceita Pix antecipado nem pagamento "mesa"', SK, async () => {
   await setupTestEnv();
   const slug = await semearDemo({ slug: 'demo-lanche-x-ab12' });
