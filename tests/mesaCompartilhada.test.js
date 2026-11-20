@@ -79,6 +79,7 @@ test('caixa ligado: as mesas que aparecem são as do servidor', async () => {
   const st = await mc.status();
   assert.equal(st.online, true, st.erro);
   assert.equal(st.servidor, 'PDV1-SERVIDOR');
+  assert.equal(st.motivo, null, 'caixa ligado e usando as mesas do servidor: sem aviso');
   const lista = await chamar('table:list', { locationId: 'ignorado' });
   assert.deepEqual(lista.map((m) => m.numero), ['1', '2', '3', '4']);
   assert.ok(lista.every((m) => m.status === 'livre' && m.fechando_aqui === false));

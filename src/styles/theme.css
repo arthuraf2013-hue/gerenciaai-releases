@@ -656,6 +656,10 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   border: none; border-radius: 6px; padding: 3px 8px;
 }
 .table-card-action:hover { background: color-mix(in srgb, var(--color-primary) 22%, transparent); }
+.mesa-compartilhada-aviso.mesas-aviso-alerta {
+  background: var(--color-warning-bg); color: var(--color-warning-text);
+  border-color: color-mix(in srgb, var(--color-warning-text) 35%, transparent);
+}
 .mesas-header-acoes { display: flex; gap: 10px; align-items: center; }
 .mesas-organizar-barra {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;

@@ -454,6 +454,26 @@ export function RestaurantTables() {
           </div>
         </div>
       )}
+      {compart.carregou && !remota && compart.motivo === 'servidor' && (
+        <p className={`mesa-compartilhada-aviso${compart.redeLocalLigada && compart.caixas?.length ? '' : ' mesas-aviso-alerta'}`} role="status">
+          <Icon name="link" size={14} />{' '}
+          {!compart.redeLocalLigada
+            ? 'Este computador é o servidor das mesas, mas a rede local está desligada aqui: os caixas não conseguem usar estas mesas. Veja Configurações → Sincronização → Rede local da loja.'
+            : compart.caixas?.length
+              ? `Este computador é o servidor das mesas: ${compart.caixas.length} ${compart.caixas.length === 1 ? 'caixa ligado' : 'caixas ligados'} pela rede local (${compart.caixas.map((c) => c.nome).join(', ')}).`
+              : 'Este computador é o servidor das mesas, mas nenhum caixa está ligado a ele pela rede local. Gere o código em Configurações → Sincronização → Rede local da loja.'}
+        </p>
+      )}
+      {compart.carregou && !remota && compart.motivo === 'sem_rede_local' && (
+        <p className="mesa-compartilhada-aviso mesas-aviso-alerta" role="status">
+          Estas são só as mesas deste caixa: ele não está ligado ao servidor pela rede local. Digite o código do servidor em Configurações → Sincronização → Rede local da loja.
+        </p>
+      )}
+      {compart.carregou && !remota && compart.motivo === 'sem_grupo' && (
+        <p className="mesa-compartilhada-aviso mesas-aviso-alerta" role="status">
+          Estas são só as mesas deste computador: ele não está em um grupo de PDVs (sincronização desligada). Peça ao suporte para vincular na Central.
+        </p>
+      )}
       {compart.podeUsar && !remota && (
         <p className="io-message mesas-aviso">
           Este caixa está usando só as mesas dele.{' '}

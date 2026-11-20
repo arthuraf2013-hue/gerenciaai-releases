@@ -559,9 +559,34 @@ async function pedir(caminho, corpo, opcoes) {
   }
 }
 
+/**
+ * Por que as mesas daqui são (ou não) as do servidor -- a tela Mesas mostra:
+ * 'sem_grupo' | 'servidor' | 'sem_rede_local' | 'local' | null (usando as do servidor).
+ * No servidor vem junto quem está ligado pela rede local (`caixas`) e se ela está ligada.
+ */
+function situacao() {
+  try {
+    const grupoId = grupoAtual();
+    if (!grupoId) return { motivo: 'sem_grupo' };
+    if (require('./syncStateService').ehServidorDoGrupo()) {
+      const hub = require('./lanHubService').status();
+      return {
+        motivo: 'servidor',
+        redeLocalLigada: !!hub.ligado,
+        caixas: (hub.caixas || []).map((c) => ({ nome: c.nome, ultimoContato: c.ultimo_contato || null })),
+      };
+    }
+    const cfg = cliente().config();
+    if (!cfg || cfg.grupoId !== grupoId) return { motivo: 'sem_rede_local' };
+    return { motivo: ativa() ? null : 'local' };
+  } catch (err) {
+    return { motivo: 'sem_rede_local', erro: err?.message || String(err) };
+  }
+}
+
 async function status() {
   const cfg = podeUsar() ? cliente().config() : null;
-  const base = { podeUsar: !!cfg, ativa: ativa(), servidor: cfg?.hubNome || null, caixaId: cfg ? meuId() : null };
+  const base = { podeUsar: !!cfg, ativa: ativa(), servidor: cfg?.hubNome || null, caixaId: cfg ? meuId() : null, ...situacao() };
   if (!base.ativa) return { ...base, online: false };
   try {
     await pedir('/v1/mesas/versao', { desde: -1, esperarMs: 0 }, { timeoutMs: 4000 });
@@ -853,7 +878,7 @@ module.exports = {
   CANAIS, atenderChamada, puxar, concluir, devolver, destravar, versaoAtual, esperarMudanca,
   recusaPorTrava, travaDoComandoCelular,
   // caixa
-  ativa, podeUsar, status, definirModo, chamar, puxarParaPagar, devolverMesa, aoFinalizarVenda, processarFila,
+  ativa, podeUsar, status, situacao, definirModo, chamar, puxarParaPagar, devolverMesa, aoFinalizarVenda, processarFila,
   pendenciasDaFila, iniciarEscuta, pararEscuta,
   // testes
   _ultimoContato: () => ultimoContato,
