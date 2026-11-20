@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useEscToClose } from '../../hooks/useEscToClose';
 import { useSession } from '../../context/SessionContext';
 import { ProfileManager } from './ProfileManager';
@@ -49,6 +49,66 @@ const WHATSAPP_STATUS_COR = {
 };
 
 /** Uma fila de fotos: "120 de 340" e a barra. Tudo em dia quando não há o que fazer. */
+/**
+ * Mesas e estoque no servidor: o servidor guarda o registro das mesas e baixa o
+ * estoque do que é lançado nelas; os caixas só operam por ele (mesaCompartilhada).
+ * Aqui o caixa escolhe apontar para o servidor ou, só em emergência, usar mesas próprias.
+ */
+function MesasNoServidor({ servidorDoGrupo, podeMexer }) {
+  const [st, setSt] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+  const carregar = useCallback(() => window.pdv.mesaCompartilhada.status().then(setSt).catch(() => setSt({ podeUsar: false })), []);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  async function mudar(modo) {
+    if (modo === 'local' && !window.confirm('Usar só as mesas deste caixa?\n\nAs mesas do servidor somem daqui até você voltar. Use só se o servidor estiver desligado: a mesma mesa aberta nos dois computadores vira duas comandas.')) return;
+    setOcupado(true);
+    await window.pdv.mesaCompartilhada.definirModo({ modo }).catch(() => {});
+    await carregar();
+    setOcupado(false);
+  }
+
+  if (servidorDoGrupo) {
+    return (
+      <div className="sync-mesas-servidor">
+        <h3><Icon name="link" size={15} /> Mesas e estoque no servidor</h3>
+        <p className="screen-hint">Este computador é o servidor: guarda o registro de todas as mesas e o estoque da loja. Os caixas apontados para ele consultam e baixam o estoque aqui, nas mesas e no balcão.</p>
+      </div>
+    );
+  }
+  if (!st) return null;
+  return (
+    <div className="sync-mesas-servidor">
+      <h3><Icon name="link" size={15} /> Mesas e estoque no servidor</h3>
+      <p className="screen-hint">Todos os caixas mexem em todas as mesas. O registro das mesas e o estoque (consulta e baixa, nas mesas e no balcão) ficam só no servidor; entradas, ajustes e inventário também são feitos lá. Servidor fora do ar: este caixa continua vendendo e a baixa vai quando ele voltar.</p>
+      {!st.podeUsar ? (
+        <p className="screen-hint">Este caixa ainda não está ligado ao servidor pela rede local. Configure a rede local abaixo para usar as mesas do servidor.</p>
+      ) : st.ativa ? (
+        <>
+          <div className="pdv-number-badge">
+            <Icon name="link" size={15} /> <strong>Apontado para {st.servidor || 'o servidor'}</strong> — {st.online ? 'online' : `sem resposta agora${st.erro ? `: ${st.erro}` : ''}`}
+          </div>
+          {podeMexer && (
+            <div className="sync-recontar">
+              <button type="button" className="btn-secondary" disabled={ocupado} onClick={() => mudar('local')}>Usar só as mesas deste caixa</button>
+              <p className="screen-hint">Só para emergência (servidor desligado): a mesma mesa aberta nos dois computadores vira duas comandas.</p>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="modal-error" role="status">Este caixa está usando só as mesas dele.</div>
+          {podeMexer && (
+            <div className="sync-recontar">
+              <button type="button" className="btn-primary" disabled={ocupado} onClick={() => mudar('servidor')}>Apontar para o servidor{st.servidor ? ` (${st.servidor})` : ''}</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function LinhaProgressoFotos({ titulo, p }) {
   const total = Number(p?.total) || 0;
   const feitas = Number(p?.feitas) || 0;
@@ -1427,6 +1487,7 @@ export function SettingsScreen() {
             {recontagem.msg && <p className={recontagem.erro ? 'modal-error' : 'io-message'}>{recontagem.msg}</p>}
           </div>
         )}
+        {sincronizacaoAtiva && <MesasNoServidor servidorDoGrupo={servidorDoGrupo} podeMexer={['admin', 'suporte', 'gerente'].includes(currentUser.role)} />}
         {sincronizacaoAtiva && <RedeLocalConfig podeMexer={['admin', 'suporte'].includes(currentUser.role)} />}
       </section>
 

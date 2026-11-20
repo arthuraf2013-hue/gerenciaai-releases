@@ -340,3 +340,17 @@ test('banco antigo: o CHECK de sales.status passa a aceitar "transferida" sem pe
   atualizarCheckStatusDeVendasParaIncluirTransferida(velho);
   assert.equal(velho.prepare('SELECT COUNT(*) AS c FROM sales').get().c, 1);
 });
+
+test('estoque no servidor: o caixa consulta o saldo do servidor pela rede (contador menos as vendas abertas lá)', async () => {
+  await servidor({ cmd: 'run', sql: `INSERT OR REPLACE INTO lan_estoque (grupo_id, produto_id, quantidade) VALUES (?, 'doc-suco', 20)`, params: [G] });
+  const abertoNoServidor = (await sqlNoServidor(
+    `SELECT COALESCE(SUM(si.quantidade), 0) AS q FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     WHERE s.status = 'aberta' AND si.cancelado = 0 AND si.product_id = ?`, S.ids.suco))[0].q;
+  const r = await cliente.saldosDeEstoque();
+  assert.equal(r.saldos['doc-suco'], 20 - abertoNoServidor);
+  const es = require('../electron/services/estoqueServidorService');
+  es.invalidar();
+  assert.equal(es.apontado(), true);
+  assert.equal(await es.saldoParaLancar(local.suco), 20 - abertoNoServidor, 'id do caixa traduzido para o do grupo');
+  assert.equal(await es.saldoParaLancar(local.agua), null, 'sem contador no grupo: não trava');
+});

@@ -398,24 +398,57 @@ async function verificarEDebitarEstoqueRemoto(itens, { operacaoId = null } = {})
 }
 
 /**
- * Saldo do grupo de um produto, lido do contador que o servidor guarda
- * (lanArmazemService, a autoridade na rede local). null = o grupo ainda não
- * controla esse produto (sem contador) ou este computador não está num grupo:
- * quem chama não trava por causa do grupo. Só faz sentido no servidor.
+ * Saldos que o SERVIDOR do grupo tem para vender agora (rede local, modo hub):
+ * o contador do grupo (lanArmazemService, a autoridade) menos o que já está
+ * lançado em vendas ABERTAS aqui no servidor (mesas e balcão: o contador só é
+ * debitado ao finalizar). Map id do produto no grupo -> saldo. Produto sem
+ * contador não aparece (o grupo ainda não controla o estoque dele).
+ * `ids` (opcional): só esses produtos.
+ */
+function saldosNoServidor(grupoId, ids = null) {
+  const { getDb } = require('../db/database');
+  const contadores = require('./lanArmazemService').lerContadores(grupoId);
+  const reservado = new Map(getDb().prepare(
+    `SELECT COALESCE(r.doc_id, si.product_id) AS doc, SUM(si.quantidade) AS q
+     FROM sale_items si
+     JOIN sales s ON s.id = si.sale_id
+     JOIN products p ON p.id = si.product_id
+     LEFT JOIN grupo_replica r ON r.entidade = 'produtos' AND r.grupo_id = ? AND r.local_id = si.product_id
+     WHERE s.status = 'aberta' AND si.cancelado = 0 AND p.tipo != 'servico'
+     GROUP BY doc`
+  ).all(grupoId).map((l) => [l.doc, l.q]));
+  const filtro = Array.isArray(ids) ? new Set(ids.map(String)) : null;
+  const saldos = new Map();
+  for (const [doc, quantidade] of contadores) {
+    if (filtro && !filtro.has(doc)) continue;
+    saldos.set(doc, arredondarSaldo(quantidade - (reservado.get(doc) || 0)));
+  }
+  return saldos;
+}
+
+function arredondarSaldo(n) { return Math.round(Number(n) * 1000) / 1000; }
+
+/**
+ * Saldo do grupo de um produto daqui, quando ESTE computador é o servidor com
+ * a rede local ligada (o estoque do grupo é este). null = fora de grupo, não é
+ * o servidor, ou o grupo não controla esse produto (sem contador): quem chama
+ * usa o estoque local, como sempre.
  */
 function saldoDoGrupoNoServidor(productId) {
   try {
     const grupoId = syncStateService.getGrupoSincronizacaoId();
     if (!grupoId || !syncStateService.ehServidorDoGrupo()) return null;
-    const saldo = require('./lanArmazemService').lerContadores(grupoId).get(idNoGrupo(productId));
-    return Number.isFinite(saldo) ? saldo : null;
+    if (require('./grupoTransporteService').modoAtual() !== 'hub') return null;
+    const doc = idNoGrupo(productId);
+    const saldos = saldosNoServidor(grupoId, [doc]);
+    return saldos.has(doc) ? saldos.get(doc) : null;
   } catch { return null; }
 }
 
 function _zerarCacheParaTeste() { cacheContadores = { grupoId: null, conjunto: null, lidoEm: 0 }; }
 
 module.exports = {
-  saldoDoGrupoNoServidor,
+  saldoDoGrupoNoServidor, saldosNoServidor,
   garantirContadoresDoGrupo, produtosComEstoqueNoGrupo, enfileirarVariacao, _zerarCacheParaTeste,
   recontarEstoqueDoGrupo,
   pushEstoqueInicial, verificarEDebitarEstoqueRemoto,

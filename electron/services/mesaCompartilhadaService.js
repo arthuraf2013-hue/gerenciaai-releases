@@ -232,13 +232,13 @@ const CANAIS = {
     venda: true,
     fn: (a, c) => S().addItem({
       saleId: a.saleId, productId: a.productId, locationId: c.locationId, quantidade: a.quantidade,
-      operadorId: c.usuarioId, deviceId: a.deviceId, pessoaNumero: a.pessoaNumero, observacao: a.observacao, conferirGrupo: true,
+      operadorId: c.usuarioId, deviceId: a.deviceId, pessoaNumero: a.pessoaNumero, observacao: a.observacao,
     }),
   },
   'sale:ajustarQuantidade': {
     venda: true,
     fn: (a, c) => S().ajustarQuantidadeItem({
-      saleId: a.saleId, saleItemId: a.saleItemId, delta: a.delta, locationId: c.locationId, operadorId: c.usuarioId, deviceId: a.deviceId, conferirGrupo: true,
+      saleId: a.saleId, saleItemId: a.saleItemId, delta: a.delta, locationId: c.locationId, operadorId: c.usuarioId, deviceId: a.deviceId,
     }),
   },
   'sale:cancelItem': {

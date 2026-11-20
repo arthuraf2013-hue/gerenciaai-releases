@@ -283,9 +283,11 @@ async function vendasDoPeriodo(de, ate) {
 
 async function aplicarMovimento(m) { return pedido('/v1/estoque/movimento', m); }
 async function verificarEDebitar(itens, operacaoId) { return pedido('/v1/estoque/debitar', { itens, operacaoId }, { timeoutMs: 10000 }); }
+async function saldosDeEstoque(ids = null) { return pedido('/v1/estoque/saldos', ids ? { ids } : {}, { timeoutMs: 3000 }); }
 async function ping() { return pedido('/v1/ping', {}, { timeoutMs: 4000 }); }
 
 module.exports = {
+  saldosDeEstoque,
   config, parear, desligar, reencontrar, pedido, ping, lerTodos, lerAlguns, gravarLote, escutar, vendasDoPeriodo,
   aplicarMovimento, verificarEDebitar, procurarNaRede, normalizarEndereco,
 };

@@ -352,7 +352,11 @@ function registerIpcHandlers() {
   // --- Produtos ---
   safeHandle('product:findByBarcode', (_e, { codigoBarras }) => productService.findByBarcode(codigoBarras));
   safeHandle('product:findByBalancaCode', (_e, { codigoBalanca }) => productService.findByBalancaCode(codigoBalanca));
-  safeHandle('product:list', (_e, opts) => productService.list(opts));
+  // Caixa com estoque no servidor: o estoque mostrado é o do servidor (estoqueServidorService).
+  safeHandle('product:list', async (_e, opts) => {
+    const lista = productService.list(opts);
+    return opts?.locationId ? require('../services/estoqueServidorService').sobreporEstoque(lista) : lista;
+  });
   safeHandle('product:count', (_e, opts) => productService.count(opts));
   safeHandle('product:countConflitosCodigoBarrasPendentes', () => productService.countConflitosCodigoBarrasPendentes());
   safeHandle('product:findDuplicates', () => productService.findDuplicateProducts());
@@ -392,7 +396,7 @@ function registerIpcHandlers() {
   });
 
   // --- Estoque ---
-  safeHandle('stock:getForLocation', (_e, { locationId }) => stockService.getStockForLocation(locationId));
+  safeHandle('stock:getForLocation', async (_e, { locationId }) => require('../services/estoqueServidorService').sobreporEstoque(stockService.getStockForLocation(locationId)));
   safeHandle('stock:listLowStock', (_e, { locationId }) => stockService.listLowStock(locationId));
   safeHandle('stock:listAlerts', (_e, { locationId }) => stockService.listAlerts(locationId, profileService.getActiveProfile()));
   safeHandle('stock:previsaoDeRuptura', (_e, { locationId }) => stockService.previsaoDeRuptura(locationId));
@@ -402,7 +406,7 @@ function registerIpcHandlers() {
   // qualquer um pudesse chamar sem ser gerente -- ver waste:register mais
   // abaixo pro fluxo normal de quebra/perda, que continua aberto a
   // qualquer operador.
-  safeHandle('stock:adjust', (event, payload) => guardRole(event, PAPEIS_GESTAO) || stockService.adjustStock(payload));
+  safeHandle('stock:adjust', (event, payload) => guardRole(event, PAPEIS_GESTAO) || require('../services/estoqueServidorService').bloqueio() || stockService.adjustStock(payload));
 
   // --- PDV / Vendas ---
   safeHandle('sale:open', (_e, payload) => saleService.openSale(payload));
@@ -411,7 +415,14 @@ function registerIpcHandlers() {
   safeHandle('sale:listRecentlySold', (_e, payload) => saleService.listRecentlySold(payload));
   safeHandle('posDisplay:getConfig', () => posDisplayService.getConfig());
   safeHandle('posDisplay:updateConfig', (_e, payload) => posDisplayService.updateConfig(payload));
-  safeHandle('sale:addItem', (_e, payload) => saleService.addItem(payload));
+  safeHandle('sale:addItem', async (_e, payload) => {
+    const es = require('../services/estoqueServidorService');
+    if (!es.apontado()) return saleService.addItem(payload);
+    // Estoque no servidor: pergunta a ele quanto tem antes de lançar.
+    const r = saleService.addItem({ ...payload, estoqueNoServidor: true, saldoServidor: await es.saldoParaLancar(payload?.productId) });
+    if (r?.ok) es.invalidar();
+    return r;
+  });
   safeHandle('sale:addCustomItem', (_e, payload) => saleService.addCustomItem(payload));
   safeHandle('sale:addPayment', (_e, payload) => saleService.addPayment(payload));
   safeHandle('sale:getPaymentState', (_e, { saleId }) => saleService.getPaymentState(saleId));
@@ -419,11 +430,19 @@ function registerIpcHandlers() {
   safeHandle('sale:setItemNote', (_e, payload) => saleService.setItemNote(payload));
   safeHandle('sale:setItemPerson', (_e, payload) => saleService.setItemPerson(payload));
   safeHandle('sale:setItemPrice', (_e, payload) => saleService.setItemPrice(payload));
-  safeHandle('sale:ajustarQuantidade', (_e, payload) => saleService.ajustarQuantidadeItem(payload));
+  safeHandle('sale:ajustarQuantidade', async (_e, payload) => {
+    const es = require('../services/estoqueServidorService');
+    if (!es.apontado() || Number(payload?.delta) !== 1) return saleService.ajustarQuantidadeItem(payload);
+    const item = require('../db/database').getDb().prepare('SELECT product_id FROM sale_items WHERE id = ?').get(payload?.saleItemId);
+    const r = saleService.ajustarQuantidadeItem({ ...payload, estoqueNoServidor: true, saldoServidor: item ? await es.saldoParaLancar(item.product_id) : null });
+    if (r?.ok) es.invalidar();
+    return r;
+  });
   safeHandle('sale:marcarPagamentoPessoa', (_e, payload) => saleService.marcarPagamentoPessoa(payload));
   safeHandle('sale:editarHistorico', (_e, payload) => saleService.editarHistoricoVenda(payload));
   safeHandle('sale:finalize', async (event, { saleId, nomeSenha } = {}) => {
     const r = await saleService.finalizeSaleComVerificacaoDeGrupo(saleId);
+    require('../services/estoqueServidorService').invalidar();
     // Senha no balcão (lanchonete): gera a senha e manda a comanda para a
     // cozinha. Nunca derruba a finalização (ver chamadaService).
     if (r?.ok) {
@@ -1267,7 +1286,7 @@ function registerIpcHandlers() {
     const result = await supplyService.extractFromFile(filePaths[0]);
     return { ...result, arquivo: filePaths[0].split(/[\\/]/).pop() };
   });
-  safeHandle('supply:confirmEntries', (_e, payload) => supplyService.confirmEntries(payload));
+  safeHandle('supply:confirmEntries', (_e, payload) => require('../services/estoqueServidorService').bloqueio() || supplyService.confirmEntries(payload));
   safeHandle('supply:getDraft', () => supplyService.getDraft());
   safeHandle('supply:saveDraft', (_e, payload) => supplyService.saveDraft(payload));
   safeHandle('supply:clearDraft', () => supplyService.clearDraft());
@@ -1318,8 +1337,8 @@ function registerIpcHandlers() {
   safeHandle('nfeEntrada:atualizarItem', comModuloCompras((_e, p) => nfeEntradaService.atualizarItem(p)));
   safeHandle('nfeEntrada:vincularPedido', comModuloCompras((_e, p) => nfeEntradaService.vincularPedido(p)));
   safeHandle('nfeEntrada:descartar', comModuloCompras((_e, p) => nfeEntradaService.descartar(p)));
-  safeHandle('nfeEntrada:confirmar', comModuloCompras((_e, p) => nfeEntradaService.confirmar(p)));
-  safeHandle('nfeEntrada:estornar', comModuloCompras((_e, p) => nfeEntradaService.estornar(p)));
+  safeHandle('nfeEntrada:confirmar', comModuloCompras((_e, p) => require('../services/estoqueServidorService').bloqueio() || nfeEntradaService.confirmar(p)));
+  safeHandle('nfeEntrada:estornar', comModuloCompras((_e, p) => require('../services/estoqueServidorService').bloqueio() || nfeEntradaService.estornar(p)));
   // Itens sem produto viram produtos novos (prévia e cadastro; o operador vem da sessão).
   safeHandle('nfeEntrada:produtosNovos', comModuloCompras((_e, p) => cadastroAutomaticoService.produtosDaNota({ ...p, aplicar: false })));
   safeHandle('nfeEntrada:cadastrarProdutosNovos', comModuloCompras((_e, p) => cadastroAutomaticoService.produtosDaNota({ ...p, aplicar: true })));
@@ -1414,7 +1433,7 @@ function registerIpcHandlers() {
   safeHandle('inventario:obter', E((_e, p) => inventarioService.obter(p)));
   safeHandle('inventario:registrarContagem', E((_e, p) => inventarioService.registrarContagem(p)));
   safeHandle('inventario:limparContagem', E((_e, p) => inventarioService.limparContagem(p)));
-  safeHandle('inventario:fechar', E((_e, p) => inventarioService.fechar(p)));
+  safeHandle('inventario:fechar', E((_e, p) => require('../services/estoqueServidorService').bloqueio() || inventarioService.fechar(p)));
   safeHandle('inventario:cancelar', E((_e, p) => inventarioService.cancelar(p)));
   safeHandle('inventario:kardex', E((_e, p) => inventarioService.kardex(p)));
 

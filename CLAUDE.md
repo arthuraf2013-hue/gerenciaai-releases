@@ -367,6 +367,19 @@ hora (`tipo = 'servico'`) ficam fora da checagem. Produto sem contador não
 trava nem ganha contador por variação: quem cria é o servidor
 (`garantirContadoresDoGrupo`, ao abrir e a cada 30 min, com o estoque dele).
 
+**Mesas e estoque no servidor (nov/2026, pedido do Arthur).** Interruptor em
+Configurações -> Sincronização ("Mesas e estoque no servidor") = o mesmo modo das
+mesas do servidor (`mesaCompartilhadaService.ativa()`, `definirModo`). No caixa
+apontado, o estoque que vale é o do SERVIDOR: `estoqueServidorService` pergunta
+`/v1/estoque/saldos` (contador do grupo menos vendas abertas lá,
+`stockSyncService.saldosNoServidor`) e desconta as vendas abertas do próprio
+caixa; usado em `sale:addItem`, `sale:ajustarQuantidade` (+), `product:list` e
+`stock:getForLocation`. Servidor sem resposta ou produto sem contador: não trava
+(vende e acerta depois; a baixa vai ao finalizar) e a tela mostra estoque null.
+Entradas/ajustes/inventário/NF-e no caixa apontado: recusados (`bloqueio()`). No
+servidor (modo hub), `saleService.faltaDeEstoque` usa o saldo do grupo quando o
+produto tem contador (balcão e mesas lançadas pelos caixas); sem contador, o local.
+
 **App sem janela no Gerenciador de Tarefas** (nov/2026): toda impressão
 passa por `printService.imprimirEmJanelaInvisivel` (janela SEMPRE fecha:
 resposta, erro ou prazo de 90 s; com diálogo, 15 min) -- antes impressora

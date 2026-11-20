@@ -456,11 +456,30 @@ function setServiceCharge(saleId, percentual) {
 }
 
 /**
+ * Estoque que vale para lançar um item (null = pode lançar):
+ * - caixa com "Mesas e estoque no servidor": o saldo que o servidor informou
+ *   (`saldoServidor`); sem resposta dele ou produto sem contador no grupo, não
+ *   trava -- a baixa vai para o servidor ao finalizar (vende e acerta depois);
+ * - no servidor do grupo (rede local): o estoque do grupo (contador menos as
+ *   vendas abertas), que já inclui o que os caixas venderam;
+ * - fora disso: o estoque local, como sempre.
+ */
+function faltaDeEstoque({ productId, product, quantidade, disponivel, estoqueNoServidor, saldoServidor }) {
+  const msg = (onde, n) => ({ ok: false, error: `Estoque insuficiente${onde}. Disponível: ${Math.round(Number(n) * 1000) / 1000} ${product.unidade}.` });
+  if (estoqueNoServidor) {
+    return Number.isFinite(saldoServidor) && quantidade > saldoServidor ? msg(' no servidor', saldoServidor) : null;
+  }
+  const noGrupo = require('./stockSyncService').saldoDoGrupoNoServidor(productId);
+  if (noGrupo !== null) return quantidade > noGrupo ? msg(' no grupo', noGrupo) : null;
+  return quantidade > disponivel ? msg('', disponivel) : null;
+}
+
+/**
  * Adiciona um item à venda e JÁ baixa o estoque imediatamente
  * (requisito: vendas diminuem estoque diretamente, não só no fechamento).
  * Roda em transação: se o movimento de estoque falhar, o item não é gravado.
  */
-function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao, conferirGrupo = false }) {
+function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao, estoqueNoServidor = false, saldoServidor = null }) {
   const db = getDb();
 
   // Observação do item (ex.: "sem gelo"): o item com observação é sempre uma
@@ -488,15 +507,8 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // insumo/ficha técnica (ver dentro da transação abaixo).
   const ehServico = product.tipo === 'servico';
   const disponivel = ehServico ? null : getCurrentStock(productId, locationId);
-  if (!ehServico && quantidade > disponivel) {
-    // Lançamento vindo de um caixa na mesa do servidor: o estoque que vale é
-    // o do GRUPO (o do servidor sozinho pode estar zerado enquanto o grupo tem).
-    const noGrupo = conferirGrupo ? require('./stockSyncService').saldoDoGrupoNoServidor(productId) : null;
-    if (noGrupo === null || noGrupo < quantidade) {
-      const mostrado = noGrupo === null ? disponivel : noGrupo;
-      return { ok: false, error: `Estoque insuficiente${noGrupo === null ? '' : ' no grupo'}. Disponível: ${mostrado} ${product.unidade}.` };
-    }
-  }
+  const semEstoque = ehServico ? null : faltaDeEstoque({ productId, product, quantidade, disponivel, estoqueNoServidor, saldoServidor });
+  if (semEstoque) return semEstoque;
 
   const custom = JSON.parse(product.custom_fields || '{}');
   const avisoReceita = !!(custom.controlado && custom.exige_receita);
@@ -629,7 +641,7 @@ function itemAjustavel(db, item, product) {
  * cancelar um. Diminuir depois de entrar pagamento não passa por aqui: aí
  * é o Cancelar, que pede autorização (ver cancelSaleItem).
  */
-function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operadorId, deviceId, conferirGrupo = false }) {
+function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operadorId, deviceId, estoqueNoServidor = false, saldoServidor = null }) {
   const db = getDb();
   const passo = Number(delta);
   if (passo !== 1 && passo !== -1) return { ok: false, error: 'Ajuste inválido.' };
@@ -651,12 +663,8 @@ function ajustarQuantidadeItem({ saleId, saleItemId, delta, locationId, operador
     if (!product.ativo) return { ok: false, error: 'Este produto foi desativado.' };
     if (!ehServico) {
       disponivel = getCurrentStock(product.id, locationId);
-      if (disponivel < 1) {
-        const noGrupo = conferirGrupo ? require('./stockSyncService').saldoDoGrupoNoServidor(product.id) : null;
-        if (noGrupo === null || noGrupo < 1) {
-          return { ok: false, error: `Estoque insuficiente${noGrupo === null ? '' : ' no grupo'}. Disponível: ${noGrupo === null ? disponivel : noGrupo} ${product.unidade}.` };
-        }
-      }
+      const semEstoque = faltaDeEstoque({ productId: product.id, product, quantidade: 1, disponivel, estoqueNoServidor, saldoServidor });
+      if (semEstoque) return semEstoque;
     }
   } else {
     if (item.quantidade <= 1) return { ok: false, error: 'Para tirar o último, use Cancelar.' };

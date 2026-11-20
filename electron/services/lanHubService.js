@@ -196,6 +196,11 @@ async function atender(caminho, corpo, caixaId) {
       return [200, mesas().devolver(corpo, caixaDoPedido(caixaId))];
     case '/v1/mesas/versao':
       return [200, { versao: await mesas().esperarMudanca(corpo.desde, corpo.esperarMs) }];
+    // Estoque no servidor: o caixa consulta aqui o que dá para vender (contador - vendas abertas daqui).
+    case '/v1/estoque/saldos': {
+      const ids = Array.isArray(corpo.ids) ? corpo.ids.slice(0, 20000).map(String) : null;
+      return [200, { saldos: Object.fromEntries(require('./stockSyncService').saldosNoServidor(g, ids)) }];
+    }
     case '/v1/estoque/debitar': {
       if (!Array.isArray(corpo.itens) || !corpo.itens.length) return [400, { erro: 'itens' }];
       const itens = corpo.itens.map((i) => ({ productId: String(i.productId), quantidade: Number(i.quantidade), nome: i.nome || null }));
