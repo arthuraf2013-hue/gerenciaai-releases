@@ -7,7 +7,7 @@
 const fs = require('fs');
 
 const PADRAO = { width: 1280, height: 800 };
-const MENOR = { width: 1024, height: 700 }; // = minWidth/minHeight da janela (main.js)
+const MENOR = { width: 800, height: 500 }; // = minWidth/minHeight da janela (main.js)
 // Quanto da janela precisa cair dentro de um monitor para valer a posição salva.
 const VISIVEL_MIN = { width: 200, height: 120 };
 

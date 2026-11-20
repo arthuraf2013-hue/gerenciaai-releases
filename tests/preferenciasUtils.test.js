@@ -59,3 +59,21 @@ test('densidade automática e passos de letra', () => {
   assert.equal(p.proximoZoom(1.4, +1), 1.4);
   assert.equal(p.proximoZoom(0.9, -1), 0.9);
 });
+
+test('ajuste automático à tela: 1 na faixa de projeto, encolhe em tela pequena, amplia em tela grande', () => {
+  const f = p.fatorAutomatico;
+  assert.equal(f(1280, 720), 1);
+  assert.equal(f(1600, 900), 1);
+  assert.equal(f(1920, 1080), 1);
+  assert.equal(f(1093, 600), 0.8); // notebook 1366x768 com escala de 125%
+  assert.equal(f(1024, 576), 0.8);
+  assert.equal(f(800, 500), 0.6);
+  assert.equal(f(300, 200), 0.6); // nunca abaixo do mínimo
+  assert.equal(f(2560, 1440), 1.3);
+  assert.equal(f(3840, 2160), 2);
+  assert.equal(f(7680, 4320), 2); // nunca acima do máximo
+  assert.equal(f(1280, 600), 0.8); // só a altura é pequena: vale a menor proporção
+  assert.equal(f(2560, 800), 1); // ultrawide baixo: não amplia pela largura
+  assert.equal(f(NaN, 700), 1);
+  assert.equal(f(0, 0), 1);
+});

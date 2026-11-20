@@ -125,8 +125,10 @@ function createWindow() {
     y: pos.y,
     width: pos.width,
     height: pos.height,
-    minWidth: 1024,
-    minHeight: 700,
+    // Janela pode ficar pequena: a interface se ajusta sozinha ao tamanho
+    // (zoom automático, ver fatorAutomatico em src/utils/preferencias.js).
+    minWidth: 800,
+    minHeight: 500,
     // Sem a barra "File Edit View Window" do Electron: no caixa ela só
     // roubava altura da tela (aparece com Alt, para suporte).
     autoHideMenuBar: true,

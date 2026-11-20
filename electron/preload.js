@@ -22,7 +22,13 @@ contextBridge.exposeInMainWorld('pdv', {
   tela: {
     setZoom: (fator) => {
       const f = Number(fator);
-      webFrame.setZoomFactor(Number.isFinite(f) ? Math.min(1.6, Math.max(0.8, f)) : 1);
+      webFrame.setZoomFactor(Number.isFinite(f) ? Math.min(2.5, Math.max(0.5, f)) : 1);
+    },
+    // Tamanho da janela em pixels do sistema, sem o zoom da página (base do
+    // ajuste automático à resolução: ver fatorAutomatico em preferencias.js).
+    tamanhoReal: () => {
+      const z = webFrame.getZoomFactor() || 1;
+      return { w: Math.round(window.innerWidth * z), h: Math.round(window.innerHeight * z) };
     },
     // Teclado de toque do Windows: 'preparar' | 'mostrar' | 'esconder'.
     tecladoSistema: (acao) => ipcRenderer.invoke('tela:tecladoSistema', { acao }),

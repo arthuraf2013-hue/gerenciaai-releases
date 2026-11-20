@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSession } from './SessionContext';
 import { useToque } from './ToqueContext';
-import { mesclarPreferencias, PREFERENCIAS_PADRAO, densidadeEfetiva, ZOOM_OPCOES } from '../utils/preferencias';
+import { mesclarPreferencias, PREFERENCIAS_PADRAO, densidadeEfetiva, fatorAutomatico, ZOOM_OPCOES } from '../utils/preferencias';
 
 // Preferências de tela de quem está logado (menu, PDV, letra, densidade, tema).
 // Gravadas por usuário no banco (prefs:get / prefs:set -- preferenciasService),
@@ -16,6 +16,10 @@ export function PreferenciasProvider({ children }) {
   const [prefs, setPrefs] = useState(PREFERENCIAS_PADRAO);
   const [carregado, setCarregado] = useState(false);
   const [larguraJanela, setLarguraJanela] = useState(() => window.innerWidth);
+  // Ajuste automático à resolução/tamanho da janela (só no app: fora dele não há zoom da página).
+  const lerAuto = () => (typeof window.pdv?.tela?.tamanhoReal === 'function'
+    ? fatorAutomatico(window.pdv.tela.tamanhoReal().w, window.pdv.tela.tamanhoReal().h) : 1);
+  const [auto, setAuto] = useState(lerAuto);
 
   useEffect(() => {
     let ignorar = false;
@@ -30,9 +34,15 @@ export function PreferenciasProvider({ children }) {
   }, [currentUser?.id]);
 
   useEffect(() => {
-    const aoRedimensionar = () => setLarguraJanela(window.innerWidth);
+    let espera = null;
+    const aoRedimensionar = () => {
+      setLarguraJanela(window.innerWidth);
+      // Arrastar a borda dispara resize toda hora: o ajuste espera a mão parar.
+      clearTimeout(espera);
+      espera = setTimeout(() => setAuto(lerAuto()), 150);
+    };
     window.addEventListener('resize', aoRedimensionar);
-    return () => window.removeEventListener('resize', aoRedimensionar);
+    return () => { clearTimeout(espera); window.removeEventListener('resize', aoRedimensionar); };
   }, []);
 
   // Letra (tudo cresce junto, como o Ctrl+ do navegador) e densidade.
@@ -45,10 +55,11 @@ export function PreferenciasProvider({ children }) {
   const densidade = toque ? 'confortavel' : densidadeEfetiva(prefs.visual.densidade, zoomNativo ? larguraJanela : larguraJanela / zoom);
   useEffect(() => {
     const raiz = document.documentElement;
-    if (zoomNativo) window.pdv.tela.setZoom(zoom);
+    // Letra do usuário x ajuste à tela (a tela de login também se ajusta).
+    if (zoomNativo) window.pdv.tela.setZoom(zoom * auto);
     else raiz.style.zoom = zoom === 1 ? '' : String(zoom);
     raiz.classList.toggle('densidade-compacta', logado && densidade === 'compacta');
-  }, [zoom, densidade, logado, zoomNativo]);
+  }, [zoom, auto, densidade, logado, zoomNativo]);
 
   // Tema por usuário: quem escolheu fica com o seu; quem nunca escolheu
   // segue o do computador (gerenciaai:tema, como sempre foi).

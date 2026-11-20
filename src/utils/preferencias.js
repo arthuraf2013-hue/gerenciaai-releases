@@ -41,6 +41,27 @@ export function mesclarPreferencias(salvo) {
   };
 }
 
+/**
+ * Ajuste automático à tela: fator de zoom a partir do tamanho real da janela
+ * (em pixels do sistema, sem o zoom da página). A interface foi desenhada
+ * para 1280x720 até 1920x1080; nessa faixa não muda nada (fator 1). Janela
+ * menor encolhe tudo para caber (notebook 1366x768 com escala de 125%, janela
+ * pequena); janela/monitor maior (2K, 4K) amplia para não ficar minúsculo.
+ * Passos de 0,05 (para baixo, para sempre caber) sem ficar mudando de tamanho a cada pixel arrastado.
+ */
+export const AUTO_ZOOM = Object.freeze({ minimo: 0.6, maximo: 2, base: { w: 1280, h: 720 }, grande: { w: 1920, h: 1080 } });
+export function fatorAutomatico(largura, altura) {
+  const w = Number(largura);
+  const h = Number(altura);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return 1;
+  const { base, grande, minimo, maximo } = AUTO_ZOOM;
+  let f = 1;
+  if (w < base.w || h < base.h) f = Math.min(w / base.w, h / base.h);
+  else if (w > grande.w && h > grande.h) f = Math.min(w / grande.w, h / grande.h);
+  f = Math.min(maximo, Math.max(minimo, f));
+  return Math.floor(f * 20 + 1e-9) / 20; // para baixo: nunca passa do que cabe
+}
+
 /** Densidade que vale agora: no automático, compacta em tela de notebook. */
 export function densidadeEfetiva(preferida, larguraUtil) {
   if (preferida === 'compacta' || preferida === 'confortavel') return preferida;
