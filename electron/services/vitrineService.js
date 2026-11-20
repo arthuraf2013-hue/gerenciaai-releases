@@ -47,6 +47,19 @@ function parseModos(json) {
   }
 }
 
+let falhaPublicacao = null; // { motivo, texto, em }
+const TEXTO_FALHA = {
+  timeout: 'sem conexão com a internet (o envio não terminou). Tentando de novo a cada 5 minutos.',
+  sem_cota: 'limite de envios à nuvem atingido por agora. Tente mais tarde.',
+  erro: 'erro ao enviar para a nuvem. Veja a conexão e clique em Publicar agora.',
+};
+const LIMITE_ENVIO_MS = 20000;
+function anotarFalhaPublicacao(motivo) { falhaPublicacao = { motivo, texto: TEXTO_FALHA[motivo] || TEXTO_FALHA.erro, em: new Date().toISOString() }; }
+function _definirTempoLimiteParaTeste(ms) { limiteEnvioMs = ms; }
+let limiteEnvioMs = LIMITE_ENVIO_MS;
+let nuvemDeTeste = null; // { doc, writeBatch, serverTimestamp } falsos nos testes
+function _definirNuvemParaTeste(n) { nuvemDeTeste = n || null; }
+
 function getConfig() {
   const r = getRow();
   return {
@@ -67,6 +80,8 @@ function getConfig() {
     link: r.slug ? linkPublico(r.slug) : null,
     ultimaPublicacao: r.ultima_publicacao || null,
     itensPublicados: r.itens_publicados ?? null,
+    // Última tentativa que não deu certo (só em memória): a tela mostra o motivo.
+    falhaPublicacao: falhaPublicacao ? { ...falhaPublicacao } : null,
   };
 }
 
@@ -446,6 +461,10 @@ let publicando = null;
 async function publicarSeMudou() {
   if (publicando) return publicando;
   publicando = (async () => {
+    // Sem este await, uma saída antecipada (sem endereço, sem mudança) rodava o finally
+    // ANTES de `publicando` ser atribuído e a trava ficava presa com o resultado velho
+    // para sempre: a vitrine nunca mais publicava até reiniciar o app.
+    await null;
     try {
       const config = getConfig();
       if (!config.slug) return { publicado: false, motivo: 'sem_endereco' };
@@ -457,22 +476,31 @@ async function publicarSeMudou() {
         pagamentoOnline: !!(config.ativa && config.pixOnline && config.pixOnlineDisponivel),
       };
       const hash = crypto.createHash('sha256').update(JSON.stringify({ publico, itens })).digest('hex');
-      if (hash === getRow().ultimo_hash) return { publicado: false, motivo: 'sem_mudanca' };
-      if (!require('./nuvemDisjuntorService').podeEscrever('vitrine', 2)) return { publicado: false, motivo: 'sem_cota' };
+      if (hash === getRow().ultimo_hash && getRow().ultima_publicacao) { falhaPublicacao = null; return { publicado: false, motivo: 'sem_mudanca' }; }
+      if (!require('./nuvemDisjuntorService').podeEscrever('vitrine', 2)) { anotarFalhaPublicacao('sem_cota'); return { publicado: false, motivo: 'sem_cota' }; }
 
-      const { doc, writeBatch, serverTimestamp } = require('firebase/firestore');
+      const { doc, writeBatch, serverTimestamp } = nuvemDeTeste || require('firebase/firestore');
       const firestore = require('./licenseService').getLicenseFirestore();
       const installId = require('./pdvRegistryService').getOrCreateDeviceUid();
       const lote = writeBatch(firestore);
       lote.set(doc(firestore, 'installations', installId, 'vitrine', 'config'), { ...publico, atualizadoEm: serverTimestamp() });
       lote.set(doc(firestore, 'installations', installId, 'vitrine', 'catalogo'), { itens, atualizadoEm: serverTimestamp() });
-      await lote.commit();
+      let relogio;
+      try {
+        await Promise.race([
+          lote.commit(),
+          new Promise((_, rej) => { relogio = setTimeout(() => rej(Object.assign(new Error('envio demorou demais'), { codigo: 'timeout' })), limiteEnvioMs); }),
+        ]);
+      } finally { clearTimeout(relogio); }
+      falhaPublicacao = null;
       getDb().prepare(`UPDATE vitrine_config SET ultimo_hash = ?, ultima_publicacao = NOW_SYNCED(), itens_publicados = ? WHERE id = 'default'`)
         .run(hash, itens.length);
       return { publicado: true, itens: itens.length };
     } catch (err) {
       console.error('[vitrineService] publicar falhou:', err?.message || err);
-      return { publicado: false, motivo: 'erro' };
+      const motivo = err?.codigo === 'timeout' ? 'timeout' : 'erro';
+      anotarFalhaPublicacao(motivo);
+      return { publicado: false, motivo };
     } finally {
       publicando = null;
     }
@@ -490,6 +518,6 @@ function iniciarPublicacaoContinua() {
 module.exports = {
   getConfig, getConfigComQr, saveConfig, aplicarDaInstalacao, montarCatalogo, publicarSeMudou, iniciarPublicacaoContinua, linkPublico, faixaDeEstoque,
   qrDasMesas, qrDaMesa, internetDisponivel, trocarQrDaMesa, mesaPeloToken, hashTokenMesa, mapaPublicoDasMesas, garantirTokenMesa,
-  salvarQrPng, imprimirQrMesas, montarFolhaQrMesas, gerarPdfQrMesas, configDoQrComEscolhas,
+  salvarQrPng, imprimirQrMesas, montarFolhaQrMesas, gerarPdfQrMesas, configDoQrComEscolhas, _definirTempoLimiteParaTeste, _definirNuvemParaTeste,
   SLUG_VALIDO, MODOS_VALIDOS,
 };

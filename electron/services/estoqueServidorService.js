@@ -98,10 +98,29 @@ async function sobreporEstoque(lista) {
     : p));
 }
 
+/**
+ * Alertas de estoque (crítico/aviso) deste caixa. Com o estoque no servidor, o saldo
+ * local daqui é só o que este caixa vendeu (zero ou negativo): o alerta usa o saldo
+ * do servidor. Servidor sem resposta: cai para o saldo local, como antes.
+ */
+async function alertas(locationId, profile) {
+  const stockService = require('./stockService');
+  if (!apontado()) return stockService.listAlerts(locationId, profile);
+  const ids = getDb().prepare('SELECT id FROM products WHERE ativo = 1').all().map((p) => p.id);
+  const saldos = await disponivel(ids);
+  return stockService.listAlerts(locationId, profile, saldos ? { saldos } : {});
+}
+
+/** Produtos no ou abaixo do mínimo, pelo estoque que vale neste caixa. */
+async function estoqueBaixo(locationId) {
+  const lista = await sobreporEstoque(require('./stockService').getStockForLocation(locationId));
+  return lista.filter((p) => p.estoque_atual !== null && p.estoque_atual !== undefined && p.estoque_atual <= p.estoque_minimo);
+}
+
 /** Entrada/ajuste/inventário neste caixa: recusa (o estoque é do servidor). */
 function bloqueio() {
   if (!apontado()) return null;
   return { ok: false, error: 'Este caixa usa o estoque do servidor: entradas, ajustes e inventário são feitos no computador servidor do grupo.' };
 }
 
-module.exports = { apontado, invalidar, saldosDoServidor, disponivel, saldoParaLancar, sobreporEstoque, bloqueio, reservadoAqui };
+module.exports = { apontado, invalidar, saldosDoServidor, disponivel, saldoParaLancar, sobreporEstoque, alertas, estoqueBaixo, bloqueio, reservadoAqui };

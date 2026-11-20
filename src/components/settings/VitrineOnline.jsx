@@ -150,6 +150,7 @@ export function VitrineOnline() {
   const [form, setForm] = useState(null);
   const [mensagem, setMensagem] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [publicandoAgora, setPublicandoAgora] = useState(false);
   const [versaoQr, setVersaoQr] = useState(0);
 
   async function carregar() {
@@ -191,6 +192,18 @@ export function VitrineOnline() {
     else if (!r?.cancelado) setMensagem({ tipo: 'erro', texto: r?.error || 'Não consegui salvar.' });
   }
 
+  async function publicarAgora() {
+    setPublicandoAgora(true);
+    try {
+      const r = await window.pdv.vitrine.publicarAgora();
+      if (r?.publicado) setMensagem({ tipo: 'ok', texto: `Publicada — ${r.itens} produto(s).` });
+      else if (r?.motivo === 'sem_mudanca') setMensagem({ tipo: 'ok', texto: 'A página já está atualizada.' });
+      else if (r?.motivo === 'sem_endereco') setMensagem({ tipo: 'erro', texto: 'O endereço da vitrine ainda não foi criado na Central.' });
+    } catch { setMensagem({ tipo: 'erro', texto: 'Não consegui publicar agora.' }); }
+    setPublicandoAgora(false);
+    carregar();
+  }
+
   async function copiarLink() {
     try { await navigator.clipboard.writeText(config.link); setMensagem({ tipo: 'ok', texto: 'Link copiado — cole na bio do Instagram, no Google e no status do WhatsApp.' }); } catch { setMensagem({ tipo: 'erro', texto: 'Não consegui copiar.' }); }
   }
@@ -213,10 +226,11 @@ export function VitrineOnline() {
                 <div className="vitrine-link-url">{config.link}</div>
                 <p className="screen-hint" style={{ margin: '4px 0 8px' }}>
                   {config.ativa
-                    ? (config.ultimaPublicacao ? `Publicada ${dataHora(config.ultimaPublicacao)} · ${config.itensPublicados ?? 0} produto(s)` : 'Publicando...')
+                    ? (config.falhaPublicacao ? `Não publicou: ${config.falhaPublicacao.texto}` : config.ultimaPublicacao ? `Publicada ${dataHora(config.ultimaPublicacao)} · ${config.itensPublicados ?? 0} produto(s)` : 'Publicando...')
                     : 'Desligada: quem abrir o link vê "vitrine fechada".'}
                 </p>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {config.ativa && <button type="button" className="btn-secondary" disabled={publicandoAgora} onClick={publicarAgora}><Icon name="refresh" size={15} /> {publicandoAgora ? 'Publicando...' : 'Publicar agora'}</button>}
                   <button type="button" className="btn-secondary" onClick={copiarLink}><Icon name="link" size={15} /> Copiar link</button>
                   <button type="button" className="btn-secondary" onClick={salvarQrVitrine}><Icon name="export" size={15} /> Salvar QR (PNG)</button>
                   <a className="btn-secondary" href={config.link} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}><Icon name="globe" size={15} /> Abrir a página</a>

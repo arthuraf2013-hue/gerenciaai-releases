@@ -20,3 +20,7 @@ masterkey co.txt
 
 # fotos do teste de ponta a ponta (e2e/celular.py)
 e2e/fotos/
+
+# pacotes de entrega (gN.zip) e pastas extraidas por engano na raiz
+/g[0-9]*.zip
+/g[0-9]*/

@@ -282,3 +282,20 @@ test('nota da venda de mesa finalizada: acha a mesa (e as unidas) mesmo depois d
   const { id: balcao } = saleService.openSale({ locationId: ctx.locationId, operadorId: ctx.operadorId });
   assert.equal(printService.mesaDaVenda(ctx.db, balcao), null);
 });
+
+test('tamanho da letra: "Muito grande" e "Enorme" valem para nota, pré-nota e comanda; enorme tira o unitário para o Total caber', () => {
+  const L = require('../electron/services/impressaoLayout');
+  for (const tipo of ['nota', 'prenota', 'cozinha']) {
+    for (const t of ['extra', 'gigante']) assert.equal(L.normalizarConfig(tipo, { tamanho: t }).tamanho, t);
+    assert.equal(L.normalizarConfig(tipo, { tamanho: 'absurdo' }).tamanho, L.PADRAO[tipo].tamanho, 'valor inválido volta ao padrão');
+  }
+  const fonte = (html) => Number(/body\s*\{[^}]*font-size:\s*(\d+)px/.exec(html)?.[1]);
+  const nota = (t) => L.montarNota(L.normalizarConfig('nota', { tamanho: t }), L.exemplo('nota', { larguraMm: 80, loja: { nome: 'Loja' } }));
+  assert.ok(fonte(nota('extra')) > fonte(nota('grande')) && fonte(nota('gigante')) > fonte(nota('extra')), 'cada tamanho é maior que o anterior');
+  assert.match(nota('extra'), /<th>Unit\.<\/th>/);
+  assert.doesNotMatch(nota('gigante'), /<th>Unit\.<\/th>/);
+  assert.match(nota('gigante'), /<th>Total<\/th>/);
+  const comanda = (t) => L.montarComandaCozinha(L.normalizarConfig('cozinha', { tamanho: t }), L.exemploComanda(), { larguraMm: 80 });
+  const px = (html) => Math.max(...[...html.matchAll(/font-size:\s*(\d+)px/g)].map((m) => Number(m[1])));
+  assert.ok(px(comanda('gigante')) > px(comanda('extra')) && px(comanda('extra')) > px(comanda('grande')));
+});

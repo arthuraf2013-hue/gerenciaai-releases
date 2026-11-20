@@ -108,3 +108,39 @@ test('mensagem do pedido e link de WhatsApp', async () => {
   assert.equal(u.slugValido('../x'), false);
   assert.equal(u.slugValido('-a'), false);
 });
+
+test('publicar: envio que trava vira "timeout" (a trava solta) e a tela recebe o motivo; falha comum vira "erro"', async () => {
+  const ctx = lojaComProdutos();
+  vitrine.getConfig(); // cria a linha da config
+  await vitrine.publicarSeMudou(); // deixa terminar publicações disparadas por testes anteriores
+  await new Promise((r) => setTimeout(r, 20));
+  ctx.db.prepare("UPDATE vitrine_config SET slug = 'loja-teste', ativa = 1 WHERE id = 'default'").run();
+  const antesFirestore = licenseService.getLicenseFirestore;
+  try {
+    licenseService.getLicenseFirestore = () => ({});
+    vitrine._definirNuvemParaTeste({ doc: () => ({}), serverTimestamp: () => 0, writeBatch: () => ({ set() {}, commit: () => new Promise(() => {}) }) }); // nunca termina
+    vitrine._definirTempoLimiteParaTeste(50);
+    const r = await vitrine.publicarSeMudou();
+    assert.equal(r.publicado, false);
+    assert.equal(r.motivo, 'timeout');
+    assert.equal(vitrine.getConfig().falhaPublicacao.motivo, 'timeout');
+    assert.match(vitrine.getConfig().falhaPublicacao.texto, /internet/);
+
+    // A trava foi solta: nova tentativa roda e, funcionando, limpa a falha.
+    vitrine._definirNuvemParaTeste({ doc: () => ({}), serverTimestamp: () => 0, writeBatch: () => ({ set() {}, commit: async () => {} }) });
+    const ok = await vitrine.publicarSeMudou();
+    assert.equal(ok.publicado, true);
+    assert.equal(vitrine.getConfig().falhaPublicacao, null);
+    assert.ok(vitrine.getConfig().ultimaPublicacao);
+
+    // Falha comum antes do envio.
+    ctx.db.prepare("UPDATE vitrine_config SET ultimo_hash = NULL WHERE id = 'default'").run();
+    licenseService.getLicenseFirestore = () => { throw new Error('sem rede no teste'); };
+    assert.equal((await vitrine.publicarSeMudou()).motivo, 'erro');
+    assert.equal(vitrine.getConfig().falhaPublicacao.motivo, 'erro');
+  } finally {
+    vitrine._definirNuvemParaTeste(null);
+    licenseService.getLicenseFirestore = antesFirestore;
+    vitrine._definirTempoLimiteParaTeste(20000);
+  }
+});

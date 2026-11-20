@@ -108,7 +108,7 @@ const TIPOS = Object.keys(PADRAO);
 const ESCOLHAS = {
   alinhamento: ['centro', 'esquerda'],
   fonte: ['mono', 'sans'],
-  tamanho: ['pequena', 'normal', 'grande'],
+  tamanho: ['pequena', 'normal', 'grande', 'extra', 'gigante'], // extra = muito grande; gigante = enorme (letra para vista cansada)
   separador: ['tracejado', 'continuo'],
   mesaTamanho: ['normal', 'grande', 'enorme'],
   papel: ['a4', 'carta', 'oficio', 'a6', 'termica'],
@@ -141,7 +141,7 @@ function normalizarConfig(tipo, entrada) {
 function medidas(larguraMm, tamanho) {
   const isTermica = larguraMm === 58 || larguraMm === 80;
   const base = larguraMm === 58 ? 10 : isTermica ? 11 : 12;
-  const fonte = base + ({ pequena: -1, normal: 0, grande: 2 }[tamanho] || 0);
+  const fonte = base + ({ pequena: -1, normal: 0, grande: 2, extra: 5, gigante: 9 }[tamanho] || 0);
   return { isTermica, fonte, larguraCss: isTermica ? `${larguraMm}mm` : '190mm' };
 }
 
@@ -211,7 +211,10 @@ function linhasDeInfo(config, venda, { rotuloCodigo, dataUtc, extra = [] }) {
   return linhas.map((l) => `<p class="info center">${l}</p>`).join('');
 }
 
-function tabelaItens(config, itens) {
+function tabelaItens(configOriginal, itens) {
+  // Letra enorme não cabe com 4 colunas no rolo (o Total saía cortado): sem o
+  // unitário, a conta continua inteira. O valor unitário volta com letra menor.
+  const config = configOriginal.tamanho === 'gigante' ? { ...configOriginal, colunaUnitario: false } : configOriginal;
   const cabec = `<thead><tr><th>Item</th><th>Qtd</th>${config.colunaUnitario ? '<th>Unit.</th>' : ''}<th>Total</th></tr></thead>`;
   const linhas = itens.map((i) => `
     <tr><td>${escHtml(i.nome)}</td><td class="n">${escHtml(i.quantidade)}</td>${config.colunaUnitario ? `<td class="n">${dinheiro(i.precoUnitario)}</td>` : ''}<td class="n">${dinheiro(i.precoUnitario * i.quantidade)}</td></tr>
@@ -407,7 +410,7 @@ function montarComandaCozinha(config, comanda, { larguraMm = 80 } = {}) {
   const c = normalizarConfig('cozinha', config);
   const estreita = larguraMm === 58;
   const largura = estreita ? 54 : 74;
-  const fonteItem = ({ pequena: 15, normal: 17, grande: 20 }[c.tamanho] || 17) - (estreita ? 2 : 0);
+  const fonteItem = ({ pequena: 15, normal: 17, grande: 20, extra: 24, gigante: 28 }[c.tamanho] || 17) - (estreita ? 2 : 0);
   const familia = c.fonte === 'mono' ? "'Courier New', monospace" : 'Arial, Helvetica, sans-serif';
   const linha = c.separador === 'continuo' ? 'solid' : 'dashed';
   const tamMesa = { normal: fonteItem + 4, grande: fonteItem + 10, enorme: Math.round(fonteItem * 2) }[c.mesaTamanho] || fonteItem + 10;

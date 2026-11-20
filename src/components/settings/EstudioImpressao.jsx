@@ -298,7 +298,7 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
                 <section className="estudio-grupo">
                   <h3>Letra</h3>
                   <Escolha rotulo="Tipo de letra" valor={c.fonte} onChange={(v) => mudar('fonte', v)} opcoes={[['sans', 'Moderna'], ['mono', 'Cupom (mono)']]} />
-                  <Escolha rotulo="Tamanho dos itens" valor={c.tamanho} onChange={(v) => mudar('tamanho', v)} opcoes={[['pequena', 'Pequena'], ['normal', 'Normal'], ['grande', 'Grande']]} />
+                  <Escolha rotulo="Tamanho dos itens" valor={c.tamanho} onChange={(v) => mudar('tamanho', v)} opcoes={[['pequena', 'Pequena'], ['normal', 'Normal'], ['grande', 'Grande'], ['extra', 'Muito grande'], ['gigante', 'Enorme']]} />
                   <Escolha rotulo="Linha separadora" valor={c.separador} onChange={(v) => mudar('separador', v)} opcoes={[['tracejado', '- - - Tracejada'], ['continuo', '—— Contínua']]} />
                 </section>
                 <section className="estudio-grupo">
@@ -386,7 +386,7 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
             <section className="estudio-grupo">
               <h3>Letra</h3>
               <Escolha rotulo="Tipo de letra" valor={c.fonte} onChange={(v) => mudar('fonte', v)} opcoes={[['mono', 'Cupom (mono)'], ['sans', 'Moderna']]} />
-              <Escolha rotulo="Tamanho da letra" valor={c.tamanho} onChange={(v) => mudar('tamanho', v)} opcoes={[['pequena', 'Pequena'], ['normal', 'Normal'], ['grande', 'Grande']]} />
+              <Escolha rotulo="Tamanho da letra" valor={c.tamanho} onChange={(v) => mudar('tamanho', v)} opcoes={[['pequena', 'Pequena'], ['normal', 'Normal'], ['grande', 'Grande'], ['extra', 'Muito grande'], ['gigante', 'Enorme']]} />
               <Escolha rotulo="Linha separadora" valor={c.separador} onChange={(v) => mudar('separador', v)} opcoes={[['tracejado', '- - - Tracejada'], ['continuo', '—— Contínua']]} />
             </section>
 

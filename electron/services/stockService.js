@@ -110,7 +110,7 @@ function computeProductAlert({ product, estoqueAtual, profile }) {
 /** Todos os produtos com algum nível de alerta (crítico ou aviso), usando
  * exatamente a mesma lógica do ícone no carrinho do PDV — antes a tela de
  * Alertas calculava isso de um jeito diferente e podia discordar. */
-function listAlerts(locationId, profile) {
+function listAlerts(locationId, profile, { saldos = null } = {}) {
   const db = getDb();
   const products = db.prepare(
     `SELECT p.*, COALESCE(SUM(sm.quantidade), 0) as estoque_atual
@@ -120,7 +120,16 @@ function listAlerts(locationId, profile) {
      GROUP BY p.id`
   ).all(locationId);
 
+  // Caixa que usa o estoque do servidor: o saldo vem de lá (Map id -> número). Produto
+  // que o servidor não controla (null/ausente) não gera alerta de estoque aqui.
+  const comSaldoDoServidor = saldos instanceof Map;
   return products
+    .map((p) => {
+      if (!comSaldoDoServidor || p.tipo === 'servico') return p;
+      const s = saldos.get(p.id);
+      return { ...p, estoque_atual: Number.isFinite(s) ? s : null };
+    })
+    .filter((p) => !comSaldoDoServidor || p.estoque_atual !== null || p.tipo === 'servico')
     .map((p) => ({ ...p, alerta: computeProductAlert({ product: p, estoqueAtual: p.estoque_atual, profile }) }))
     .filter((p) => p.alerta.nivel)
     .sort((a, b) => (a.alerta.nivel === 'critico' ? 0 : 1) - (b.alerta.nivel === 'critico' ? 0 : 1));

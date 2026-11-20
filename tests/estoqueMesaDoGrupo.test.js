@@ -141,3 +141,41 @@ test('caixa: busca mostra o estoque do servidor; fora do modo servidor, nada mud
       });
     }));
 });
+
+// Caixa apontado para o servidor: a tela de Alertas e o "estoque baixo" usam o saldo do servidor
+// (antes liam o saldo local do caixa: zero, ou negativo pelas vendas daqui).
+test('alertas de estoque: caixa com estoque no servidor usa o saldo do servidor, não o local', async () => {
+  const { db, locationId, produto } = cenario();
+  db.prepare('UPDATE products SET estoque_minimo = 100 WHERE id = ?').run(produto);
+  const outro = createProduct(db, { nome: 'Corona', preco: 10 });
+  db.prepare('UPDATE products SET estoque_minimo = 100 WHERE id = ?').run(outro);
+  const perfil = { estoqueCriticoPercentual: 50 };
+  const saldos = { [produto]: 500, [outro]: 3 }; // o servidor tem muito de um e quase nada do outro
+  const original = syncState.getGrupoSincronizacaoId;
+  syncState.getGrupoSincronizacaoId = () => 'g1';
+  try {
+  await trocarAsync(lanCliente, 'saldosDeEstoque', async () => ({ saldos }), async () => {
+    estoqueServidor.invalidar();
+    await trocarAsync(mesaCompartilhada, 'ativa', () => true, async () => {
+      const alertas = await estoqueServidor.alertas(locationId, perfil);
+      assert.deepEqual(alertas.map((p) => p.id), [outro], 'só o que está baixo NO SERVIDOR');
+      assert.equal(alertas[0].estoque_atual, 3);
+      const baixo = await estoqueServidor.estoqueBaixo(locationId);
+      assert.deepEqual(baixo.map((p) => p.id), [outro]);
+    });
+    // Fora do modo servidor: vale o estoque local (os dois estão zerados = críticos).
+    await trocarAsync(mesaCompartilhada, 'ativa', () => false, async () => {
+      estoqueServidor.invalidar();
+      const alertas = await estoqueServidor.alertas(locationId, perfil);
+      assert.equal(alertas.length, 2);
+    });
+  });
+  // Servidor sem responder: cai para o local (não esconde o alerta).
+  await trocarAsync(lanCliente, 'saldosDeEstoque', async () => { throw Object.assign(new Error('sem rede'), { rede: true }); }, async () => {
+    await trocarAsync(mesaCompartilhada, 'ativa', () => true, async () => {
+      estoqueServidor.invalidar();
+      assert.equal((await estoqueServidor.alertas(locationId, perfil)).length, 2);
+    });
+  });
+  } finally { syncState.getGrupoSincronizacaoId = original; estoqueServidor.invalidar(); }
+});
