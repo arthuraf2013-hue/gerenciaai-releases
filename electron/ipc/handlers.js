@@ -219,6 +219,11 @@ const PAPEL_POR_CANAL = Object.fromEntries([
 for (const canal of ['demo:estado', 'demo:carregar', 'demo:trocarPerfil', 'demo:limpar']) {
   PAPEL_POR_CANAL[canal] = ['suporte'];
 }
+// Ferramentas do suporte (suporteService.js): zerar, clonar, diagnóstico. Só o papel suporte.
+for (const canal of ['suporte:pendencias', 'suporte:diagnostico', 'suporte:salvarRelatorio', 'suporte:forcarEnvio',
+  'suporte:forcarRecebimento', 'suporte:conferir', 'suporte:zerar', 'suporte:clonar']) {
+  PAPEL_POR_CANAL[canal] = ['suporte'];
+}
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
 
@@ -1233,6 +1238,37 @@ function registerIpcHandlers() {
     demoDataService.trocarPerfil({ perfil, solicitanteId: usuarioLogado(event) })
   ));
   safeHandle('demo:limpar', (event) => reiniciarSePedido(demoDataService.limpar({ solicitanteId: usuarioLogado(event) })));
+
+  // --- Ferramentas do suporte (aba Suporte; só o papel suporte) ---
+  const suporte = () => require('../services/suporteService');
+  const soSuporte = (event) => guardRole(event, ['suporte']);
+  safeHandle('suporte:pendencias', (event) => soSuporte(event) || { ok: true, pendencias: suporte().pendencias() });
+  safeHandle('suporte:diagnostico', async (event) => {
+    const g = soSuporte(event); if (g) return g;
+    const d = await suporte().diagnostico();
+    return { ok: true, diagnostico: d, texto: suporte().relatorioEmTexto(d) };
+  });
+  safeHandle('suporte:salvarRelatorio', async (event, { texto } = {}) => {
+    const g = soSuporte(event); if (g) return g;
+    const { dialog, BrowserWindow, app } = require('electron');
+    const nome = `diagnostico-gerenciaai-${new Date().toISOString().slice(0, 10)}.txt`;
+    const r = await dialog.showSaveDialog(BrowserWindow.getFocusedWindow(), {
+      title: 'Salvar relatório de diagnóstico', defaultPath: require('path').join(app.getPath('desktop'), nome),
+      filters: [{ name: 'Texto', extensions: ['txt'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    require('fs').writeFileSync(r.filePath, String(texto || ''), 'utf8');
+    return { ok: true, caminho: r.filePath };
+  });
+  safeHandle('suporte:forcarEnvio', (event) => soSuporte(event) || suporte().forcarEnvio());
+  safeHandle('suporte:forcarRecebimento', (event) => soSuporte(event) || suporte().forcarRecebimento());
+  safeHandle('suporte:conferir', (event) => soSuporte(event) || suporte().conferir());
+  safeHandle('suporte:zerar', async (event, { descartarPendencias } = {}) => reiniciarSePedido(
+    await suporte().zerar({ solicitanteId: usuarioLogado(event), modo: 'zerar', descartarPendencias: !!descartarPendencias })
+  ));
+  safeHandle('suporte:clonar', async (event, { descartarPendencias } = {}) => reiniciarSePedido(
+    await suporte().clonar({ solicitanteId: usuarioLogado(event), descartarPendencias: !!descartarPendencias })
+  ));
 
   // --- Backup automático do banco ---
   safeHandle('backup:getStatus', () => backupService.getStatus());

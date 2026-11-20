@@ -355,3 +355,15 @@ test('estoque no servidor: o caixa consulta o saldo do servidor pela rede (conta
   assert.equal(await es.saldoParaLancar(local.suco), 20 - abertoNoServidor, 'id do caixa traduzido para o do grupo');
   assert.equal(await es.saldoParaLancar(local.agua), null, 'sem contador no grupo: não trava');
 });
+
+test('suporte: o caixa busca a configuração da loja e confere os cadastros com o servidor pela rede', async () => {
+  const cfg = await cliente.pedido('/v1/suporte/config-loja', {});
+  assert.ok(Array.isArray(cfg.tabelas.business_profile));
+  assert.equal(cfg.tabelas.products, undefined);
+  const ping = await cliente.pedido('/v1/ping', {});
+  assert.ok('versao' in ping);
+  const r = await require('../electron/services/suporteService').conferir();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.servidor, false);
+  assert.ok(r.produtos && typeof r.produtos.noGrupo === 'number');
+});

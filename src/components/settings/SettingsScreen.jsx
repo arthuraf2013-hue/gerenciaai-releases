@@ -10,6 +10,7 @@ import { MigracaoPdvMobile } from './MigracaoPdvMobile';
 import { TerminaisPdvMobile } from './TerminaisPdvMobile';
 import { VitrineOnline } from './VitrineOnline';
 import { DemonstracaoSuporte } from './DemonstracaoSuporte';
+import { FerramentasSuporte } from './FerramentasSuporte';
 import { PixAutomaticoConfig } from './PixAutomaticoConfig';
 import { MaquininhaConfig } from './MaquininhaConfig';
 import { CozinhaConfig } from './CozinhaConfig';
@@ -869,7 +870,7 @@ export function SettingsScreen() {
         )}
       </div>
 
-      {aba === 'suporte' && currentUser.role === 'suporte' && <DemonstracaoSuporte />}
+      {aba === 'suporte' && currentUser.role === 'suporte' && (<><FerramentasSuporte /><DemonstracaoSuporte /></>)}
       {aba === 'cozinha' && <CozinhaConfig />}
       {aba === 'senhas' && (<><SenhasConfig /><VerticeConfig /></>)}
 

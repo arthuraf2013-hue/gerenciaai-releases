@@ -581,6 +581,16 @@ contextBridge.exposeInMainWorld('pdv', {
     explicarVariacao: invoke('dashboard:explicarVariacao'),
   },
   // Demonstração completa -- só o papel suporte (ver demoDataService.js).
+  suporte: {
+    pendencias: invoke('suporte:pendencias'),
+    diagnostico: invoke('suporte:diagnostico'),
+    salvarRelatorio: invoke('suporte:salvarRelatorio'),
+    forcarEnvio: invoke('suporte:forcarEnvio'),
+    forcarRecebimento: invoke('suporte:forcarRecebimento'),
+    conferir: invoke('suporte:conferir'),
+    zerar: invoke('suporte:zerar'),
+    clonar: invoke('suporte:clonar'),
+  },
   demo: {
     estado: invoke('demo:estado'),
     carregar: invoke('demo:carregar'),

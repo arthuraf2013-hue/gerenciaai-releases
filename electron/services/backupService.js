@@ -213,6 +213,8 @@ function rotacionarBackupsAntigos() {
   const limite = Date.now() - RETENCAO_DIAS * 24 * 60 * 60 * 1000;
   for (const arquivo of fs.readdirSync(dir)) {
     if (!arquivo.endsWith('.sqlite3')) continue;
+    // Cópia de antes de zerar/clonar (suporteService): fica até alguém apagar.
+    if (arquivo.startsWith('antes-de-zerar-')) continue;
     const caminho = path.join(dir, arquivo);
     const stat = fs.statSync(caminho);
     if (stat.mtimeMs < limite) fs.unlinkSync(caminho);

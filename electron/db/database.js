@@ -947,6 +947,8 @@ function seedIfEmpty(database) {
 
 module.exports = {
   getDb, setDbForTesting, getDbPath, closeConnection, otimizarBanco,
+  // Ferramentas do suporte (suporteService.zerar): mesmo semeio de uma instalação nova.
+  seedIfEmpty,
   // Exportado só pra teste de migração (tests/migracaoRoleGarcom.test.js) —
   // precisa simular um banco "antigo" (CHECK sem 'garcom') e chamar a
   // migração isoladamente, já que setDbForTesting não roda migrateColumnsIfNeeded.

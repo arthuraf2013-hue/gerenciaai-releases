@@ -660,6 +660,24 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
   background: var(--color-warning-bg); color: var(--color-warning-text);
   border-color: color-mix(in srgb, var(--color-warning-text) 35%, transparent);
 }
+/* Ferramentas do suporte (FerramentasSuporte.jsx) */
+.suporte-botoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+.suporte-botoes input[type="text"] { max-width: 220px; }
+.suporte-relatorio {
+  white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.6;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0 0;
+}
+.suporte-passos { margin: 8px 0 0; padding-left: 18px; font-size: 13px; }
+.suporte-ok { color: var(--color-success, #1b7a4a); }
+.suporte-alerta { color: var(--color-warning-text); }
+.suporte-conferencia { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 10px; }
+.suporte-conferencia-item {
+  display: flex; flex-direction: column; gap: 3px; font-size: 13px;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 8px 10px;
+}
+.suporte-rotulo { font-size: 12px; color: var(--color-text-muted); }
+.suporte-risco { border: 1px solid color-mix(in srgb, var(--color-danger) 45%, transparent); }
+.suporte-descartar { display: flex; gap: 6px; align-items: center; margin: 8px 0; font-size: 13px; }
 .mesas-header-acoes { display: flex; gap: 10px; align-items: center; }
 .mesas-organizar-barra {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;

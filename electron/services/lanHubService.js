@@ -153,7 +153,10 @@ async function atender(caminho, corpo, caixaId) {
   const g = contexto.grupoId;
   switch (caminho) {
     case '/v1/ping':
-      return [200, { grupoId: g, hubId: contexto.hubId, hubNome: contexto.nome, pronto: require('./lanEspelhoService').pronto(g), seq: armazem.seqAtual() }];
+      return [200, {
+        grupoId: g, hubId: contexto.hubId, hubNome: contexto.nome, pronto: require('./lanEspelhoService').pronto(g), seq: armazem.seqAtual(),
+        versao: (() => { try { return require('electron').app?.getVersion?.() || null; } catch { return null; } })(),
+      }];
     case '/v1/ler': {
       const p = exigirPronto(); if (p) return p;
       if (!armazem.colecaoValida(corpo.colecao) || armazem.SO_POR_ID.has(corpo.colecao)) return [400, { erro: 'coleção' }];
@@ -196,6 +199,13 @@ async function atender(caminho, corpo, caixaId) {
       return [200, mesas().devolver(corpo, caixaDoPedido(caixaId))];
     case '/v1/mesas/versao':
       return [200, { versao: await mesas().esperarMudanca(corpo.desde, corpo.esperarMs) }];
+    // Ferramentas do suporte (suporteService): clonar o caixa e conferir cadastros.
+    case '/v1/suporte/config-loja':
+      return [200, require('./suporteService').configDaLoja()];
+    case '/v1/suporte/resumo': {
+      const p = exigirPronto(); if (p) return p;
+      return [200, require('./suporteService').resumoDoGrupo(g)];
+    }
     // Estoque no servidor: o caixa consulta aqui o que dá para vender (contador - vendas abertas daqui).
     case '/v1/estoque/saldos': {
       const ids = Array.isArray(corpo.ids) ? corpo.ids.slice(0, 20000).map(String) : null;

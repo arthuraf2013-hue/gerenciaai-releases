@@ -380,6 +380,25 @@ Entradas/ajustes/inventário/NF-e no caixa apontado: recusados (`bloqueio()`). N
 servidor (modo hub), `saleService.faltaDeEstoque` usa o saldo do grupo quando o
 produto tem contador (balcão e mesas lançadas pelos caixas); sem contador, o local.
 
+**Ferramentas do suporte (nov/2026, pedido do Arthur).** Aba Configurações ->
+Suporte (só `suporte`, `PAPEL_POR_CANAL` dos canais `suporte:*`):
+`suporteService` + `FerramentasSuporte.jsx`. Zerar = backup
+`backups/antes-de-zerar-*.sqlite3` (a rotação NÃO apaga) + pastas de dados
+movidas para `antes-de-zerar-*-arquivos`, depois DELETE em todas as tabelas
+menos `MANTER_SEMPRE` (licença, `locations`/device_uid, atualização, backup,
+`fiscal_config` -- numeração da NFC-e não pode voltar), `seedIfEmpty` e
+reinício. Clonar (só caixa ligado pela rede local) busca ANTES
+`/v1/suporte/config-loja` no servidor (sem resposta = nada apagado), mantém
+também `MANTER_AO_CLONAR` (grupo, `lan_cliente`, impressoras/balança/maquininha
+deste PC) e grava `CONFIG_DA_LOJA` (colunas `manterAqui` ficam as daqui); os
+cadastros chegam pela réplica ao reabrir. Pendência que não foi para o grupo
+trava (`pendencias()`), salvo "descartar". Também: diagnóstico (texto para
+copiar/salvar), forçar envio/recebimento das filas, conferir cadastros com o
+grupo (`/v1/suporte/resumo` no servidor). Ação vai à Auditoria
+(`suporte_zerar_instalacao` / `suporte_clonar_servidor`) e à Central
+(`erros_reportados`, contexto `suporte:*`). Tabela nova de configuração da loja
+= incluir em `CONFIG_DA_LOJA`; tabela do equipamento = `MANTER_AO_CLONAR`.
+
 **App sem janela no Gerenciador de Tarefas** (nov/2026): toda impressão
 passa por `printService.imprimirEmJanelaInvisivel` (janela SEMPRE fecha:
 resposta, erro ou prazo de 90 s; com diálogo, 15 min) -- antes impressora
