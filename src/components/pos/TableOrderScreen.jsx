@@ -27,6 +27,73 @@ function horaDoItem(textoUtc) {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * Quem lançou o item, para mostrar ao lado dele: QR da mesa, vitrine,
+ * WhatsApp, garçom (celular ou computador) ou quem estava no caixa.
+ * Item lançado antes de o sistema guardar isso: null.
+ */
+export function autoriaDoItem(item) {
+  if (item.origem === 'qr_mesa') return { tipo: 'qr', texto: 'QR da mesa' };
+  if (item.origem === 'vitrine') return { tipo: 'qr', texto: 'Vitrine online' };
+  if (item.origem === 'whatsapp') return { tipo: 'qr', texto: 'WhatsApp' };
+  if (!item.lancadoPorNome) return null;
+  if (item.origem === 'app_garcom') return { tipo: 'garcom', texto: `Garçom ${item.lancadoPorNome} (celular)` };
+  if (item.lancadoPorPapel === 'garcom') return { tipo: 'garcom', texto: `Garçom ${item.lancadoPorNome}` };
+  return { tipo: 'caixa', texto: item.lancadoPorNome };
+}
+
+/** Itens da mesa agrupados por quem lançou (janela "Quem lançou cada item"). */
+export function gruposPorAutor(itens) {
+  const grupos = new Map();
+  for (const i of itens) {
+    if (i.cancelado) continue;
+    const a = autoriaDoItem(i) || { tipo: 'sem', texto: 'Sem registro (lançado antes da atualização)' };
+    const chave = `${a.tipo}|${a.texto}`;
+    if (!grupos.has(chave)) grupos.set(chave, { chave, ...a, itens: [], qtd: 0, total: 0 });
+    const g = grupos.get(chave);
+    g.itens.push(i);
+    g.qtd += Number(i.quantidade) || 0;
+    g.total += i.precoUnitario * i.quantidade;
+  }
+  return [...grupos.values()];
+}
+
+function SeloAutoria({ item }) {
+  const a = autoriaDoItem(item);
+  if (!a) return null;
+  return <span className={`mesa-item-autor mesa-item-autor-${a.tipo}`} title="Quem lançou este item">{a.texto}</span>;
+}
+
+function QuemLancou({ itens, onFechar }) {
+  const grupos = gruposPorAutor(itens);
+  return (
+    <div className="modal-overlay" onClick={onFechar}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <h2>Quem lançou cada item</h2>
+        <p className="screen-hint">Tudo o que foi lançado nesta mesa, separado por garçom, caixa, QR da mesa e vitrine.</p>
+        {grupos.length === 0 && <p className="screen-hint">Nenhum item lançado ainda.</p>}
+        {grupos.map((g) => (
+          <div key={g.chave} className="quem-lancou-grupo">
+            <div className="quem-lancou-cabecalho">
+              <span className={`mesa-item-autor mesa-item-autor-${g.tipo}`}>{g.texto}</span>
+              <span>{g.qtd} un. · R$ {g.total.toFixed(2)}</span>
+            </div>
+            <ul>
+              {g.itens.map((i) => (
+                <li key={i.id}>
+                  <span>{i.nome} × {i.quantidade}{i.criadoEm ? <span className="mesa-item-hora">{horaDoItem(i.criadoEm)}</span> : null}</span>
+                  <span>{(i.precoUnitario * i.quantidade).toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <div className="modal-actions"><button type="button" className="btn-primary" onClick={onFechar}>Fechar</button></div>
+      </div>
+    </div>
+  );
+}
+
 function playErrorBeep() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -99,6 +166,7 @@ export function TableOrderScreen({
   const [pessoasLista, setPessoasLista] = useState([]);
   const [grupo, setGrupo] = useState(null); // { principal, unidas: [] } | null
   const [showJuntar, setShowJuntar] = useState(false);
+  const [showQuemLancou, setShowQuemLancou] = useState(false);
   useEscToClose(() => setShowJuntar(false), showJuntar);
   const [mesasParaJuntar, setMesasParaJuntar] = useState([]);
   const [juntarSelecionadas, setJuntarSelecionadas] = useState([]);
@@ -156,7 +224,8 @@ export function TableOrderScreen({
       }
       return [...prev, {
         id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
-        pessoaNumero: pessoaAtiva, ajustavel: result.ajustavel, criadoEm: agoraUtc(),
+        pessoaNumero: pessoaAtiva, ajustavel: result.ajustavel, criadoEm: agoraUtc(), origem: null,
+        lancadoPorNome: currentUser.nome, lancadoPorPapel: currentUser.role,
       }];
     });
     playBeep();
@@ -189,7 +258,7 @@ export function TableOrderScreen({
     if (pessoaAtiva) api.sale.setItemPerson({ saleItemId: result.itemId, pessoaNumero: pessoaAtiva });
     setItems((prev) => [...prev, {
       id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false, criadoEm: agoraUtc(),
-      pessoaNumero: pessoaAtiva,
+      pessoaNumero: pessoaAtiva, origem: null, lancadoPorNome: currentUser.nome, lancadoPorPapel: currentUser.role,
     }]);
     setTotal(result.novoTotal); // recalculado no backend — ver addProductToCart
     setShowCustomItemBuilder(false);
@@ -539,6 +608,7 @@ export function TableOrderScreen({
         <span className="mesa-item-nome">
           {item.ajustavel && !fechando ? <>{item.nome} <QuantidadeDaLinha item={item} onAjustar={ajustarQuantidade} /></> : <>{item.nome} × {item.quantidade}</>}
           {item.criadoEm && <span className="mesa-item-hora" title="Hora em que o item foi lançado">{horaDoItem(item.criadoEm)}</span>}
+          <SeloAutoria item={item} />
           {item.observacao && <span className="mesa-item-obs"><Icon name="warning" size={12} /> {item.observacao}</span>}
         </span>
         <span className="mesa-item-preco">{(item.precoUnitario * item.quantidade).toFixed(2)}</span>
@@ -593,6 +663,7 @@ export function TableOrderScreen({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="printer" size={15} /> Cozinha</span>
           </button>
           <DropdownMenu label="Mais">
+            <DropdownMenuItem onClick={() => setShowQuemLancou(true)}>Quem lançou cada item</DropdownMenuItem>
             <DropdownMenuItem onClick={abrirEdicaoPessoas}>Número de pessoas ({pessoas || 0})</DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleImprimirComanda(true)}>Reimprimir a comanda inteira (cozinha)</DropdownMenuItem>
             {!(grupo?.unidas?.length > 0) && <DropdownMenuItem onClick={abrirTransferencia}>Mudar de mesa (inteira ou algumas pessoas)</DropdownMenuItem>}
@@ -674,6 +745,12 @@ export function TableOrderScreen({
             </div>
           </div>}
 
+          {itensAtivos.length > 0 && (
+            <button type="button" className="mesa-quem-lancou-btn" onClick={() => setShowQuemLancou(true)} title="Ver o que cada garçom, o caixa e o QR da mesa lançaram">
+              Quem lançou ({gruposPorAutor(itensAtivos).length})
+            </button>
+          )}
+
           <div className="mesa-comanda-lista">
             {itensAtivos.length === 0 && pessoasLista.length === 0 && (
               <p className="empty-state">Nenhum item lançado ainda. Escolha a pessoa em "Lançar para" e toque nos produtos.</p>
@@ -749,6 +826,8 @@ export function TableOrderScreen({
           </footer>
         </aside>
       </div>
+
+      {showQuemLancou && <QuemLancou itens={items} onFechar={() => setShowQuemLancou(false)} />}
 
       {showPayment && (
         <div className="modal-overlay">

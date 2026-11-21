@@ -535,7 +535,7 @@ const ACOES = {
       const pessoaNumero = item.pessoa && item.pessoa <= totalPessoas ? item.pessoa : null;
       const r = saleService.addItem({
         saleId, productId: item.produtoId, locationId: ctx.locationId, quantidade: item.quantidade,
-        operadorId: ctx.usuario.id, deviceId: ctx.dispositivo.id, pessoaNumero, observacao: item.observacao,
+        operadorId: ctx.usuario.id, deviceId: ctx.dispositivo.id, pessoaNumero, observacao: item.observacao, origem: 'app_garcom',
       });
       if (r.ok) {
         lancados += 1;

@@ -506,6 +506,10 @@ CREATE TABLE IF NOT EXISTS sale_items (
   -- a mesa tem mais de uma pessoa e alguém quer dividir a conta por
   -- item em vez de dividir o total igualmente.
   pessoa_numero   INTEGER,
+  -- Quem lançou (users.id) e por onde entrou: 'app_garcom', 'qr_mesa',
+  -- 'vitrine', 'whatsapp' ou NULL (lançado no computador).
+  lancado_por     TEXT,
+  origem          TEXT,
   -- Preço unitário alterado manualmente na hora da venda (admin/gerente
   -- só) — preco_original guarda o preço de catálogo de antes da
   -- alteração, pra nunca perder o rastro de quanto era o preço "de

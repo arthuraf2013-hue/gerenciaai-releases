@@ -1088,6 +1088,15 @@ button.mesa-grupo-nome { cursor: pointer; }
 .mesa-item-selecionado { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .mesa-item-nome { flex: 1; min-width: 0; }
 .mesa-item-obs { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-warning-text); }
+.mesa-item-autor { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 99px; white-space: nowrap; background: #e9eef0; color: #44565c; }
+.mesa-item-autor-garcom { background: #e6f2ff; color: #1d4f86; }
+.mesa-item-autor-qr { background: #fff1db; color: #8a5300; }
+.mesa-item-autor-sem { background: #eee; color: #888; }
+.mesa-quem-lancou-btn { align-self: flex-end; margin: 4px 8px; font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--border, #ccc); background: transparent; cursor: pointer; }
+.quem-lancou-grupo { border: 1px solid var(--border, #ddd); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.quem-lancou-cabecalho { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 4px; }
+.quem-lancou-grupo ul { list-style: none; margin: 0; padding: 0; }
+.quem-lancou-grupo li { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 3px 0; border-top: 1px dashed #eee; }
 .mesa-item-hora { margin-left: 6px; font-size: 12px; color: var(--color-text-muted, #777); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .mesa-item-preco { white-space: nowrap; }
 .mesa-item .dropdown-menu-wrap .btn-secondary { padding: 2px 8px; font-size: 13px; }

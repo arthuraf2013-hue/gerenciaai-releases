@@ -492,6 +492,8 @@ function puxar(corpo, caixa) {
         statusPreparo: i.status_preparo || 'pendente',
         especificacoesJson: i.especificacoes_json || null,
         criadoEm: i.criado_em,
+        origem: i.origem || null,
+        lancadoPorDoc: docDoUsuario(db, grupoId, i.lancado_por),
       })),
       pessoas: pessoas.map((p) => ({ numero: p.numero, nome: p.nome || null, clienteDoc: p.customer_id ? docDe(db, grupoId, 'clientes', p.customer_id) : null })),
     };
@@ -820,14 +822,16 @@ function importarConta(db, conta, hubId) {
     );
     const inserirItem = db.prepare(
       `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, criado_em, enviado_cozinha, observacao, pessoa_numero,
-                               preco_original, preco_alterado_motivo, nome_personalizado, eh_personalizado, status_preparo, custo_unitario, especificacoes_json)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                               preco_original, preco_alterado_motivo, nome_personalizado, eh_personalizado, status_preparo, custo_unitario, especificacoes_json,
+                               origem, lancado_por)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const i of itens) {
       inserirItem.run(
         randomUUID(), saleId, i.productId, i.quantidade, i.precoUnitario, i.criadoEm || new Date().toISOString().replace('T', ' ').slice(0, 19),
         i.observacao, i.pessoaNumero, i.precoOriginal, i.precoAlteradoMotivo, i.ehPersonalizado ? (i.nomePersonalizado || i.produtoNome) : i.nomePersonalizado,
         i.ehPersonalizado ? 1 : 0, i.statusPreparo || 'pendente', i.custoUnitario, i.especificacoesJson,
+        i.origem || null, i.lancadoPorDoc ? usuarioDoDoc(db, grupoId, i.lancadoPorDoc) : null,
       );
     }
     const inserirPessoa = db.prepare('INSERT INTO sale_people (id, sale_id, numero, nome, customer_id) VALUES (?, ?, ?, ?, ?)');

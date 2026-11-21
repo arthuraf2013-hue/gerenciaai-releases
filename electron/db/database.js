@@ -547,6 +547,9 @@ function migrateColumnsIfNeeded(database) {
   adicionarColunaSeFaltando(database, 'sale_items', 'enviado_cozinha', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'sale_items', 'observacao', 'TEXT');
   adicionarColunaSeFaltando(database, 'sale_items', 'pessoa_numero', 'INTEGER');
+  // Quem lançou o item e por onde entrou (app_garcom | qr_mesa | vitrine | whatsapp | NULL = no computador).
+  adicionarColunaSeFaltando(database, 'sale_items', 'lancado_por', 'TEXT');
+  adicionarColunaSeFaltando(database, 'sale_items', 'origem', 'TEXT');
   // Bancos antigos criaram receipt_config sem o rodapé e sem a impressão automática
   // (estúdio de impressão e Configurações > Impressora dão "no such column: rodape_texto").
   adicionarColunaSeFaltando(database, 'receipt_config', 'rodape_texto', 'TEXT');

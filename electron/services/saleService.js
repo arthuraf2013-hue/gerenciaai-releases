@@ -513,8 +513,13 @@ function decidirEstoque(falta) {
  * (requisito: vendas diminuem estoque diretamente, não só no fechamento).
  * Roda em transação: se o movimento de estoque falhar, o item não é gravado.
  */
-function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao, estoqueNoServidor = false, saldoServidor = null }) {
+const ORIGENS_DO_ITEM = ['app_garcom', 'qr_mesa', 'vitrine', 'whatsapp'];
+
+function addItem({ saleId, productId, locationId, quantidade, operadorId, deviceId, pessoaNumero, observacao, origem = null, estoqueNoServidor = false, saldoServidor = null }) {
   const db = getDb();
+  // Quem lançou e por onde (ver ORIGENS_DO_ITEM; NULL = lançado no computador).
+  const origemDoItem = ORIGENS_DO_ITEM.includes(origem) ? origem : null;
+  const lancadoPor = operadorId || null;
 
   // Observação do item (ex.: "sem gelo"): o item com observação é sempre uma
   // linha própria -- somar numa linha existente misturaria a observação com
@@ -564,8 +569,9 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
   // lá a linha nunca é impressa nem sai de 'pendente'.
   const itemExistente = obs ? null : db.prepare(
     `SELECT * FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0 AND pessoa_numero IS ?
-       AND observacao IS NULL AND enviado_cozinha = 0 AND status_preparo = 'pendente'`
-  ).get(saleId, productId, pessoa);
+       AND observacao IS NULL AND enviado_cozinha = 0 AND status_preparo = 'pendente'
+       AND lancado_por IS ? AND origem IS ?`
+  ).get(saleId, productId, pessoa, lancadoPor, origemDoItem); // de outra pessoa/origem: linha própria
 
   // Preço a usar pra atualizar sales.total (e pro que a tela usa pra
   // atualizar o total exibido): numa linha nova é o preço de venda
@@ -588,8 +594,8 @@ function addItem({ saleId, productId, locationId, quantidade, operadorId, device
       itemId = randomUUID();
       quantidadeTotal = quantidade;
       db.prepare(
-        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, pessoa_numero, observacao) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(itemId, saleId, productId, quantidade, precoDeVenda, pessoa, obs);
+        `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, pessoa_numero, observacao, lancado_por, origem) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(itemId, saleId, productId, quantidade, precoDeVenda, pessoa, obs, lancadoPor, origemDoItem);
     }
     if (estoque.aviso) marcarSemEstoque(db, itemId, estoque.aviso);
 
@@ -781,9 +787,9 @@ function addCustomItem({ saleId, locationId, nome, preco, linhas, operadorId, de
 
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, nome_personalizado, eh_personalizado)
-       VALUES (?, ?, ?, 1, ?, ?, 1)`
-    ).run(itemId, saleId, anchorId, precoNumerico, nomeLimpo);
+      `INSERT INTO sale_items (id, sale_id, product_id, quantidade, preco_unitario, nome_personalizado, eh_personalizado, lancado_por)
+       VALUES (?, ?, ?, 1, ?, ?, 1, ?)`
+    ).run(itemId, saleId, anchorId, precoNumerico, nomeLimpo, operadorId || null);
 
     db.prepare(
       `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, sale_id, sale_item_id, operador_id, device_id)

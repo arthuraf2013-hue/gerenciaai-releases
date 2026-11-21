@@ -316,6 +316,7 @@ function contaDaCopia(tableId) {
         quantidade: i.quantidade, precoUnitario: i.precoUnitario, precoOriginal: i.precoOriginal ?? null, precoAlteradoMotivo: i.precoAlteradoMotivo || null,
         custoUnitario: i.custoUnitario ?? null, pessoaNumero: i.pessoaNumero || null, observacao: i.observacao || null,
         statusPreparo: 'pendente', especificacoesJson: i.especificacoesJson || null, criadoEm: i.criadoEm || null,
+        origem: i.origem || null,
       })),
       pessoas: (c.pessoas || []).filter((p) => p.nome || p.clienteId).map((p) => ({ numero: p.numero, nome: p.nome || null, clienteDoc: null, clienteIdLocal: p.clienteId || null })),
     },

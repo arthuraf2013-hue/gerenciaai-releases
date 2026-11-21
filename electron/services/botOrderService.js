@@ -322,6 +322,7 @@ function lancarPedidoNaMesa({ orderId, operadorId, deviceId }) {
       const resultado = saleService.addItem({
         saleId, productId: item.product_id, locationId: pedido.location_id,
         quantidade: item.quantidade, operadorId, deviceId,
+        origem: { mesa_local: 'qr_mesa', vitrine: 'vitrine', whatsapp: 'whatsapp' }[pedido.canal] || null,
         ...(pessoaNumero ? { pessoaNumero } : {}),
         ...(item.observacao ? { observacao: String(item.observacao).slice(0, 200) } : {}),
       });

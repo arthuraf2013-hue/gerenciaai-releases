@@ -389,8 +389,9 @@ function getTableCart(saleId) {
   if (!sale) return { items: [], total: 0 };
 
   const items = db.prepare(
-    `SELECT si.*, p.nome, p.unidade FROM sale_items si JOIN products p ON p.id = si.product_id
-     WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em`
+    `SELECT si.*, p.nome, p.unidade, u.nome AS lancado_por_nome, u.role AS lancado_por_papel
+     FROM sale_items si JOIN products p ON p.id = si.product_id LEFT JOIN users u ON u.id = si.lancado_por
+     WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em, si.rowid`
   ).all(saleId);
 
   const principal = db.prepare('SELECT * FROM restaurant_tables WHERE sale_id = ? AND unida_a_mesa_id IS NULL').get(saleId);
@@ -415,6 +416,7 @@ function getTableCart(saleId) {
     items: items.map((i) => ({
       id: i.id, nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, cancelado: false,
       observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null, criadoEm: i.criado_em || null,
+      origem: i.origem || null, lancadoPorNome: i.lancado_por_nome || null, lancadoPorPapel: i.lancado_por_papel || null,
       ajustavel: saleService.itemAjustavel(db, i, { unidade: i.unidade }),
     })),
   };
