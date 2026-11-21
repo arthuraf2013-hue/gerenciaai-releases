@@ -73,7 +73,8 @@ const STATUS_SEPARACAO_LABEL = { novo: 'Novo', em_separacao: 'Em separação', p
 const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
   { id: 'pos', icon: 'cart', label: 'PDV', roles: ['operador', 'gerente', 'admin', 'suporte'] },
-  { id: 'restaurant', icon: 'plate', label: 'Restaurante', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE },
+  // Garçom: só as mesas (lança pedido, vê a conta, chama a cozinha). O resto é do caixa/gestão.
+  { id: 'restaurant', icon: 'plate', label: 'Restaurante', roles: ['operador', 'gerente', 'admin', 'suporte', 'garcom'], perfil: PERFIS_RESTAURANTE },
   { id: 'kitchen', icon: 'cooking', label: 'Cozinha', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE },
 
   { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
@@ -288,6 +289,12 @@ export function AppShell() {
   // Menu montado por cada um (favoritos no topo, ocultos fora) -- ver
   // src/utils/preferencias.js. Oculto continua no Ctrl+K: esconder do menu
   // não tira acesso, só limpa a vista.
+  // Tela aberta que este usuário não pode ver (ex.: o garçom entrou e o app abre
+  // no PDV): vai para a primeira que ele pode.
+  const primeiraPermitida = visibleItems[0]?.id || 'pos';
+  const telaPermitida = visibleItems.some((i) => i.id === screen);
+  useEffect(() => { if (!telaPermitida) setScreen(primeiraPermitida); }, [telaPermitida, primeiraPermitida]);
+
   const menuMontado = montarMenu(visibleItems, prefs.menu);
   const mudarMenu = (novo) => atualizar('menu', novo);
 
