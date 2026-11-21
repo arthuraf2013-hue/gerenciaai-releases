@@ -590,6 +590,17 @@ export function TableOrderScreen({
   }
   const contaQuitada = conta.totalPago + 0.005 >= totalConta && totalConta > 0;
   const podeEditarPreco = ['gerente', 'admin', 'suporte'].includes(currentUser.role);
+  // Garçom lança e pede o fechamento; quem fecha (recebe) é o gerente, o admin ou o caixa.
+  const podeFechar = currentUser.role !== 'garcom';
+  const [pedindoFechamento, setPedindoFechamento] = useState(false);
+  async function pedirFechamento() {
+    setPedindoFechamento(true);
+    const r = await api.table.pedirFechamento({ tableId }).catch((e) => ({ ok: false, error: e?.message }));
+    setPedindoFechamento(false);
+    setFeedback(r?.ok
+      ? { message: 'Pedido enviado: o gerente/caixa vê "Pediu a conta" nesta mesa e fecha por lá.', type: 'success' }
+      : { message: r?.error || 'Não deu para pedir o fechamento.', type: 'error' });
+  }
 
   async function atribuirPessoa(itemId, valor) {
     const pessoaNumero = valor ? Number(valor) : null;
@@ -774,7 +785,7 @@ export function TableOrderScreen({
                   <span className="mesa-grupo-subtotal">R$ {subtotal(g.itens).toFixed(2)}</span>
                 </div>
                 <PagamentoDaPessoa
-                  parte={parteDa(g.numero, g.itens)} nome={nomeCurto(g.pessoa)} contaQuitada={contaQuitada}
+                  parte={parteDa(g.numero, g.itens)} nome={nomeCurto(g.pessoa)} contaQuitada={contaQuitada} podePagar={podeFechar}
                   onPagar={(parte) => {
                     const quem = { numero: g.numero, nome: nomeCurto(g.pessoa), valor: parte.valor };
                     if (remota) puxar(quem); else setPagandoPessoa(quem);
@@ -820,9 +831,16 @@ export function TableOrderScreen({
                 </span>
               )}
             </div>
-            <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => (remota ? puxar('conta') : setShowPayment(true))}>
-              Ir para pagamento
-            </button>
+            {podeFechar ? (
+              <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0} onClick={() => (remota ? puxar('conta') : setShowPayment(true))}>
+                Ir para pagamento
+              </button>
+            ) : (
+              <button className="btn-primary pos-pay-btn" disabled={itensAtivos.length === 0 || pedindoFechamento} onClick={pedirFechamento}
+                title="Garçom não fecha a mesa: avisa o gerente/caixa para fechar a conta">
+                {pedindoFechamento ? 'Enviando...' : 'Pedir fechamento'}
+              </button>
+            )}
           </footer>
         </aside>
       </div>
@@ -1086,7 +1104,7 @@ function BotaoCliente({ pessoa, rotulo, aoClicar, pequeno = false }) {
 }
 
 /** Linha "pagar a parte" no topo do grupo da pessoa: botão, ou "Pago". */
-function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar, onPreNota }) {
+function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar, onPreNota, podePagar = true }) {
   if (parte.estado === 'sem-itens') return null;
   if (parte.estado === 'paga') {
     return (
@@ -1099,10 +1117,14 @@ function PagamentoDaPessoa({ parte, nome, contaQuitada, onPagar, onPreNota }) {
   return (
     <div className="mesa-pessoa-pagamento">
       {parte.estado === 'parcial' && <span>Pagou R$ {parte.pago.toFixed(2)} · falta R$ {parte.falta.toFixed(2)}</span>}
-      <button type="button" className="btn-secondary mesa-pagar-parte" onClick={() => onPagar(parte)}
-        title="Esta pessoa paga só o que consumiu (com a taxa de serviço) e a mesa continua aberta">
-        <Icon name="money" size={15} /> {parte.estado === 'parcial' ? 'Pagar o resto' : `Pagar a parte · R$ ${parte.valor.toFixed(2)}`}
-      </button>
+      {podePagar ? (
+        <button type="button" className="btn-secondary mesa-pagar-parte" onClick={() => onPagar(parte)}
+          title="Esta pessoa paga só o que consumiu (com a taxa de serviço) e a mesa continua aberta">
+          <Icon name="money" size={15} /> {parte.estado === 'parcial' ? 'Pagar o resto' : `Pagar a parte · R$ ${parte.valor.toFixed(2)}`}
+        </button>
+      ) : (
+        <span className="mesa-parte-valor">Parte · R$ {(parte.estado === 'parcial' ? parte.falta : parte.valor).toFixed(2)}</span>
+      )}
       {onPreNota && (
         <button type="button" className="mesa-icone" onClick={onPreNota} aria-label={`Pré-nota de ${nome}`} title={`Imprimir a pré-nota só de ${nome}`}>
           <Icon name="printer" size={14} />

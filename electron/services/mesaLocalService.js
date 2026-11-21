@@ -461,6 +461,26 @@ function chamar({ token, aparelho, tipo, ip = null } = {}) {
   return { ok: true };
 }
 
+/**
+ * O garçom pede para fechar a mesa (ele não recebe nem fecha a conta): fica o
+ * aviso "Pediu a conta · Garçom Fulano" no quadrado da mesa e o aviso nas
+ * telas, até o gerente/caixa atender.
+ */
+function pedirFechamento({ tableId, usuarioId } = {}) {
+  const db = getDb();
+  const lida = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(String(tableId || ''));
+  if (!lida) return { ok: false, error: 'Mesa não encontrada.' };
+  const mesa = lida.unida_a_mesa_id ? (db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(lida.unida_a_mesa_id) || lida) : lida;
+  if (mesa.status !== 'ocupada' || !mesa.sale_id) return { ok: false, error: `${rotuloMesa(mesa)} não está ocupada.` };
+  const u = usuarioId ? db.prepare('SELECT nome, role FROM users WHERE id = ?').get(usuarioId) : null;
+  const nome = u ? (u.role === 'garcom' ? `Garçom ${u.nome}` : u.nome) : 'Garçom';
+  const aberto = db.prepare("SELECT id FROM mesa_chamados WHERE table_id = ? AND tipo = 'conta' AND atendido_em IS NULL").get(mesa.id);
+  if (aberto) db.prepare("UPDATE mesa_chamados SET nome = ?, criado_em = datetime('now') WHERE id = ?").run(nome, aberto.id);
+  else db.prepare("INSERT INTO mesa_chamados (id, table_id, tipo, nome) VALUES (?, ?, 'conta', ?)").run(require('crypto').randomUUID(), mesa.id, nome);
+  avisarChamado({ tipo: 'conta', mesa: rotuloMesa(mesa), nome, mesaId: mesa.id });
+  return { ok: true, mesa: rotuloMesa(mesa) };
+}
+
 /** Alguém atendeu a mesa: tira os chamados do quadrado (grupo inteiro de mesas unidas). */
 function atenderChamados({ tableId, usuarioId = null, tipo = null } = {}) {
   const db = getDb();
@@ -745,6 +765,6 @@ function status() {
 
 module.exports = {
   CANAL, PORTA_PADRAO, getConfig, saveConfig, enderecosDaMaquina, enderecoPublicoValido, ipDoCliente, testarEnderecoPublico, _definirFetchParaTeste, linkDaMesa, textoQrWifi, cardapio, criarPedido, andamento,
-  entrarNaMesa, estadoDaMesa, chamar, atenderChamados, indicadoresDasMesas, incluirMembrosPendentes, esquecerMembros, moverMembros, status,
+  entrarNaMesa, estadoDaMesa, chamar, atenderChamados, pedirFechamento, indicadoresDasMesas, incluirMembrosPendentes, esquecerMembros, moverMembros, status,
   iniciar, parar, atualizar, atender, deveRodar, mesaEfetiva, vendaAberta, rotuloMesa,
 };

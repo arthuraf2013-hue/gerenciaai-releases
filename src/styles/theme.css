@@ -1693,6 +1693,7 @@ html.modo-toque .cart-item-name .cart-item-nome-texto { flex: 1; }
 /* Pagamento individual na mesa (TableOrderScreen: PagamentoDaPessoa; PaymentPanel com `pessoa`) */
 .mesa-pessoa-pagamento { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 12.5px; color: var(--color-text-muted); }
 .mesa-pagar-parte { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+.mesa-parte-valor { font-size: 13px; font-weight: 600; color: var(--text-muted, #555); }
 .mesa-pessoa-paga { justify-content: flex-start; color: #1e7a46; font-weight: 600; }
 html[data-theme="dark"] .mesa-pessoa-paga { color: #6fd39a; }
 .mesa-ja-pago { display: block; font-size: 13px; font-weight: 600; color: var(--color-primary); }

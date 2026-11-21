@@ -164,6 +164,7 @@ contextBridge.exposeInMainWorld('pdv', {
     transfer: invoke('table:transfer'),
     updatePeople: invoke('table:updatePeople'),
     atenderChamados: invoke('table:atenderChamados'),
+    pedirFechamento: invoke('table:pedirFechamento'),
     moverConta: invoke('table:moverConta'),
     aprovarMudanca: invoke('table:aprovarMudanca'),
     recusarMudanca: invoke('table:recusarMudanca'),

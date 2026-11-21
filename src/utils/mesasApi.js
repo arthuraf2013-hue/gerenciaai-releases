@@ -5,7 +5,7 @@
 
 const CANAIS_REMOTOS = {
   table: [
-    'list', 'open', 'getCart', 'markCleaned', 'markReserved', 'cancelReservation', 'transfer', 'updatePeople', 'desocupar', 'atenderChamados', 'moverConta', 'aprovarMudanca', 'recusarMudanca',
+    'list', 'open', 'getCart', 'markCleaned', 'markReserved', 'cancelReservation', 'transfer', 'updatePeople', 'desocupar', 'atenderChamados', 'pedirFechamento', 'moverConta', 'aprovarMudanca', 'recusarMudanca',
     'montarLinkPedido', 'juntar', 'separar', 'adicionarPessoa', 'renomearPessoa', 'removerPessoa', 'vincularCliente',
     'create', 'createLote', 'proximoNumero', 'delete', 'reordenar',
   ],

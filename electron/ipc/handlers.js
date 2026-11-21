@@ -227,10 +227,23 @@ for (const canal of ['suporte:pendencias', 'suporte:diagnostico', 'suporte:salva
 
 const MSG_SEM_SESSAO = 'Você precisa estar logado para fazer isso.';
 
+// Fechar a mesa (receber, finalizar, cancelar a conta, liberar, puxar a
+// conta do servidor para pagar) não é com o garçom: ele lança e pede o
+// fechamento ("Pedir fechamento"); o gerente, o administrador ou o caixa fecham.
+const PAPEIS_FECHAM_MESA = ['operador', 'gerente', 'admin', 'suporte'];
+const CANAIS_DE_FECHAR_MESA = new Set([
+  'sale:addPayment', 'sale:removePayment', 'sale:marcarPagamentoPessoa', 'sale:finalize', 'sale:cancel',
+  'table:release', 'mesaCompartilhada:puxar',
+]);
+const MSG_GARCOM_NAO_FECHA = 'Garçom não fecha a mesa. Use "Pedir fechamento" para o gerente ou o caixa fechar a conta.';
+
 function politicaDeAcesso(channel, event) {
   if (CANAIS_PUBLICOS.has(channel)) return null;
   const usuarioId = usuarioLogado(event);
   if (!usuarioId) return { ok: false, error: MSG_SEM_SESSAO, semSessao: true };
+  if (CANAIS_DE_FECHAR_MESA.has(channel) && !authService.requireRole(usuarioId, PAPEIS_FECHAM_MESA).ok) {
+    return { ok: false, error: MSG_GARCOM_NAO_FECHA };
+  }
   const papeis = PAPEL_POR_CANAL[channel];
   if (papeis) {
     const guard = authService.requireRole(usuarioId, papeis);
@@ -502,6 +515,7 @@ function registerIpcHandlers() {
   safeHandle('table:open', (_e, payload) => tableService.openTable(payload));
   safeHandle('table:getCart', (_e, { saleId }) => tableService.getTableCart(saleId));
   safeHandle('table:release', (_e, { tableId }) => tableService.releaseTable(tableId));
+  safeHandle('table:pedirFechamento', (event, { tableId } = {}) => require('../services/mesaLocalService').pedirFechamento({ tableId, usuarioId: usuarioLogado(event) }));
 
   // --- Licenciamento ---
   safeHandle('license:check', () => licenseService.checkLicense());

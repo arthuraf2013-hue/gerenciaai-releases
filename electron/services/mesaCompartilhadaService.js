@@ -232,6 +232,7 @@ const CANAIS = {
   'table:moverConta': { fn: (a, c) => require('./mesaMudancaService').moverConta({ fromTableId: a.fromTableId, toTableId: a.toTableId, pessoas: a.pessoas, operadorId: c.usuarioId }) },
   'table:aprovarMudanca': { fn: (a, c) => require('./mesaMudancaService').aprovarMudanca({ id: a.id, operadorId: c.usuarioId }) },
   'table:recusarMudanca': { fn: (a, c) => require('./mesaMudancaService').recusarMudanca({ id: a.id, operadorId: c.usuarioId }) },
+  'table:pedirFechamento': { fn: (a, c) => require('./mesaLocalService').pedirFechamento({ tableId: a.tableId, usuarioId: c.usuarioId }) },
   'table:atenderChamados': { ler: true, fn: (a, c) => require('./mesaLocalService').atenderChamados({ tableId: a.tableId, tipo: a.tipo, usuarioId: c.usuarioId }) },
   'table:desocupar': {
     fn: (a, c) => T().desocuparMesa({
@@ -436,6 +437,9 @@ function puxar(corpo, caixa) {
   const grupoId = grupoAtual();
   const { usuarioId, erro } = usuarioDoPedido(db, grupoId, corpo);
   if (!usuarioId) return { ok: false, error: erro };
+  if (!require('./authService').requireRole(usuarioId, ['operador', 'gerente', 'admin', 'suporte']).ok) {
+    return { ok: false, error: 'Garçom não fecha a mesa. Use "Pedir fechamento" para o gerente ou o caixa fechar a conta.' };
+  }
   const mesa = db.prepare('SELECT * FROM restaurant_tables WHERE id = ?').get(String(corpo?.mesaId || ''));
   if (!mesa) return { ok: false, error: 'Mesa não encontrada no servidor.' };
   return db.transaction(() => {
