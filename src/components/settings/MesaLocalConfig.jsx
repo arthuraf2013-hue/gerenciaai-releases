@@ -188,7 +188,6 @@ export function MesaLocalConfig({ onMudou }) {
           </span>
         </label>
         {teste && <p className={teste.erro ? 'modal-error' : 'io-message'} style={{ margin: '4px 0' }}>{teste.texto}</p>}
-        <TunelCloudflare onConfigurado={async () => { const c = await window.pdv.mesaLocal.getConfig().catch(() => null); if (c && c.ok !== false) { setCfg(c); setForm((x) => ({ ...x, ativo: c.ativo, enderecoPublico: c.enderecoPublico || '' })); } onMudou?.(); }} />
         <div className="form-grid">
           <label>
             Wi-Fi da loja (nome)
@@ -214,6 +213,8 @@ export function MesaLocalConfig({ onMudou }) {
         <button className="btn-primary" type="submit" disabled={salvando}>{salvando ? 'Salvando...' : 'Salvar pedido pela mesa'}</button>
         {msg && <p className={msg.erro ? 'modal-error' : 'io-message'}>{msg.texto}</p>}
       </form>
+      {/* Fora do <form> de cima: formulário dentro de formulário recarregava a tela ao configurar. */}
+      <TunelCloudflare onConfigurado={async () => { const c = await window.pdv.mesaLocal.getConfig().catch(() => null); if (c && c.ok !== false) { setCfg(c); setForm((x) => ({ ...x, ativo: c.ativo, enderecoPublico: c.enderecoPublico || '' })); } onMudou?.(); }} />
     </div>
   );
 }
