@@ -117,10 +117,10 @@ function dadosDaConta(saleId) {
   if (!venda) return { ok: false, error: 'Conta não encontrada.' };
   if (venda.status !== 'aberta') return { ok: false, error: 'Esta conta já foi fechada. Para a venda finalizada, imprima a nota.' };
   const itens = db.prepare(`
-    SELECT si.quantidade, si.preco_unitario, si.observacao, si.pessoa_numero, COALESCE(si.nome_personalizado, p.nome) AS nome
+    SELECT si.quantidade, si.preco_unitario, si.observacao, si.pessoa_numero, si.criado_em, COALESCE(si.nome_personalizado, p.nome) AS nome
     FROM sale_items si JOIN products p ON p.id = si.product_id
-    WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em`).all(saleId)
-    .map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null }));
+    WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em, si.rowid`).all(saleId)
+    .map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null, criadoEm: i.criado_em || null }));
   if (!itens.length) return { ok: false, error: 'A conta ainda não tem itens.' };
 
   // Mesmas pessoas (vagas 1..N) que a tela da mesa mostra.
@@ -137,6 +137,8 @@ function dadosDaConta(saleId) {
     const unidas = db.prepare('SELECT numero, nome FROM restaurant_tables WHERE unida_a_mesa_id = ? ORDER BY numero').all(mesa.id);
     mesaRotulo = [mesa, ...unidas].map((m) => m.nome || `Mesa ${m.numero}`).join(' + ');
   }
+  // Hora de cada item só em conta de mesa (no balcão é tudo na mesma hora).
+  if (!mesaRotulo) for (const i of itens) i.criadoEm = null;
   const operador = db.prepare('SELECT nome FROM users WHERE id = ?').get(venda.operador_id)?.nome || '';
   const cliente = venda.customer_id ? db.prepare('SELECT nome FROM customers WHERE id = ?').get(venda.customer_id)?.nome || '' : '';
 

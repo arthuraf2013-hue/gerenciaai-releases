@@ -229,7 +229,8 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
   try { config = require('./estudioImpressaoService').getConfig('nota'); } catch { config = null; }
   return require('./impressaoLayout').montarNota(config, {
     venda: sale,
-    itens: items.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '' })),
+    // Hora de cada item só em conta de mesa (no balcão é tudo na mesma hora).
+    itens: items.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', criadoEm: extras.mesa ? (i.criado_em || null) : null })),
     pagamentos: payments,
     loja: location,
     larguraMm,
@@ -269,7 +270,7 @@ function buildReceiptWhatsappLink(saleId) {
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
   const items = db.prepare(
-    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em, si.rowid`
   ).all(saleId);
   const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
   const location = db.prepare('SELECT * FROM locations WHERE id = ?').get(sale.location_id);
@@ -346,7 +347,7 @@ async function printReceipt(saleId) {
   if (!sale) return { ok: false, error: 'Venda não encontrada.' };
 
   const items = db.prepare(
-    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0`
+    `SELECT si.*, COALESCE(si.nome_personalizado, p.nome) as nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em, si.rowid`
   ).all(saleId);
   const payments = db.prepare('SELECT * FROM payments WHERE sale_id = ?').all(saleId);
   const location = db.prepare('SELECT * FROM locations WHERE id = ?').get(sale.location_id);

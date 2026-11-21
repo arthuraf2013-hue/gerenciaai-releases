@@ -414,7 +414,7 @@ function getTableCart(saleId) {
     grupo: principal ? { principal: resumoMesa(principal), unidas: membrosDe(db, principal.id).map(resumoMesa) } : null,
     items: items.map((i) => ({
       id: i.id, nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, cancelado: false,
-      observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null,
+      observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null, criadoEm: i.criado_em || null,
       ajustavel: saleService.itemAjustavel(db, i, { unidade: i.unidade }),
     })),
   };

@@ -38,6 +38,8 @@ const BASE = {
   mostrarDataHora: true,
   mostrarCliente: true,
   colunaUnitario: true,
+  // Hora em que cada item foi lançado (só em conta de mesa: no balcão é tudo na mesma hora).
+  mostrarHoraItem: true,
 };
 
 const PADRAO = {
@@ -164,6 +166,7 @@ function estilo(config, larguraMm) {
     th { text-align: right; } th:first-child { text-align: left; }
     td.n { text-align: right; white-space: nowrap; padding-left: 4px; }
     .obs { font-size: ${fonte - 2}px; padding-left: 8px; }
+    .hora { font-size: ${fonte - 2}px; white-space: nowrap; }
     .pessoa { font-weight: bold; margin: 8px 0 0; }
     .mesa { text-align: center; margin: 4px 0 2px; line-height: 1.15; overflow-wrap: anywhere; }
     .sub { display: flex; justify-content: space-between; gap: 6px; }
@@ -183,6 +186,14 @@ function cabecalho(config, loja) {
     ${config.mostrarNomeLoja && nome ? `<h1>${escHtml(nome)}</h1>` : ''}
     ${config.cabecalhoTexto ? `<p>${escHtml(config.cabecalhoTexto)}</p>` : ''}
   </div>`;
+}
+
+/** "19:42" (horário de Brasília) de um instante gravado em UTC. */
+function horaBR(textoUtc) {
+  if (!textoUtc) return '';
+  const d = new Date(`${String(textoUtc).replace(' ', 'T').replace(/Z?$/, 'Z')}`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
 }
 
 function dataHoraBR(textoUtc) {
@@ -217,7 +228,7 @@ function tabelaItens(configOriginal, itens) {
   const config = configOriginal.tamanho === 'gigante' ? { ...configOriginal, colunaUnitario: false } : configOriginal;
   const cabec = `<thead><tr><th>Item</th><th>Qtd</th>${config.colunaUnitario ? '<th>Unit.</th>' : ''}<th>Total</th></tr></thead>`;
   const linhas = itens.map((i) => `
-    <tr><td>${escHtml(i.nome)}</td><td class="n">${escHtml(i.quantidade)}</td>${config.colunaUnitario ? `<td class="n">${dinheiro(i.precoUnitario)}</td>` : ''}<td class="n">${dinheiro(i.precoUnitario * i.quantidade)}</td></tr>
+    <tr><td>${escHtml(i.nome)}${config.mostrarHoraItem && i.criadoEm && horaBR(i.criadoEm) ? ` <span class="hora">${horaBR(i.criadoEm)}</span>` : ''}</td><td class="n">${escHtml(i.quantidade)}</td>${config.colunaUnitario ? `<td class="n">${dinheiro(i.precoUnitario)}</td>` : ''}<td class="n">${dinheiro(i.precoUnitario * i.quantidade)}</td></tr>
     ${config.mostrarObservacoes && i.observacao ? `<tr><td class="obs" colspan="${config.colunaUnitario ? 4 : 3}">↳ ${escHtml(i.observacao)}</td></tr>` : ''}`).join('');
   return `<table>${cabec}<tbody>${linhas}</tbody></table>`;
 }
@@ -604,6 +615,9 @@ function exemplo(tipo, { larguraMm = 80, loja = { nome: 'Minha Loja' }, rodapeNo
     { nome: 'Refrigerante lata', quantidade: 1, precoUnitario: 6.5, observacao: '', pessoaNumero: 2 },
   ];
   const agora = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  // Hora de cada item na prévia: lançados ao longo da mesa.
+  const minutosAtras = [52, 50, 21, 6];
+  itens.forEach((i, k) => { i.criadoEm = new Date(Date.now() - minutosAtras[k] * 60000).toISOString().slice(0, 19).replace('T', ' '); });
   if (tipo === 'nota') {
     const total = soma(itens);
     return {
@@ -622,7 +636,7 @@ function exemplo(tipo, { larguraMm = 80, loja = { nome: 'Minha Loja' }, rodapeNo
 }
 
 module.exports = {
-  PADRAO, TIPOS, LOGO_MAX_CARACTERES, normalizarConfig, montarNota, montarPreNota, valoresDaPreNota, exemplo, escHtml,
+  PADRAO, TIPOS, LOGO_MAX_CARACTERES, normalizarConfig, horaBR, montarNota, montarPreNota, valoresDaPreNota, exemplo, escHtml,
   montarComandaCozinha, exemploComanda, totalDaComanda, detalheDoValor, qtdDaComanda,
   montarCartoesQr, medidasDoCartao, CORES_QR,
 };

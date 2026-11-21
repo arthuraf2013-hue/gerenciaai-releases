@@ -299,3 +299,42 @@ test('tamanho da letra: "Muito grande" e "Enorme" valem para nota, pré-nota e c
   const px = (html) => Math.max(...[...html.matchAll(/font-size:\s*(\d+)px/g)].map((m) => Number(m[1])));
   assert.ok(px(comanda('gigante')) > px(comanda('extra')) && px(comanda('extra')) > px(comanda('grande')));
 });
+
+// ---------------------------------------------------------------- hora de cada item
+
+test('hora de cada item: sai na nota e na pré-nota da MESA (horário de Brasília); no balcão não; o estúdio desliga', async () => {
+  const ctx = freshTestDb();
+  const mesa = tableService.createTable({ locationId: ctx.locationId, numero: '9' });
+  const mesaId = mesa.id || mesa.tableId;
+  const aberta = tableService.openTable({ tableId: mesaId, locationId: ctx.locationId, operadorId: ctx.operadorId, pessoas: 1 });
+  const p = createProduct(ctx.db, { nome: 'Picanha', preco: 80 });
+  const q = createProduct(ctx.db, { nome: 'Cerveja', preco: 12 });
+  for (const x of [p, q]) addStock(ctx.db, { productId: x, locationId: ctx.locationId, quantidade: 10, operadorId: ctx.adminId });
+  saleService.addItem({ saleId: aberta.saleId, productId: p, locationId: ctx.locationId, quantidade: 1, operadorId: ctx.operadorId, deviceId: 'd' });
+  saleService.addItem({ saleId: aberta.saleId, productId: q, locationId: ctx.locationId, quantidade: 1, operadorId: ctx.operadorId, deviceId: 'd' });
+  // Picanha às 22:42 UTC = 19:42 em Brasília; cerveja às 23:05 UTC = 20:05.
+  ctx.db.prepare("UPDATE sale_items SET criado_em = '2026-11-20 22:42:10' WHERE sale_id = ? AND product_id = ?").run(aberta.saleId, p);
+  ctx.db.prepare("UPDATE sale_items SET criado_em = '2026-11-20 23:05:00' WHERE sale_id = ? AND product_id = ?").run(aberta.saleId, q);
+
+  const pre = await estudio.htmlDaPreNota({ saleId: aberta.saleId });
+  assert.equal(pre.ok, true);
+  assert.match(pre.html, /Picanha <span class="hora">19:42<\/span>/);
+  assert.match(pre.html, /Cerveja <span class="hora">20:05<\/span>/);
+
+  const venda = ctx.db.prepare('SELECT * FROM sales WHERE id = ?').get(aberta.saleId);
+  const itens = ctx.db.prepare('SELECT si.*, p.nome FROM sale_items si JOIN products p ON p.id = si.product_id WHERE si.sale_id = ? ORDER BY si.criado_em').all(aberta.saleId);
+  const naMesa = printService.buildReceiptHtml(venda, itens, [], { nome: 'Loja' }, 80, '', null, null, null, { mesa: 'Mesa 9' });
+  assert.match(naMesa, /Picanha <span class="hora">19:42<\/span>/);
+  const noBalcao = printService.buildReceiptHtml(venda, itens, [], { nome: 'Loja' }, 80, '', null, null, null, {});
+  assert.doesNotMatch(noBalcao, /class="hora"/, 'balcão: tudo na mesma hora, não sai');
+
+  assert.equal(estudio.salvar({ tipo: 'nota', config: { mostrarHoraItem: false } }).ok, true);
+  const desligada = printService.buildReceiptHtml(venda, itens, [], { nome: 'Loja' }, 80, '', null, null, null, { mesa: 'Mesa 9' });
+  assert.doesNotMatch(desligada, /class="hora"/);
+
+  // A tela da mesa recebe a hora de cada item.
+  const carrinho = tableService.getTableCart(aberta.saleId);
+  assert.deepEqual(carrinho.items.map((i) => i.criadoEm), ['2026-11-20 22:42:10', '2026-11-20 23:05:00']);
+  // A prévia do estúdio mostra a hora.
+  assert.match((await estudio.previa({ tipo: 'prenota', config: {} })).html, /class="hora">\d\d:\d\d</);
+});

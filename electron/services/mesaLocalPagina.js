@@ -40,6 +40,7 @@ const ESTILO = `
   label input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--borda); font-size: 16px; margin-top: 4px; color: var(--texto); }
   .erro { color: #a32d2d; font-size: 14px; margin: 8px 0; }
   .nota { color: var(--suave); font-size: 13px; }
+  .hora { color: var(--suave); font-size: 12px; margin-left: 6px; white-space: nowrap; }
   .status { text-align: center; padding: 40px 18px; }
   .status .grande { font-size: 22px; font-weight: 800; margin: 10px 0; }
   .vazio { text-align: center; color: var(--suave); padding: 40px 10px; }
@@ -251,7 +252,7 @@ const SCRIPT = `
           mesa = r; folha.remove(); cabecalho(); tratar(r);
         }).catch(function (e) {
           entrar.disabled = false; entrar.textContent = 'Entrar na mesa';
-          erro.hidden = false; erro.textContent = e && e.message && e.message !== 'Failed to fetch' ? e.message : 'Sem conexão com a loja. Confira se está no Wi-Fi da loja.';
+          erro.hidden = false; erro.textContent = e && e.message && e.message !== 'Failed to fetch' ? e.message : 'Sem conexão com a loja. Confira a sua internet (ou o Wi-Fi da loja) e tente de novo.';
         });
     };
     document.body.appendChild(folha);
@@ -270,7 +271,9 @@ const SCRIPT = `
       if (!mesa.meusItens.length) caixa.appendChild(el('p', 'nota', mesa.pedidosEsperando ? 'Seu pedido está esperando o atendente confirmar.' : 'Você ainda não pediu nada.'));
       mesa.meusItens.forEach(function (i) {
         var l = el('div', 'linha');
-        l.appendChild(el('span', '', String(i.quantidade).replace('.', ',') + 'x ' + i.nome));
+        var nomeDoItem = el('span', '', String(i.quantidade).replace('.', ',') + 'x ' + i.nome);
+        if (i.hora) nomeDoItem.appendChild(el('span', 'hora', i.hora));
+        l.appendChild(nomeDoItem);
         l.appendChild(el('span', '', moeda(i.total)));
         caixa.appendChild(l);
       });
@@ -408,7 +411,7 @@ const SCRIPT = `
         acompanhar(id, r.aceitoSozinho); carregarMesa();
       }).catch(function (e) {
         enviar.disabled = false; enviar.textContent = 'Enviar pedido';
-        erro.hidden = false; erro.textContent = e && e.message && e.message !== 'Failed to fetch' ? e.message : 'Sem conexão com a loja. Confira se está no Wi-Fi da loja.';
+        erro.hidden = false; erro.textContent = e && e.message && e.message !== 'Failed to fetch' ? e.message : 'Sem conexão com a loja. Confira a sua internet (ou o Wi-Fi da loja) e tente de novo.';
       });
     };
     document.body.appendChild(folha);
@@ -438,7 +441,7 @@ const SCRIPT = `
     if (!r.ok) { document.querySelector('main').textContent = r.error || 'Cardápio indisponível.'; return; }
     dados = r; cabecalho(); lista(); rodape();
     carregarMesa(); // depois, de 15 em 15 s (4 s esperando a mudança): quem entrou, mesa fechada, conta
-  }).catch(function () { document.querySelector('main').textContent = 'Sem conexão com a loja. Confira se está no Wi-Fi da loja.'; });
+  }).catch(function () { document.querySelector('main').textContent = 'Sem conexão com a loja. Confira a sua internet (ou o Wi-Fi da loja) e tente de novo.'; });
 })();
 `;
 

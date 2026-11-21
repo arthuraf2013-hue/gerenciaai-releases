@@ -1088,6 +1088,7 @@ button.mesa-grupo-nome { cursor: pointer; }
 .mesa-item-selecionado { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .mesa-item-nome { flex: 1; min-width: 0; }
 .mesa-item-obs { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--color-warning-text); }
+.mesa-item-hora { margin-left: 6px; font-size: 12px; color: var(--color-text-muted, #777); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .mesa-item-preco { white-space: nowrap; }
 .mesa-item .dropdown-menu-wrap .btn-secondary { padding: 2px 8px; font-size: 13px; }
 .mesa-sem-itens { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }

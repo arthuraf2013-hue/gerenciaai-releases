@@ -31,6 +31,11 @@ const TOKEN_MESA = /^[A-Za-z0-9]{24}$/;
 const ID_PEDIDO = /^[A-Za-z0-9]{12,40}$/;
 
 const estado = { servidor: null, porta: null, erro: null, ligando: null, porIp: new Map() };
+// Identifica ESTE servidor no teste do endereço pela internet (o túnel pode
+// estar apontando para outro computador da loja).
+const ID_DO_SERVIDOR = require('crypto').randomUUID();
+let fetchDeTeste = null;
+function _definirFetchParaTeste(fn) { fetchDeTeste = fn || null; }
 
 // ------------------------------------------------------------ configuração
 
@@ -45,12 +50,19 @@ function getConfig() {
   const porta = Number(r.porta) || PORTA_PADRAO;
   const enderecoFixo = r.endereco_fixo || '';
   const host = enderecoFixo || enderecosDaMaquina()[0] || null;
+  const enderecoLocal = host ? `http://${host}:${porta}` : null;
+  // Endereço pela internet (Cloudflare Tunnel no próprio servidor): o QR usa
+  // este e funciona no Wi-Fi da loja e no 4G do cliente, sem Firebase.
+  const enderecoPublico = enderecoPublicoValido(r.endereco_publico) || '';
   return {
     ativo: r.ativo === 1,
     porta,
     enderecoFixo,
     enderecosDetectados: enderecosDaMaquina(),
-    endereco: host ? `http://${host}:${porta}` : null,
+    enderecoLocal,
+    enderecoPublico,
+    pelaInternet: !!enderecoPublico,
+    endereco: enderecoPublico || enderecoLocal,
     wifiNome: r.wifi_nome || '',
     wifiSenha: r.wifi_senha || '',
     wifiTipo: ['WPA', 'WEP', 'nopass'].includes(r.wifi_tipo) ? r.wifi_tipo : 'WPA',
@@ -72,7 +84,17 @@ function enderecoFixoValido(v) {
   return /^[a-z0-9][a-z0-9.-]{0,60}$/i.test(t) ? t : null; // nome na rede (ex.: caixa1.local)
 }
 
-function saveConfig({ ativo, porta, enderecoFixo, wifiNome, wifiSenha, wifiTipo, mostrarWifi, requestingUserId } = {}) {
+/** https://nome.dominio (sem caminho, sem porta). '' = vazio; null = inválido. */
+function enderecoPublicoValido(v) {
+  let t = String(v || '').trim().toLowerCase();
+  if (!t) return '';
+  if (!/^https?:\/\//.test(t)) t = `https://${t}`;
+  t = t.replace(/\/+$/, '');
+  const m = t.match(/^https:\/\/((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63})$/);
+  return m && m[1].length <= 200 ? t : null;
+}
+
+function saveConfig({ ativo, porta, enderecoFixo, enderecoPublico, wifiNome, wifiSenha, wifiTipo, mostrarWifi, requestingUserId } = {}) {
   const db = getDb();
   const user = db.prepare('SELECT role FROM users WHERE id = ? AND ativo = 1').get(requestingUserId);
   if (!user || !['gerente', 'admin', 'suporte'].includes(user.role)) return { ok: false, error: 'Apenas gerente ou administrador muda o pedido pela mesa.' };
@@ -80,13 +102,16 @@ function saveConfig({ ativo, porta, enderecoFixo, wifiNome, wifiSenha, wifiTipo,
   if (!Number.isInteger(p) || p < 1024 || p > 65535 || p === 47820 || p === 47821) return { ok: false, error: 'Porta inválida (use entre 1024 e 65535, fora da 47820/47821 da rede dos caixas).' };
   const fixo = enderecoFixoValido(enderecoFixo);
   if (fixo === null) return { ok: false, error: 'Endereço inválido. Use o IP do servidor (ex.: 192.168.1.74) ou deixe em branco.' };
+  // Sem o campo (versão antiga da tela): mantém o que estava.
+  const publico = enderecoPublico === undefined ? (enderecoPublicoValido(linha().endereco_publico) || '') : enderecoPublicoValido(enderecoPublico);
+  if (publico === null) return { ok: false, error: 'Endereço pela internet inválido. Use só o endereço com https, ex.: https://mesa.seudominio.com.br' };
   const nomeWifi = String(wifiNome || '').trim().slice(0, 32);
   const tipo = ['WPA', 'WEP', 'nopass'].includes(wifiTipo) ? wifiTipo : 'WPA';
   if (mostrarWifi && !nomeWifi) return { ok: false, error: 'Informe o nome da rede Wi-Fi para mostrar o QR do Wi-Fi.' };
   linha();
-  db.prepare(`UPDATE mesa_local_config SET ativo = ?, porta = ?, endereco_fixo = ?, wifi_nome = ?, wifi_senha = ?, wifi_tipo = ?,
+  db.prepare(`UPDATE mesa_local_config SET ativo = ?, porta = ?, endereco_fixo = ?, endereco_publico = ?, wifi_nome = ?, wifi_senha = ?, wifi_tipo = ?,
     mostrar_wifi = ?, atualizado_em = NOW_SYNCED() WHERE id = 'default'`)
-    .run(ativo ? 1 : 0, p, fixo || null, nomeWifi || null, tipo === 'nopass' ? null : String(wifiSenha || '').slice(0, 63) || null, tipo, mostrarWifi ? 1 : 0);
+    .run(ativo ? 1 : 0, p, fixo || null, publico || null, nomeWifi || null, tipo === 'nopass' ? null : String(wifiSenha || '').slice(0, 63) || null, tipo, mostrarWifi ? 1 : 0);
   try {
     require('./authService').registrarEventoAuditoria({
       tipoEvento: 'mesa_local_alterado', solicitanteId: requestingUserId,
@@ -377,11 +402,13 @@ function estadoDe(db, mesa, aparelho) {
     const naComanda = db.prepare('SELECT numero, nome FROM sale_people WHERE sale_id = ? AND aparelho = ?').get(saleId, membro?.aparelho || '-');
     if (membro && naComanda) eu = { nome: naComanda.nome, numero: naComanda.numero };
     if (eu?.numero) {
-      meusItens = db.prepare(`SELECT COALESCE(si.nome_personalizado, p.nome) AS nome, SUM(si.quantidade) AS quantidade, SUM(si.quantidade * si.preco_unitario) AS total
+      // Um lançamento por linha, com a hora (o mesmo prato pedido duas vezes aparece duas vezes).
+      const horaBR = require('./impressaoLayout').horaBR;
+      meusItens = db.prepare(`SELECT COALESCE(si.nome_personalizado, p.nome) AS nome, si.quantidade, si.quantidade * si.preco_unitario AS total, si.criado_em
                               FROM sale_items si JOIN products p ON p.id = si.product_id
                               WHERE si.sale_id = ? AND si.pessoa_numero = ? AND si.cancelado = 0
-                              GROUP BY si.product_id, COALESCE(si.nome_personalizado, p.nome) ORDER BY MIN(si.criado_em)`).all(saleId, eu.numero)
-        .map((i) => ({ nome: i.nome, quantidade: i.quantidade, total: r2(i.total) }));
+                              ORDER BY si.criado_em, si.rowid`).all(saleId, eu.numero)
+        .map((i) => ({ nome: i.nome, quantidade: i.quantidade, total: r2(i.total), hora: horaBR(i.criado_em) }));
     }
     totalMesa = r2(db.prepare('SELECT COALESCE(SUM(quantidade * preco_unitario), 0) AS t FROM sale_items WHERE sale_id = ? AND cancelado = 0').get(saleId).t);
   } else {
@@ -526,6 +553,18 @@ function responder(res, status, corpo, tipo = 'application/json; charset=utf-8')
   res.end(dados);
 }
 
+// Pelo túnel da Cloudflare todo pedido chega do próprio computador (o
+// cloudflared roda aqui): o celular de verdade vem no cabeçalho
+// CF-Connecting-IP. Só vale quando a conexão é local -- de fora, o
+// cabeçalho seria inventado por quem quisesse fugir do limite.
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function ipDoCliente(req) {
+  const direto = req.socket?.remoteAddress || '?';
+  if (!LOOPBACK.has(direto)) return direto;
+  const cf = String(req.headers?.['cf-connecting-ip'] || '').trim();
+  return cf && cf.length <= 45 && /^[0-9a-f:.]+$/i.test(cf) ? cf : direto;
+}
+
 function passouDoLimite(ip) {
   const agora = Date.now();
   const lista = (estado.porIp.get(ip) || []).filter((t) => agora - t < 60000);
@@ -573,6 +612,7 @@ async function atender(req, res) {
       const mesa = mesaPeloToken(m[1]);
       return responder(res, mesa ? 200 : 404, require('./mesaLocalPagina').paginaDaMesa({ valida: !!mesa }), 'text/html; charset=utf-8');
     }
+    if (req.method === 'GET' && caminho === '/api/saude') return responder(res, 200, { ok: true, id: ID_DO_SERVIDOR });
     if (req.method === 'GET' && caminho === '/api/cardapio') {
       const r = cardapio(url.searchParams.get('m'));
       return responder(res, r.ok ? 200 : (r.status || 400), r);
@@ -592,7 +632,7 @@ async function atender(req, res) {
       return responder(res, e ? 200 : 404, e ? { ok: true, ...e } : { ok: false });
     }
     if (req.method === 'POST' && caminho === '/api/mudar') {
-      const ip = req.socket?.remoteAddress || '?';
+      const ip = ipDoCliente(req);
       if (passouDoLimite(ip)) return responder(res, 429, { ok: false, error: 'Muitos pedidos seguidos deste celular. Espere um minuto.' });
       let corpo;
       try { corpo = await lerCorpo(req); } catch { return responder(res, 400, { ok: false, error: 'Pedido inválido.' }); }
@@ -603,7 +643,7 @@ async function atender(req, res) {
       return responder(res, r.ok ? 200 : 400, r.ok ? { ok: true, ...estadoDaMesa(corpo.m, corpo.aparelho) } : r);
     }
     if (req.method === 'POST' && (caminho === '/api/entrar' || caminho === '/api/chamar')) {
-      const ip = req.socket?.remoteAddress || '?';
+      const ip = ipDoCliente(req);
       if (passouDoLimite(ip)) return responder(res, 429, { ok: false, error: 'Muitos pedidos seguidos deste celular. Espere um minuto.' });
       let corpo;
       try { corpo = await lerCorpo(req); } catch { return responder(res, 400, { ok: false, error: 'Pedido inválido.' }); }
@@ -613,7 +653,7 @@ async function atender(req, res) {
       return responder(res, r.ok ? 200 : (r.status || 400), r);
     }
     if (req.method === 'POST' && caminho === '/api/pedido') {
-      const ip = req.socket?.remoteAddress || '?';
+      const ip = ipDoCliente(req);
       if (passouDoLimite(ip)) return responder(res, 429, { ok: false, error: 'Muitos pedidos seguidos deste celular. Espere um minuto.' });
       let corpo;
       try { corpo = await lerCorpo(req); } catch { return responder(res, 400, { ok: false, error: 'Pedido inválido.' }); }
@@ -662,6 +702,28 @@ function parar() {
   estado.porta = null;
 }
 
+/**
+ * O endereço pela internet chega NESTE servidor? Pergunta /api/saude pelo
+ * próprio endereço (vai até a Cloudflare e volta pelo túnel).
+ */
+async function testarEnderecoPublico({ endereco } = {}) {
+  const config = getConfig();
+  const alvo = endereco === undefined ? config.enderecoPublico : enderecoPublicoValido(endereco);
+  if (!alvo) return { ok: false, error: 'Preencha o endereço pela internet (ex.: https://mesa.seudominio.com.br).' };
+  if (!estado.servidor) return { ok: false, error: 'O pedido pela mesa não está rodando neste computador. Ligue e salve antes de testar.' };
+  try {
+    const r = await (fetchDeTeste || fetch)(`${alvo}/api/saude`, { signal: AbortSignal.timeout(10000), headers: { 'Cache-Control': 'no-cache' } });
+    let j = null;
+    try { j = await r.json(); } catch { j = null; }
+    if (r.ok && j?.id === ID_DO_SERVIDOR) return { ok: true, mensagem: `Funcionando: ${alvo} chega neste computador.` };
+    if (r.ok && j?.ok) return { ok: false, error: 'O endereço respondeu, mas de OUTRO computador. Na Cloudflare, o túnel tem que rodar neste PC (o servidor).' };
+    return { ok: false, error: `O endereço respondeu com erro ${r.status}. Confira na Cloudflare se o túnel está "Healthy" e se o endereço aponta para http://localhost:${estado.porta || config.porta}.` };
+  } catch (err) {
+    const tempo = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    return { ok: false, error: tempo ? 'O endereço não respondeu em 10 segundos. O túnel (cloudflared) está rodando neste computador?' : `Não consegui acessar o endereço (${err?.cause?.code || err?.message || err}). Confira o nome e o DNS na Cloudflare.` };
+  }
+}
+
 /** Liga/desliga conforme a configuração e o papel no grupo (na inicialização e ao salvar). */
 function atualizar() {
   try {
@@ -682,7 +744,7 @@ function status() {
 }
 
 module.exports = {
-  CANAL, PORTA_PADRAO, getConfig, saveConfig, enderecosDaMaquina, linkDaMesa, textoQrWifi, cardapio, criarPedido, andamento,
+  CANAL, PORTA_PADRAO, getConfig, saveConfig, enderecosDaMaquina, enderecoPublicoValido, ipDoCliente, testarEnderecoPublico, _definirFetchParaTeste, linkDaMesa, textoQrWifi, cardapio, criarPedido, andamento,
   entrarNaMesa, estadoDaMesa, chamar, atenderChamados, indicadoresDasMesas, incluirMembrosPendentes, esquecerMembros, moverMembros, status,
   iniciar, parar, atualizar, atender, deveRodar, mesaEfetiva, vendaAberta, rotuloMesa,
 };

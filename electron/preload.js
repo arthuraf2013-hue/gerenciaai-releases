@@ -293,6 +293,13 @@ contextBridge.exposeInMainWorld('pdv', {
   mesaLocal: {
     getConfig: invoke('mesaLocal:getConfig'),
     saveConfig: invoke('mesaLocal:saveConfig'),
+    testarEndereco: invoke('mesaLocal:testarEndereco'),
+  },
+  tunel: {
+    status: invoke('tunel:status'),
+    configurar: invoke('tunel:configurar'),
+    desligar: invoke('tunel:desligar'),
+    religar: invoke('tunel:religar'),
   },
   vitrinePix: {
     receberNoBalcao: invoke('vitrinePix:receberNoBalcao'),

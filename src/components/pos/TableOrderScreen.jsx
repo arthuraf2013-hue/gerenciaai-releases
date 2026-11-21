@@ -18,6 +18,15 @@ import { DropdownMenu, DropdownMenuItem } from '../common/DropdownMenu';
 import { QuantidadeDaLinha } from './QuantidadeDaLinha';
 import { valorDaPessoa, situacaoDaPessoa } from '../../utils/contaPorPessoa';
 
+/** Instante atual como o banco grava (UTC, "AAAA-MM-DD HH:MM:SS"). */
+const agoraUtc = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+/** "19:42" (hora deste computador) de um instante gravado em UTC. */
+function horaDoItem(textoUtc) {
+  const d = new Date(`${String(textoUtc).replace(' ', 'T').replace(/Z?$/, 'Z')}`);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
 function playErrorBeep() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -147,7 +156,7 @@ export function TableOrderScreen({
       }
       return [...prev, {
         id: result.itemId, nome: product.nome, quantidade, precoUnitario: result.precoUnitario, cancelado: false,
-        pessoaNumero: pessoaAtiva, ajustavel: result.ajustavel,
+        pessoaNumero: pessoaAtiva, ajustavel: result.ajustavel, criadoEm: agoraUtc(),
       }];
     });
     playBeep();
@@ -179,7 +188,7 @@ export function TableOrderScreen({
   function handleCustomItemAdded(result) {
     if (pessoaAtiva) api.sale.setItemPerson({ saleItemId: result.itemId, pessoaNumero: pessoaAtiva });
     setItems((prev) => [...prev, {
-      id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false,
+      id: result.itemId, nome: result.nome, quantidade: 1, precoUnitario: result.precoUnitario, cancelado: false, criadoEm: agoraUtc(),
       pessoaNumero: pessoaAtiva,
     }]);
     setTotal(result.novoTotal); // recalculado no backend — ver addProductToCart
@@ -529,6 +538,7 @@ export function TableOrderScreen({
       >
         <span className="mesa-item-nome">
           {item.ajustavel && !fechando ? <>{item.nome} <QuantidadeDaLinha item={item} onAjustar={ajustarQuantidade} /></> : <>{item.nome} × {item.quantidade}</>}
+          {item.criadoEm && <span className="mesa-item-hora" title="Hora em que o item foi lançado">{horaDoItem(item.criadoEm)}</span>}
           {item.observacao && <span className="mesa-item-obs"><Icon name="warning" size={12} /> {item.observacao}</span>}
         </span>
         <span className="mesa-item-preco">{(item.precoUnitario * item.quantidade).toFixed(2)}</span>

@@ -628,6 +628,17 @@ function registerIpcHandlers() {
     if (r.ok) { await mesaLocal.atualizar(); r.config = mesaLocal.getConfig(); }
     return r;
   });
+  safeHandle('mesaLocal:testarEndereco', (event, dados = {}) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/mesaLocalService').testarEnderecoPublico({ endereco: typeof dados?.endereco === 'string' ? dados.endereco : undefined }));
+  // Túnel da Cloudflare automático (QR da mesa pela internet sem Firebase).
+  safeHandle('tunel:status', (event) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/cloudflareTunelService').getStatus());
+  safeHandle('tunel:configurar', (event, dados = {}) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/cloudflareTunelService').configurarAutomatico({
+    apiToken: typeof dados?.apiToken === 'string' ? dados.apiToken : '',
+    dominio: typeof dados?.dominio === 'string' ? dados.dominio : '',
+    nome: typeof dados?.nome === 'string' ? dados.nome : 'mesa',
+    requestingUserId: usuarioLogado(event),
+  }));
+  safeHandle('tunel:desligar', (event) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/cloudflareTunelService').desligar({ requestingUserId: usuarioLogado(event) }));
+  safeHandle('tunel:religar', (event) => guardRole(event, ['gerente', 'admin', 'suporte']) || require('../services/cloudflareTunelService').religar({ requestingUserId: usuarioLogado(event) }));
   safeHandle('vitrine:saveConfig', (_e, payload) => require('../services/vitrineService').saveConfig(payload || {}));
   safeHandle('vitrine:publicarAgora', () => require('../services/vitrineService').publicarSeMudou());
   // Vitrine de demonstração (ver vitrineDemoService.js): só na máquina marcada na Central.

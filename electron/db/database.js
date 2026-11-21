@@ -550,6 +550,14 @@ function migrateColumnsIfNeeded(database) {
   // Bancos antigos criaram receipt_config sem o rodapé e sem a impressão automática
   // (estúdio de impressão e Configurações > Impressora dão "no such column: rodape_texto").
   adicionarColunaSeFaltando(database, 'receipt_config', 'rodape_texto', 'TEXT');
+  // Endereço pela internet do pedido pela mesa (Cloudflare Tunnel).
+  adicionarColunaSeFaltando(database, 'mesa_local_config', 'endereco_publico', 'TEXT');
+  // Túnel da Cloudflare automático (cloudflareTunelService); o token fica criptografado.
+  adicionarColunaSeFaltando(database, 'mesa_local_config', 'tunel_ativo', 'INTEGER NOT NULL DEFAULT 0');
+  adicionarColunaSeFaltando(database, 'mesa_local_config', 'tunel_id', 'TEXT');
+  adicionarColunaSeFaltando(database, 'mesa_local_config', 'tunel_conta', 'TEXT');
+  adicionarColunaSeFaltando(database, 'mesa_local_config', 'tunel_host', 'TEXT');
+  adicionarColunaSeFaltando(database, 'mesa_local_config', 'tunel_token', 'TEXT');
   adicionarColunaSeFaltando(database, 'receipt_config', 'imprimir_automatico', 'INTEGER NOT NULL DEFAULT 0');
   adicionarColunaSeFaltando(database, 'receipt_config', 'impressora_padrao', 'TEXT');
   adicionarColunaSeFaltando(database, 'products', 'codigo_balanca', 'TEXT');

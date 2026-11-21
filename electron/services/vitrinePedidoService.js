@@ -40,7 +40,17 @@ const PAGAMENTOS = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão' };
 const PAGAMENTOS_ACEITOS = ['pix', 'dinheiro', 'cartao', 'pix_online', 'mesa'];
 const SLUG_VALIDO = /^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/;
 
-const estado = { pararEscuta: null, processando: new Set(), escutando: false };
+const estado = {
+  pararEscuta: null, processando: new Set(), escutando: false,
+  // Reconexão: a escuta do Firestore que dá erro (login vencido, permissão,
+  // cota) MORRE e não volta sozinha. Antes o app só anotava no log e seguia
+  // achando que escutava: os pedidos paravam de chegar até reiniciar.
+  tentativas: 0, timerReconexao: null, ultimoErro: null, ultimaRespostaEm: null,
+};
+const ESPERA_RECONEXAO_MIN_MS = 15000;
+const ESPERA_RECONEXAO_MAX_MS = 5 * 60 * 1000;
+let nuvemDeTeste = null; // { firestore, installId, collection, query, where, onSnapshot } falsos nos testes
+function _definirNuvemParaTeste(n) { nuvemDeTeste = n || null; }
 
 const arred = (v, casas = 2) => { const f = 10 ** casas; return Math.round((Number(v) + Number.EPSILON) * f) / f; };
 const moeda = (v) => `R$ ${Number(v || 0).toFixed(2).replace('.', ',')}`;
@@ -340,34 +350,66 @@ function pararEscuta() {
   estado.escutando = false;
 }
 
+/** Tenta ligar a escuta de novo daqui a pouco (15 s, 30 s, ... até 5 min). */
+function agendarReconexao() {
+  if (estado.timerReconexao) return;
+  const espera = Math.min(ESPERA_RECONEXAO_MAX_MS, ESPERA_RECONEXAO_MIN_MS * 2 ** Math.min(estado.tentativas, 5));
+  estado.tentativas += 1;
+  estado.timerReconexao = setTimeout(() => { estado.timerReconexao = null; atualizarEscuta(); }, espera);
+  estado.timerReconexao.unref?.();
+}
+
+/** Para a tela da Vitrine: está recebendo pedidos agora? */
+function statusDaEscuta() {
+  return { escutando: estado.escutando, ultimoErro: estado.ultimoErro, ultimaRespostaEm: estado.ultimaRespostaEm, reconectando: !!estado.timerReconexao };
+}
+
 /** Liga ou desliga a escuta conforme a configuração (chamado ao salvar a
  * vitrine, ao ler o documento da instalação e pela vitrine de demonstração). */
 function atualizarEscuta() {
   const quer = deveEscutar();
-  if (quer === estado.escutando) return;
-  if (!quer) { pararEscuta(); return; }
+  if (!quer) {
+    if (estado.timerReconexao) { clearTimeout(estado.timerReconexao); estado.timerReconexao = null; }
+    estado.tentativas = 0;
+    estado.ultimoErro = null;
+    if (estado.escutando) pararEscuta();
+    return;
+  }
+  if (estado.escutando) return;
   try {
-    const { collection, query, where, onSnapshot } = require('firebase/firestore');
-    const firestore = require('./licenseService').getLicenseFirestore();
-    const installId = require('./pdvRegistryService').getOrCreateDeviceUid();
+    const { collection, query, where, onSnapshot } = nuvemDeTeste || require('firebase/firestore');
+    const firestore = nuvemDeTeste ? nuvemDeTeste.firestore : require('./licenseService').getLicenseFirestore();
+    const installId = nuvemDeTeste ? nuvemDeTeste.installId : require('./pdvRegistryService').getOrCreateDeviceUid();
     estado.pararEscuta = onSnapshot(
       query(collection(firestore, 'installations', installId, 'pedidos_vitrine'), where('status', '==', 'novo')),
       (snap) => {
+        estado.tentativas = 0;
+        estado.ultimoErro = null;
+        estado.ultimaRespostaEm = new Date().toISOString();
         snap.docChanges().forEach((mudanca) => {
           if (mudanca.type === 'removed') return;
           processarDocumento(mudanca.doc, { firestore, installId }).catch((err) => console.error('[vitrinePedidoService]', err));
         });
       },
-      (err) => console.error('[vitrinePedidoService] escuta de pedidos falhou:', err),
+      (err) => {
+        // A escuta morreu (o Firestore não religa sozinho depois de um erro): religa.
+        console.error('[vitrinePedidoService] escuta de pedidos falhou (religando):', err?.message || err);
+        estado.ultimoErro = String(err?.code || err?.message || err).slice(0, 200);
+        pararEscuta();
+        agendarReconexao();
+      },
     );
     estado.escutando = true;
   } catch (err) {
-    console.error('[vitrinePedidoService] não foi possível iniciar a escuta:', err?.message || err);
+    console.error('[vitrinePedidoService] não foi possível iniciar a escuta (tenta de novo):', err?.message || err);
+    estado.ultimoErro = String(err?.message || err).slice(0, 200);
+    pararEscuta();
+    agendarReconexao();
   }
 }
 
 module.exports = {
   aceitarSozinhoSeMesaAberta, telefoneValido, avisarTelas, itensValidos,
-  criarPedidoVitrine, etapaDoPedido, publicarEtapa, atualizarEscuta, itensValidos, observacoesDoPedido,
+  criarPedidoVitrine, etapaDoPedido, publicarEtapa, atualizarEscuta, statusDaEscuta, _definirNuvemParaTeste, itensValidos, observacoesDoPedido,
   CANAL, TELEFONE_PEDIDO, PAGAMENTOS_ACEITOS,
 };

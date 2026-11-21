@@ -392,11 +392,18 @@ function provisorioPerdido(temp) {
 }
 
 let drenando = null;
+let drenarDeNovo = null;
 let ultimaFalha = 0;
 
 /** Manda a fila ao servidor, na ordem. Para no primeiro sinal de rede fora. */
 function drenar() {
-  if (drenando) return drenando;
+  if (drenando) {
+    // Pedido no meio de um envio: o que está rodando pode ter começado com o
+    // servidor fora e parar no 1º erro. Espera ele acabar e manda DE NOVO --
+    // devolver o resultado velho deixava a fila parada até o próximo ciclo.
+    if (!drenarDeNovo) drenarDeNovo = drenando.catch(() => {}).then(() => { drenarDeNovo = null; return drenar(); });
+    return drenarDeNovo;
+  }
   drenando = (async () => {
     const db = getDb();
     let enviados = 0;

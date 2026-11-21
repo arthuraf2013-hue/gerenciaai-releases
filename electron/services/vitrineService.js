@@ -93,7 +93,9 @@ async function getConfigComQr() {
   if (config.link) {
     try { qrDataUrl = await require('qrcode').toDataURL(config.link, { errorCorrectionLevel: 'M', margin: 1, width: 360 }); } catch { qrDataUrl = null; }
   }
-  return { ...config, qrDataUrl };
+  let escuta = null;
+  try { escuta = require('./vitrinePedidoService').statusDaEscuta(); } catch { escuta = null; }
+  return { ...config, qrDataUrl, escuta };
 }
 
 function linkPublico(slug, tokenMesa) {
@@ -180,7 +182,8 @@ async function qrDasMesas() {
   const location = db.prepare('SELECT id FROM locations LIMIT 1').get();
   const mesas = location ? db.prepare('SELECT id, numero, nome FROM restaurant_tables WHERE location_id = ? ORDER BY CAST(numero AS INTEGER), numero').all(location.id) : [];
   const QRCode = require('qrcode');
-  const duplo = destino.modo === 'local' && internetDisponivel();
+  // Com o endereço pela internet (túnel) o QR da loja já abre em qualquer rede: um QR só.
+  const duplo = destino.modo === 'local' && !destino.local?.pelaInternet && internetDisponivel();
   const lista = [];
   for (const m of mesas) {
     const token = garantirTokenMesa(db, m.id);
@@ -220,7 +223,7 @@ async function qrDaMesa(tableId) {
   // Rede da loja ligada + vitrine ativa: também o link/QR pela internet (cliente sem o Wi-Fi da loja).
   let urlInternet = null;
   let qrInternetDataUrl = null;
-  if (destino.modo === 'local' && internetDisponivel()) {
+  if (destino.modo === 'local' && !destino.local?.pelaInternet && internetDisponivel()) {
     urlInternet = linkPublico(config.slug, token);
     try { qrInternetDataUrl = await require('qrcode').toDataURL(urlInternet, { errorCorrectionLevel: 'M', margin: 1, width: 300 }); } catch { qrInternetDataUrl = null; }
   }

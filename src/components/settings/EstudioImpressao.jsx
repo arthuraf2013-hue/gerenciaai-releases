@@ -410,6 +410,8 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
               <Marcar rotulo="Cliente" checked={c.mostrarCliente} onChange={(v) => mudar('mostrarCliente', v)} />
               <Marcar rotulo="Coluna de preço unitário" checked={c.colunaUnitario} onChange={(v) => mudar('colunaUnitario', v)} />
               <Marcar rotulo="Observações dos itens (ex: sem cebola)" checked={c.mostrarObservacoes} onChange={(v) => mudar('mostrarObservacoes', v)} />
+              <Marcar rotulo="Hora em que cada item foi lançado" checked={c.mostrarHoraItem} onChange={(v) => mudar('mostrarHoraItem', v)}
+                dica="Ex.: Picanha 19:42. Só em conta de mesa; no balcão não sai." />
               {!ePre && <Marcar rotulo="Formas de pagamento" checked={c.mostrarPagamentos} onChange={(v) => mudar('mostrarPagamentos', v)} />}
               {ePre && (
                 <>

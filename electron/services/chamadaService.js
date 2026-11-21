@@ -398,6 +398,10 @@ async function publicarSeMudou() {
   avisarJanelas();
   if (publicando) { pendente = true; return publicando; }
   publicando = (async () => {
+    // Sem este await, uma saída antecipada (sem mudança, desligado, sem cota) rodava o
+    // finally ANTES de a trava ser atribuída e ela ficava presa com o resultado velho:
+    // nada mais era publicado até reiniciar o app.
+    await null;
     try {
       const row = getRow();
       if (row.ativa !== 1 || !row.painel_token) return { publicado: false, motivo: 'desligado' };

@@ -163,7 +163,9 @@ function atualizar() {
         // Chamou "conta": a página vai ler a conta agora, então atualiza já.
         publicarContas().catch(() => {});
       },
-      (err) => console.error('[vitrineMesaService] escuta de chamados falhou:', err?.message || err),
+      // A escuta do Firestore que dá erro não volta sozinha: solta aqui e o
+      // atualizar() de cada minuto liga de novo.
+      (err) => { console.error('[vitrineMesaService] escuta de chamados falhou (religa no próximo minuto):', err?.message || err); pararEscuta(); },
     );
     estado.escutando = true;
   } catch (err) {

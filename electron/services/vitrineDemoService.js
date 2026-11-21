@@ -125,6 +125,10 @@ async function publicarCatalogos() {
   if (!estado.maquinaDemo) return { publicados: 0 };
   if (estado.publicando) return estado.publicando;
   estado.publicando = (async () => {
+    // Sem este await, uma saída antecipada (sem mudança, desligado, sem cota) rodava o
+    // finally ANTES de a trava ser atribuída e ela ficava presa com o resultado velho:
+    // nada mais era publicado até reiniciar o app.
+    await null;
     try {
       const { doc, setDoc, serverTimestamp } = require('firebase/firestore');
       const firestore = require('./licenseService').getLicenseFirestore();

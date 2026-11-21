@@ -461,6 +461,11 @@ app.whenReady().then(() => {
     const mesaLocal = require('./services/mesaLocalService');
     mesaLocal.atualizar();
     setInterval(() => { try { mesaLocal.atualizar(); } catch (err) { console.error('[mesaLocal]', err?.message || err); } }, 60 * 1000);
+    // Túnel da Cloudflare (QR da mesa pela internet sem Firebase): roda junto
+    // com o app no servidor; caiu, religa (ver cloudflareTunelService).
+    const tunel = require('./services/cloudflareTunelService');
+    tunel.atualizar().catch((err) => console.error('[tunel]', err?.message || err));
+    setInterval(() => { tunel.atualizar().catch((err) => console.error('[tunel]', err?.message || err)); }, 60 * 1000);
     // QR da mesa pela internet (cliente sem o Wi-Fi da loja): chamar garçom, pedir
     // a conta e ver a conta pela vitrine. Só liga com a vitrine recebendo pedidos.
     const vitrineMesa = require('./services/vitrineMesaService');
@@ -690,6 +695,7 @@ function prepararReparoDaInstalacao() {
 app.on('before-quit', () => {
   try { atualizacaoVaiInstalar = Boolean(updateService.antesDeFechar()) || atualizacaoVaiInstalar; } catch (err) { console.error('[reparo]', err); }
   try { require('./services/tecladoSistemaService').encerrar(); } catch { /* nada aberto */ }
+  try { require('./services/cloudflareTunelService').parar(); } catch { /* sem túnel */ }
   if (saindo) return;
   saindo = true;
   batimento?.saindo();

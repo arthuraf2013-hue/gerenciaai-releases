@@ -179,7 +179,8 @@ test('vários celulares entram na mesa livre: esperam e viram pessoas da comanda
 
   const daBia = mesaLocal.estadoDaMesa(ctx.token, CEL_BIA);
   assert.equal(daBia.aberta, true);
-  assert.deepEqual(daBia.meusItens, [{ nome: 'Suco de laranja', quantidade: 2, total: 16 }]);
+  assert.deepEqual(daBia.meusItens.map(({ hora, ...resto }) => resto), [{ nome: 'Suco de laranja', quantidade: 2, total: 16 }]);
+  assert.match(daBia.meusItens[0].hora, /^\d\d:\d\d$/, 'cada lançamento com a hora');
   assert.equal(daBia.meuTotal, 16);
   assert.equal(daBia.totalMesa, 16);
   assert.deepEqual(mesaLocal.estadoDaMesa(ctx.token, CEL_ANA).meusItens, [], 'cada um vê só a própria conta');
