@@ -458,6 +458,10 @@ function drenar() {
       enviados += 1;
     }
     const restantes = db.prepare("SELECT COUNT(*) AS n FROM mesa_fila_offline WHERE estado = 'pendente'").get().n;
+    // Mandou a fila inteira: o servidor está no ar AGORA. Sai do modo sem servidor
+    // na hora -- um envio antigo (que começou com o servidor fora) pode ter
+    // anotado a falha depois e deixava o caixa na cópia local por mais um tempo.
+    if (enviados > 0 && restantes === 0) ultimaFalha = 0;
     if (enviados || erros) {
       // Cópia nova do servidor (agora é ele a verdade de novo) e as telas recarregam.
       if (!restantes) { ultimaAtualizacao = 0; await atualizarEspelho({ forcar: true }); }

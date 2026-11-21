@@ -40,4 +40,7 @@ test('drenar no meio de outro envio: espera e manda de novo, com o servidor que 
   assert.equal(r.restantes, 0, 'mandou tudo de novo depois que o antigo parou');
   assert.equal(r.enviados, 3);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM mesa_fila_offline WHERE estado = 'pendente'").get().n, 0);
+  // A falha anotada pelo envio antigo não deixa o caixa preso no modo sem servidor.
+  assert.equal(cont.podeTentar(), true, 'saiu do modo sem servidor');
+  assert.equal(cont.offlineAgora(), false);
 });
