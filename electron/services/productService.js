@@ -53,6 +53,8 @@ function removeFoto(productId) {
   const product = db.prepare('SELECT foto_path FROM products WHERE id = ?').get(productId);
   const seguro = caminhoDeFotoSeguro(product?.foto_path);
   if (seguro) fs.unlink(seguro, () => {});
+  // Tirou a foto: uma foto do grupo que ainda ia baixar não volta sozinha.
+  try { db.prepare('DELETE FROM grupo_replica_foto_baixar WHERE local_id = ?').run(productId); } catch { /* sem a tabela (banco antigo) */ }
   db.prepare('UPDATE products SET foto_path = NULL WHERE id = ?').run(productId);
   return { ok: true };
 }

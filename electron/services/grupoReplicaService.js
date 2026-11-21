@@ -673,6 +673,14 @@ function trabalharFotos(grupoId) {
   }
 }
 
+/** Suporte: traz do servidor da loja as fotos que sumiram daqui e redistribui. */
+async function recuperarFotos(grupoId) {
+  const lan = backendDasFotos();
+  const r = await require('./grupoFotoService').recuperarDoServidor({ grupoId, backend: lan });
+  if (r.ok && r.recuperadas > 0) await enviarPendentes();
+  return r;
+}
+
 /** O que a escuta faz com uma leva do grupo (exposto para os testes). */
 function receber(entidade, grupoId, mudou) {
   if (entidade === 'fiado') {
@@ -683,6 +691,6 @@ function receber(entidade, grupoId, mudou) {
 }
 
 module.exports = {
-  iniciar, parar, sincronizarTudo, enviarPendentes, mesclar, receber, receberFiado, paraGrupo, trabalharFotos,
+  iniciar, parar, sincronizarTudo, enviarPendentes, mesclar, receber, receberFiado, paraGrupo, trabalharFotos, recuperarFotos,
   versaoDoDoc, _definirBackendParaTeste, _definirBackendDasFotosParaTeste, ENTIDADES,
 };

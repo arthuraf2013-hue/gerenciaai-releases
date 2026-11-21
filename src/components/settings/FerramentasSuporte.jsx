@@ -90,6 +90,12 @@ export function FerramentasSuporte() {
     carregarPendencias();
   }
 
+  async function recuperarFotos() {
+    if (!window.confirm('Trazer de volta do servidor as fotos que sumiram deste computador?\n\nUma foto tirada de propósito também volta, se o servidor ainda tiver a cópia. Os outros caixas recebem as fotos sozinhos.')) return;
+    setFilas(await rodar('fotos', () => window.pdv.suporte.recuperarFotos()));
+    carregarPendencias();
+  }
+
   async function conferir() {
     setConf(await rodar('conferir', () => window.pdv.suporte.conferir()));
   }
@@ -128,11 +134,12 @@ export function FerramentasSuporte() {
 
       <section className="settings-section">
         <h2><Icon name="refresh" size={16} /> Filas e cadastros</h2>
-        <p className="screen-hint">Forçar envio manda agora o que está na fila (vendas, estoque, cadastros, fotos, contas de mesa). Puxar do grupo relê todos os cadastros. Conferir compara este computador com o grupo{ehCaixa ? ` (no ${servidorNome})` : ''}.</p>
+        <p className="screen-hint">Forçar envio manda agora o que está na fila (vendas, estoque, cadastros, fotos, contas de mesa). Puxar do grupo relê todos os cadastros. Conferir compara este computador com o grupo{ehCaixa ? ` (no ${servidorNome})` : ''}. Recuperar fotos traz do servidor as fotos que sumiram daqui e manda para os outros caixas.</p>
         <div className="suporte-botoes">
           <button type="button" className="btn-secondary" disabled={!!ocupado || !papel || papel === 'fora de grupo'} onClick={() => forcar('envio')}>{ocupado === 'envio' ? 'Enviando...' : 'Forçar envio agora'}</button>
           <button type="button" className="btn-secondary" disabled={!!ocupado || !papel || papel === 'fora de grupo'} onClick={() => forcar('recebimento')}>{ocupado === 'recebimento' ? 'Puxando...' : 'Puxar tudo do grupo de novo'}</button>
           <button type="button" className="btn-secondary" disabled={!!ocupado || !papel || papel === 'fora de grupo'} onClick={conferir}>{ocupado === 'conferir' ? 'Conferindo...' : 'Conferir com o servidor'}</button>
+          <button type="button" className="btn-secondary" disabled={!!ocupado || !papel || papel === 'fora de grupo'} onClick={recuperarFotos}>{ocupado === 'fotos' ? 'Recuperando...' : 'Recuperar fotos do servidor'}</button>
         </div>
         <ResultadoPassos r={filas} />
         {conf && !conf.ok && <p className="modal-error">{conf.error}</p>}

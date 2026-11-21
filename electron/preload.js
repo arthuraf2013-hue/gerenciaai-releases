@@ -623,6 +623,7 @@ contextBridge.exposeInMainWorld('pdv', {
     salvarRelatorio: invoke('suporte:salvarRelatorio'),
     forcarEnvio: invoke('suporte:forcarEnvio'),
     forcarRecebimento: invoke('suporte:forcarRecebimento'),
+    recuperarFotos: invoke('suporte:recuperarFotos'),
     conferir: invoke('suporte:conferir'),
     zerar: invoke('suporte:zerar'),
     clonar: invoke('suporte:clonar'),

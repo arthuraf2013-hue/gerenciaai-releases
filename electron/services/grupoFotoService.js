@@ -106,12 +106,22 @@ let comprimir = comprimirComElectron;
 
 /**
  * O que o documento do produto leva sobre a foto: { fotoHash } ou nada.
- * Sem foto: null. Foto que o grupo já tem (mesmo arquivo): o hash dela.
- * Foto nova que ainda não subiu: nada (o fotoHash vem quando ela subir).
+ *   - Foto que o grupo já tem (mesmo arquivo): o hash dela.
+ *   - O grupo tem uma foto que este caixa ainda não baixou: repete o hash do
+ *     grupo. Antes ia "sem foto" (null) e os outros caixas APAGAVAM a foto
+ *     deles quando este mudava o preço ou o nome do produto.
+ *   - "Sem foto" (null) só de quem conhecia a foto do grupo e a tirou aqui.
+ *   - Foto nova que ainda não subiu, ou caixa que nunca soube da foto
+ *     (clonado, fila perdida): nada -- não mexe na foto de ninguém.
  */
 function campoDaFoto(db, grupoId, produto) {
-  if (!produto.foto_path) return { fotoHash: null };
+  const esperandoSubir = !!produto.foto_path && !!db.prepare('SELECT 1 FROM grupo_replica_foto_enviar WHERE local_id = ?').get(produto.id);
+  if (!esperandoSubir) {
+    const baixando = db.prepare('SELECT hash FROM grupo_replica_foto_baixar WHERE grupo_id = ? AND local_id = ?').get(grupoId, produto.id);
+    if (baixando) return { fotoHash: baixando.hash };
+  }
   const reg = db.prepare('SELECT hash_arquivo, hash_grupo FROM grupo_replica_foto WHERE grupo_id = ? AND local_id = ?').get(grupoId, produto.id);
+  if (!produto.foto_path) return reg ? { fotoHash: null } : {};
   if (reg && hashDoArquivo(produto.foto_path) === reg.hash_arquivo) return { fotoHash: reg.hash_grupo };
   return {};
 }
@@ -293,6 +303,55 @@ async function baixarFotos({ grupoId, backend, agora = Date.now() }) {
   return { baixadas };
 }
 
+// ---------------------------------------------------------------- recuperar
+
+/**
+ * Traz de volta as fotos que o servidor da loja ainda guarda para produtos
+ * que, AQUI, estão sem foto (sumiram pelo erro antigo em que um caixa sem a
+ * foto avisava "sem foto" e os outros apagavam a deles). Grava a foto aqui e
+ * manda o produto de novo com o fotoHash: os outros caixas baixam sozinhos.
+ * Ferramenta de suporte (manual): uma foto tirada de propósito também volta,
+ * se o servidor ainda tiver a cópia.
+ */
+async function recuperarDoServidor({ grupoId, backend }) {
+  if (!grupoId) return { ok: false, error: 'Este computador não está em um grupo.' };
+  if (!backend || typeof backend.lerAlguns !== 'function') {
+    return { ok: false, error: 'O servidor da loja não está respondendo pela rede local. Tente de novo com ele ligado.' };
+  }
+  const db = getDb();
+  const candidatos = db.prepare(
+    `SELECT p.id AS local_id, p.foto_path, r.doc_id FROM products p
+     JOIN grupo_replica r ON r.entidade = 'produtos' AND r.grupo_id = ? AND r.local_id = p.id
+     WHERE p.ativo = 1`
+  ).all(grupoId).filter((c) => !arquivoSeguro(c.foto_path));
+  const r = { ok: true, semFotoAqui: candidatos.length, recuperadas: 0, semCopiaNoServidor: 0, invalidas: 0 };
+  const LOTE = 20; // o servidor da loja responde até 20 por pedido
+  for (let i = 0; i < candidatos.length; i += LOTE) {
+    const lote = candidatos.slice(i, i + LOTE);
+    let docs;
+    try {
+      docs = await backend.lerAlguns(grupoId, 'fotos', lote.map((c) => c.doc_id));
+    } catch (err) {
+      return { ...r, ok: false, error: `O servidor da loja parou de responder (${err?.message || err}). ${r.recuperadas} foto(s) já voltaram; rode de novo para o resto.` };
+    }
+    for (const c of lote) {
+      const foto = docs?.get?.(c.doc_id);
+      if (!foto || typeof foto.hash !== 'string') { r.semCopiaNoServidor++; continue; }
+      let gravou = false;
+      try { gravou = gravarFotoRecebida(db, grupoId, { local_id: c.local_id, hash: foto.hash }, foto); } catch (err) { console.error('[grupoFoto] recuperar:', err.message); }
+      if (!gravou) { r.invalidas++; continue; }
+      db.transaction(() => {
+        db.prepare('DELETE FROM grupo_replica_foto_baixar WHERE grupo_id = ? AND local_id = ?').run(grupoId, c.local_id);
+        // O produto vai de novo com o fotoHash: é isso que avisa os outros caixas.
+        db.prepare(`INSERT INTO grupo_replica_pendente (entidade, local_id, marca) VALUES ('produtos', ?, abs(random()))
+                    ON CONFLICT(entidade, local_id) DO UPDATE SET marca = abs(random())`).run(c.local_id);
+      })();
+      r.recuperadas++;
+    }
+  }
+  return r;
+}
+
 // ---------------------------------------------------------------- ciclo
 
 let trabalhando = null;
@@ -341,6 +400,6 @@ function _definirCompressorParaTeste(fn) { comprimir = fn || comprimirComElectro
 function _definirPastaParaTeste(dir) { pastaDeTeste = dir || null; }
 
 module.exports = {
-  campoDaFoto, aoReceberProduto, enviarFotos, baixarFotos, trabalhar, temTrabalho, progresso,
+  campoDaFoto, aoReceberProduto, enviarFotos, baixarFotos, trabalhar, temTrabalho, progresso, recuperarDoServidor,
   hashDe, pareceImagem, MAX_BYTES, _definirCompressorParaTeste, _definirPastaParaTeste,
 };

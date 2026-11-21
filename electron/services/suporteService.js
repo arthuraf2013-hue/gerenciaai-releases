@@ -394,6 +394,18 @@ async function forcarRecebimento() {
   return { ok: passos.every((p) => p.ok), passos };
 }
 
+/** Fotos que sumiram deste caixa e que o servidor da loja ainda guarda. */
+async function recuperarFotos() {
+  const grupoId = grupoAtual();
+  if (!grupoId) return { ok: false, error: 'Este computador não está em um grupo.' };
+  const r = await require('./grupoReplicaService').recuperarFotos(grupoId);
+  if (!r.ok) return r;
+  const partes = [`${r.recuperadas} foto(s) recuperada(s)`];
+  if (r.semCopiaNoServidor) partes.push(`${r.semCopiaNoServidor} produto(s) sem foto guardada no servidor`);
+  if (r.invalidas) partes.push(`${r.invalidas} cópia(s) com defeito ignorada(s)`);
+  return { ...r, passos: [{ passo: `Fotos: ${partes.join('; ')}`, ok: true, detalhe: null }] };
+}
+
 // ------------------------------------------------------------------ conferir com o grupo
 
 /** O que o grupo tem (no servidor: a cópia dele; usado pela rota da rede local). */
@@ -487,6 +499,6 @@ function _definirPastaBaseParaTeste(p) { pastaBaseDeTeste = p || null; }
 
 module.exports = {
   pendencias, zerar, clonar, configDaLoja, aplicarConfigDaLoja, diagnostico, relatorioEmTexto,
-  forcarEnvio, forcarRecebimento, resumoDoGrupo, comparar, conferir,
+  forcarEnvio, forcarRecebimento, recuperarFotos, resumoDoGrupo, comparar, conferir,
   MANTER_SEMPRE, MANTER_AO_CLONAR, CONFIG_DA_LOJA, PREFIXO_BACKUP, _definirPastaBaseParaTeste,
 };

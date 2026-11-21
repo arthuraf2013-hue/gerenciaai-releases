@@ -138,7 +138,7 @@ test('foto de um caixa que ainda não subiu não é apagada por quem não tem fo
   a.usar();
   a.db.prepare('UPDATE products SET preco = 9 WHERE id = ?').run(id);
   await replica.enviarPendentes();
-  assert.equal(g.colecoes.produtos.get(id).fotoHash, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(g.colecoes.produtos.get(id), 'fotoHash'), false, 'A nunca teve a foto: não diz "sem foto"');
   b.usar();
   receberProdutos(g);
   assert.ok(linha(b, id).foto_path, 'a foto do B continua');
@@ -277,4 +277,127 @@ test('progresso das fotos: total = maior tamanho da fila, feitas = o que já sai
   a.db.prepare('DELETE FROM grupo_replica_foto_enviar').run();
   assert.deepEqual(fotos.progresso().enviar, { pendentes: 0, total: 0, feitas: 0 });
   assert.deepEqual(fotos.progresso().baixar, { pendentes: 0, total: 0, feitas: 0 });
+});
+
+test('caixa que ainda não baixou a foto muda o preço: a foto dos outros NÃO some (repete a do grupo)', async () => {
+  const g = grupoFalso();
+  usarGrupo(g);
+  const a = caixa();
+  const { id } = productService.upsert({ nome: 'Picanha', preco: 80 });
+  await replica.sincronizarTudo();
+  const b = caixa();
+  await replica.sincronizarTudo();
+
+  a.usar();
+  const fotoA = jpeg();
+  porFoto(a, id, fotoA);
+  await ciclo();
+  const hashDoGrupo = g.colecoes.produtos.get(id).fotoHash;
+  assert.ok(hashDoGrupo);
+
+  // B recebe o produto, mas ainda não baixou a foto, e muda o preço.
+  b.usar();
+  receberProdutos(g);
+  b.db.prepare('UPDATE products SET preco = 85 WHERE id = ?').run(id);
+  await replica.enviarPendentes();
+  assert.equal(g.colecoes.produtos.get(id).preco, 85);
+  assert.equal(g.colecoes.produtos.get(id).fotoHash, hashDoGrupo, 'B repete a foto do grupo em vez de dizer "sem foto"');
+
+  a.usar();
+  receberProdutos(g);
+  assert.equal(linha(a, id).preco, 85);
+  assert.deepEqual(fs.readFileSync(linha(a, id).foto_path), fotoA, 'a foto do A continua');
+
+  // E o B termina de baixar normalmente.
+  b.usar();
+  await replica.trabalharFotos('g-1');
+  assert.deepEqual(fs.readFileSync(linha(b, id).foto_path), fotoA);
+});
+
+test('caixa que nunca soube da foto (fila de download perdida, clonado) muda o produto: não mexe na foto de ninguém', async () => {
+  const g = grupoFalso();
+  usarGrupo(g);
+  const a = caixa();
+  const { id } = productService.upsert({ nome: 'Fraldinha', preco: 70 });
+  await replica.sincronizarTudo();
+  const b = caixa();
+  await replica.sincronizarTudo();
+
+  a.usar();
+  const fotoA = jpeg();
+  porFoto(a, id, fotoA);
+  await ciclo();
+
+  b.usar();
+  b.db.prepare('UPDATE products SET nome = ? WHERE id = ?').run('Fraldinha na brasa', id);
+  await replica.enviarPendentes();
+  assert.equal(Object.prototype.hasOwnProperty.call(g.colecoes.produtos.get(id), 'fotoHash'), false, 'sem o campo: não mexe');
+
+  a.usar();
+  receberProdutos(g);
+  assert.equal(linha(a, id).nome, 'Fraldinha na brasa');
+  assert.deepEqual(fs.readFileSync(linha(a, id).foto_path), fotoA, 'a foto do A continua');
+});
+
+test('recuperar fotos do servidor: foto que sumiu daqui volta da cópia do servidor e vai para os outros caixas', async () => {
+  const g = grupoFalso();
+  usarGrupo(g);
+  const a = caixa();
+  const { id } = productService.upsert({ nome: 'Costela', preco: 60 });
+  const { id: semCopia } = productService.upsert({ nome: 'Farofa', preco: 5 });
+  await replica.sincronizarTudo();
+  const b = caixa();
+  await replica.sincronizarTudo();
+
+  a.usar();
+  const fotoA = jpeg();
+  porFoto(a, id, fotoA);
+  await ciclo();
+  b.usar();
+  receberProdutos(g);
+  await replica.trabalharFotos('g-1');
+  assert.ok(linha(b, id).foto_path);
+
+  // O erro antigo: alguém mandou "sem foto" e os dois caixas apagaram a deles.
+  // A cópia no servidor da loja continua lá.
+  const doc = { ...g.colecoes.produtos.get(id), fotoHash: null, versaoMs: Date.now() + 1000 };
+  g.colecoes.produtos.set(id, doc);
+  a.usar(); receberProdutos(g);
+  b.usar(); receberProdutos(g);
+  assert.equal(linha(a, id).foto_path, null);
+  assert.equal(linha(b, id).foto_path, null);
+  assert.equal(g.colecoes.fotos.size, 1, 'o servidor ainda guarda a foto');
+
+  // Suporte recupera no A.
+  a.usar();
+  const r = await replica.recuperarFotos('g-1');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.recuperadas, 1);
+  assert.equal(r.semCopiaNoServidor, 1, 'a Farofa nunca teve foto no servidor');
+  assert.deepEqual(fs.readFileSync(linha(a, id).foto_path), fotoA, 'a foto voltou no A');
+  assert.equal(linha(a, semCopia).foto_path, null);
+  assert.ok(g.colecoes.produtos.get(id).fotoHash, 'o produto voltou ao grupo com a foto');
+  assert.equal(a.db.prepare('SELECT COUNT(*) n FROM grupo_replica_foto_enviar').get().n, 0, 'não sobe de novo a mesma foto');
+
+  // O B recebe e baixa sozinho.
+  b.usar();
+  receberProdutos(g);
+  await replica.trabalharFotos('g-1');
+  assert.deepEqual(fs.readFileSync(linha(b, id).foto_path), fotoA, 'e voltou no B');
+
+  // Rodar de novo não faz nada.
+  a.usar();
+  const de_novo = await replica.recuperarFotos('g-1');
+  assert.equal(de_novo.recuperadas, 0);
+});
+
+test('recuperar fotos sem o servidor da loja: avisa e não mexe em nada', async () => {
+  const g = grupoFalso();
+  usarGrupo(g, { redeLocal: false });
+  caixa();
+  productService.upsert({ nome: 'Arroz', preco: 5 });
+  await replica.sincronizarTudo();
+  const r = await replica.recuperarFotos('g-1');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /servidor da loja/);
 });

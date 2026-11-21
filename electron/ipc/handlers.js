@@ -221,7 +221,7 @@ for (const canal of ['demo:estado', 'demo:carregar', 'demo:trocarPerfil', 'demo:
 }
 // Ferramentas do suporte (suporteService.js): zerar, clonar, diagnóstico. Só o papel suporte.
 for (const canal of ['suporte:pendencias', 'suporte:diagnostico', 'suporte:salvarRelatorio', 'suporte:forcarEnvio',
-  'suporte:forcarRecebimento', 'suporte:conferir', 'suporte:zerar', 'suporte:clonar']) {
+  'suporte:forcarRecebimento', 'suporte:recuperarFotos', 'suporte:conferir', 'suporte:zerar', 'suporte:clonar']) {
   PAPEL_POR_CANAL[canal] = ['suporte'];
 }
 
@@ -1319,6 +1319,7 @@ function registerIpcHandlers() {
   });
   safeHandle('suporte:forcarEnvio', (event) => soSuporte(event) || suporte().forcarEnvio());
   safeHandle('suporte:forcarRecebimento', (event) => soSuporte(event) || suporte().forcarRecebimento());
+  safeHandle('suporte:recuperarFotos', (event) => soSuporte(event) || suporte().recuperarFotos());
   safeHandle('suporte:conferir', (event) => soSuporte(event) || suporte().conferir());
   safeHandle('suporte:zerar', async (event, { descartarPendencias } = {}) => reiniciarSePedido(
     await suporte().zerar({ solicitanteId: usuarioLogado(event), modo: 'zerar', descartarPendencias: !!descartarPendencias })
