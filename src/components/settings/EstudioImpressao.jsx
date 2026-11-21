@@ -413,14 +413,18 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
               <Marcar rotulo="Hora em que cada item foi lançado" checked={c.mostrarHoraItem} onChange={(v) => mudar('mostrarHoraItem', v)}
                 dica="Ex.: Picanha 19:42. Só em conta de mesa; no balcão não sai." />
               {!ePre && <Marcar rotulo="Formas de pagamento" checked={c.mostrarPagamentos} onChange={(v) => mudar('mostrarPagamentos', v)} />}
+              <Marcar rotulo="Sempre mostrar o total sem serviço e o total com serviço (opcional)" checked={c.mostrarComESemServico}
+                onChange={(v) => mudar('mostrarComESemServico', v)}
+                dica="Saem os dois valores, fixos, para o cliente escolher. Usa a taxa da conta; se a conta não tiver taxa, usa a % abaixo." />
+              <label className="estudio-campo">Taxa de serviço (%) quando a conta não tem taxa — 0 desliga
+                <input type="number" min="0" max="30" step="0.5" value={c.taxaSugeridaPercentual} onChange={(e) => mudar('taxaSugeridaPercentual', e.target.value === '' ? 0 : Number(e.target.value))} />
+              </label>
+              {ePre && !c.mostrarComESemServico && c.taxaSugeridaPercentual > 0 && <p className="estudio-dica">Sem a opção acima, a pré-nota só sugere o serviço quando a conta não tem taxa.</p>}
               {ePre && (
                 <>
                   <Marcar rotulo="Separar os itens por pessoa da mesa" checked={c.agruparPorPessoa} onChange={(v) => mudar('agruparPorPessoa', v)}
                     dica="Quando a conta tem pessoas, cada uma aparece com os itens dela e a parte a pagar." />
                   <Marcar rotulo="Valor dividido pelo número de pessoas" checked={c.mostrarDivisao} onChange={(v) => mudar('mostrarDivisao', v)} />
-                  <label className="estudio-campo">Sugerir serviço (%) quando a conta não tem taxa — 0 desliga
-                    <input type="number" min="0" max="30" step="1" value={c.taxaSugeridaPercentual} onChange={(e) => mudar('taxaSugeridaPercentual', e.target.value === '' ? 0 : Number(e.target.value))} />
-                  </label>
                   <Marcar rotulo="QR Code do Pix com o valor a pagar" checked={c.pixQr} onChange={(v) => mudar('pixQr', v)}
                     disabled={!carregado.pixConfigurado && !c.pixQr} />
                   {!carregado.pixConfigurado && <p className="estudio-dica">Para o QR do Pix, cadastre a chave em Configurações → Pagamento.</p>}

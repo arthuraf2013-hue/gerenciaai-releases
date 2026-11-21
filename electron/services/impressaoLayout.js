@@ -40,6 +40,10 @@ const BASE = {
   colunaUnitario: true,
   // Hora em que cada item foi lançado (só em conta de mesa: no balcão é tudo na mesma hora).
   mostrarHoraItem: true,
+  // Sempre imprimir os dois totais: sem serviço e com serviço (opcional).
+  mostrarComESemServico: false,
+  // % do serviço usado quando a conta não tem taxa (0 = não sugere).
+  taxaSugeridaPercentual: 0,
 };
 
 const PADRAO = {
@@ -65,7 +69,6 @@ const PADRAO = {
     mostrarObservacoes: true,
     agruparPorPessoa: true,
     mostrarDivisao: false,
-    taxaSugeridaPercentual: 0,
     pixQr: false,
     rodape: 'Confira os itens antes de pagar. Qualquer diferença, chame o atendente.',
   },
@@ -174,6 +177,7 @@ function estilo(config, larguraMm) {
     .total { font-size: ${fonte + 2}px; font-weight: bold; display: flex; justify-content: space-between; margin-top: 4px; }
     .aviso { text-align: center; font-weight: bold; border: 1px solid #000; padding: 3px; margin: 6px 0; font-size: ${fonte - 1}px; }
     .pequeno { font-size: ${fonte - 2}px; }
+    .servico-box { border: 1px dashed #000; padding: 3px 5px; margin-top: 6px; }
     .pix img { width: 130px; height: 130px; }
     .pix p { word-break: break-all; }`;
 }
@@ -243,6 +247,22 @@ function contaDe({ subtotalItens, desconto, taxaServicoPercentual }) {
 }
 
 /**
+ * Os dois totais lado a lado — sem serviço e com serviço (opcional) — para o
+ * cliente escolher. pct: a taxa da conta, ou a sugerida quando a conta não tem.
+ */
+function blocoComESemServico(base, pct) {
+  if (!(pct > 0) || !(base > 0.005)) return '';
+  const com = arred(base * (1 + pct / 100));
+  return `<div class="servico-box">
+      <div class="sub"><span>Total sem serviço</span><span>${dinheiro(base)}</span></div>
+      <div class="sub"><span>Total com serviço (${escHtml(pct)}%, opcional)</span><span>${dinheiro(com)}</span></div>
+    </div>`;
+}
+
+/** % do serviço para os dois totais: o da conta ou, sem taxa, o sugerido. */
+const pctDosDoisTotais = (c, pctDaConta) => (pctDaConta > 0 ? pctDaConta : c.taxaSugeridaPercentual);
+
+/**
  * NOTA — recibo de uma venda finalizada.
  * dados: { venda, itens[{nome,quantidade,precoUnitario,observacao}], pagamentos[{metodo,valor}],
  *          loja, larguraMm, rodape, operador, cliente, mesa ("Mesa 3 + 4" ou null), fiscalHtml, senha{numero,nome},
@@ -273,6 +293,10 @@ function montarNota(config, dados) {
     ${dados.descontoGerente > 0 ? `<div class="sub"><span>Desconto autorizado</span><span>-${dinheiro(dados.descontoGerente)}</span></div>` : ''}
     ${dados.taxaServicoPercentual > 0 ? `<div class="sub"><span>Taxa de serviço (${escHtml(dados.taxaServicoPercentual)}%)</span><span>${dinheiro(dados.taxaServicoValor)}</span></div>` : ''}
     <div class="total"><span>Total</span><span>${dinheiro(dados.totalFinal)}</span></div>
+    ${c.mostrarComESemServico ? blocoComESemServico(
+    arred((Number(dados.totalFinal) || 0) - (Number(dados.taxaServicoPercentual) > 0 ? (Number(dados.taxaServicoValor) || 0) : 0)),
+    pctDosDoisTotais(c, Number(dados.taxaServicoPercentual) || 0),
+  ) : ''}
     ${dados.ajustadoManualmente ? '<div class="pequeno" style="text-align:right">(valor ajustado manualmente após a venda)</div>' : ''}
     ${c.mostrarPagamentos && dados.pagamentos?.length ? `<hr>${dados.pagamentos.map((p) => `<div class="sub"><span>${escHtml(nomeDoMetodo(p.metodo))}</span><span>${dinheiro(p.valor)}</span></div>`).join('')}` : ''}
     ${dados.fiscalHtml || ''}
@@ -314,6 +338,9 @@ function montarPreNota(config, dados) {
   const { todos, subtotalItens, desconto, taxaPct, conta, soUma, itens, fator, parcial, totalDoc, pago, falta } = valoresDaPreNota(dados);
   const pessoas = dados.pessoas || [];
   const nomeDa = (n) => pessoas.find((p) => p.numero === n)?.nome || `Pessoa ${n}`; // igual à tela da mesa
+  // Para os dois totais (sem e com serviço): itens − desconto, na proporção de cada um.
+  const fatorSemServico = subtotalItens > 0 ? conta.base / subtotalItens : 0;
+  const pctDois = pctDosDoisTotais(c, taxaPct);
 
   let corpo;
   const comPessoas = !soUma && c.agruparPorPessoa && pessoas.length > 0 && todos.some((i) => i.pessoaNumero);
@@ -329,8 +356,13 @@ function montarPreNota(config, dados) {
     corpo = grupos.map((g) => {
       const parte = arred(soma(g.lista) * fator);
       const pagoDela = g.numero ? (Number(dados.pagoPorPessoa?.[g.numero]) || 0) : 0;
+      const semServicoDela = arred(soma(g.lista) * fatorSemServico);
+      const doisDela = c.mostrarComESemServico && pctDois > 0 && semServicoDela > 0.005
+        ? `<div class="sub pequeno"><span>Sem serviço · com serviço (${escHtml(pctDois)}%)</span><span>${dinheiro(semServicoDela)} · ${dinheiro(arred(semServicoDela * (1 + pctDois / 100)))}</span></div>`
+        : '';
       return `<p class="pessoa">${escHtml(g.rotulo)}</p>${tabelaItens(c, g.lista)}
         <div class="sub"><span>${g.numero ? `Parte de ${escHtml(g.rotulo)}` : 'Total sem pessoa'}${taxaPct > 0 ? ' (c/ serviço)' : ''}</span><span>${dinheiro(parte)}</span></div>
+        ${doisDela}
         ${pagoDela > 0.005 ? `<div class="sub pequeno"><span>Já pago</span><span>${dinheiro(pagoDela)}</span></div>` : ''}`;
     }).join('<hr>');
   } else {
@@ -349,9 +381,12 @@ function montarPreNota(config, dados) {
        ${desconto > 0 ? `<div class="sub"><span>Desconto</span><span>-${dinheiro(desconto)}</span></div>` : ''}
        ${taxaPct > 0 ? `<div class="sub"><span>Taxa de serviço (${escHtml(taxaPct)}%)</span><span>${dinheiro(conta.taxa)}</span></div>` : ''}`;
 
-  // Sugestão de serviço quando a conta ainda não tem taxa.
+  // Os dois totais fixos (opção do estúdio) ou, sem ela, a sugestão de serviço
+  // quando a conta ainda não tem taxa.
   let sugestao = '';
-  if (!soUma && !(taxaPct > 0) && c.taxaSugeridaPercentual > 0 && conta.base > 0) {
+  if (c.mostrarComESemServico) {
+    sugestao = blocoComESemServico(soUma ? arred(parcial * fatorSemServico) : arred(conta.base), pctDois);
+  } else if (!soUma && !(taxaPct > 0) && c.taxaSugeridaPercentual > 0 && conta.base > 0) {
     const t = conta.base * (c.taxaSugeridaPercentual / 100);
     sugestao = `<div class="sub pequeno"><span>Serviço opcional (${escHtml(c.taxaSugeridaPercentual)}%)</span><span>${dinheiro(t)}</span></div>
       <div class="sub pequeno"><span>Total com serviço</span><span>${dinheiro(conta.base + t)}</span></div>`;
