@@ -33,6 +33,7 @@ const FinanceiroScreen = lazy(() => import('../inventory/FinanceiroScreen').then
 const AssistenteFiscalScreen = lazy(() => import('../inventory/AssistenteFiscalScreen').then((m) => ({ default: m.AssistenteFiscalScreen })));
 const PainelExecutivoScreen = lazy(() => import('../inventory/PainelExecutivoScreen').then((m) => ({ default: m.PainelExecutivoScreen })));
 const EquipeScreen = lazy(() => import('../inventory/EquipeScreen').then((m) => ({ default: m.EquipeScreen })));
+const AlmoxarifadoScreen = lazy(() => import('../almoxarifado/AlmoxarifadoScreen').then((m) => ({ default: m.AlmoxarifadoScreen })));
 const StockAlerts = lazy(() => import('../inventory/StockAlerts').then((m) => ({ default: m.StockAlerts })));
 const SettingsScreen = lazy(() => import('../settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
 const UserManagement = lazy(() => import('../users/UserManagement').then((m) => ({ default: m.UserManagement })));
@@ -65,6 +66,10 @@ const PERFIS_RESTAURANTE = ['restaurante', 'padaria'];
 // qualquer perfil novo que passe a usar "tipo_servico" entra aqui).
 const PERFIS_TABELA_SERVICOS = ['salao_beleza'];
 
+// Perfis sem venda (controle interno de material): os itens marcados com
+// `venda: true` somem do menu e do Ctrl+K, e o PDV nem é montado.
+const PERFIS_SEM_VENDA = ['almoxarifado'];
+
 // Rótulo dos status "ativos" (na fila) pro balão de consulta rápida no
 // contador da barra lateral — concluído/cancelado não aparecem aqui
 // porque já saíram da fila (ver listActiveOrders no botOrderService).
@@ -72,16 +77,17 @@ const STATUS_SEPARACAO_LABEL = { novo: 'Novo', em_separacao: 'Em separação', p
 
 const NAV_ITEMS = [
   // Sem seção — ficam sempre no topo, são as telas de venda do dia a dia.
-  { id: 'pos', icon: 'cart', label: 'PDV', roles: ['operador', 'gerente', 'admin', 'suporte'] },
+  { id: 'almoxarifado', icon: 'archive', label: 'Almoxarifado', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_SEM_VENDA },
+  { id: 'pos', icon: 'cart', label: 'PDV', roles: ['operador', 'gerente', 'admin', 'suporte'], venda: true },
   // Garçom: só as mesas (lança pedido, vê a conta, chama a cozinha). O resto é do caixa/gestão.
   { id: 'restaurant', icon: 'plate', label: 'Restaurante', roles: ['operador', 'gerente', 'admin', 'suporte', 'garcom'], perfil: PERFIS_RESTAURANTE },
   { id: 'kitchen', icon: 'cooking', label: 'Cozinha', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE },
 
-  { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
-  { id: 'caixa', icon: 'cash', label: 'Caixa', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
-  { id: 'returns', icon: 'undo', label: 'Devolução', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
-  { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
-  { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas' },
+  { id: 'history', icon: 'receipt', label: 'Histórico', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas', venda: true },
+  { id: 'caixa', icon: 'cash', label: 'Caixa', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas', venda: true },
+  { id: 'returns', icon: 'undo', label: 'Devolução', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas', venda: true },
+  { id: 'delivery', icon: 'truck', label: 'Delivery', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas', venda: true },
+  { id: 'quotes', icon: 'clipboard', label: 'Orçamentos', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Vendas', venda: true },
   { id: 'agenda', icon: 'calendar', label: 'Agenda', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: 'salao_beleza', section: 'Vendas' },
   { id: 'servicePrices', icon: 'card', label: 'Preços de Serviço', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_TABELA_SERVICOS, section: 'Vendas' },
   { id: 'reservations', icon: 'book', label: 'Reservas', roles: ['operador', 'gerente', 'admin', 'suporte'], perfil: PERFIS_RESTAURANTE, section: 'Vendas' },
@@ -92,19 +98,19 @@ const NAV_ITEMS = [
   // separar). `requerBotDelivery` é filtrado dinamicamente abaixo,
   // igual a `perfil` — não dá pra decidir isso na hora de montar esta
   // lista estática porque depende de uma configuração salva no banco.
-  { id: 'botOrders', icon: 'box', label: 'Separação', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerBotDelivery: true },
+  { id: 'botOrders', icon: 'box', label: 'Separação', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerBotDelivery: true, venda: true },
   // Senhas e painel de chamada (TV / Vértice): aparece com o painel ligado
   // em Configurações → Senhas (ver chamadaService.js).
-  { id: 'chamada', icon: 'clock', label: 'Senhas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerChamada: true },
+  { id: 'chamada', icon: 'clock', label: 'Senhas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Separação', requerChamada: true, venda: true },
 
   { id: 'products', icon: 'tag', label: 'Produtos', roles: ['gerente', 'admin', 'suporte'], section: 'Cadastros' },
-  { id: 'customers', icon: 'users', label: 'Clientes', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Cadastros' },
+  { id: 'customers', icon: 'users', label: 'Clientes', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Cadastros', venda: true },
 
-  { id: 'dashboard', icon: 'chart', label: 'Painel', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'dashboard', icon: 'chart', label: 'Painel', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão', venda: true },
   { id: 'supply', icon: 'import', label: 'Abastecimento', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'financeiro', icon: 'money', label: 'Financeiro', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
-  { id: 'fiscal', icon: 'document', label: 'Fiscal', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
-  { id: 'painelExecutivo', icon: 'chart', label: 'Painel executivo', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
+  { id: 'fiscal', icon: 'document', label: 'Fiscal', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão', venda: true },
+  { id: 'painelExecutivo', icon: 'chart', label: 'Painel executivo', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão', venda: true },
   { id: 'equipe', icon: 'briefcase', label: 'Equipe', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'alerts', icon: 'warning', label: 'Alertas', roles: ['operador', 'gerente', 'admin', 'suporte'], section: 'Gestão' },
   { id: 'users', icon: 'briefcase', label: 'Usuários', roles: ['gerente', 'admin', 'suporte'], section: 'Gestão' },
@@ -150,6 +156,7 @@ const NAV_ICON_COLOR = {
   cash: '#ffd54f',
   folder: '#66bb6a',
   trendUp: '#42a5f5',
+  archive: '#a1887f',
 };
 
 // Controles pequenos do modo "Personalizar menu" (traço simples, cabem ao
@@ -281,6 +288,7 @@ export function AppShell() {
     if (!item.roles.includes(currentUser.role)) return false;
     if (item.requerBotDelivery && !botDeliveryAtivo) return false;
     if (item.requerChamada && !chamadaAtiva) return false;
+    if (item.venda && PERFIS_SEM_VENDA.includes(profile?.id)) return false;
     if (!item.perfil) return true;
     const perfisPermitidos = Array.isArray(item.perfil) ? item.perfil : [item.perfil];
     return perfisPermitidos.includes(profile?.id);
@@ -292,6 +300,7 @@ export function AppShell() {
   // Tela aberta que este usuário não pode ver (ex.: o garçom entrou e o app abre
   // no PDV): vai para a primeira que ele pode.
   const primeiraPermitida = visibleItems[0]?.id || 'pos';
+  const perfilSemVenda = PERFIS_SEM_VENDA.includes(profile?.id);
   const telaPermitida = visibleItems.some((i) => i.id === screen);
   useEffect(() => { if (!telaPermitida) setScreen(primeiraPermitida); }, [telaPermitida, primeiraPermitida]);
 
@@ -505,7 +514,7 @@ export function AppShell() {
             que estava digitado na busca, reiniciava buscas, etc. As
             outras telas continuam recriando ao revisitar de propósito
             (faz sentido querer dado fresco no Histórico, por exemplo). */}
-        <div style={{ display: screen === 'pos' ? 'block' : 'none', height: '100%' }}>
+        {!perfilSemVenda && <div style={{ display: screen === 'pos' ? 'block' : 'none', height: '100%' }}>
           {/* key={currentUser.id}: força remontar ao trocar de operador
               (menu "Trocar de operador") — sem isso, o carrinho/venda em
               aberto do operador anterior continuava aparecendo pro novo
@@ -514,7 +523,7 @@ export function AppShell() {
               componente nasce de novo do zero e já busca a venda em
               aberto certa, a do operador que acabou de entrar. */}
           <POSScreen key={currentUser.id} />
-        </div>
+        </div>}
         <div style={{ display: screen === 'restaurant' ? 'block' : 'none', height: '100%' }}>
           <RestaurantScreen key={currentUser.id} />
         </div>
@@ -536,6 +545,7 @@ export function AppShell() {
           {screen === 'fiscal' && <AssistenteFiscalScreen />}
           {screen === 'painelExecutivo' && <PainelExecutivoScreen />}
           {screen === 'equipe' && <EquipeScreen />}
+          {screen === 'almoxarifado' && <AlmoxarifadoScreen />}
           {screen === 'customers' && <CustomerList />}
           {screen === 'delivery' && <DeliveryScreen />}
           {screen === 'quotes' && <QuotesScreen />}

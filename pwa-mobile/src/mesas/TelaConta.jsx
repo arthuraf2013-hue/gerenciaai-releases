@@ -150,9 +150,9 @@ export default function TelaConta({ loja, mesaId, mesasDoc, aoVoltar, aoConcluid
                 <span>Taxa de serviço</span>
                 {conta.pago > 0 ? <span>{conta.taxaServicoPercentual}%</span> : (
                   <span className="pm-taxa">
-                    {[0, 10].map((t) => (
+                    {[...new Set([0, Number(conta.taxaSugeridaPercentual) || 10, Number(conta.taxaServicoPercentual) || 0])].sort((a, b) => a - b).map((t) => (
                       <button key={t} type="button" className={`chip${Number(conta.taxaServicoPercentual) === t ? ' chip-ativo' : ''}`} disabled={enviando} onClick={() => mudarTaxa(t)}>
-                        {t === 0 ? 'Sem' : `${t}%`}
+                        {t === 0 ? 'Sem' : `${String(t).replace('.', ',')}%`}
                       </button>
                     ))}
                   </span>

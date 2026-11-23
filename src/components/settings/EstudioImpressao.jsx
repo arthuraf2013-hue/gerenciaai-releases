@@ -407,6 +407,8 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
                 </div>
               )}
               <Marcar rotulo="Atendente" checked={c.mostrarOperador} onChange={(v) => mudar('mostrarOperador', v)} />
+              <Marcar rotulo="Garçons da mesa e quem lançou cada item" checked={c.mostrarGarcons} onChange={(v) => mudar('mostrarGarcons', v)}
+                dica="Garçons vinculados à mesa (Mesas → Garçons das mesas). O que outra conta lançou sai com o nome e a hora." />
               <Marcar rotulo="Cliente" checked={c.mostrarCliente} onChange={(v) => mudar('mostrarCliente', v)} />
               <Marcar rotulo="Coluna de preço unitário" checked={c.colunaUnitario} onChange={(v) => mudar('colunaUnitario', v)} />
               <Marcar rotulo="Observações dos itens (ex: sem cebola)" checked={c.mostrarObservacoes} onChange={(v) => mudar('mostrarObservacoes', v)} />
@@ -420,6 +422,12 @@ export function EstudioImpressao({ onFechar, abaInicial = 'nota' }) {
                 <input type="number" min="0" max="30" step="0.5" value={c.taxaSugeridaPercentual} onChange={(e) => mudar('taxaSugeridaPercentual', e.target.value === '' ? 0 : Number(e.target.value))} />
               </label>
               {ePre && !c.mostrarComESemServico && c.taxaSugeridaPercentual > 0 && <p className="estudio-dica">Sem a opção acima, a pré-nota só sugere o serviço quando a conta não tem taxa.</p>}
+              {carregado?.taxaFixa?.ativa && (
+                <p className="estudio-dica">
+                  Taxa fixa da casa ligada ({String(carregado.taxaFixa.percentual).replace('.', ',')}%): na conta de mesa os dois totais saem sempre, com essa taxa.
+                  As duas opções acima ficam valendo para o balcão. Para mudar: Configurações → Geral → Taxa de serviço fixa.
+                </p>
+              )}
               {ePre && (
                 <>
                   <Marcar rotulo="Separar os itens por pessoa da mesa" checked={c.agruparPorPessoa} onChange={(v) => mudar('agruparPorPessoa', v)}

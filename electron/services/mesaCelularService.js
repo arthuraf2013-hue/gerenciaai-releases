@@ -336,6 +336,8 @@ function calcularConta(db, saleId) {
     subtotal: reais(subtotal),
     desconto: arred2((venda.desconto || 0) + (venda.desconto_gerente || 0)),
     taxaServicoPercentual: taxa,
+    // % do botão de taxa no celular: a fixa da casa ou 10%.
+    taxaSugeridaPercentual: (() => { try { return require('./taxaServicoService').percentualSugerido(); } catch { return 10; } })(),
     totalAPagar: reais(totalAPagar),
     pago: reais(pago),
     restante: reais(restante),
@@ -422,6 +424,8 @@ function montarMesas(db, locationId) {
     unidasPor.get(m.unida_a_mesa_id).push(m.numero);
   }
   const numeroPorId = new Map(mesas.map((m) => [m.id, m.numero]));
+  let garconsPorMesa = new Map();
+  try { garconsPorMesa = require('./mesaAtendentesService').mapaDasMesas(db, locationId); } catch { /* sem garçons */ }
   return mesas.map((m) => {
     const ocupadaPrincipal = m.status === 'ocupada' && m.sale_id && !m.unida_a_mesa_id;
     const conta = ocupadaPrincipal ? calcularConta(db, m.sale_id) : null;
@@ -445,6 +449,8 @@ function montarMesas(db, locationId) {
       abertaPorId: ocupadaPrincipal ? m.aberta_por_id || null : null,
       abertaPorNome: ocupadaPrincipal ? m.aberta_por_nome || null : null,
       reservadoPara: m.status === 'reservada' ? m.reservado_para || null : null,
+      // Garçons vinculados à mesa (etiqueta no celular também).
+      garcons: (garconsPorMesa.get(m.id) || []).map((a) => a.nome),
     };
   });
 }

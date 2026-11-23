@@ -31,6 +31,8 @@ function getTudo() {
     larguraMm: recibo.largura_mm || 80,
     rodapeNota: recibo.rodape_texto || '',
     pixConfigurado: !!db.prepare("SELECT pix_chave FROM payment_config WHERE id = 'default'").get()?.pix_chave,
+    // Taxa fixa da casa: na conta de mesa ela manda nos dois totais (ver aplicarNaImpressao).
+    taxaFixa: require('./taxaServicoService').getConfig(),
   };
 }
 
@@ -86,7 +88,8 @@ async function previa({ tipo, config, larguraMm, rodapeNota }) {
   const dados = layout.exemplo(tipo, {
     larguraMm: largura, loja: lojaAtual(db), rodapeNota: typeof rodapeNota === 'string' ? rodapeNota : (recibo.rodape_texto || ''),
   });
-  const c = layout.normalizarConfig(tipo, config || {});
+  // A prévia é de conta de mesa: mostra o que a taxa fixa da casa faz nela.
+  const c = require('./taxaServicoService').aplicarNaImpressao(tipo, layout.normalizarConfig(tipo, config || {}), { mesa: dados.mesa });
   if (tipo === 'qrmesa') {
     // Mesas de verdade (até uma folha) com QR de exemplo: a prévia não grava token nenhum.
     const QRCode = require('qrcode');
@@ -116,11 +119,18 @@ function dadosDaConta(saleId) {
   const venda = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId);
   if (!venda) return { ok: false, error: 'Conta não encontrada.' };
   if (venda.status !== 'aberta') return { ok: false, error: 'Esta conta já foi fechada. Para a venda finalizada, imprima a nota.' };
+  // Garçons vinculados às mesas da conta; item lançado por OUTRA conta sai com quem lançou.
+  const atendentesSvc = require('./mesaAtendentesService');
+  const atendentes = atendentesSvc.atendentesDaVenda(db, saleId);
   const itens = db.prepare(`
-    SELECT si.quantidade, si.preco_unitario, si.observacao, si.pessoa_numero, si.criado_em, COALESCE(si.nome_personalizado, p.nome) AS nome
-    FROM sale_items si JOIN products p ON p.id = si.product_id
+    SELECT si.quantidade, si.preco_unitario, si.observacao, si.pessoa_numero, si.criado_em, COALESCE(si.nome_personalizado, p.nome) AS nome,
+           si.origem, si.lancado_por, u.nome AS lancado_por_nome
+    FROM sale_items si JOIN products p ON p.id = si.product_id LEFT JOIN users u ON u.id = si.lancado_por
     WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.criado_em, si.rowid`).all(saleId)
-    .map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null, criadoEm: i.criado_em || null }));
+    .map((i) => ({
+      nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null, criadoEm: i.criado_em || null,
+      quem: atendentesSvc.quemLancouParaImprimir({ origem: i.origem, lancadoPorId: i.lancado_por, lancadoPorNome: i.lancado_por_nome }, atendentes),
+    }));
   if (!itens.length) return { ok: false, error: 'A conta ainda não tem itens.' };
 
   // Mesmas pessoas (vagas 1..N) que a tela da mesa mostra.
@@ -138,7 +148,7 @@ function dadosDaConta(saleId) {
     mesaRotulo = [mesa, ...unidas].map((m) => m.nome || `Mesa ${m.numero}`).join(' + ');
   }
   // Hora de cada item só em conta de mesa (no balcão é tudo na mesma hora).
-  if (!mesaRotulo) for (const i of itens) i.criadoEm = null;
+  if (!mesaRotulo) for (const i of itens) { i.criadoEm = null; i.quem = null; }
   const operador = db.prepare('SELECT nome FROM users WHERE id = ?').get(venda.operador_id)?.nome || '';
   const cliente = venda.customer_id ? db.prepare('SELECT nome FROM customers WHERE id = ?').get(venda.customer_id)?.nome || '' : '';
 
@@ -149,6 +159,7 @@ function dadosDaConta(saleId) {
       desconto: (venda.desconto || 0) + (venda.desconto_gerente || 0),
       taxaServicoPercentual: venda.taxa_servico_percentual || 0,
       loja: lojaAtual(db, venda.location_id), operador, cliente, mesa: mesaRotulo,
+      garcons: mesaRotulo ? atendentes.map((a) => a.nome) : [],
       qtdPessoasMesa: Math.max(mesa?.pessoas || 0, pessoas.length),
       agoraUtc: new Date().toISOString().slice(0, 19).replace('T', ' '),
     },
@@ -167,7 +178,7 @@ async function htmlDaPreNota({ saleId, pessoaNumero }) {
     if (!d.itens.some((i) => i.pessoaNumero === n)) return { ok: false, error: 'Essa pessoa ainda não tem itens na conta.' };
     d.pessoaNumero = n;
   }
-  const c = getConfig('prenota');
+  const c = require('./taxaServicoService').aplicarNaImpressao('prenota', getConfig('prenota'), { mesa: d.mesa });
   if (c.pixQr) {
     // Pix do que falta pagar (da conta inteira ou da pessoa), o mesmo valor impresso.
     const { falta } = layout.valoresDaPreNota(d);

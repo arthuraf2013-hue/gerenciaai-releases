@@ -1113,6 +1113,50 @@ const MIGRACOES = [
       dropColuna(db, 'mesa_remota_fechamentos', 'offline');
     },
   },
+  {
+    // Perfil Almoxarifado, primeira entrega (almoxarifadoService): endereço
+    // físico dos itens (rua-prateleira-posição), setores e o lote no
+    // movimento de estoque (saldo por lote para sair em ordem FEFO).
+    // lote_id fica sem REFERENCES de propósito: coluna com chave
+    // estrangeira não pode ser removida pelo down (ALTER TABLE DROP COLUMN).
+    versao: 24,
+    nome: 'almoxarifado: enderecos, setores e lote no movimento',
+    up(db) {
+      db.exec(`CREATE TABLE IF NOT EXISTS almox_enderecos (
+  id          TEXT PRIMARY KEY,
+  codigo      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  rua         TEXT NOT NULL,
+  prateleira  TEXT,
+  posicao     TEXT,
+  descricao   TEXT,
+  ativo       INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED())
+)`);
+      db.exec(`CREATE TABLE IF NOT EXISTS almox_item_endereco (
+  product_id  TEXT NOT NULL REFERENCES products(id),
+  endereco_id TEXT NOT NULL REFERENCES almox_enderecos(id),
+  principal   INTEGER NOT NULL DEFAULT 0 CHECK (principal IN (0, 1)),
+  criado_em   TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  PRIMARY KEY (product_id, endereco_id)
+)`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_almox_item_endereco_end ON almox_item_endereco(endereco_id)');
+      db.exec(`CREATE TABLE IF NOT EXISTS almox_setores (
+  id            TEXT PRIMARY KEY,
+  nome          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  responsavel   TEXT,
+  limite_mensal REAL CHECK (limite_mensal IS NULL OR limite_mensal >= 0),
+  ativo         INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED())
+)`);
+      addColuna(db, 'stock_movements', 'lote_id', 'TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_stock_mov_lote ON stock_movements(lote_id) WHERE lote_id IS NOT NULL');
+    },
+    down(db) {
+      db.exec('DROP INDEX IF EXISTS idx_stock_mov_lote');
+      dropColuna(db, 'stock_movements', 'lote_id');
+      for (const t of ['almox_item_endereco', 'almox_enderecos', 'almox_setores']) db.exec(`DROP TABLE IF EXISTS ${t}`);
+    },
+  },
 ];
 
 /** Recria impressao_estudio com outro CHECK de tipo, mantendo as linhas. */

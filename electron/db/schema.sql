@@ -689,6 +689,38 @@ CREATE TABLE IF NOT EXISTS impressao_estudio (
   atualizado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
 );
 
+-- Garçons das mesas (mesaAtendentesService.js): o gerente vincula garçons e
+-- operadores às mesas; sai como etiqueta na mesa e na nota/pré-nota. Sem
+-- REFERENCES de propósito (mesa/usuário/venda apagados só somem das consultas
+-- e nada trava exclusão). sale_atendentes = foto ao fechar a conta, para a
+-- reimpressão da nota sair igual.
+CREATE TABLE IF NOT EXISTS mesa_atendentes (
+  table_id      TEXT NOT NULL,
+  user_id       TEXT NOT NULL,
+  vinculado_por TEXT,
+  criado_em     TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  PRIMARY KEY (table_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mesa_atendentes_user ON mesa_atendentes(user_id);
+CREATE TABLE IF NOT EXISTS sale_atendentes (
+  sale_id   TEXT NOT NULL,
+  user_id   TEXT,
+  nome      TEXT NOT NULL,
+  criado_em TEXT NOT NULL DEFAULT (NOW_SYNCED()),
+  PRIMARY KEY (sale_id, nome)
+);
+
+-- Taxa de serviço fixa da casa (mesas): ligada, toda mesa nova já abre com
+-- essa % e a nota/pré-nota da mesa sempre mostram o total sem e com serviço.
+-- Continua opcional para o cliente (quem atende tira na conta). Uma linha só;
+-- sem linha = desligada com 10%. Ver taxaServicoService.js.
+CREATE TABLE IF NOT EXISTS taxa_servico_config (
+  id            TEXT PRIMARY KEY DEFAULT 'default',
+  ativa         INTEGER NOT NULL DEFAULT 0 CHECK (ativa IN (0, 1)),
+  percentual    REAL NOT NULL DEFAULT 10 CHECK (percentual > 0 AND percentual <= 30),
+  atualizado_em TEXT NOT NULL DEFAULT (NOW_SYNCED())
+);
+
 -- Cardápio digital personalizável (restaurante/padaria) — aparência
 -- customizável de um cardápio que pode ser exportado como página HTML
 -- própria (pra exibir num tablet/TV, ou mandar o link/arquivo pro

@@ -63,6 +63,7 @@ const purchaseOrderService = require('../services/purchaseOrderService');
 const nfeEntradaService = require('../services/nfeEntradaService');
 const financeiroService = require('../services/financeiroService');
 const inventarioService = require('../services/inventarioService');
+const almoxarifadoService = require('../services/almoxarifadoService');
 const assistenteFiscalService = require('../services/assistenteFiscalService');
 const permissaoService = require('../services/permissaoService');
 const motorTributarioService = require('../services/motorTributarioService');
@@ -164,7 +165,7 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'profile:setActive', 'profile:create', 'profile:update', 'profile:duplicate', 'profile:delete',
   'settings:updateLocationName', 'payment:updateConfig', 'loyalty:updateConfig', 'whatsappAutomation:updateConfig',
   'weightBarcode:updateConfig', 'scaleHardware:updateConfig', 'print:updateReceiptConfig', 'posDisplay:updateConfig',
-  'estudio:salvar',
+  'estudio:salvar', 'taxaServico:salvar',
   'fiscal:selectCertificado',
   'supply:pickAndExtract', 'supply:confirmEntries', 'supply:saveDraft', 'supply:clearDraft',
   'supplier:suggestPurchases', 'report:exportPurchaseSuggestions', 'report:exportWaste',
@@ -212,6 +213,8 @@ const PAPEL_POR_CANAL = Object.fromEntries([
   'financeiro:contabilLancarManual', 'financeiro:contabilEstornar', 'financeiro:contabilFecharMes', 'financeiro:contabilReabrirMes',
   'financeiro:contabilFechamentos', 'financeiro:contabilRazao', 'financeiro:contabilDre',
   'tributacao:naturezas', 'tributacao:cfopPorNatureza',
+  // Almoxarifado: cadastro de endereços e setores e o kardex (mostra custo) são gestão.
+  'almox:salvarEndereco', 'almox:ativarEndereco', 'almox:salvarSetor', 'almox:ativarSetor', 'almox:kardex',
 ].map((canal) => [canal, PAPEIS_GESTAO]));
 
 // Demonstração completa (demoDataService.js): ÚNICA exceção à regra
@@ -512,6 +515,12 @@ function registerIpcHandlers() {
   safeHandle('table:createLote', (event, payload) => guardRole(event, PAPEIS_GESTAO) || tableService.createTablesEmLote(payload));
   safeHandle('table:proximoNumero', (event, { locationId } = {}) => guardRole(event, PAPEIS_GESTAO) || ({ ok: true, ...tableService.proximaFaixaLivre(locationId) }));
   safeHandle('table:delete', (event, { tableId }) => guardRole(event, PAPEIS_GESTAO) || tableService.deleteTable(tableId));
+  // Garçons das mesas (mesaAtendentesService.js) -- só gestão; quem fez vem da sessão.
+  safeHandle('table:atendentes', (event, { locationId } = {}) => guardRole(event, PAPEIS_GESTAO) || require('../services/mesaAtendentesService').painel({ locationId }));
+  safeHandle('table:vincularAtendente', (event, { userId, tableIds, locationId } = {}) => guardRole(event, PAPEIS_GESTAO)
+    || require('../services/mesaAtendentesService').definirMesasDoAtendente({ userId, tableIds, locationId, operadorId: usuarioLogado(event) }));
+  safeHandle('table:limparAtendentes', (event, { locationId } = {}) => guardRole(event, PAPEIS_GESTAO)
+    || require('../services/mesaAtendentesService').limparTodos({ locationId, operadorId: usuarioLogado(event) }));
   safeHandle('table:open', (_e, payload) => tableService.openTable(payload));
   safeHandle('table:getCart', (_e, { saleId }) => tableService.getTableCart(saleId));
   safeHandle('table:release', (_e, { tableId }) => tableService.releaseTable(tableId));
@@ -1251,6 +1260,10 @@ function registerIpcHandlers() {
   safeHandle('print:getReceiptConfig', () => printService.getReceiptConfig());
   safeHandle('print:updateReceiptConfig', (_e, payload) => printService.updateReceiptConfig(payload));
   // Estúdio de impressão (aparência da nota e da pré-nota) -- estudioImpressaoService.js.
+  // Taxa de serviço fixa da casa (mesas) -- taxaServicoService.js. Salvar é só
+  // gestão (PAPEL_POR_CANAL); quem salvou vem da sessão e vai para a Auditoria.
+  safeHandle('taxaServico:get', () => require('../services/taxaServicoService').getConfig());
+  safeHandle('taxaServico:salvar', (event, payload) => require('../services/taxaServicoService').salvar({ ...(payload || {}), operadorId: usuarioLogado(event) }));
   safeHandle('estudio:get', () => require('../services/estudioImpressaoService').getTudo());
   safeHandle('estudio:previa', (_e, payload) => require('../services/estudioImpressaoService').previa(payload || {}));
   safeHandle('estudio:salvar', (_e, payload) => require('../services/estudioImpressaoService').salvar(payload || {}));
@@ -1555,6 +1568,26 @@ function registerIpcHandlers() {
   safeHandle('inventario:fechar', E((_e, p) => require('../services/estoqueServidorService').bloqueio() || inventarioService.fechar(p)));
   safeHandle('inventario:cancelar', E((_e, p) => inventarioService.cancelar(p)));
   safeHandle('inventario:kardex', E((_e, p) => inventarioService.kardex(p)));
+
+  // Perfil Almoxarifado (almoxarifadoService.js). Não depende de módulo do
+  // ERP: é o núcleo do perfil. operadorId sempre o da sessão.
+  const AX = (fn) => (event, p) => fn({ ...(p || {}), operadorId: usuarioLogado(event) });
+  safeHandle('almox:painel', AX((p) => almoxarifadoService.painel(p)));
+  safeHandle('almox:itens', AX((p) => almoxarifadoService.listarItens(p)));
+  safeHandle('almox:enderecos', AX((p) => almoxarifadoService.listarEnderecos(p)));
+  safeHandle('almox:salvarEndereco', AX((p) => almoxarifadoService.salvarEndereco(p)));
+  safeHandle('almox:ativarEndereco', AX((p) => almoxarifadoService.ativarEndereco(p)));
+  safeHandle('almox:enderecosDoItem', AX((p) => almoxarifadoService.enderecosDoItem(p)));
+  safeHandle('almox:itensDoEndereco', AX((p) => almoxarifadoService.itensDoEndereco(p)));
+  safeHandle('almox:vincularEndereco', AX((p) => almoxarifadoService.vincularEndereco(p)));
+  safeHandle('almox:desvincularEndereco', AX((p) => almoxarifadoService.desvincularEndereco(p)));
+  safeHandle('almox:setores', AX((p) => almoxarifadoService.listarSetores(p)));
+  safeHandle('almox:salvarSetor', AX((p) => almoxarifadoService.salvarSetor(p)));
+  safeHandle('almox:ativarSetor', AX((p) => almoxarifadoService.ativarSetor(p)));
+  safeHandle('almox:lotes', AX((p) => almoxarifadoService.lotes(p)));
+  safeHandle('almox:kardex', AX((p) => almoxarifadoService.kardex(p)));
+  safeHandle('almox:dadosEtiquetas', AX((p) => almoxarifadoService.dadosEtiquetas(p)));
+  safeHandle('almox:imprimirEtiquetas', (_e, p) => printService.printEtiquetasAlmox(p || {}));
 
   const FI = (fn) => comModulo('erpFiscal', fn);
   safeHandle('assistenteFiscal:painel', FI((_e, p) => assistenteFiscalService.painel(p)));

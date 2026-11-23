@@ -40,6 +40,9 @@ const BASE = {
   colunaUnitario: true,
   // Hora em que cada item foi lançado (só em conta de mesa: no balcão é tudo na mesma hora).
   mostrarHoraItem: true,
+  // Garçons vinculados à mesa ("Garçom: Ana") e, nos itens que OUTRA conta
+  // lançou (caixa, outro garçom, QR, vitrine), quem lançou e a hora.
+  mostrarGarcons: true,
   // Sempre imprimir os dois totais: sem serviço e com serviço (opcional).
   mostrarComESemServico: false,
   // % do serviço usado quando a conta não tem taxa (0 = não sugere).
@@ -170,6 +173,7 @@ function estilo(config, larguraMm) {
     td.n { text-align: right; white-space: nowrap; padding-left: 4px; }
     .obs { font-size: ${fonte - 2}px; padding-left: 8px; }
     .hora { font-size: ${fonte - 2}px; white-space: nowrap; }
+    .quem { font-size: ${fonte - 2}px; }
     .pessoa { font-weight: bold; margin: 8px 0 0; }
     .mesa { text-align: center; margin: 4px 0 2px; line-height: 1.15; overflow-wrap: anywhere; }
     .sub { display: flex; justify-content: space-between; gap: 6px; }
@@ -226,13 +230,30 @@ function linhasDeInfo(config, venda, { rotuloCodigo, dataUtc, extra = [] }) {
   return linhas.map((l) => `<p class="info center">${l}</p>`).join('');
 }
 
+/** Hora do item e, se outra conta lançou (com garçom na mesa), quem foi: " 19:42 · Carla". */
+function marcaDoItem(config, i) {
+  const quem = config.mostrarGarcons && i.quem ? String(i.quem) : '';
+  const hora = i.criadoEm ? horaBR(i.criadoEm) : '';
+  const comHora = hora && (config.mostrarHoraItem || quem);
+  if (!comHora && !quem) return '';
+  return `${comHora ? ` <span class="hora">${hora}</span>` : ''}${quem ? ` <span class="quem">${comHora ? '· ' : ''}${escHtml(quem)}</span>` : ''}`;
+}
+
+/** ["Garçom", "Ana"] | ["Garçons", "Ana e Bruno"] | null. */
+function linhaDosGarcons(c, garcons) {
+  const nomes = (Array.isArray(garcons) ? garcons : []).map((n) => String(n || '').trim()).filter(Boolean);
+  if (!c.mostrarGarcons || !nomes.length) return null;
+  const texto = nomes.length === 1 ? nomes[0] : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
+  return [nomes.length === 1 ? 'Garçom' : 'Garçons', texto];
+}
+
 function tabelaItens(configOriginal, itens) {
   // Letra enorme não cabe com 4 colunas no rolo (o Total saía cortado): sem o
   // unitário, a conta continua inteira. O valor unitário volta com letra menor.
   const config = configOriginal.tamanho === 'gigante' ? { ...configOriginal, colunaUnitario: false } : configOriginal;
   const cabec = `<thead><tr><th>Item</th><th>Qtd</th>${config.colunaUnitario ? '<th>Unit.</th>' : ''}<th>Total</th></tr></thead>`;
   const linhas = itens.map((i) => `
-    <tr><td>${escHtml(i.nome)}${config.mostrarHoraItem && i.criadoEm && horaBR(i.criadoEm) ? ` <span class="hora">${horaBR(i.criadoEm)}</span>` : ''}</td><td class="n">${escHtml(i.quantidade)}</td>${config.colunaUnitario ? `<td class="n">${dinheiro(i.precoUnitario)}</td>` : ''}<td class="n">${dinheiro(i.precoUnitario * i.quantidade)}</td></tr>
+    <tr><td>${escHtml(i.nome)}${marcaDoItem(config, i)}</td><td class="n">${escHtml(i.quantidade)}</td>${config.colunaUnitario ? `<td class="n">${dinheiro(i.precoUnitario)}</td>` : ''}<td class="n">${dinheiro(i.precoUnitario * i.quantidade)}</td></tr>
     ${config.mostrarObservacoes && i.observacao ? `<tr><td class="obs" colspan="${config.colunaUnitario ? 4 : 3}">↳ ${escHtml(i.observacao)}</td></tr>` : ''}`).join('');
   return `<table>${cabec}<tbody>${linhas}</tbody></table>`;
 }
@@ -276,6 +297,8 @@ function montarNota(config, dados) {
     : '';
   const extra = [];
   if (c.mostrarMesa && !mesaEmDestaque(c)) extra.push(['Mesa', dados.mesa]);
+  const garcons = linhaDosGarcons(c, dados.garcons);
+  if (garcons) extra.push(garcons);
   if (c.mostrarOperador) extra.push(['Atendente', dados.operador]);
   if (c.mostrarCliente) extra.push(['Cliente', dados.cliente]);
   return `<!doctype html>
@@ -372,6 +395,8 @@ function montarPreNota(config, dados) {
   const extra = [];
   if (c.mostrarMesa && !mesaEmDestaque(c)) extra.push(['Mesa', dados.mesa]);
   if (soUma) extra.push(['Conta de', nomeDa(soUma)]);
+  const garcons = linhaDosGarcons(c, dados.garcons);
+  if (garcons) extra.push(garcons);
   if (c.mostrarOperador) extra.push(['Atendente', dados.operador]);
   if (c.mostrarCliente) extra.push(['Cliente', dados.cliente]);
 
@@ -653,19 +678,22 @@ function exemplo(tipo, { larguraMm = 80, loja = { nome: 'Minha Loja' }, rodapeNo
   // Hora de cada item na prévia: lançados ao longo da mesa.
   const minutosAtras = [52, 50, 21, 6];
   itens.forEach((i, k) => { i.criadoEm = new Date(Date.now() - minutosAtras[k] * 60000).toISOString().slice(0, 19).replace('T', ' '); });
+  // Garçom vinculado à mesa; o refrigerante o caixa lançou (sai com o nome).
+  const garcons = ['Marcos'];
+  itens[3].quem = 'Carla';
   if (tipo === 'nota') {
     const total = soma(itens);
     return {
       venda: { id: 'a1b2c3d4e5', finalizada_em: agora }, itens, larguraMm, loja,
       pagamentos: [{ metodo: 'pix', valor: arred(total) }], rodape: rodapeNota,
-      operador: 'Carla', cliente: 'João Silva', mesa: 'Mesa 7', fiscalHtml: '', senha: null,
+      operador: 'Carla', cliente: 'João Silva', mesa: 'Mesa 7', garcons, fiscalHtml: '', senha: null,
       totalFinal: total, descontoFidelidade: 0, descontoGerente: 0, taxaServicoPercentual: 0, taxaServicoValor: 0,
     };
   }
   return {
     venda: { id: 'a1b2c3d4e5' }, itens, larguraMm, loja, agoraUtc: agora,
     pessoas: [{ numero: 1, nome: 'Ana' }, { numero: 2, nome: 'Bruno' }], pagoPorPessoa: {}, totalPago: 0,
-    desconto: 0, taxaServicoPercentual: 10, operador: 'Carla', cliente: '', mesa: 'Mesa 7', qtdPessoasMesa: 2,
+    desconto: 0, taxaServicoPercentual: 10, operador: 'Carla', cliente: '', mesa: 'Mesa 7', garcons, qtdPessoasMesa: 2,
     pix: null,
   };
 }

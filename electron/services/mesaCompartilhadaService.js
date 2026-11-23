@@ -252,6 +252,10 @@ const CANAIS = {
   'table:reordenar': { gestao: true, fn: (a, c) => T().reorderTables({ locationId: c.locationId, ids: a.ids }) },
   'table:proximoNumero': { ler: true, gestao: true, fn: (a, c) => ({ ok: true, ...T().proximaFaixaLivre(c.locationId) }) },
   'table:delete': { gestao: true, fn: (a) => T().deleteTable(a.tableId) },
+  // Garçons das mesas (mesaAtendentesService): o vínculo mora no servidor.
+  'table:atendentes': { ler: true, gestao: true, fn: (a, c) => require('./mesaAtendentesService').painel({ locationId: c.locationId }) },
+  'table:vincularAtendente': { gestao: true, fn: (a, c) => require('./mesaAtendentesService').definirMesasDoAtendente({ userId: a.userId, tableIds: a.tableIds, locationId: c.locationId, operadorId: c.usuarioId }) },
+  'table:limparAtendentes': { gestao: true, fn: (a, c) => require('./mesaAtendentesService').limparTodos({ locationId: c.locationId, operadorId: c.usuarioId }) },
   'sale:addItem': {
     venda: true,
     fn: (a, c) => S().addItem({
@@ -500,6 +504,8 @@ function puxar(corpo, caixa) {
         lancadoPorDoc: docDoUsuario(db, grupoId, i.lancado_por),
       })),
       pessoas: pessoas.map((p) => ({ numero: p.numero, nome: p.nome || null, clienteDoc: p.customer_id ? docDe(db, grupoId, 'clientes', p.customer_id) : null })),
+      // Garçons vinculados às mesas (saem na nota do caixa que receber).
+      atendentes: require('./mesaAtendentesService').atendentesDaContaAberta(db, venda.id).map((a) => ({ nome: a.nome, usuarioDoc: docDoUsuario(db, grupoId, a.id) })),
     };
   })();
 }
@@ -843,6 +849,8 @@ function importarConta(db, conta, hubId) {
     const inserirMesa = db.prepare('INSERT INTO sale_mesas (id, sale_id, table_id, numero, nome, principal) VALUES (?, ?, ?, ?, ?, ?)');
     inserirMesa.run(randomUUID(), saleId, conta.mesa.id, conta.mesa.numero, conta.mesa.nome, 1);
     for (const u of conta.unidas || []) inserirMesa.run(randomUUID(), saleId, u.id, u.numero, u.nome, 0);
+    require('./mesaAtendentesService').gravarAtendentesDaVenda(db, saleId,
+      (conta.atendentes || []).map((a) => ({ nome: a.nome, id: usuarioDoDoc(db, grupoId, a.usuarioDoc) })));
     const { t } = db.prepare('SELECT COALESCE(SUM(preco_unitario * quantidade), 0) AS t FROM sale_items WHERE sale_id = ? AND cancelado = 0').get(saleId);
     db.prepare('UPDATE sales SET total = ? WHERE id = ?').run(t, saleId);
     db.prepare(

@@ -205,10 +205,18 @@ const salaoECozinha = () => [
     ],
   },
   {
+    tipo: 'cards', kicker: 'Salão', titulo: 'Garçons das mesas', papeis: ['gerente', 'garcom', 'caixa'], novo: true, colunas: 3,
+    cards: [
+      { icone: 'usuarios', t: 'O gerente vincula', d: 'Em **Mesas → Garçons das mesas**: escolha o garçom e marque as mesas dele. Fica até o gerente tirar.', novo: true },
+      { icone: 'etiqueta', t: 'Etiqueta na mesa', d: 'O nome do garçom aparece no quadrado da mesa, no computador e no celular.', novo: true },
+      { icone: 'recibo', t: 'Sai na nota', d: 'Nota e pré-nota saem com "Garçom: Ana". O que outra pessoa lançou sai com o nome dela e a hora.', novo: true },
+    ],
+  },
+  {
     tipo: 'cards', kicker: 'Comanda', titulo: 'Conta por pessoa, sem confusão', papeis: ['caixa', 'garcom'], novo: true,
     cards: [
       { icone: 'usuarios', t: 'Pessoas com nome', d: 'Cada pessoa da mesa pode ter nome. O item já nasce dela ("lançar para"), e dá para mover depois.', novo: true },
-      { icone: 'recibo', t: 'Fechar por pessoa ou a mesa', d: 'Cada um paga a sua parte (e pode ir embora) ou a mesa inteira de uma vez. Taxa de serviço de 10% sugerida e editável.', novo: true },
+      { icone: 'recibo', t: 'Fechar por pessoa ou a mesa', d: 'Cada um paga a sua parte (e pode ir embora) ou a mesa inteira de uma vez. Taxa de serviço de 10% (ou a taxa fixa da casa) já sugerida, e opcional para o cliente.', novo: true },
       { icone: 'usuario', t: 'Ligar a um cliente', d: 'O ícone de pessoa liga o nome a um cliente do cadastro: o consumo vai para a ficha dele.', novo: true },
       { icone: 'chef', t: 'Observação e cozinha', d: '"Sem cebola", "ao ponto": vai junto para a cozinha. Só sai o que ainda não foi enviado.' },
     ],
@@ -331,6 +339,43 @@ const validade = () => ({
   ],
 });
 
+const almoxarifado = () => [
+  {
+    tipo: 'cards', kicker: 'Almoxarifado', titulo: 'Tudo sobre o material numa tela só', papeis: ['almoxarife', 'gerente'], novo: true,
+    cards: [
+      { icone: 'caixa', t: 'Itens', d: 'Saldo, endereço e próxima validade de cada item. Filtros: **Sem endereço**, **Abaixo do mínimo** e **Vencidos ou vencendo**.', novo: true },
+      { icone: 'busca', t: 'Achar rápido', d: 'Busque pelo nome, pelo código de barras ou pelo endereço (digite **A-03** e veja tudo o que está ali).', novo: true },
+      { icone: 'usuarios', t: 'Setores', d: 'Cadastre quem pede material (manutenção, limpeza, obras), com responsável e limite mensal.', novo: true },
+    ],
+    nota: { icone: 'alerta', texto: 'No topo da tela, os contadores mostram o que precisa de atenção: itens sem endereço, abaixo do mínimo e lotes vencendo.' },
+  },
+  {
+    tipo: 'passos', kicker: 'Endereços', titulo: 'Cada coisa no seu lugar', papeis: ['almoxarife', 'gerente'], novo: true,
+    passos: [
+      { t: 'Almoxarifado → Endereços → Novo endereço', d: 'Rua, prateleira e posição viram o código (ex.: **A-03-02**). O gerente cria os endereços.' },
+      { t: 'Itens → Endereço → Guardar aqui', d: 'Diga onde o item fica. Pode ter mais de um lugar; o primeiro vira o **principal**.' },
+      { t: 'Marque e toque em Etiquetas', d: 'Imprime etiqueta com código de barras para o item ou para a prateleira, em 50×30 ou 100×50 mm.' },
+    ],
+    nota: { icone: 'impressora', texto: 'Etiqueta de endereço colada na prateleira + etiqueta no item = leitor de código encontra tudo.' },
+  },
+  {
+    tipo: 'cards', kicker: 'Validade', titulo: 'Lotes: o que vence primeiro sai primeiro', papeis: ['almoxarife', 'gerente'], novo: true,
+    cards: [
+      { icone: 'documento', t: 'Lote entra no Abastecimento', d: 'Ao dar entrada da nota, informe lote e validade. O saldo passa a ser controlado por lote.', novo: true },
+      { icone: 'calendario', t: 'Lotes e validade', d: 'Ordem de saída pronta: o lote marcado **usar primeiro** é o que deve sair agora (FEFO).', novo: true },
+      { icone: 'alerta', t: 'Vencidos e vencendo', d: 'Vermelho = vencido. Laranja = vence em até 30 dias. Separe antes que alguém use.', novo: true },
+    ],
+  },
+  {
+    tipo: 'cards', kicker: 'Gestão', titulo: 'Kardex: a ficha de cada item', papeis: ['gerente', 'dono'], novo: true,
+    cards: [
+      { icone: 'lista', t: 'Toda entrada e saída', d: 'Data, tipo, motivo, quem fez e o saldo depois de cada movimento.', novo: true },
+      { icone: 'dinheiro', t: 'Em reais', d: 'Cada movimento valorizado pelo **custo médio daquele dia**, com o saldo em R$ no fim.', novo: true },
+      { icone: 'grafico', t: 'Período', d: 'Escolha as datas. Entradas, saídas e saldo final aparecem nos cartões do topo.', novo: true },
+    ],
+  },
+];
+
 const PERFIS = {
   padrao: {
     nome: 'Comércio', subtitulo: 'Do caixa à gestão, com tudo o que entrou de novo no sistema.',
@@ -442,6 +487,16 @@ const PERFIS = {
       }],
     },
   },
+  almoxarifado: {
+    nome: 'Almoxarifado', subtitulo: 'Controle interno de material: onde fica, quanto tem, o que vence e quanto vale.',
+    ficha: 'o que cada um consumiu',
+    // Sem venda: o deck pula "No caixa" e "Pedidos de fora e celular" (montarDeck).
+    semVenda: true,
+    especifico: {
+      titulo: 'No almoxarifado', texto: 'Itens, endereços, etiquetas, lotes, setores e kardex.', papeis: ['almoxarife', 'gerente'],
+      slides: () => almoxarifado(),
+    },
+  },
   restaurante: {
     nome: 'Restaurante', subtitulo: 'Salão, cozinha, cardápio, fichas técnicas e a gestão do restaurante.',
     ficha: 'as reservas pelo telefone e o consumo dela nas mesas',
@@ -456,9 +511,9 @@ const PERFIS = {
 function montarDeck(id) {
   const p = PERFIS[id];
   const secoes = [
-    { titulo: 'No caixa', texto: 'Do login ao fechamento, o que todo operador precisa saber.', papeis: ['caixa', 'gerente'], slides: caixa(p) },
+    ...(p.semVenda ? [] : [{ titulo: 'No caixa', texto: 'Do login ao fechamento, o que todo operador precisa saber.', papeis: ['caixa', 'gerente'], slides: caixa(p) }]),
     ...(p.especifico ? [{ titulo: p.especifico.titulo, texto: p.especifico.texto, papeis: p.especifico.papeis, slides: p.especifico.slides() }] : []),
-    { titulo: 'Pedidos de fora e celular', texto: 'Loja online, WhatsApp, senhas na TV e o app do celular.', papeis: ['caixa', 'garcom', 'gerente'], slides: foraECelular() },
+    ...(p.semVenda ? [] : [{ titulo: 'Pedidos de fora e celular', texto: 'Loja online, WhatsApp, senhas na TV e o app do celular.', papeis: ['caixa', 'garcom', 'gerente'], slides: foraECelular() }]),
     { titulo: 'Gestão', texto: 'Para gerente e dono: cadastro, compras, financeiro e fiscal.', papeis: ['gerente', 'dono'], slides: gestao() },
   ];
   const papeis = [...new Set(secoes.flatMap((s) => s.papeis))];

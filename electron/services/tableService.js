@@ -235,9 +235,19 @@ function listTables(locationId) {
   // Indicadores do QR no quadrado: chamados, pedidos esperando, celulares na mesa.
   let indicadores = new Map();
   try { indicadores = mesaLocal().indicadoresDasMesas(db, mesas); } catch (err) { console.error('[mesas] indicadores', err?.message || err); }
+  // Garçons vinculados (etiqueta no quadrado). Na principal, junta os das unidas.
+  let garcons = new Map();
+  try { garcons = require('./mesaAtendentesService').mapaDasMesas(db, locationId); } catch (err) { console.error('[mesas] garçons', err?.message || err); }
+  const garconsDa = (m) => {
+    const lista = [...(garcons.get(m.id) || [])];
+    if (!m.unida_a_mesa_id) for (const u of mesas) if (u.unida_a_mesa_id === m.id) lista.push(...(garcons.get(u.id) || []));
+    const vistos = new Set();
+    return lista.filter((a) => (vistos.has(a.id) ? false : vistos.add(a.id))).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  };
   return mesas.map((m) => ({
     ...m, mesas_unidas: unidas.has(m.id) ? unidas.get(m.id).join(' + ') : null,
     indicadores: (!m.unida_a_mesa_id && indicadores.get(m.id)) || null,
+    atendentes: garconsDa(m),
   }));
 }
 
@@ -374,6 +384,10 @@ function openTable({ tableId, locationId, operadorId, pessoas }) {
   }
 
   const { id: saleId } = saleService.openSale({ locationId, operadorId });
+  // Taxa de serviço fixa da casa (Configurações → Taxa de serviço): a mesa já
+  // nasce com ela. Continua opcional: quem atende tira ou muda na conta.
+  const taxaFixa = require('./taxaServicoService').percentualFixo();
+  if (taxaFixa > 0) db.prepare('UPDATE sales SET taxa_servico_percentual = ? WHERE id = ?').run(taxaFixa, saleId);
   db.prepare(`UPDATE restaurant_tables SET status = 'ocupada', sale_id = ?, pessoas = ?, reservado_para = NULL, transferida_para_id = NULL WHERE id = ?`)
     .run(saleId, pessoas ? Number(pessoas) : null, tableId);
   // Quem já tinha entrado na mesa pelo QR (celular) vira pessoa da comanda.
@@ -413,6 +427,8 @@ function getTableCart(saleId) {
     pagoPorPessoa,
     pessoas: listarPessoas(db, saleId, principal?.pessoas),
     grupo: principal ? { principal: resumoMesa(principal), unidas: membrosDe(db, principal.id).map(resumoMesa) } : null,
+    // Garçons vinculados às mesas da conta (mesaAtendentesService).
+    atendentes: principal ? require('./mesaAtendentesService').atendentesDaContaAberta(db, saleId) : [],
     items: items.map((i) => ({
       id: i.id, nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, cancelado: false,
       observacao: i.observacao || '', pessoaNumero: i.pessoa_numero || null, criadoEm: i.criado_em || null,

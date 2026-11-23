@@ -863,6 +863,14 @@ function seedIfEmpty(database) {
     { campo: 'disponivel_hoje', label: 'Disponível hoje (prato do dia)', tipo: 'boolean', obrigatorio: false },
   ], { alertaValidadeProxima: false });
 
+  // Almoxarifado: controle interno de material, sem venda (o menu esconde
+  // PDV, caixa e telas de venda -- ver NAV_ITEMS em AppShell.jsx).
+  seedProfileIfMissing('almoxarifado', 'Almoxarifado', [
+    { campo: 'marca', label: 'Marca / fabricante', tipo: 'texto', obrigatorio: false },
+    { campo: 'especificacao', label: 'Especificação técnica', tipo: 'texto', obrigatorio: false },
+    { campo: 'controla_lote', label: 'Controla lote e validade', tipo: 'boolean', obrigatorio: false },
+  ], { alertaValidadeProxima: true, diasAlertaValidade: 30, diasAlertaValidadeCritico: 7 });
+
   const aiSettingsCount = database.prepare('SELECT COUNT(*) as c FROM ai_settings').get().c;
   if (aiSettingsCount === 0) {
     database.prepare(`INSERT INTO ai_settings (id) VALUES ('default')`).run();

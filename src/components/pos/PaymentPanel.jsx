@@ -40,6 +40,16 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
   const [showCancelarNfceAuth, setShowCancelarNfceAuth] = useState(false);
   const [printMsg, setPrintMsg] = useState('');
   const [taxaServico, setTaxaServico] = useState(taxaInicial);
+  // Taxa fixa da casa (Configurações → Taxa de serviço): é a % que o botão põe.
+  const [taxaDaCasa, setTaxaDaCasa] = useState({ ativa: false, percentual: 10 });
+  useEffect(() => {
+    if (!mostrarTaxaServico) return undefined;
+    let vivo = true;
+    Promise.resolve(window.pdv.taxaServico?.get?.()).then((r) => {
+      if (vivo && r?.ok) setTaxaDaCasa({ ativa: !!r.ativa, percentual: Number(r.percentual) || 10 });
+    }).catch(() => {});
+    return () => { vivo = false; };
+  }, [mostrarTaxaServico]);
 
   // Cliente vinculado à venda — necessário pra fiado e fidelidade.
   const [customerQuery, setCustomerQuery] = useState('');
@@ -787,7 +797,7 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
             <input
               type="checkbox" style={{ width: 'auto' }}
               checked={taxaServico > 0}
-              onChange={(e) => alterarTaxaServico(e.target.checked ? 10 : 0)}
+              onChange={(e) => alterarTaxaServico(e.target.checked ? taxaDaCasa.percentual : 0)}
             />
             Taxa de serviço
           </label>
@@ -799,6 +809,11 @@ export function PaymentPanel({ saleId, total: totalProp, onFinalized, onAdiarPen
             />
           )}
           {taxaServico > 0 && <span className="screen-hint" style={{ margin: 0 }}>% — R$ {valorTaxaServico.toFixed(2)}</span>}
+          {taxaDaCasa.ativa && (
+            <span className="screen-hint" style={{ margin: 0 }}>
+              Taxa fixa da casa: {String(taxaDaCasa.percentual).replace('.', ',')}% (opcional para o cliente: desmarque se ele não quiser)
+            </span>
+          )}
         </div>
       )}
 

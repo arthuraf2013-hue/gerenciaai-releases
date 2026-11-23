@@ -6608,3 +6608,61 @@ Código: `impressaoLayout.js` (desenho, função pura: imprime e gera a
 prévia), `estudioImpressaoService.js` (configuração na tabela
 `impressao_estudio` do schema.sql, sem migração), `printService.printPreNota`,
 `EstudioImpressao.jsx`. Testes: `estudioImpressao.test.js` (15).
+
+## Perfil Almoxarifado: base (nov/2026)
+
+Novo perfil de negócio **Almoxarifado**, para controle interno de material e
+inventário (não vende: o caixa, as vendas e os relatórios de venda somem do
+menu). Nesta primeira entrega, a tela **Almoxarifado** tem:
+
+- **Itens**: busca por nome, código, código de barras ou endereço; filtros sem
+  endereço, abaixo do mínimo e lote vencendo; etiquetas com código de barras
+  (50x30 ou 100x50 mm, até 200 por vez).
+- **Endereços**: rua, prateleira e posição (ex.: A-03-02); cada item pode ter
+  vários endereços e um principal.
+- **Lotes e validade**: saldo por lote, na ordem FEFO (vence primeiro, sai
+  primeiro), com vencido e vencendo em até 30 dias.
+- **Setores**: quem pede material, com responsável e limite mensal.
+- **Kardex** (gestão): entradas, saídas e saldo com custo médio e valor.
+
+Código: `almoxarifadoService.js`, migração 24, `AlmoxarifadoScreen.jsx`,
+`printService.printEtiquetasAlmox`. Testes: `almoxarifadoService.test.js` (9).
+Próximas entregas: requisição e recebimento, inventário pelo celular,
+ferramentas/EPI/patrimônio e relatórios.
+
+## Taxa de serviço fixa nas mesas (nov/2026)
+
+**Configurações → Geral → Taxa de serviço fixa (mesas)** (gerente e admin):
+liga a taxa e define a porcentagem (até 30%).
+
+- Toda mesa aberta daqui em diante já começa com a taxa, no computador e no
+  celular do garçom (inclusive pedido pelo QR da mesa). As mesas que já estão
+  abertas não mudam.
+- A taxa continua opcional para o cliente: no pagamento, desmarque "Taxa de
+  serviço" (no celular, toque em "Sem").
+- A nota e a pré-nota da mesa sempre mostram o **total sem serviço** e o
+  **total com serviço (opcional)**, mesmo quando o cliente não pagou a taxa.
+  Venda de balcão não muda.
+- Grupo de caixas: ligue igual em todos os caixas.
+
+Código: `taxaServicoService.js`, `TaxaServicoConfig.jsx`. Testes:
+`taxaServicoFixa.test.js` (7).
+
+## Garçons das mesas (nov/2026)
+
+**Mesas → Garçons das mesas** (gerente e admin): escolha o garçom (ou
+operador) e marque as mesas dele. O vínculo fica até o gerente tirar ("Tirar
+todos os garçons das mesas" limpa tudo, por exemplo na troca de turno).
+
+- O nome do garçom aparece como etiqueta no quadrado da mesa, na tela da conta
+  e no celular dos garçons.
+- A nota e a pré-nota da mesa saem com "Garçom: Ana" (ou "Garçons: Ana e
+  Bruno"). Os itens que outra pessoa lançou (caixa, outro garçom, QR da mesa,
+  vitrine) saem com o nome de quem lançou e a hora.
+- A nota guarda os garçons de quando a conta fechou: reimprimir depois sai
+  igual, mesmo que o gerente tenha trocado as mesas.
+- Estúdio de impressão: "Garçons da mesa e quem lançou cada item" (ligado).
+- No grupo de caixas, o vínculo fica no servidor do grupo e vale para todos.
+
+Código: `mesaAtendentesService.js`, `GarconsDasMesas.jsx`. Testes:
+`garconsDasMesas.test.js` (9).

@@ -202,6 +202,8 @@ function registrarMesasDaVenda(db, saleId) {
      SELECT lower(hex(randomblob(16))), ?, t.id, t.numero, t.nome, CASE WHEN t.unida_a_mesa_id IS NULL THEN 1 ELSE 0 END
      FROM restaurant_tables t WHERE t.sale_id = ?`
   ).run(saleId, saleId);
+  // Garçons vinculados às mesas da conta: a nota sai com eles mesmo depois.
+  require('./mesaAtendentesService').registrarAtendentesDaVenda(db, saleId);
 }
 
 /** "Mesa 3 + 4" (principal primeiro, depois as unidas em ordem numérica). */
@@ -442,8 +444,9 @@ function removeManagerDiscount(saleId) {
   return { ok: true };
 }
 
-/** Taxa de serviço opcional (restaurante) — percentual sobre o total,
- * sempre uma escolha de quem está atendendo, nunca automática. */
+/** Taxa de serviço opcional (restaurante) — percentual sobre o total.
+ * Só entra sozinha quando a casa liga a taxa fixa (taxaServicoService, na
+ * abertura da mesa); fora isso é escolha de quem atende, e sempre pode sair. */
 function setServiceCharge(saleId, percentual) {
   const valor = Number(percentual) || 0;
   if (valor < 0 || valor > 100) return { ok: false, error: 'Percentual inválido — use um valor entre 0 e 100.' };

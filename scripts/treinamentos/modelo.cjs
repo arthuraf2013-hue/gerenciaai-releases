@@ -13,7 +13,7 @@ const esc = (t) => String(t ?? '')
 const txt = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
 const PAPEIS = {
-  caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha', gerente: 'Gerente', dono: 'Dono',
+  caixa: 'Caixa', garcom: 'Garçom', cozinha: 'Cozinha', gerente: 'Gerente', dono: 'Dono', almoxarife: 'Almoxarife',
 };
 
 // Ícones de traço (24×24), no mesmo espírito dos ícones do app.

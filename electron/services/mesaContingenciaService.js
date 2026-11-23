@@ -159,7 +159,9 @@ function abrir(a, usuarioId) {
   const saleId = `${PREFIXO}v${randomUUID()}`;
   Object.assign(m, { status: 'ocupada', sale_id: saleId, pessoas: a.pessoas ? Number(a.pessoas) : null, aberta_em: agoraUtc(), total_atual: 0, reservado_para: null });
   gravarLista(l);
-  gravarCarrinho(saleId, { items: [], total: 0, pessoas: [], taxaServicoPercentual: 0, desconto: 0, totalPago: 0, pagoPorPessoa: {}, grupo: null, venda: { criadoEm: agoraUtc() } });
+  // Mesma taxa fixa que o servidor põe ao abrir a mesa (taxaServicoService).
+  const taxaFixa = (() => { try { return require('./taxaServicoService').percentualFixo(); } catch { return 0; } })();
+  gravarCarrinho(saleId, { items: [], total: 0, pessoas: [], taxaServicoPercentual: taxaFixa, desconto: 0, totalPago: 0, pagoPorPessoa: {}, grupo: null, venda: { criadoEm: agoraUtc() } });
   enfileirar('table:open', { tableId: a.tableId, pessoas: a.pessoas || null }, usuarioId, { saleTemp: saleId }, rotulo(m));
   avisar();
   return { ok: true, saleId, offline: true };

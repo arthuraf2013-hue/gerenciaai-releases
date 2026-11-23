@@ -825,12 +825,12 @@ precisa ser respeitado ao mexer no código:
 
 ## Perfis de negócio
 
-`electron/db/database.js` (`seedProfileIfMissing`) — 11 perfis
+`electron/db/database.js` (`seedProfileIfMissing`) — 12 perfis
 (farmacia, petshop, armazem, salao_beleza, padaria, papelaria,
-vestuario, otica, material_construcao, restaurante, generico).
+vestuario, otica, material_construcao, restaurante, almoxarifado, generico).
 Telas/funcionalidades específicas de perfil ficam condicionadas por
 `profile?.id === '...'` no componente (ex: aba Agenda só aparece pro
-salao_beleza). Treinamento em PDF também é por perfil — 9 arquivos em
+salao_beleza). Treinamento em PDF também é por perfil — um arquivo por perfil em
 `public/treinamento-*.pdf`, escolhidos automaticamente por
 `TrainingPresentationModal.jsx` conforme o perfil ativo. Os PDFs são GERADOS:
 conteúdo em `scripts/treinamentos/conteudo.cjs` (nomes de tela/botão iguais aos do
@@ -1021,3 +1021,79 @@ possível numa sessão sem rota de rede até o download dele).
   da NFC-e e senha do balcão na nota.
 - Conta da pré-nota (`valoresDaPreNota`) bate com `src/utils/contaPorPessoa.js`;
   o teste compara os dois.
+
+## Perfil Almoxarifado (nov/2026)
+
+Perfil SEM VENDA, para controle interno de material. Entrega 1 (base) feita;
+entregas 2 a 5 (requisição, recebimento, transferência, baixa, inventário pelo
+celular, mín/máx e compra, ferramentas, EPI, patrimônio, ABC/giro, consumo por
+setor) ainda não.
+
+- Código: `electron/services/almoxarifadoService.js`, canais `almox:*` (preload
+  `window.pdv.almox`), tela `src/components/almoxarifado/AlmoxarifadoScreen.jsx`,
+  etiquetas em `printService.printEtiquetasAlmox`. Testes:
+  `almoxarifadoService.test.js`.
+- Migração 24: `almox_enderecos`, `almox_item_endereco`, `almox_setores` e a
+  coluna `stock_movements.lote_id`. A coluna é SEM `REFERENCES` de propósito
+  (o `down` consegue remover). Não mexer no CHECK de `tipo` do ledger para isso.
+- Saldo por lote = soma dos movimentos com `lote_id`; lote antigo sem
+  movimento ligado usa `product_batches.quantidade` e sai marcado `estimado`.
+  Todo código novo que mexe em lote (entrada, baixa, transferência, inventário)
+  TEM que gravar `lote_id` no movimento, senão o saldo do lote fica errado.
+  `batchService.createBatch` já grava.
+- FEFO: ordem por validade, sem validade por último. Datas sempre por
+  `timeService` (ver a armadilha de fuso).
+- Sem venda: `PERFIS_SEM_VENDA` no `AppShell.jsx` esconde os itens de menu com
+  `venda: true` e NÃO monta o PDV. Item novo de menu ligado a venda = marcar
+  `venda: true`. Os outros perfis não mudam (o PDV continua montado para eles).
+- Gravações de endereço/setor e o kardex com valor são só de gestão
+  (`PAPEL_POR_CANAL`); `operadorId` vem sempre da sessão.
+- Treinamento: `PERFIS.almoxarifado` com `semVenda: true` em `conteudo.cjs`
+  (pula "No caixa" e "Pedidos de fora e celular"). Gerar o PDF com
+  `npm run treinamentos almoxarifado`.
+
+## Taxa de serviço fixa da casa (nov/2026)
+
+- `electron/services/taxaServicoService.js`, tabela `taxa_servico_config` no
+  schema.sql (`CREATE TABLE IF NOT EXISTS`, sem migração). Tela:
+  `TaxaServicoConfig.jsx` (Configurações → Geral, só gestão). Canais
+  `taxaServico:get` (qualquer sessão) e `taxaServico:salvar` (PAPEL_POR_CANAL,
+  operador da sessão, Auditoria `taxa_servico_fixa`). Testes:
+  `taxaServicoFixa.test.js`.
+- Ligada: `tableService.openTable` grava a % na venda NOVA da mesa (mesa já
+  aberta não muda; reabrir mesa ocupada não mexe). Tudo que abre mesa passa
+  por ali (QR, vitrine, celular, mudança de mesa, servidor do grupo). A cópia
+  de contingência do caixa (`mesaContingenciaService.abrir`) usa a mesma %.
+- Continua OPCIONAL para o cliente: o botão "Taxa de serviço" do pagamento e os
+  chips do celular tiram. Não transformar em obrigatória.
+- Impressão: `aplicarNaImpressao` liga os dois totais (sem e com serviço) na
+  nota e na pré-nota SÓ de conta de mesa, com a % fixa quando a conta ficou sem
+  taxa. Não grava nada no estúdio (o balcão segue o que está salvo lá).
+- Grupo de caixas: quem abre a mesa é o servidor (vale a configuração dele);
+  cada máquina imprime com a sua. A tela pede para ligar igual em todos.
+
+## Garçons das mesas (nov/2026)
+
+- `electron/services/mesaAtendentesService.js`; tabelas `mesa_atendentes`
+  (vínculo atual mesa ↔ usuário) e `sale_atendentes` (foto na venda) no
+  schema.sql, `CREATE TABLE IF NOT EXISTS`, SEM migração e SEM `REFERENCES`
+  de propósito (não trava exclusão de mesa/venda/usuário). Tela:
+  `GarconsDasMesas.jsx` (botão "Garçons das mesas" em Mesas, só gestão).
+  Testes: `garconsDasMesas.test.js`.
+- Só `garcom` e `operador` ativos são vinculados. O vínculo é da MESA (fica
+  até o gerente tirar). `definirMesasDoAtendente` troca a lista inteira do
+  usuário; Auditoria `mesa_garcons`.
+- Etiqueta: `listTables` devolve `atendentes` (a principal junta os das
+  unidas), `getTableCart.atendentes`, `montarMesas.garcons` (celular).
+- Foto: `saleService.registrarMesasDaVenda` chama
+  `registrarAtendentesDaVenda` (fechar, desocupar, juntar). A nota usa a foto;
+  sem foto, os garçons atuais da mesa. Reimpressão sai igual.
+- Nota/pré-nota: linha "Garçom:"/"Garçons:" e, nos itens que OUTRA conta
+  lançou (ou QR/vitrine/WhatsApp), " 19:42 · Carla" (`quem`) -- com a hora
+  mesmo se "Hora de cada item" estiver desligada. Item do próprio garçom
+  vinculado não repete o nome. Sem garçom vinculado: tudo como antes. Estúdio:
+  `mostrarGarcons` (padrão ligado). Só conta de mesa.
+- Grupo de caixas: vínculo mora no servidor (canais `table:atendentes`,
+  `table:vincularAtendente`, `table:limparAtendentes`, gestão, também em
+  `mesasApi.js`). A conta puxada leva `atendentes` com `usuarioDoc`, e o caixa
+  grava a foto em `importarConta`.

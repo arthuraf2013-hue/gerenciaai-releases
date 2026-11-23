@@ -14,6 +14,7 @@ import { FerramentasSuporte } from './FerramentasSuporte';
 import { ServidorDoGrupo } from './ServidorDoGrupo';
 import { PixAutomaticoConfig } from './PixAutomaticoConfig';
 import { MaquininhaConfig } from './MaquininhaConfig';
+import { TaxaServicoConfig } from './TaxaServicoConfig';
 import { CozinhaConfig } from './CozinhaConfig';
 import { SenhasConfig } from './SenhasConfig';
 import { VerticeConfig } from './VerticeConfig';
@@ -1405,6 +1406,7 @@ export function SettingsScreen() {
 
       {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <PixAutomaticoConfig />}
       {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <MaquininhaConfig />}
+      {['gerente', 'admin', 'suporte'].includes(currentUser?.role) && <TaxaServicoConfig />}
 
       <section className="settings-section">
         <h2><Icon name="star" size={16} /> Programa de fidelidade</h2>

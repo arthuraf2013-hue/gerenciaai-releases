@@ -15,6 +15,7 @@ const ARQUIVO_POR_PERFIL = {
   otica: 'treinamento-otica.pdf',
   material_construcao: 'treinamento-material_construcao.pdf',
   restaurante: 'treinamento-restaurante.pdf',
+  almoxarifado: 'treinamento-almoxarifado.pdf',
 };
 const ARQUIVO_PADRAO = 'treinamento-padrao.pdf';
 

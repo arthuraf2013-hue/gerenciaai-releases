@@ -23,10 +23,12 @@ function createBatch({ productId, locationId, lote, validade, quantidade, fornec
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(batchId, productId, locationId, lote || null, validade || null, qtd, fornecedorId || null, operadorId);
 
+    // lote_id (migração 24) liga a entrada ao lote: é o que dá saldo por
+    // lote ao almoxarifado (almoxarifadoService.lotes, ordem FEFO).
     db.prepare(
-      `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, operador_id, device_id)
-       VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?)`
-    ).run(movementId, productId, locationId, qtd, motivo || 'Abastecimento — nota de compra', operadorId, deviceId);
+      `INSERT INTO stock_movements (id, product_id, location_id, tipo, quantidade, motivo, operador_id, device_id, lote_id)
+       VALUES (?, ?, ?, 'entrada', ?, ?, ?, ?, ?)`
+    ).run(movementId, productId, locationId, qtd, motivo || 'Abastecimento — nota de compra', operadorId, deviceId, batchId);
   });
   tx();
 

@@ -165,6 +165,7 @@ export function TableOrderScreen({
   // Pessoas da comanda (vagas 1..N, com nome opcional) e grupo de mesas unidas.
   const [pessoasLista, setPessoasLista] = useState([]);
   const [grupo, setGrupo] = useState(null); // { principal, unidas: [] } | null
+  const [garcons, setGarcons] = useState([]); // garçons vinculados às mesas da conta (mesaAtendentesService)
   const [showJuntar, setShowJuntar] = useState(false);
   const [showQuemLancou, setShowQuemLancou] = useState(false);
   useEscToClose(() => setShowJuntar(false), showJuntar);
@@ -193,6 +194,7 @@ export function TableOrderScreen({
     setConta({ desconto: cart.desconto || 0, totalPago: cart.totalPago || 0, pagoPorPessoa: cart.pagoPorPessoa || {} });
     aplicarPessoas(cart.pessoas);
     setGrupo(cart.grupo || null);
+    setGarcons(Array.isArray(cart.atendentes) ? cart.atendentes : []);
   }, [saleId, aplicarPessoas, api]);
 
   useEffect(() => { recarregarComanda(); }, [recarregarComanda]);
@@ -643,6 +645,11 @@ export function TableOrderScreen({
           {grupo?.principal ? (grupo.principal.nome || `Mesa ${grupo.principal.numero}`) : (nome || `Mesa ${numero}`)}
           {grupo?.unidas?.length > 0 && (
             <span className="mesa-unidas-titulo"> + {grupo.unidas.map((m) => m.nome || `Mesa ${m.numero}`).join(' + ')}</span>
+          )}
+          {garcons.length > 0 && (
+            <span className="table-card-garcons mesa-tela-garcons" title="Garçons desta mesa">
+              {garcons.map((a) => <span key={a.id} className="table-card-garcom"><Icon name="user" size={11} /> {a.nome}</span>)}
+            </span>
           )}
         </h1>
         <div className="pos-header-right">

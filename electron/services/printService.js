@@ -227,10 +227,16 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
   const somaItens = items.reduce((acc, i) => acc + i.preco_unitario * i.quantidade, 0);
   let config = null;
   try { config = require('./estudioImpressaoService').getConfig('nota'); } catch { config = null; }
+  // Conta de mesa com a taxa fixa da casa ligada: sempre os dois totais.
+  try { config = require('./taxaServicoService').aplicarNaImpressao('nota', config, { mesa: extras.mesa }); } catch { /* sem taxa fixa */ }
   return require('./impressaoLayout').montarNota(config, {
     venda: sale,
     // Hora de cada item só em conta de mesa (no balcão é tudo na mesma hora).
-    itens: items.map((i) => ({ nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', criadoEm: extras.mesa ? (i.criado_em || null) : null })),
+    itens: items.map((i) => ({
+      nome: i.nome, quantidade: i.quantidade, precoUnitario: i.preco_unitario, observacao: i.observacao || '', criadoEm: extras.mesa ? (i.criado_em || null) : null,
+      // Com garçom na mesa: item que outra conta lançou sai com quem lançou (printReceipt calcula).
+      quem: extras.mesa ? (i.quem || null) : null,
+    })),
     pagamentos: payments,
     loja: location,
     larguraMm,
@@ -238,6 +244,7 @@ function buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeText
     operador: extras.operador || '',
     cliente: extras.cliente || '',
     mesa: extras.mesa || null,
+    garcons: extras.mesa && Array.isArray(extras.garcons) ? extras.garcons : [],
     fiscalHtml: buildFiscalHtmlBlock(nfce, qrDataUrl),
     senha,
     totalFinal: sale.total - sale.desconto - sale.desconto_gerente,
@@ -374,7 +381,11 @@ async function printReceipt(saleId) {
 
   const operador = db.prepare('SELECT nome FROM users WHERE id = ?').get(sale.operador_id)?.nome || '';
   const cliente = sale.customer_id ? (db.prepare('SELECT nome FROM customers WHERE id = ?').get(sale.customer_id)?.nome || '') : '';
-  const html = buildReceiptHtml(sale, items, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha, { operador, cliente, mesa: mesaDaVenda(db, saleId) });
+  const mesa = mesaDaVenda(db, saleId);
+  // Garçons vinculados à mesa e, nos itens de OUTRA conta, quem lançou (mesaAtendentesService).
+  let porGarcom = { garcons: [], itens: items };
+  try { if (mesa) porGarcom = require('./mesaAtendentesService').garconsDaNota(db, saleId, items); } catch (err) { console.error('[printService] garçons da nota:', err?.message || err); }
+  const html = buildReceiptHtml(sale, porGarcom.itens, payments, location, larguraMm, rodapeTexto, nfce, qrDataUrl, senha, { operador, cliente, mesa, garcons: porGarcom.garcons });
   imprimirNoRolo(html, larguraMm);
   return { ok: true };
 }
@@ -430,6 +441,39 @@ function printLabel({ nome, preco, codigoBarras, barcodeDataUrl }) {
   imprimirEmJanelaInvisivel(html, opcoesDeImpressao({ pageSize: { width: 50000, height: 30000 } }));
 
   return { ok: true };
+}
+
+/**
+ * Etiquetas do almoxarifado (item ou endereço), uma por página, sem preço.
+ * Como em printLabel, a imagem do código de barras vem pronta do
+ * frontend (jsbarcode). Tamanhos: 50x30 (padrão) ou 100x50 mm.
+ */
+const TAMANHOS_ETIQUETA = { '50x30': [50, 30], '100x50': [100, 50] };
+function printEtiquetasAlmox({ etiquetas = [], tamanho = '50x30' } = {}) {
+  const lista = Array.isArray(etiquetas) ? etiquetas.slice(0, 200) : [];
+  if (lista.length === 0) return { ok: false, error: 'Nenhuma etiqueta para imprimir.' };
+  const [larg, alt] = TAMANHOS_ETIQUETA[tamanho] || TAMANHOS_ETIQUETA['50x30'];
+  const grande = alt >= 50;
+  const paginas = lista.map((e) => `
+    <section class="etq">
+      <p class="titulo">${escHtml(e.titulo)}</p>
+      ${(Array.isArray(e.linhas) ? e.linhas.slice(0, 3) : []).map((l) => `<p class="linha">${escHtml(l)}</p>`).join('')}
+      ${soImagemDataUrl(e.barcodeDataUrl) ? `<img src="${soImagemDataUrl(e.barcodeDataUrl)}" alt="${escHtml(e.codigo)}" />` : ''}
+      ${e.codigo ? `<p class="codigo">${escHtml(e.codigo)}</p>` : ''}
+    </section>`).join('');
+  const html = `<!doctype html>
+  <html><head><meta charset="utf-8"><style>
+    @page { size: ${larg}mm ${alt}mm; margin: 2mm; }
+    body { font-family: Arial, sans-serif; margin: 0; }
+    .etq { width: ${larg - 4}mm; height: ${alt - 4}mm; text-align: center; overflow: hidden; page-break-after: always; }
+    .etq:last-child { page-break-after: auto; }
+    .titulo { font-size: ${grande ? 14 : 9}px; font-weight: bold; margin: 0 0 1px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .linha { font-size: ${grande ? 11 : 8}px; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    img { width: 100%; height: ${grande ? 70 : 26}px; margin-top: 1px; }
+    .codigo { font-size: ${grande ? 11 : 8}px; letter-spacing: 1px; margin: -2px 0 0; }
+  </style></head><body>${paginas}</body></html>`;
+  imprimirEmJanelaInvisivel(html, opcoesDeImpressao({ pageSize: { width: larg * 1000, height: alt * 1000 } }));
+  return { ok: true, quantidade: lista.length };
 }
 
 /**
@@ -522,4 +566,4 @@ function printDailyMenu(itens) {
 }
 
 module.exports = {
-  gerarPdf, imprimirEmJanelaInvisivel, imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml, mesaDaVenda };
+  gerarPdf, imprimirEmJanelaInvisivel, imprimirNoRolo, printReceipt, printPreNota, getReceiptConfig, updateReceiptConfig, printLabel, printEtiquetasAlmox, printKitchenTicket, printDailyMenu, listPrinters, printTestPage, buildReceiptWhatsappLink, buildReceiptHtml, mesaDaVenda };

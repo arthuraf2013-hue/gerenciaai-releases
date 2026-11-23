@@ -253,7 +253,7 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .payment-panel { display: flex; flex-direction: column; gap: 12px; }
 .payment-summary { display: flex; justify-content: space-between; font-size: 14px; }
 .payment-summary.highlight { font-size: 16px; color: var(--color-primary); }
-.payment-service-charge { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.payment-service-charge { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 /* Era um grid de 3 colunas fixas (1.2fr 1fr auto) dentro do modal-card
  * padrão (380px) -- exatamente o mesmo bug de min-width:auto do
  * .form-grid (ver comentário lá em cima): numa forma de pagamento com
@@ -643,6 +643,33 @@ input:-webkit-autofill:focus, input:-webkit-autofill:active {
 .table-card-reservada { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface)); border-color: var(--color-primary); }
 .table-card-numero { font-size: 17px; font-weight: 700; }
 .table-card-status { font-size: 13px; color: var(--color-text-muted); }
+/* Garçons vinculados à mesa (etiqueta) e a janela "Garçons das mesas" */
+.table-card-garcons { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: 100%; }
+.table-card-garcom {
+  display: inline-flex; align-items: center; gap: 3px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 16%, var(--color-surface)); color: var(--color-text);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+}
+.garcons-mesas { width: min(860px, 96vw); }
+.mesa-tela-garcons { display: inline-flex; margin-left: 10px; vertical-align: middle; justify-content: flex-start; }
+.garcons-mesas-corpo { display: grid; grid-template-columns: minmax(180px, 230px) minmax(0, 1fr); gap: 14px; margin: 10px 0; max-height: 58vh; }
+.garcons-mesas-lista { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.garcons-mesas-pessoa {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 9px 11px;
+  border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-text); cursor: pointer;
+}
+.garcons-mesas-pessoa.ativo { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface)); }
+.garcons-mesas-nome { font-weight: 700; }
+.garcons-mesas-papel { font-size: 12px; color: var(--color-text-muted); }
+.garcons-mesas-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; align-content: start; overflow-y: auto; }
+.garcons-mesas-mesa {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 54px; padding: 8px 6px;
+  border: 2px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); color: var(--color-text); font-weight: 700; cursor: pointer;
+}
+.garcons-mesas-mesa.ativo { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 18%, var(--color-surface)); }
+.garcons-mesas-outros { font-size: 11px; font-weight: 400; color: var(--color-text-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .garcons-mesas-corpo { grid-template-columns: 1fr; max-height: none; } }
 .table-card-excluir {
   font-size: 12px; font-weight: 600; color: var(--color-danger);
   background: color-mix(in srgb, var(--color-danger) 12%, transparent);

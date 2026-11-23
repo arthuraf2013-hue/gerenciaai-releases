@@ -119,11 +119,18 @@ export default function TelaMesas({
   );
 }
 
+/** Garçons que o gerente vinculou à mesa (mesaAtendentesService no computador). */
+function EtiquetaGarcons({ m }) {
+  const nomes = Array.isArray(m.garcons) ? m.garcons.filter(Boolean) : [];
+  if (!nomes.length) return null;
+  return <span className="pm-mesa-garcons">{nomes.join(', ')}</span>;
+}
+
 function CartaoMesa({ mesa: m, agora, aoTocar }) {
   if (m.unidaA) {
     return (
       <button type="button" className="pm-mesa pm-mesa-unida" onClick={aoTocar}>
-        <span className="pm-mesa-nome">{rotuloMesa(m)}</span>
+        <span className="pm-mesa-nome">{rotuloMesa(m)}</span><EtiquetaGarcons m={m} />
         <span className="pm-mesa-info">unida à mesa {m.unidaANumero}</span>
       </button>
     );
@@ -131,7 +138,7 @@ function CartaoMesa({ mesa: m, agora, aoTocar }) {
   if (m.status === 'ocupada') {
     return (
       <button type="button" className={`pm-mesa pm-mesa-ocupada${m.pago > 0 ? ' pm-mesa-pagando' : ''}`} onClick={aoTocar}>
-        <span className="pm-mesa-nome">{rotuloMesaComUnidas(m)}</span>
+        <span className="pm-mesa-nome">{rotuloMesaComUnidas(m)}</span><EtiquetaGarcons m={m} />
         {(m.unidas || []).length > 0 && (
           <span className="pm-mesa-grupo">unida com {(m.unidas || []).map((u) => (typeof u === 'string' ? u : u.numero)).join(', ')}</span>
         )}
@@ -146,7 +153,7 @@ function CartaoMesa({ mesa: m, agora, aoTocar }) {
   if (m.status === 'aguardando_limpeza') {
     return (
       <button type="button" className="pm-mesa pm-mesa-limpeza" onClick={aoTocar}>
-        <span className="pm-mesa-nome">{rotuloMesa(m)}</span>
+        <span className="pm-mesa-nome">{rotuloMesa(m)}</span><EtiquetaGarcons m={m} />
         <span className="pm-mesa-info">limpeza</span>
       </button>
     );
@@ -154,14 +161,14 @@ function CartaoMesa({ mesa: m, agora, aoTocar }) {
   if (m.status === 'reservada') {
     return (
       <button type="button" className="pm-mesa pm-mesa-reservada" onClick={aoTocar}>
-        <span className="pm-mesa-nome">{rotuloMesa(m)}</span>
+        <span className="pm-mesa-nome">{rotuloMesa(m)}</span><EtiquetaGarcons m={m} />
         <span className="pm-mesa-info">reservada{m.reservadoPara ? ` · ${m.reservadoPara}` : ''}</span>
       </button>
     );
   }
   return (
     <button type="button" className="pm-mesa" onClick={aoTocar}>
-      <span className="pm-mesa-nome">{rotuloMesa(m)}</span>
+      <span className="pm-mesa-nome">{rotuloMesa(m)}</span><EtiquetaGarcons m={m} />
       <span className="pm-mesa-info">livre</span>
     </button>
   );

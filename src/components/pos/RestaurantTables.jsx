@@ -5,6 +5,7 @@ import { useEscToClose } from '../../hooks/useEscToClose';
 import Icon from '../common/Icon';
 import { QrMesasPdfModal } from './QrMesasPdfModal';
 import { apiDasMesas } from '../../utils/mesasApi';
+import { GarconsDasMesas } from './GarconsDasMesas';
 
 const STATUS_LABEL = {
   livre: 'Livre',
@@ -106,6 +107,7 @@ export function RestaurantTables() {
   const [qrDados, setQrDados] = useState(null); // { url, qrCodeDataUrl } | null
   // PDF/impressão dos QR (todas as mesas ou uma): null | { mesaInicial }
   const [qrPdf, setQrPdf] = useState(null);
+  const [garconsAberto, setGarconsAberto] = useState(false); // janela "Garçons das mesas" (gestão)
   const [qrError, setQrError] = useState('');
   const [qrCarregando, setQrCarregando] = useState(false);
 
@@ -444,6 +446,9 @@ export function RestaurantTables() {
           {ehGestao && tables.length > 0 && !organizando && !remota && (
             <button type="button" className="btn-secondary" onClick={() => setQrPdf({ mesaInicial: null })}><Icon name="mobile" size={15} /> QR das mesas</button>
           )}
+          {ehGestao && tables.length > 0 && !organizando && (
+            <button type="button" className="btn-secondary" onClick={() => setGarconsAberto(true)}><Icon name="users" size={15} /> Garçons das mesas</button>
+          )}
           {ehGestao && tables.length > 1 && !organizando && (
             <button type="button" className="btn-secondary" onClick={iniciarOrganizar}>Organizar</button>
           )}
@@ -586,6 +591,11 @@ export function RestaurantTables() {
               onClick={() => handleClickMesa(t)}
             >
               <span className="table-card-numero">{t.nome || `Mesa ${t.numero}`}</span>
+              {t.atendentes?.length > 0 && (
+                <span className="table-card-garcons" title={`Garçom: ${t.atendentes.map((a) => a.nome).join(', ')}`}>
+                  {t.atendentes.map((a) => <span key={a.id} className="table-card-garcom"><Icon name="user" size={11} /> {a.nome}</span>)}
+                </span>
+              )}
               <IndicadoresDaMesa ind={t.indicadores} onAtender={(e) => atenderChamados(t, e)} onMudanca={resolverMudanca} />
               <button
                 type="button" className="table-card-action" style={{ marginTop: 4 }}
@@ -761,6 +771,7 @@ export function RestaurantTables() {
         </div>
       )}
       {qrPdf && <QrMesasPdfModal mesaInicial={qrPdf.mesaInicial} onFechar={() => setQrPdf(null)} />}
+      {garconsAberto && <GarconsDasMesas api={api} onFechar={() => setGarconsAberto(false)} onSalvou={reload} />}
       {qrMesa && (
         <div className="modal-overlay">
           <div className="modal-card">

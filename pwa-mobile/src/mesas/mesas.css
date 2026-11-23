@@ -40,6 +40,11 @@
 .pm-mesa:active { transform: scale(0.98); }
 .pm-mesa-nome { font-weight: 700; font-size: 16px; line-height: 1.2; overflow-wrap: anywhere; }
 .pm-mesa-info { font-size: 12px; color: var(--color-text-muted); font-weight: 600; }
+.pm-mesa-garcons {
+  font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: color-mix(in srgb, var(--color-primary) 16%, transparent); color: var(--color-text);
+}
 .pm-mesa-total { margin-top: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
 .pm-mesa-ocupada { background: rgba(15, 110, 99, 0.1); border-color: rgba(15, 110, 99, 0.45); }
 .pm-mesa-ocupada .pm-mesa-nome, .pm-mesa-ocupada .pm-mesa-total { color: var(--color-primary); }
