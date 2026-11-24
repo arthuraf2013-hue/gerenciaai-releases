@@ -886,10 +886,11 @@ service cloud.firestore {
     // de status_ao_vivo. O número que recebe os pedidos NÃO mora aqui.
     // demo_<segmento>: catálogo da vitrine de DEMONSTRAÇÃO publicado pela
     // máquina de demonstração (vitrineDemoService.js), mesmo nível de confiança.
+    // fotos_0..fotos_11: miniaturas das fotos dos produtos (vitrineFotoService.js).
     match /installations/{installId}/vitrine/{docId} {
       allow read: if true;
       allow write: if request.auth == null
-        && (docId in ['catalogo', 'config'] || docId.matches('^demo_[a-z]{3,20}$'));
+        && (docId in ['catalogo', 'config'] || docId.matches('^demo_[a-z]{3,20}$') || docId.matches('^fotos_([0-9]|1[01])$'));
     }
 
     // Pedidos gravados pela página pública da vitrine (sem login):

@@ -1176,6 +1176,18 @@ const MIGRACOES = [
       dropColuna(db, 'customer_credit_movements', 'metodo');
     },
   },
+  {
+    versao: 26,
+    nome: 'vitrine online: fotos dos produtos publicadas',
+    up(db) {
+      // { "fotos_0": "<hash>", ... }: documentos de miniaturas já enviados
+      // (vitrineFotoService). Só reenvia o que mudou.
+      addColuna(db, 'vitrine_config', 'fotos_publicadas', 'TEXT');
+    },
+    down(db) {
+      dropColuna(db, 'vitrine_config', 'fotos_publicadas');
+    },
+  },
 ];
 
 /** Recria impressao_estudio com outro CHECK de tipo, mantendo as linhas. */

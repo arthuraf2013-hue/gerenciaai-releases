@@ -7,21 +7,25 @@ const ESTILO = `
   :root { --cor: #0f6e56; --fundo: #f5f6f4; --texto: #141a26; --suave: #5c6670; --borda: #e2e5e1; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, 'Segoe UI', Roboto, Arial, sans-serif; background: var(--fundo); color: var(--texto); }
-  header { background: var(--cor); color: #fff; padding: 14px 16px 12px; position: sticky; top: 0; z-index: 2; }
+  header { background: linear-gradient(135deg, var(--cor) 0%, #c9731f 100%); color: #fff; padding: 14px 16px 12px; position: sticky; top: 0; z-index: 2; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
   header .loja { font-size: 13px; opacity: .85; }
   header .mesa { font-size: 22px; font-weight: 800; }
   .busca { margin: 10px 12px 0; }
   .busca input { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--borda); font-size: 15px; }
   .cats { display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px; }
-  .cats button { flex: none; border: 1px solid var(--borda); background: #fff; border-radius: 999px; padding: 7px 14px; font-size: 14px; }
+  .cats button { flex: none; border: 1px solid var(--borda); background: #fff; border-radius: 999px; padding: 8px 14px; font-size: 14px; font-weight: 600; color: var(--texto); }
   .cats button.ativa { background: var(--cor); color: #fff; border-color: var(--cor); }
   main { padding: 0 12px 110px; }
-  h2 { font-size: 15px; margin: 16px 2px 8px; color: var(--suave); }
-  .item { display: flex; gap: 10px; align-items: center; background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 8px; border: 1px solid var(--borda); }
-  .item img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; flex: none; background: #eee; }
-  .item .info { flex: 1; min-width: 0; }
-  .item .nome { font-weight: 600; font-size: 15px; }
-  .item .preco { color: var(--cor); font-weight: 700; margin-top: 2px; }
+  h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 800; margin: 20px 2px 10px; color: var(--texto); }
+  h2 small { margin-left: auto; font-size: 12px; color: var(--suave); background: #e6ece9; border-radius: 10px; padding: 2px 8px; }
+  .item { display: flex; gap: 12px; align-items: stretch; background: #fff; border-radius: 16px; padding: 12px; margin-bottom: 10px; border: 1px solid var(--borda); box-shadow: 0 2px 8px rgba(0,0,0,.04); min-height: 112px; }
+  .item.esgotado { opacity: .6; }
+  .item .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .item .nome { font-weight: 700; font-size: 16px; line-height: 1.3; }
+  .item .preco { color: var(--cor); font-weight: 800; font-size: 17px; margin-top: auto; }
+  .foto { flex: none; width: 100px; height: 100px; border-radius: 14px; object-fit: cover; background: #eee; display: flex; align-items: center; justify-content: center; font-size: 48px; line-height: 1; }
+  .item.esgotado .foto { filter: grayscale(1); }
+  .promo { align-self: flex-start; background: #e4572e; color: #fff; font-size: 11px; font-weight: 800; border-radius: 20px; padding: 3px 9px; text-transform: uppercase; }
   .item .de { color: var(--suave); text-decoration: line-through; font-size: 12px; margin-left: 6px; font-weight: 400; }
   .item .aviso { font-size: 12px; color: #b5521d; }
   .qtd { display: flex; align-items: center; gap: 8px; }
@@ -66,6 +70,11 @@ const ESTILO = `
 
 const SCRIPT = `
 (function () {
+${require('./vitrineVisual').fonteParaPagina()}
+  function ilustracao(p) {
+    var s = el('span', 'foto', emojiDoProduto(p.nome, p.categoria)); s.style.background = corDaCategoria(p.categoria); s.setAttribute('aria-hidden', 'true');
+    return s;
+  }
   var token = (location.pathname.match(/\\/m\\/([A-Za-z0-9]{24})/) || [])[1];
   var chave = 'gerenciaai-mesa-' + token;
   var salvo = {};
@@ -316,7 +325,7 @@ const SCRIPT = `
     dados.produtos.forEach(function (p) { var c = p.categoria || 'Outros'; if (cats.indexOf(c) < 0) cats.push(c); });
     var barra = document.querySelector('.cats'); barra.textContent = '';
     cats.forEach(function (c) {
-      var b = el('button', c === categoria ? 'ativa' : '', c === 'todas' ? 'Tudo' : c);
+      var b = el('button', c === categoria ? 'ativa' : '', c === 'todas' ? '⭐ Tudo' : emojiDoProduto(c, c) + ' ' + c);
       b.onclick = function () { categoria = c; lista(); };
       barra.appendChild(b);
     });
@@ -331,12 +340,14 @@ const SCRIPT = `
     var nomes = Object.keys(grupos);
     if (!nomes.length) { main.appendChild(el('p', 'vazio', 'Nada encontrado.')); }
     nomes.forEach(function (c) {
-      main.appendChild(el('h2', '', c));
+      var titulo = el('h2', '', emojiDoProduto(c, c) + ' ' + c); titulo.appendChild(el('small', '', String(grupos[c].length)));
+      main.appendChild(titulo);
       grupos[c].forEach(function (p) {
-        var item = el('div', 'item');
-        if (p.foto) { var img = el('img'); img.loading = 'lazy'; img.alt = ''; img.src = '/api/foto/' + p.id; item.appendChild(img); }
+        var esgotadoItem = p.disponibilidade === 'esgotado';
+        var item = el('div', esgotadoItem ? 'item esgotado' : 'item');
         var info = el('div', 'info');
         info.appendChild(el('div', 'nome', p.nome));
+        if (p.precoDe) info.appendChild(el('span', 'promo', 'Promoção'));
         var preco = el('div', 'preco', moeda(p.preco) + (p.unidade === 'kg' ? '/kg' : ''));
         if (p.precoDe) preco.appendChild(el('span', 'de', moeda(p.precoDe)));
         info.appendChild(preco);
@@ -344,6 +355,12 @@ const SCRIPT = `
         if (esgotado) info.appendChild(el('div', 'aviso', 'Esgotado'));
         else if (p.disponibilidade === 'poucas') info.appendChild(el('div', 'aviso', 'Últimas unidades'));
         item.appendChild(info);
+        // Foto (miniatura servida pelo computador) ou a ilustração da categoria.
+        var foto;
+        if (p.foto) {
+          foto = el('img', 'foto'); foto.loading = 'lazy'; foto.alt = ''; foto.src = '/api/foto/' + p.id;
+          foto.onerror = (function (img, prod) { return function () { img.replaceWith(ilustracao(prod)); }; })(foto, p);
+        } else foto = ilustracao(p);
         if (!esgotado) {
           var q = el('div', 'qtd');
           if (qtd(p.id) > 0) {
@@ -355,8 +372,9 @@ const SCRIPT = `
           var mais = el('button', '', '+'); mais.setAttribute('aria-label', 'Adicionar ' + p.nome);
           mais.onclick = function () { carrinho[p.id] = Math.round((qtd(p.id) + passo(p)) * 1000) / 1000; lista(); rodape(); };
           q.appendChild(mais);
-          item.appendChild(q);
+          info.appendChild(q);
         }
+        item.appendChild(foto);
         main.appendChild(item);
       });
     });

@@ -639,6 +639,8 @@ async function atender(req, res) {
     }
     const f = caminho.match(/^\/api\/foto\/([A-Za-z0-9-]{8,64})$/);
     if (req.method === 'GET' && f) {
+      const mini = require('./vitrineFotoService').miniaturaDoProduto(f[1]);
+      if (mini) return responder(res, 200, mini.bytes, mini.tipo);
       const foto = fotoDoProduto(f[1]);
       if (!foto) return responder(res, 404, { ok: false });
       return responder(res, 200, fs.readFileSync(foto.arquivo), foto.tipo);

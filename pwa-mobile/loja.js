@@ -3,6 +3,7 @@ import {
   itensDoCarrinho, totalDoCarrinho, montarMensagemPedido, linkWhatsapp, normalizar, PAGAMENTOS, montarPedidoDemo,
   PAGAMENTOS_LOJA, rotuloModo, modosOferecidos, montarPedidoLoja, telefoneLimpo, hashTokenMesa, chaveDaContaMesa, chaveDoAparelho, passosDoPedido, tempoRestante,
 } from './loja-util.js';
+import { emojiDoProduto, corDaCategoria } from './loja-visual.js';
 
 /**
  * Vitrine online (loja.html?s=<endereço>) -- página pública da loja. Só
@@ -78,6 +79,7 @@ async function carregar(slug) {
   const c = config.exists() ? config.data() : null;
   if (!c || c.ativa === false) return { erro: ['Vitrine fechada', 'A loja fechou a vitrine online por enquanto. Fale direto com ela.'] };
   const itens = Array.isArray(catalogo.data()?.itens) ? catalogo.data().itens : [];
+  const fotosDocs = Math.max(0, Math.min(12, Math.floor(Number(catalogo.data()?.fotosDocs) || 0)));
   const pedidosOnline = c.pedidosOnline === true;
   // QR da mesa: o link leva o segredo da mesa; a loja publica só o hash -> "Mesa 5".
   const tokenMesa = new URLSearchParams(location.search).get('m') || '';
@@ -99,6 +101,7 @@ async function carregar(slug) {
     pagamentoOnline: pedidosOnline && c.pagamentoOnline === true,
     mesaRotulo, mesaToken: mesaRotulo ? tokenMesa : null, mesaInvalida,
     produtos: produtosDoCatalogo(itens),
+    fotosDocs,
   };
 }
 
@@ -109,7 +112,26 @@ function produtosDoCatalogo(itens) {
     preco: Number(p.preco), precoDe: Number(p.precoDe) > Number(p.preco) ? Number(p.precoDe) : null,
     unidade: typeof p.unidade === 'string' ? p.unidade.slice(0, 10) : 'un',
     disponibilidade: ['disponivel', 'poucas', 'esgotado'].includes(p.disponibilidade) ? p.disponibilidade : 'disponivel',
+    foto: typeof p.foto === 'string' && /^[a-f0-9]{16}$/.test(p.foto) ? p.foto : null,
   }));
+}
+
+// Miniaturas das fotos (vitrine/fotos_N, publicadas pelo computador da loja):
+// chave -> data URL. Só imagem em base64 passa (vai direto no src).
+const FOTO_VALIDA = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+async function carregarFotos(loja) {
+  const mapa = new Map();
+  if (!loja.fotosDocs || loja.demo) return mapa;
+  const docs = await Promise.all(Array.from({ length: loja.fotosDocs }, (_, i) =>
+    loja.F.getDoc(loja.F.doc(loja.db, 'installations', loja.installId, 'vitrine', `fotos_${i}`)).catch(() => null)));
+  for (const d of docs) {
+    const fotos = d && d.exists() ? d.data()?.fotos : null;
+    if (!fotos || typeof fotos !== 'object') continue;
+    for (const [chave, url] of Object.entries(fotos)) {
+      if (/^[a-f0-9]{16}$/.test(chave) && typeof url === 'string' && url.length < 400000 && FOTO_VALIDA.test(url)) mapa.set(chave, url);
+    }
+  }
+  return mapa;
 }
 
 async function carregarDemo(F, db, slug, e) {
@@ -406,20 +428,30 @@ function montar(slug, loja) {
 
   const categorias = ['todas', ...new Set(loja.produtos.map((p) => p.categoria).filter(Boolean))];
 
+  let fotos = new Map();
+  const inicial = (loja.nomeLoja.trim()[0] || '?').toUpperCase();
+  const emojiDaCategoria = (c) => emojiDoProduto(c, c);
+
   raiz.innerHTML = `
     ${loja.demo ? '<div class="loja-demo" role="note">Demonstração do GerenciaAI: o pedido vai direto para o sistema da loja. Nada é cobrado.</div>' : ''}
-    <header class="loja-topo">
+    <header class="loja-topo loja-hero">
+      <div class="loja-hero-capa" aria-hidden="true"><span>${emojiDaCategoria(loja.produtos[0]?.categoria || '')}</span><span>${emojiDaCategoria(loja.produtos[loja.produtos.length - 1]?.categoria || '')}</span></div>
+      <div class="loja-hero-cartao">
+      <div class="loja-hero-logo" aria-hidden="true">${escapeHtml(inicial)}</div>
       <h1>${escapeHtml(loja.nomeLoja)}</h1>
       ${loja.mensagem ? `<p>${escapeHtml(loja.mensagem)}</p>` : ''}
-      <p>${loja.demo || pedidoDireto ? 'Monte o pedido aqui. Ele chega na hora no sistema da loja.' : 'Monte o pedido aqui e envie pelo WhatsApp da loja.'}</p>
+      <p class="loja-hero-sub">${loja.demo || pedidoDireto ? 'Monte o pedido aqui. Ele chega na hora no sistema da loja.' : 'Monte o pedido aqui e envie pelo WhatsApp da loja.'}</p>
       ${loja.mesaRotulo ? `<span class="loja-mesa">${escapeHtml(loja.mesaRotulo)}</span>
       <div class="loja-mesa-acoes"><button type="button" id="mesa-garcom">Chamar garçom</button><button type="button" id="mesa-conta">Minha conta</button></div>
       <p class="loja-nota loja-mesa-aviso" id="mesa-aviso" role="status" hidden></p>` : ''}
       ${loja.mesaInvalida ? '<p class="loja-erro">Este QR de mesa não vale mais. Você ainda pode pedir para retirar; para a mesa, chame um atendente.</p>' : ''}
+      </div>
     </header>
     <div id="acompanhar"></div>
-    <div class="loja-busca"><input id="busca" type="search" placeholder="Buscar produto" aria-label="Buscar produto" autocomplete="off"></div>
-    ${categorias.length > 2 ? `<div class="loja-chips" role="tablist">${categorias.map((c) => `<button class="loja-chip ${c === 'todas' ? 'ativo' : ''}" data-cat="${escapeHtml(c)}">${c === 'todas' ? 'Todos' : escapeHtml(c)}</button>`).join('')}</div>` : ''}
+    <div class="loja-fixo">
+      <div class="loja-busca"><input id="busca" type="search" placeholder="O que você quer pedir hoje?" aria-label="Buscar produto" autocomplete="off"></div>
+      ${categorias.length > 2 ? `<div class="loja-chips" role="tablist">${categorias.map((c) => `<button class="loja-chip ${c === 'todas' ? 'ativo' : ''}" data-cat="${escapeHtml(c)}">${c === 'todas' ? '⭐ Tudo' : `${emojiDaCategoria(c)} ${escapeHtml(c)}`}</button>`).join('')}</div>` : ''}
+    </div>
     <div id="lista"></div>
     <p class="loja-rodape">Vitrine feita com GerenciaAI</p>
     <div id="barra"></div>`;
@@ -449,21 +481,51 @@ function montar(slug, loja) {
     renderBarra();
   }
 
-  function itemHtml(p) {
+  // Foto do produto (miniatura publicada) ou a ilustração da categoria.
+  function fotoHtml(p) {
+    const url = p.foto ? fotos.get(p.foto) : null;
+    if (url) return `<img src="${url}" alt="" loading="lazy" decoding="async">`;
+    return `<span class="loja-ilustra" style="background:${corDaCategoria(p.categoria)}" aria-hidden="true">${emojiDoProduto(p.nome, p.categoria)}</span>`;
+  }
+
+  function precoHtml(p) {
+    return `${p.precoDe ? `<s>${formatarMoeda(p.precoDe)}</s>` : ''}${formatarMoeda(p.preco)}${unidadeFracionada(p.unidade) ? `<small>/${escapeHtml(p.unidade)}</small>` : ''}`;
+  }
+
+  function controleHtml(p) {
     const q = quantidade(p.id);
+    if (p.disponibilidade === 'esgotado') return '<span class="loja-esgotado">Esgotado</span>';
+    if (q > 0) return `<div class="loja-qtd"><button data-menos="${escapeHtml(p.id)}" aria-label="Diminuir">−</button><span>${escapeHtml(formatarQuantidade(q, p.unidade))}</span><button data-mais="${escapeHtml(p.id)}" aria-label="Aumentar">+</button></div>`;
+    return `<button class="loja-add" data-mais="${escapeHtml(p.id)}" aria-label="Adicionar ${escapeHtml(p.nome)}">+</button>`;
+  }
+
+  function itemHtml(p) {
     const esgotado = p.disponibilidade === 'esgotado';
     return `
-      <div class="loja-item ${esgotado ? 'esgotado' : ''}">
+      <article class="loja-item ${esgotado ? 'esgotado' : ''} ${quantidade(p.id) > 0 ? 'no-pedido' : ''}">
         <div class="loja-item-info">
           <div class="loja-item-nome">${escapeHtml(p.nome)}</div>
-          <div class="loja-item-preco">${p.precoDe ? `<s>${formatarMoeda(p.precoDe)}</s>` : ''}${formatarMoeda(p.preco)}${unidadeFracionada(p.unidade) ? `<small>/${escapeHtml(p.unidade)}</small>` : ''}</div>
-          ${p.disponibilidade === 'poucas' ? '<span class="loja-selo">Poucas unidades</span>' : ''}
+          ${p.precoDe ? '<span class="loja-selo loja-selo-promo">Promoção</span>' : ''}
+          ${p.disponibilidade === 'poucas' ? '<span class="loja-selo">Últimas unidades</span>' : ''}
+          <div class="loja-item-preco">${precoHtml(p)}</div>
         </div>
-        ${esgotado ? '<button class="loja-add" disabled>Esgotado</button>'
-          : (q > 0
-            ? `<div class="loja-qtd"><button data-menos="${escapeHtml(p.id)}" aria-label="Diminuir">−</button><span>${escapeHtml(formatarQuantidade(q, p.unidade))}</span><button data-mais="${escapeHtml(p.id)}" aria-label="Aumentar">+</button></div>`
-            : `<button class="loja-add" data-mais="${escapeHtml(p.id)}" aria-label="Adicionar ${escapeHtml(p.nome)}">+</button>`)}
-      </div>`;
+        <div class="loja-item-foto">${fotoHtml(p)}${controleHtml(p)}</div>
+      </article>`;
+  }
+
+  // Faixa "Promoções" no topo do cardápio (produtos com preço de/por).
+  function destaquesHtml(lista) {
+    const promo = lista.filter((p) => p.precoDe && p.disponibilidade !== 'esgotado').slice(0, 12);
+    if (!promo.length) return '';
+    return `<section class="loja-destaques" aria-label="Promoções">
+      <div class="loja-categoria"><span class="loja-cat-emoji">🔥</span>Promoções</div>
+      <div class="loja-destaques-trilho">${promo.map((p) => `
+        <article class="loja-destaque">
+          <div class="loja-item-foto">${fotoHtml(p)}${controleHtml(p)}</div>
+          <div class="loja-item-nome">${escapeHtml(p.nome)}</div>
+          <div class="loja-item-preco">${precoHtml(p)}</div>
+        </article>`).join('')}</div>
+    </section>`;
   }
 
   function renderLista() {
@@ -476,8 +538,8 @@ function montar(slug, loja) {
       if (!grupos.has(g)) grupos.set(g, []);
       grupos.get(g).push(p);
     }
-    lista.innerHTML = [...grupos.entries()].map(([g, ps]) => `
-      ${grupos.size > 1 ? `<div class="loja-categoria">${escapeHtml(g)}</div>` : ''}
+    lista.innerHTML = (categoria === 'todas' && !termo ? destaquesHtml(loja.produtos) : '') + [...grupos.entries()].map(([g, ps]) => `
+      <div class="loja-categoria"><span class="loja-cat-emoji" aria-hidden="true">${emojiDaCategoria(g)}</span>${escapeHtml(g)}<small>${ps.length}</small></div>
       <div class="loja-lista">${ps.map(itemHtml).join('')}</div>`).join('');
     const porId = new Map(loja.produtos.map((p) => [p.id, p]));
     lista.querySelectorAll('[data-mais]').forEach((b) => b.addEventListener('click', () => { const p = porId.get(b.dataset.mais); mudar(p, passoDa(p.unidade)); }));
@@ -651,6 +713,7 @@ function montar(slug, loja) {
   renderLista();
   renderBarra();
   renderAcompanhar();
+  carregarFotos(loja).then((m) => { if (m.size) { fotos = m; renderLista(); } }).catch(() => { /* fica a ilustração */ });
   // Voltou para a página com um pedido em andamento: abre o acompanhamento.
   const emAndamento = pedidoDireto ? lerPedidoSalvo(slug) : null;
   if (emAndamento) telaAcompanhamento(loja, emAndamento, () => { renderAcompanhar(); renderLista(); renderBarra(); });

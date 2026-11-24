@@ -19,6 +19,8 @@ const { getDb } = require('../db/database');
  * Publicado: nome, categoria, preço de venda (promoção por validade já
  * aplicada), unidade e uma faixa de disponibilidade ("disponível", "poucas
  * unidades", "esgotado") -- nunca custo nem a quantidade exata em estoque.
+ * E a miniatura da foto do produto (vitrineFotoService: documentos
+ * vitrine/fotos_N, só os que mudaram).
  */
 
 const LIMITE_ITENS = 1500;
@@ -57,7 +59,7 @@ const LIMITE_ENVIO_MS = 20000;
 function anotarFalhaPublicacao(motivo) { falhaPublicacao = { motivo, texto: TEXTO_FALHA[motivo] || TEXTO_FALHA.erro, em: new Date().toISOString() }; }
 function _definirTempoLimiteParaTeste(ms) { limiteEnvioMs = ms; }
 let limiteEnvioMs = LIMITE_ENVIO_MS;
-let nuvemDeTeste = null; // { doc, writeBatch, serverTimestamp } falsos nos testes
+let nuvemDeTeste = null; // { doc, writeBatch, serverTimestamp, setDoc, deleteDoc } falsos nos testes
 function _definirNuvemParaTeste(n) { nuvemDeTeste = n || null; }
 
 function getConfig() {
@@ -452,6 +454,16 @@ function montarCatalogo() {
   return { itens, cortado: produtos.length > itens.length && itens.length >= LIMITE_ITENS };
 }
 
+function lerFotosPublicadas() {
+  try {
+    const m = JSON.parse(getRow().fotos_publicadas || '{}');
+    return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+  } catch { return {}; }
+}
+function gravarFotosPublicadas(m) {
+  getDb().prepare(`UPDATE vitrine_config SET fotos_publicadas = ? WHERE id = 'default'`).run(JSON.stringify(m));
+}
+
 function nomeDaLoja() {
   try { return require('./fiscalService').getNomeNegocio() || 'Nossa loja'; } catch { return 'Nossa loja'; }
 }
@@ -471,34 +483,71 @@ async function publicarSeMudou() {
     try {
       const config = getConfig();
       if (!config.slug) return { publicado: false, motivo: 'sem_endereco' };
-      const { itens } = config.ativa ? montarCatalogo() : { itens: [] };
+      const { itens: itensSemFoto } = config.ativa ? montarCatalogo() : { itens: [] };
+      // Miniaturas das fotos: o item leva a chave; elas vão em vitrine/fotos_N.
+      const { itens, docs: docsFotos } = require('./vitrineFotoService').prepararFotos(itensSemFoto);
+      const fotosPublicadas = lerFotosPublicadas();
+      const fotosParaEnviar = docsFotos.filter((d) => fotosPublicadas[d.id] !== d.hash);
+      const fotosParaApagar = Object.keys(fotosPublicadas).filter((id) => !docsFotos.some((d) => d.id === id));
       const publico = {
         ativa: config.ativa, nomeLoja: nomeDaLoja(), mensagem: config.mensagem, modos: config.modos, pedidoMinimo: config.pedidoMinimo,
         pedidosOnline: config.ativa && config.pedidosOnline,
         mesas: config.ativa && config.pedidosOnline ? mapaPublicoDasMesas() : {},
         pagamentoOnline: !!(config.ativa && config.pixOnline && config.pixOnlineDisponivel),
       };
-      const hash = crypto.createHash('sha256').update(JSON.stringify({ publico, itens })).digest('hex');
-      if (hash === getRow().ultimo_hash && getRow().ultima_publicacao) { falhaPublicacao = null; return { publicado: false, motivo: 'sem_mudanca' }; }
-      if (!require('./nuvemDisjuntorService').podeEscrever('vitrine', 2)) { anotarFalhaPublicacao('sem_cota'); return { publicado: false, motivo: 'sem_cota' }; }
+      const fotosDocs = docsFotos.length;
+      const hash = crypto.createHash('sha256').update(JSON.stringify({ publico, itens, fotosDocs })).digest('hex');
+      const catalogoIgual = hash === getRow().ultimo_hash && getRow().ultima_publicacao;
+      if (catalogoIgual && !fotosParaEnviar.length && !fotosParaApagar.length) { falhaPublicacao = null; return { publicado: false, motivo: 'sem_mudanca' }; }
+      const escritas = (catalogoIgual ? 0 : 2) + fotosParaEnviar.length + fotosParaApagar.length;
+      if (!require('./nuvemDisjuntorService').podeEscrever('vitrine', escritas)) { anotarFalhaPublicacao('sem_cota'); return { publicado: false, motivo: 'sem_cota' }; }
 
-      const { doc, writeBatch, serverTimestamp } = nuvemDeTeste || require('firebase/firestore');
+      const nuvem = nuvemDeTeste || require('firebase/firestore');
+      const { doc, writeBatch, serverTimestamp } = nuvem;
       const firestore = require('./licenseService').getLicenseFirestore();
       const installId = require('./pdvRegistryService').getOrCreateDeviceUid();
-      const lote = writeBatch(firestore);
-      lote.set(doc(firestore, 'installations', installId, 'vitrine', 'config'), { ...publico, atualizadoEm: serverTimestamp() });
-      lote.set(doc(firestore, 'installations', installId, 'vitrine', 'catalogo'), { itens, atualizadoEm: serverTimestamp() });
-      let relogio;
-      try {
-        await Promise.race([
-          lote.commit(),
-          new Promise((_, rej) => { relogio = setTimeout(() => rej(Object.assign(new Error('envio demorou demais'), { codigo: 'timeout' })), limiteEnvioMs); }),
-        ]);
-      } finally { clearTimeout(relogio); }
-      falhaPublicacao = null;
-      getDb().prepare(`UPDATE vitrine_config SET ultimo_hash = ?, ultima_publicacao = NOW_SYNCED(), itens_publicados = ? WHERE id = 'default'`)
-        .run(hash, itens.length);
-      return { publicado: true, itens: itens.length };
+      const comPrazo = async (promessa, ms) => {
+        let relogio;
+        try {
+          return await Promise.race([
+            promessa,
+            new Promise((_, rej) => { relogio = setTimeout(() => rej(Object.assign(new Error('envio demorou demais'), { codigo: 'timeout' })), ms); }),
+          ]);
+        } finally { clearTimeout(relogio); }
+      };
+
+      // Fotos primeiro (o catálogo novo já aponta para elas). Uma por vez e
+      // com prazo próprio: foto que não subiu agora sobe na próxima rodada,
+      // sem segurar o preço/estoque do catálogo.
+      let falhaFotos = null;
+      for (const d of fotosParaEnviar) {
+        try {
+          await comPrazo(nuvem.setDoc(doc(firestore, 'installations', installId, 'vitrine', d.id), { fotos: d.fotos, atualizadoEm: serverTimestamp() }), limiteEnvioMs * 3);
+          fotosPublicadas[d.id] = d.hash;
+        } catch (err) { falhaFotos = err; break; }
+      }
+      if (!falhaFotos) {
+        for (const id of fotosParaApagar) {
+          try { await comPrazo(nuvem.deleteDoc(doc(firestore, 'installations', installId, 'vitrine', id)), limiteEnvioMs); delete fotosPublicadas[id]; } catch (err) { falhaFotos = err; break; }
+        }
+      }
+      gravarFotosPublicadas(fotosPublicadas);
+
+      if (!catalogoIgual) {
+        const lote = writeBatch(firestore);
+        lote.set(doc(firestore, 'installations', installId, 'vitrine', 'config'), { ...publico, atualizadoEm: serverTimestamp() });
+        lote.set(doc(firestore, 'installations', installId, 'vitrine', 'catalogo'), { itens, fotosDocs, atualizadoEm: serverTimestamp() });
+        await comPrazo(lote.commit(), limiteEnvioMs);
+        getDb().prepare(`UPDATE vitrine_config SET ultimo_hash = ?, ultima_publicacao = NOW_SYNCED(), itens_publicados = ? WHERE id = 'default'`)
+          .run(hash, itens.length);
+      }
+      if (falhaFotos) {
+        console.error('[vitrineService] fotos da vitrine não subiram agora:', falhaFotos?.message || falhaFotos);
+        anotarFalhaPublicacao(falhaFotos?.codigo === 'timeout' ? 'timeout' : 'erro');
+      } else {
+        falhaPublicacao = null;
+      }
+      return { publicado: !catalogoIgual || fotosParaEnviar.length > 0, itens: itens.length, fotos: docsFotos.reduce((s, d) => s + Object.keys(d.fotos).length, 0) };
     } catch (err) {
       console.error('[vitrineService] publicar falhou:', err?.message || err);
       const motivo = err?.codigo === 'timeout' ? 'timeout' : 'erro';
