@@ -129,9 +129,15 @@ function definirLimiteFiado({ customerId, limite, bloqueado, operadorId }) {
   return { ok: true };
 }
 
-function registrarPagamento({ customerId, valor, motivo, operadorId }) {
+// Formas aceitas no recebimento de fiado (as mesmas do caixa, menos fiado).
+const METODOS_RECEBIMENTO_FIADO = ['dinheiro', 'pix', 'cartao_debito', 'cartao_credito', 'outro'];
+
+function registrarPagamento({ customerId, valor: valorBruto, motivo, operadorId, metodo, locationId }) {
   const db = getDb();
-  if (valor <= 0) return { ok: false, error: 'Informe um valor de pagamento válido.' };
+  const valor = Math.round(Number(valorBruto) * 100) / 100;
+  if (!Number.isFinite(valor) || valor <= 0) return { ok: false, error: 'Informe um valor de pagamento válido.' };
+  const forma = metodo == null || metodo === '' ? 'dinheiro' : String(metodo);
+  if (!METODOS_RECEBIMENTO_FIADO.includes(forma)) return { ok: false, error: 'Forma de pagamento inválida.' };
 
   // Sem teto, um valor digitado errado (ou mandado direto por um canal
   // IPC sem passar pela tela) virava saldo NEGATIVO -- o cliente passa a
@@ -141,14 +147,31 @@ function registrarPagamento({ customerId, valor, motivo, operadorId }) {
   if (saldoAtual <= 0) {
     return { ok: false, error: 'Este cliente não tem saldo devedor no momento.' };
   }
-  if (valor > saldoAtual) {
+  if (valor > saldoAtual + 0.005) {
     return { ok: false, error: `O valor não pode ser maior que o saldo devedor atual (R$ ${saldoAtual.toFixed(2)}).` };
   }
 
-  db.prepare(
-    `INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, motivo, operador_id) VALUES (?, ?, 'pagamento', ?, ?, ?)`
-  ).run(randomUUID(), customerId, valor, motivo || null, operadorId);
-  return { ok: true, saldoAtual: getSaldoFiado(customerId) };
+  // Caixa aberto do local: o fechamento conta o que entrou em dinheiro aqui.
+  let sessaoId = null;
+  try {
+    const sessao = locationId
+      ? db.prepare("SELECT id FROM cash_sessions WHERE location_id = ? AND status = 'aberta' ORDER BY aberta_em DESC LIMIT 1").get(locationId)
+      : db.prepare("SELECT id FROM cash_sessions WHERE status = 'aberta' ORDER BY aberta_em DESC LIMIT 1").get();
+    sessaoId = sessao?.id || null;
+  } catch { sessaoId = null; }
+
+  try {
+    db.prepare(
+      `INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, motivo, operador_id, metodo, cash_session_id) VALUES (?, ?, 'pagamento', ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), customerId, valor, motivo || null, operadorId, forma, sessaoId);
+  } catch (err) {
+    // Migração 25 ainda não aplicada: grava como antes.
+    if (!/no column named|has no column/i.test(err.message || '')) throw err;
+    db.prepare(
+      `INSERT INTO customer_credit_movements (id, customer_id, tipo, valor, motivo, operador_id) VALUES (?, ?, 'pagamento', ?, ?, ?)`
+    ).run(randomUUID(), customerId, valor, motivo || null, operadorId);
+  }
+  return { ok: true, saldoAtual: getSaldoFiado(customerId), caixa: !!sessaoId };
 }
 
 // --- Fidelidade ---
@@ -161,14 +184,22 @@ function getLoyaltyConfig() {
 function updateLoyaltyConfig(payload) {
   const db = getDb();
   const current = getLoyaltyConfig();
+  // R$ por ponto 0 (ou vazio) virava divisão por zero: pontos infinitos.
+  const positivoOuAtual = (v, atual) => (v === undefined || v === null || v === '' ? atual : Number(v));
+  const reaisPorPonto = positivoOuAtual(payload.reaisPorPonto, current.reais_por_ponto);
+  const valorResgate = positivoOuAtual(payload.valorResgatePonto, current.valor_resgate_ponto);
+  const bonus = positivoOuAtual(payload.pontosBonusAniversario, current.pontos_bonus_aniversario);
+  if (!(Number.isFinite(reaisPorPonto) && reaisPorPonto > 0)) return { ok: false, error: 'Quantos reais valem 1 ponto: informe um valor maior que zero.' };
+  if (!(Number.isFinite(valorResgate) && valorResgate >= 0)) return { ok: false, error: 'Valor de resgate do ponto inválido.' };
+  if (!(Number.isInteger(Number(bonus)) && Number(bonus) >= 0)) return { ok: false, error: 'Pontos de bônus de aniversário inválidos.' };
   db.prepare(
     `UPDATE loyalty_config SET ativado = ?, reais_por_ponto = ?, valor_resgate_ponto = ?, ativar_cupom_aniversario = ?, pontos_bonus_aniversario = ? WHERE id = 'default'`
   ).run(
     payload.ativado ? 1 : 0,
-    payload.reaisPorPonto ?? current.reais_por_ponto,
-    payload.valorResgatePonto ?? current.valor_resgate_ponto,
+    reaisPorPonto,
+    valorResgate,
     payload.ativarCupomAniversario ? 1 : 0,
-    payload.pontosBonusAniversario ?? current.pontos_bonus_aniversario
+    Number(bonus)
   );
   return { ok: true };
 }
@@ -180,6 +211,7 @@ function acumularPontos(customerId, valorVenda) {
   const db = getDb();
   const config = getLoyaltyConfig();
   if (!config.ativado || !customerId) return;
+  if (!(config.reais_por_ponto > 0) || !(valorVenda > 0)) return;
   const pontosGanhos = Math.floor(valorVenda / config.reais_por_ponto);
   if (pontosGanhos > 0) {
     db.prepare('UPDATE customers SET pontos = pontos + ? WHERE id = ?').run(pontosGanhos, customerId);

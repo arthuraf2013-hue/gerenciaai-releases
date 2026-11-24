@@ -29,15 +29,46 @@ function findFinalizedSales({ locationId, query }) {
   ).all(locationId, desde, termo, termo);
 }
 
+/**
+ * Fator do que o cliente PAGOU por real de item: (líquido da venda) / (soma
+ * dos itens). Venda com desconto: < 1; mesa com taxa de serviço: > 1. A
+ * devolução usa isso para nunca devolver mais do que foi pago (antes
+ * devolvia o preço cheio do item, mesmo com desconto na venda).
+ */
+function fatorPago(db, saleId) {
+  const sale = db.prepare('SELECT total, desconto, desconto_gerente, taxa_servico_percentual FROM sales WHERE id = ?').get(saleId);
+  const itens = db.prepare('SELECT COALESCE(SUM(preco_unitario * quantidade), 0) AS t FROM sale_items WHERE sale_id = ? AND cancelado = 0').get(saleId).t;
+  if (!sale || !(itens > 0)) return { fator: 1, liquido: 0 };
+  const { liquido } = require('./valoresDaVenda').valoresDaVendaFinalizada(sale);
+  return { fator: Math.max(0, liquido) / itens, liquido: Math.max(0, liquido) };
+}
+
+/** Quanto de cada produto já foi devolvido nesta venda. */
+function devolvidoPorProduto(db, saleId) {
+  return new Map(db.prepare(
+    `SELECT ri.product_id, COALESCE(SUM(ri.quantidade), 0) AS q FROM return_items ri
+     JOIN returns r ON r.id = ri.return_id WHERE r.sale_id = ? GROUP BY ri.product_id`
+  ).all(saleId).map((r) => [r.product_id, r.q]));
+}
+
 function getSaleItemsForReturn(saleId) {
   const db = getDb();
-  return db.prepare(
-    `SELECT si.*, p.nome, p.unidade,
-       COALESCE((SELECT SUM(ri.quantidade) FROM return_items ri WHERE ri.return_id IN
-         (SELECT id FROM returns WHERE sale_id = ?) AND ri.product_id = si.product_id), 0) as ja_devolvido
+  const linhas = db.prepare(
+    `SELECT si.*, p.nome, p.unidade
      FROM sale_items si JOIN products p ON p.id = si.product_id
-     WHERE si.sale_id = ? AND si.cancelado = 0`
-  ).all(saleId, saleId);
+     WHERE si.sale_id = ? AND si.cancelado = 0 ORDER BY si.rowid`
+  ).all(saleId);
+  // A devolução é guardada por produto: o mesmo produto em duas linhas
+  // aparecia com o total devolvido repetido em cada uma (e a segunda linha
+  // ficava sem poder devolver). Distribui o devolvido pelas linhas, na ordem.
+  const resto = devolvidoPorProduto(db, saleId);
+  const { fator } = fatorPago(db, saleId);
+  return linhas.map((l) => {
+    const sobra = resto.get(l.product_id) || 0;
+    const naLinha = Math.min(sobra, l.quantidade);
+    resto.set(l.product_id, sobra - naLinha);
+    return { ...l, ja_devolvido: naLinha, valor_pago_unitario: Math.round(l.preco_unitario * fator * 100) / 100 };
+  });
 }
 
 /**
@@ -64,24 +95,32 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
   // Confere no servidor — nunca confiar só na tela — que cada quantidade
   // pedida é positiva e não passa do que ainda pode ser devolvido
   // (vendido menos o que já foi devolvido antes nessa mesma venda).
+  const venda = db.prepare('SELECT status FROM sales WHERE id = ?').get(saleId);
+  if (!venda) return { ok: false, error: 'Venda não encontrada.' };
+  if (venda.status !== 'finalizada') return { ok: false, error: 'Só dá para devolver itens de venda finalizada.' };
+
+  // Confere por PRODUTO, somando todas as linhas dele na venda e tudo que
+  // está sendo pedido agora (antes: a mesma linha repetida no pedido passava
+  // do vendido, e a segunda linha do mesmo produto ficava travada).
+  const pedidoPorProduto = new Map();
   for (const item of itens) {
     const qtd = Number(item.quantidade);
     if (!(qtd > 0)) return { ok: false, error: 'Quantidade a devolver precisa ser maior que zero.' };
 
-    const saleItem = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ?').get(item.saleItemId, saleId);
+    const saleItem = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ? AND cancelado = 0').get(item.saleItemId, saleId);
     if (!saleItem) return { ok: false, error: 'Item da venda não encontrado.' };
-
-    const jaDevolvido = db.prepare(
-      `SELECT COALESCE(SUM(ri.quantidade), 0) as total FROM return_items ri
-       JOIN returns r ON r.id = ri.return_id
-       WHERE r.sale_id = ? AND ri.product_id = ?`
-    ).get(saleId, saleItem.product_id).total;
-
-    const disponivelParaDevolucao = saleItem.quantidade - jaDevolvido;
-    if (qtd > disponivelParaDevolucao) {
+    pedidoPorProduto.set(saleItem.product_id, (pedidoPorProduto.get(saleItem.product_id) || 0) + qtd);
+  }
+  const jaDevolvidoPorProduto = devolvidoPorProduto(db, saleId);
+  for (const [productId, pedido] of pedidoPorProduto) {
+    const vendido = db.prepare('SELECT COALESCE(SUM(quantidade), 0) AS q FROM sale_items WHERE sale_id = ? AND product_id = ? AND cancelado = 0').get(saleId, productId).q;
+    const disponivelParaDevolucao = Math.round((vendido - (jaDevolvidoPorProduto.get(productId) || 0)) * 1000) / 1000;
+    if (pedido > disponivelParaDevolucao + 1e-9) {
       return { ok: false, error: `Quantidade maior que o disponível para devolução (${disponivelParaDevolucao}).` };
     }
   }
+  const { fator, liquido } = fatorPago(db, saleId);
+  const jaDevolvidoEmReais = db.prepare('SELECT COALESCE(SUM(valor_devolvido), 0) AS v FROM returns WHERE sale_id = ?').get(saleId).v;
 
   const returnId = randomUUID();
   let valorTotal = 0;
@@ -95,7 +134,8 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
     for (const item of itens) {
       const saleItem = db.prepare('SELECT * FROM sale_items WHERE id = ? AND sale_id = ?').get(item.saleItemId, saleId);
       if (!saleItem) continue;
-      const valorItem = saleItem.preco_unitario * item.quantidade;
+      // O que o cliente pagou por estas unidades (com o desconto e a taxa da venda).
+      const valorItem = saleItem.preco_unitario * Number(item.quantidade) * fator;
       valorTotal += valorItem;
 
       db.prepare(
@@ -114,6 +154,8 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
       }
     }
 
+    // Centavos, e nunca mais do que sobrou do que foi pago na venda.
+    valorTotal = Math.max(0, Math.min(Math.round(valorTotal * 100) / 100, Math.round((liquido - jaDevolvidoEmReais) * 100) / 100));
     db.prepare('UPDATE returns SET valor_devolvido = ? WHERE id = ?').run(valorTotal, returnId);
 
     // Se a venda original teve algum valor pago em fiado, devolver um
@@ -143,6 +185,13 @@ function createReturn({ saleId, locationId, itens, motivo, currentOperatorId, ca
              VALUES (?, ?, 'pagamento', ?, ?, 'Devolução de item(ns) da venda', ?)`
           ).run(randomUUID(), sale.customer_id, abaterAgora, saleId, currentOperatorId);
         }
+      }
+      // Pontos de fidelidade que a parte devolvida tinha dado saem do saldo.
+      const customerService = require('./customerService');
+      const fid = customerService.getLoyaltyConfig();
+      if (fid?.ativado && fid.reais_por_ponto > 0) {
+        const pontos = Math.floor(valorTotal / fid.reais_por_ponto);
+        if (pontos > 0) customerService.debitarPontos(sale.customer_id, pontos);
       }
     }
   });

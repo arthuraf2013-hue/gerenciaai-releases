@@ -6666,3 +6666,28 @@ todos os garçons das mesas" limpa tudo, por exemplo na troca de turno).
 
 Código: `mesaAtendentesService.js`, `GarconsDasMesas.jsx`. Testes:
 `garconsDasMesas.test.js` (9).
+
+## Revisão de cálculos (nov/2026)
+
+Correções de valores (não muda o jeito de usar):
+
+- **Taxa de serviço contada uma vez só** na DRE, no Painel executivo, no
+  fluxo de caixa, no imposto estimado e na exportação para o contador. Antes,
+  uma venda de R$ 100 + 10% aparecia como R$ 121.
+- **Lucro do Painel** usa o custo do dia da venda e o valor já com desconto
+  (igual à DRE). O resultado do Financeiro desconta as devoluções.
+- **Troco** nunca entra como dinheiro do caixa nem dá ponto de fidelidade.
+- **Desconto maior que a venda** (itens tirados depois do desconto) não deixa
+  fechar a venda.
+- **Devolução** devolve o que o cliente pagou (com o desconto e a taxa da
+  venda), nunca mais que isso; o mesmo produto em duas linhas pode ser
+  devolvido; os pontos de fidelidade da parte devolvida saem do saldo. A tela
+  mostra o valor pago por unidade e quanto volta para o cliente.
+- **Fiado recebido** agora pergunta a forma (dinheiro, Pix, cartão). O de
+  dinheiro entra no fechamento do caixa (antes o caixa "sobrava"); os outros
+  aparecem na conferência. Erro no recebimento agora aparece na tela.
+- **Fechamento de caixa**: caixa antigo não soma vendas dos dias seguintes;
+  fechamento à noite aparece no dia certo na lista.
+- **Fidelidade**: "R$ por ponto" zero é recusado (dava pontos infinitos).
+
+Testes: `revisaoCalculos.test.js` (8).

@@ -1097,3 +1097,27 @@ setor) ainda não.
   `table:vincularAtendente`, `table:limparAtendentes`, gestão, também em
   `mesasApi.js`). A conta puxada leva `atendentes` com `usuarioDoc`, e o caixa
   grava a foto em `importarConta`.
+
+## Valores da venda finalizada e revisão de cálculos (nov/2026)
+
+- `finalizeSale` SOMA a taxa de serviço em `sales.total`. Em venda
+  FINALIZADA: líquido = `total - desconto - desconto_gerente` (já com a
+  taxa); taxa em R$ = líquido × p / (100 + p). NUNCA multiplicar por
+  `(1 + taxa_servico_percentual/100)` de novo -- isso contava a taxa em
+  dobro na DRE, BI, fluxo de caixa, imposto estimado e exportação contábil.
+  Use `electron/services/valoresDaVenda.js` (`sqlLiquido`, `sqlTaxaServico`,
+  `valoresDaVendaFinalizada`). Venda ABERTA é outra conta (taxa fora do total).
+- Lucro/CMV: sempre `COALESCE(si.custo_unitario, p.custo, 0)` (custo do dia
+  da venda), nunca só `p.custo`.
+- Dinheiro: `addPayment` grava só o que falta; o excedente vai em
+  `detalhes.valorRecebido`/`detalhes.troco`. Pontos de fidelidade sobre
+  `min(pago, total)`. `finalizeSale` recusa desconto maior que a venda.
+- Devolução: valor = preço × qtd × (líquido ÷ soma dos itens), nunca acima
+  do que sobrou do que foi pago; conferência de quantidade por PRODUTO
+  (somando linhas e o pedido inteiro); estorna pontos.
+- Fiado recebido: migração 25 (`customer_credit_movements.metodo`,
+  `cash_session_id`). O fechamento soma o de dinheiro no esperado e os
+  outros na conferência. NULL = abatimento sem dinheiro (devolução) ou antigo.
+- Caixa fechado: o resumo só conta até `fechada_em`; listas de fechamento
+  filtram por dia LOCAL (`date(fechada_em, '-3 hours')`).
+- Testes: `revisaoCalculos.test.js`.

@@ -58,7 +58,8 @@ export function CaixaScreen() {
 
   if (!c) return <div className="screen"><p className="empty-state">Carregando...</p></div>;
   if (c.ok === false) return <div className="screen"><p className="modal-error">{c.error}</p></div>;
-  const totalMetodo = (m) => c.porMetodo?.find((x) => x.metodo === m)?.total || 0;
+  // Vendas + fiado recebido nessa forma com o caixa aberto (o que se confere no fechamento).
+  const totalMetodo = (m) => (c.porMetodo?.find((x) => x.metodo === m)?.total || 0) + (c.recebimentosFiado?.find((x) => x.metodo === m)?.total || 0);
 
   return (
     <div className="screen">
@@ -105,6 +106,7 @@ export function CaixaScreen() {
             <div className="stat-card"><span>Vendas em dinheiro</span><strong>{brl(c.totalVendasDinheiro)}</strong></div>
             <div className="stat-card"><span>Suprimentos</span><strong>{brl(c.totalSuprimentos)}</strong></div>
             <div className="stat-card"><span>Sangrias</span><strong>{brl(c.totalSangrias)}</strong></div>
+            {c.fiadoRecebidoEmDinheiro > 0 && <div className="stat-card"><span>Fiado recebido em dinheiro</span><strong>{brl(c.fiadoRecebidoEmDinheiro)}</strong></div>}
             {c.totalDevolvidoEmDinheiro > 0 && <div className="stat-card"><span>Devolvido em dinheiro</span><strong>{brl(c.totalDevolvidoEmDinheiro)}</strong></div>}
             <div className="stat-card"><span>Deve ter na gaveta</span><strong>{brl(c.valorEsperado)}</strong></div>
           </div>

@@ -23,6 +23,8 @@ export function CustomerList() {
   useEscToClose(() => setSelected(null), !!selected);
   const [history, setHistory] = useState([]);
   const [pagamentoValor, setPagamentoValor] = useState('');
+  const [pagamentoMetodo, setPagamentoMetodo] = useState('dinheiro'); // forma do recebimento de fiado (entra no fechamento do caixa)
+  const [pagamentoMsg, setPagamentoMsg] = useState(null);
   const [saveError, setSaveError] = useState('');
   const [soQuemDeve, setSoQuemDeve] = useState(false);
   const [showLapsed, setShowLapsed] = useState(false);
@@ -92,9 +94,19 @@ export function CustomerList() {
   }
 
   async function handlePagamento() {
-    const valor = Number(pagamentoValor);
-    if (!valor || valor <= 0) return;
-    await window.pdv.customers.registrarPagamento({ customerId: selected.id, valor, operadorId: currentUser.id });
+    const valor = Number(String(pagamentoValor).replace(',', '.'));
+    if (!valor || valor <= 0) { setPagamentoMsg({ erro: true, texto: 'Informe o valor recebido.' }); return; }
+    const r = await window.pdv.customers.registrarPagamento({
+      customerId: selected.id, valor, operadorId: currentUser.id, metodo: pagamentoMetodo, locationId: window.APP_LOCATION_ID,
+    });
+    // Antes o erro (valor maior que a dívida, por exemplo) sumia calado.
+    if (!r?.ok) { setPagamentoMsg({ erro: true, texto: r?.error || 'Não consegui registrar o pagamento.' }); return; }
+    setPagamentoMsg({
+      erro: false,
+      texto: pagamentoMetodo === 'dinheiro' && !r.caixa
+        ? 'Registrado. Não há caixa aberto: esse dinheiro não entra em nenhum fechamento.'
+        : 'Pagamento registrado.',
+    });
     setPagamentoValor('');
     await openHistory(selected);
     reload();
@@ -200,10 +212,20 @@ export function CustomerList() {
 
             <div className="inline-form">
               <label>Registrar pagamento
-                <input type="number" step="0.01" value={pagamentoValor} onChange={(e) => setPagamentoValor(e.target.value)} />
+                <input type="number" step="0.01" value={pagamentoValor} onChange={(e) => { setPagamentoValor(e.target.value); setPagamentoMsg(null); }} />
+              </label>
+              <label>Forma
+                <select value={pagamentoMetodo} onChange={(e) => setPagamentoMetodo(e.target.value)}>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="pix">Pix</option>
+                  <option value="cartao_debito">Cartão de débito</option>
+                  <option value="cartao_credito">Cartão de crédito</option>
+                  <option value="outro">Outro</option>
+                </select>
               </label>
               <button className="btn-primary" onClick={handlePagamento}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="money" size={15} /> Registrar</span></button>
             </div>
+            {pagamentoMsg && <p className={pagamentoMsg.erro ? 'modal-error' : 'io-message'} role="status">{pagamentoMsg.texto}</p>}
 
             <ul className="payment-list" style={{ marginTop: 16, maxHeight: 220, overflowY: 'auto' }}>
               {history.map((h) => (
@@ -214,7 +236,7 @@ export function CustomerList() {
               {history.length === 0 && <li>Nenhum movimento ainda.</li>}
             </ul>
 
-            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => setSelected(null)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Fechar</span></button>
+            <button className="btn-secondary" style={{ marginTop: 16 }} onClick={() => { setSelected(null); setPagamentoMsg(null); }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="close" size={15} /> Fechar</span></button>
           </div>
         </div>
       )}

@@ -108,7 +108,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
                   <td>{s.id.slice(0, 8)}</td>
                   <td>{new Date(s.finalizada_em + 'Z').toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</td>
                   <td>{s.operador_nome}</td>
-                  <td>R$ {s.total.toFixed(2)}</td>
+                  <td>R$ {(s.total - (s.desconto || 0) - (s.desconto_gerente || 0)).toFixed(2)}</td>
                   <td><button className="btn-link" onClick={() => selecionarVenda(s)}>Selecionar</button></td>
                 </tr>
               ))}
@@ -122,12 +122,15 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
         <div>
           <h2>Venda {selectedSale.id.slice(0, 8)}</h2>
           <table className="data-table">
-            <thead><tr><th>Item</th><th>Vendido</th><th>Já devolvido</th><th>Devolver agora</th></tr></thead>
+            <thead><tr><th>Item</th><th>Vendido</th><th>Pago por unidade</th><th>Já devolvido</th><th>Devolver agora</th></tr></thead>
             <tbody>
               {items.map((i) => (
                 <tr key={i.id}>
                   <td>{i.nome}</td>
                   <td>{i.quantidade}</td>
+                  <td title="Preço do item com o desconto e a taxa de serviço da venda: é o que volta para o cliente.">
+                    R$ {Number(i.valor_pago_unitario ?? i.preco_unitario).toFixed(2)}
+                  </td>
                   <td>{i.ja_devolvido}</td>
                   <td>
                     <input
@@ -140,6 +143,11 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
               ))}
             </tbody>
           </table>
+          {itensParaDevolver().length > 0 && (
+            <p className="screen-hint" style={{ marginTop: 10 }}>
+              Volta para o cliente cerca de <strong>R$ {items.reduce((t, i) => t + (Number(quantidades[i.id]) || 0) * Number(i.valor_pago_unitario ?? i.preco_unitario), 0).toFixed(2)}</strong> (o que ele pagou por esses itens).
+            </p>
+          )}
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
             <button className="btn-secondary" onClick={() => setSelectedSale(null)}>Voltar</button>
             <button className="btn-danger" disabled={itensParaDevolver().length === 0} onClick={() => setShowAuth(true)}>
@@ -150,7 +158,7 @@ export function ReturnFlow({ preselectSaleId, onPreselectConsumed }) {
       )}
 
       {resultado && (
-        <p className="io-message">Devolução registrada — R$ {resultado.valorDevolvido.toFixed(2)} devolvido ao estoque.</p>
+        <p className="io-message">Devolução registrada — R$ {resultado.valorDevolvido.toFixed(2)} para o cliente, e os itens voltaram ao estoque.</p>
       )}
 
       {recentes.length > 0 && (

@@ -19,7 +19,8 @@ function getSummary({ locationId, dataInicio, dataFim }) {
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
 
   const totais = db.prepare(
-    `SELECT COUNT(*) as totalVendas, COALESCE(SUM(total - desconto - desconto_gerente), 0) as totalFaturado
+    `SELECT COUNT(*) as totalVendas, COALESCE(SUM(total - desconto - desconto_gerente), 0) as totalFaturado,
+       COALESCE(SUM(desconto + desconto_gerente), 0) as descontos
      FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?`
   ).get(locationId, inicioUtc, fimUtcExclusivo);
 
@@ -56,7 +57,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
   const margem = db.prepare(
     `SELECT
        COALESCE(SUM(si.quantidade * si.preco_unitario), 0) as valorVendido,
-       COALESCE(SUM(si.quantidade * p.custo), 0) as custoEstimado
+       COALESCE(SUM(si.quantidade * COALESCE(si.custo_unitario, p.custo, 0)), 0) as custoEstimado
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
@@ -68,7 +69,7 @@ function getSummary({ locationId, dataInicio, dataFim }) {
     `SELECT p.nome,
        SUM(si.quantidade) as quantidade,
        SUM(si.quantidade * si.preco_unitario) as valorVendido,
-       SUM(si.quantidade * p.custo) as custoEstimado
+       SUM(si.quantidade * COALESCE(si.custo_unitario, p.custo, 0)) as custoEstimado
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
@@ -86,7 +87,10 @@ function getSummary({ locationId, dataInicio, dataFim }) {
     vendasPorDia,
     topProdutos,
     devolucoes,
-    lucroBrutoEstimado: margem.valorVendido - margem.custoEstimado,
+    // Faturado (já sem descontos, com a taxa de serviço, como na DRE) −
+    // custo do dia da venda. Antes usava o preço cheio dos itens (ignorava
+    // descontos) e o custo de hoje: o lucro não batia com a DRE.
+    lucroBrutoEstimado: totais.totalFaturado - margem.custoEstimado,
     margemPorProduto: margemPorProduto.map((p) => ({
       ...p,
       lucro: p.valorVendido - p.custoEstimado,
@@ -144,8 +148,8 @@ function getRelatorioProdutos({ locationId, dataInicio, dataFim }) {
     `SELECT p.nome, p.categoria,
        SUM(si.quantidade) as quantidade,
        SUM(si.quantidade * si.preco_unitario) as receita,
-       SUM(si.quantidade * COALESCE(p.custo, 0)) as custo_total,
-       SUM(si.quantidade * si.preco_unitario) - SUM(si.quantidade * COALESCE(p.custo, 0)) as lucro,
+       SUM(si.quantidade * COALESCE(si.custo_unitario, p.custo, 0)) as custo_total,
+       SUM(si.quantidade * si.preco_unitario) - SUM(si.quantidade * COALESCE(si.custo_unitario, p.custo, 0)) as lucro,
        MAX(COALESCE(s.finalizada_em, s.criado_em)) as ultima_venda
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
@@ -204,12 +208,25 @@ function getResultadoSimples({ locationId, dataInicio, dataFim }) {
   ).get(locationId, inicioUtc, fimUtcExclusivo).total;
 
   const custoProdutos = db.prepare(
-    `SELECT COALESCE(SUM(si.quantidade * COALESCE(p.custo, 0)), 0) as total
+    `SELECT COALESCE(SUM(si.quantidade * COALESCE(si.custo_unitario, p.custo, 0)), 0) as total
      FROM sale_items si
      JOIN sales s ON s.id = si.sale_id
      JOIN products p ON p.id = si.product_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND si.cancelado = 0
        AND s.finalizada_em >= ? AND s.finalizada_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).total;
+
+  // Devoluções do período: o dinheiro que voltou ao cliente sai da receita e
+  // o custo do que voltou para a prateleira sai do custo (mesma conta da DRE).
+  const devolvido = db.prepare(
+    `SELECT COALESCE(SUM(valor_devolvido), 0) AS total FROM returns WHERE location_id = ? AND criado_em >= ? AND criado_em < ?`
+  ).get(locationId, inicioUtc, fimUtcExclusivo).total;
+  const custoDevolvido = db.prepare(
+    `SELECT COALESCE(SUM(ri.quantidade * COALESCE(
+        (SELECT si.custo_unitario FROM sale_items si WHERE si.sale_id = rt.sale_id AND si.product_id = ri.product_id AND si.custo_unitario IS NOT NULL LIMIT 1),
+        p.custo, 0)), 0) AS total
+     FROM return_items ri JOIN returns rt ON rt.id = ri.return_id JOIN products p ON p.id = ri.product_id
+     WHERE rt.location_id = ? AND rt.criado_em >= ? AND rt.criado_em < ?`
   ).get(locationId, inicioUtc, fimUtcExclusivo).total;
 
   const despesas = db.prepare(
@@ -223,10 +240,12 @@ function getResultadoSimples({ locationId, dataInicio, dataFim }) {
      GROUP BY categoria ORDER BY total DESC`
   ).all(locationId, inicioUtc, fimUtcExclusivo);
 
+  const receitaLiquida = receita - devolvido;
+  const custoLiquido = custoProdutos - custoDevolvido;
   return {
-    receita, custoProdutos, despesas,
-    lucroBruto: receita - custoProdutos,
-    resultado: receita - custoProdutos - despesas,
+    receita: receitaLiquida, custoProdutos: custoLiquido, despesas, devolucoes: devolvido,
+    lucroBruto: receitaLiquida - custoLiquido,
+    resultado: receitaLiquida - custoLiquido - despesas,
     despesasPorCategoria,
   };
 }

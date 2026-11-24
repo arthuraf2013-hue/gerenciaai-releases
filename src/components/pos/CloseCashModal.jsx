@@ -85,6 +85,15 @@ export function CloseCashModal({ sessionId, onClosed, onCancel }) {
             {summary.porMetodo.map((m) => (
               <div key={m.metodo}><span>{METODO_LABEL[m.metodo] || m.metodo}</span><strong>R$ {m.total.toFixed(2)}</strong></div>
             ))}
+            {summary.fiadoRecebidoEmDinheiro > 0 && (
+              <div><span>Fiado recebido em dinheiro</span><strong>R$ {summary.fiadoRecebidoEmDinheiro.toFixed(2)}</strong></div>
+            )}
+            {summary.totalSuprimentos > 0 && (
+              <div><span>Suprimentos</span><strong>R$ {summary.totalSuprimentos.toFixed(2)}</strong></div>
+            )}
+            {summary.totalSangrias > 0 && (
+              <div><span>Sangrias</span><strong>- R$ {summary.totalSangrias.toFixed(2)}</strong></div>
+            )}
             {summary.totalDevolvidoEmDinheiro > 0 && (
               <div><span>Devoluções (em dinheiro)</span><strong>- R$ {summary.totalDevolvidoEmDinheiro.toFixed(2)}</strong></div>
             )}

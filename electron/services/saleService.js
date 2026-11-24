@@ -868,6 +868,20 @@ function addPayment({ saleId, metodo, valor, detalhes }) {
         return { ok: false, error: `Esse valor passa do que falta na venda (R$ ${Math.max(0, restante).toFixed(2)}). Só pagamento em dinheiro pode gerar troco.` };
       }
     }
+  } else {
+    // Dinheiro: só o que falta entra no caixa; o resto é troco (vai nos
+    // detalhes). A tela já mandava só o que falta, mas um valor cheio vindo
+    // direto pelo canal fazia o fechamento esperar o troco dentro da gaveta
+    // e dava pontos de fidelidade sobre o troco.
+    const jaPago = db.prepare('SELECT COALESCE(SUM(valor), 0) as t FROM payments WHERE sale_id = ?').get(saleId).t;
+    const subtotalComDesconto = sale.total - sale.desconto - sale.desconto_gerente;
+    const valorTaxaServico = sale.taxa_servico_percentual > 0 ? subtotalComDesconto * (sale.taxa_servico_percentual / 100) : 0;
+    const restante = Number((subtotalComDesconto + valorTaxaServico - jaPago).toFixed(2));
+    if (restante <= 0.005) return { ok: true, id: null, valor: 0, semLancamento: true, troco: Number(Number(valor).toFixed(2)) };
+    if (valor > restante + 0.005) {
+      detalhes = { ...(detalhes || {}), valorRecebido: Number(Number(valor).toFixed(2)), troco: Number((valor - restante).toFixed(2)) };
+      valor = restante;
+    }
   }
 
   const id = randomUUID();
@@ -1063,6 +1077,12 @@ function finalizeSale(saleId) {
   const valorTaxaServico = sale.taxa_servico_percentual > 0 ? subtotalComDesconto * (sale.taxa_servico_percentual / 100) : 0;
   const totalAPagar = subtotalComDesconto + valorTaxaServico;
 
+  // Desconto maior que a venda: acontece quando itens saem DEPOIS do
+  // desconto (o desconto fica em R$). Fechar assim gravava venda negativa
+  // no faturamento.
+  if (subtotalComDesconto < -0.005) {
+    return { ok: false, error: `O desconto (R$ ${(sale.desconto + sale.desconto_gerente).toFixed(2)}) ficou maior que a venda (R$ ${sale.total.toFixed(2)}). Tire o desconto e dê de novo.` };
+  }
   if (pago + 0.005 < totalAPagar) {
     return { ok: false, error: `Pagamento incompleto. Faltam R$ ${(totalAPagar - pago).toFixed(2)}.` };
   }
@@ -1090,7 +1110,8 @@ function finalizeSale(saleId) {
       customerService.debitarPontos(sale.customer_id, sale.pontos_resgatados);
     }
     if (sale.customer_id) {
-      customerService.acumularPontos(sale.customer_id, pago);
+      // Pontos sobre o valor da venda, nunca sobre o que passou dela (troco).
+      customerService.acumularPontos(sale.customer_id, Math.min(pago, totalAPagar));
     }
   });
   tx();

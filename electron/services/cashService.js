@@ -40,6 +40,9 @@ function getSessionSummary(sessionId) {
      FROM payments p
      JOIN sales s ON s.id = p.sale_id
      WHERE s.location_id = ? AND s.status = 'finalizada' AND s.finalizada_em >= ?
+       -- Caixa já fechado: só o que entrou até fechar (antes, reabrir o
+       -- resumo de um caixa antigo somava as vendas dos dias seguintes).
+       AND (? IS NULL OR s.finalizada_em <= ?)
        -- Venda que veio do PDV mobile (importada na migração ou recebida
        -- de um celular que é terminal deste computador) foi recebida no
        -- caixa DO CELULAR, não na gaveta deste computador -- contar aqui
@@ -49,7 +52,20 @@ function getSessionSummary(sessionId) {
        -- ser JSON (json_extract lançaria erro).
        AND COALESCE(CASE WHEN json_valid(p.detalhes) THEN json_extract(p.detalhes, '$.origem') END, '') NOT IN ('pdv_mobile', 'pdv_mobile_terminal')
      GROUP BY p.metodo`
-  ).all(session.location_id, session.aberta_em);
+  ).all(session.location_id, session.aberta_em, session.fechada_em || null, session.fechada_em || null);
+
+  // Fiado recebido com este caixa aberto (migração 25): o de dinheiro entrou
+  // na gaveta; os outros aparecem na conferência de cada forma.
+  let recebimentosFiado = [];
+  try {
+    recebimentosFiado = db.prepare(
+      `SELECT metodo, COALESCE(SUM(valor), 0) AS total FROM customer_credit_movements
+       WHERE cash_session_id = ? AND tipo = 'pagamento' AND metodo IS NOT NULL GROUP BY metodo`
+    ).all(sessionId);
+  } catch (err) {
+    if (!/no such column/i.test(err.message || '')) throw err;
+  }
+  const fiadoRecebidoEmDinheiro = recebimentosFiado.find((m) => m.metodo === 'dinheiro')?.total || 0;
 
   const totalDinheiro = porMetodo.find((m) => m.metodo === 'dinheiro')?.total || 0;
 
@@ -62,8 +78,8 @@ function getSessionSummary(sessionId) {
   // devolvido saiu do caixa em dinheiro também.
   const devolucoesDoPeriodo = db.prepare(
     `SELECT r.sale_id, r.valor_devolvido FROM returns r
-     WHERE r.location_id = ? AND r.criado_em >= ?`
-  ).all(session.location_id, session.aberta_em);
+     WHERE r.location_id = ? AND r.criado_em >= ? AND (? IS NULL OR r.criado_em <= ?)`
+  ).all(session.location_id, session.aberta_em, session.fechada_em || null, session.fechada_em || null);
 
   let totalDevolvidoEmDinheiro = 0;
   for (const devolucao of devolucoesDoPeriodo) {
@@ -83,14 +99,16 @@ function getSessionSummary(sessionId) {
   const totalSangrias = arred(movimentos.filter((m) => m.tipo === 'sangria').reduce((s, m) => s + m.valor, 0));
   const totalSuprimentos = arred(movimentos.filter((m) => m.tipo === 'suprimento').reduce((s, m) => s + m.valor, 0));
 
-  const valorEsperado = arred(session.valor_abertura + totalDinheiro + totalSuprimentos - totalSangrias - totalDevolvidoEmDinheiro);
+  const valorEsperado = arred(session.valor_abertura + totalDinheiro + fiadoRecebidoEmDinheiro + totalSuprimentos - totalSangrias - totalDevolvidoEmDinheiro);
 
   return {
     session,
     porMetodo,
     valorAbertura: session.valor_abertura,
     totalVendasDinheiro: totalDinheiro,
-    totalDevolvidoEmDinheiro,
+    totalDevolvidoEmDinheiro: arred(totalDevolvidoEmDinheiro),
+    fiadoRecebidoEmDinheiro: arred(fiadoRecebidoEmDinheiro),
+    recebimentosFiado,
     totalSangrias,
     totalSuprimentos,
     movimentos,
@@ -177,7 +195,9 @@ function closeSession({ sessionId, operadorId, valorInformado, conferencia }) {
   if (conferencia && typeof conferencia === 'object') {
     diferencasPorMetodo = [];
     for (const metodo of METODOS_CONFERIDOS) {
-      const esperado = arred(summary.porMetodo.find((m) => m.metodo === metodo)?.total || 0);
+      // Vendas + fiado recebido nessa forma com este caixa aberto.
+      const esperado = arred((summary.porMetodo.find((m) => m.metodo === metodo)?.total || 0)
+        + (summary.recebimentosFiado.find((m) => m.metodo === metodo)?.total || 0));
       const bruto = conferencia[metodo];
       if (bruto === undefined || bruto === null || bruto === '') {
         if (esperado > 0) diferencasPorMetodo.push({ metodo, esperado, informado: null, diferenca: null });
@@ -212,7 +232,7 @@ function listClosedSessions({ locationId, dataInicio, dataFim }) {
      JOIN users ua ON ua.id = cs.operador_abertura_id
      LEFT JOIN users uf ON uf.id = cs.operador_fechamento_id
      WHERE cs.location_id = ? AND cs.status = 'fechada'
-       AND date(cs.fechada_em) BETWEEN date(?) AND date(?)
+       AND date(cs.fechada_em, '-3 hours') BETWEEN date(?) AND date(?)
      ORDER BY cs.fechada_em DESC`
   ).all(locationId, dataInicio, dataFim);
 }
@@ -227,7 +247,7 @@ function getClosedSessionsSummary({ locationId, dataInicio, dataFim }) {
        COALESCE(SUM(CASE WHEN diferenca = 0 THEN 1 ELSE 0 END), 0) as sessoes_certas,
        COALESCE(SUM(CASE WHEN diferenca != 0 THEN 1 ELSE 0 END), 0) as sessoes_com_diferenca
      FROM cash_sessions
-     WHERE location_id = ? AND status = 'fechada' AND date(fechada_em) BETWEEN date(?) AND date(?)`
+     WHERE location_id = ? AND status = 'fechada' AND date(fechada_em, '-3 hours') BETWEEN date(?) AND date(?)`
   ).get(locationId, dataInicio, dataFim);
   return row;
 }

@@ -1,6 +1,7 @@
 const { randomUUID } = require('crypto');
 const { getDb } = require('../db/database');
 const timeService = require('./timeService');
+const { sqlTaxaServico } = require('./valoresDaVenda');
 
 /**
  * Financeiro do ERP (Fase 2): taxas das maquininhas, contas a receber,
@@ -147,7 +148,8 @@ function vendasComPagamentos(db, locationId, dataInicio, dataFim) {
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(dataInicio, dataFim);
   const linhas = db.prepare(
     `SELECT s.id, s.finalizada_em,
-       (s.total - s.desconto - s.desconto_gerente) * (1 + s.taxa_servico_percentual / 100.0) AS devido,
+       -- Taxa de serviço já está em s.total na venda finalizada (valoresDaVenda.js).
+       (s.total - s.desconto - s.desconto_gerente) AS devido,
        COALESCE(SUM(CASE WHEN p.metodo = 'cartao_debito' THEN p.valor END), 0) AS debito,
        COALESCE(SUM(CASE WHEN p.metodo = 'cartao_credito' THEN p.valor END), 0) AS credito,
        COALESCE(SUM(CASE WHEN p.metodo IN ('pix', 'outro') THEN p.valor END), 0) AS pix,
@@ -613,8 +615,10 @@ function receitaDoMes(db, locationId, competencia) {
   const ate = `${competencia}-${String(ultimoDiaDoMes(competencia)).padStart(2, '0')}`;
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(de, ate);
   const vendas = db.prepare(
-    `SELECT COALESCE(SUM(total), 0) AS bruta, COALESCE(SUM(desconto + desconto_gerente), 0) AS descontos, COUNT(*) AS qtd,
-       COALESCE(SUM((total - desconto - desconto_gerente) * taxa_servico_percentual / 100.0), 0) AS taxa_servico
+    // A taxa de serviço JÁ está em sales.total (finalizeSale soma). Antes ela
+    // era somada de novo aqui e a receita saía maior. bruta = itens.
+    `SELECT COALESCE(SUM(total - ${sqlTaxaServico()}), 0) AS bruta, COALESCE(SUM(desconto + desconto_gerente), 0) AS descontos, COUNT(*) AS qtd,
+       COALESCE(SUM(${sqlTaxaServico()}), 0) AS taxa_servico
      FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?`
   ).get(locationId, inicioUtc, fimUtcExclusivo);
   const devolucoes = db.prepare(

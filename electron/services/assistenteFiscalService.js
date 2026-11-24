@@ -433,7 +433,7 @@ function relatorioMei({ locationId, competencia }) {
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(de, ate);
 
   const partesDaVenda = db.prepare(
-    `SELECT s.id, (s.total - s.desconto - s.desconto_gerente) * (1 + s.taxa_servico_percentual / 100.0) AS liquido,
+    `SELECT s.id, (s.total - s.desconto - s.desconto_gerente) AS liquido,
        -- Prato feito na hora fica como serviço no banco (sem estoque próprio), mas é
        -- venda de refeição (comércio/indústria para o MEI), não prestação de serviço.
        COALESCE(SUM(CASE WHEN COALESCE(p.tipo, 'produto') = 'servico'
@@ -535,7 +535,7 @@ async function pacoteContador({ locationId, competencia }) {
   // --- vendas ---
   const vendas = db.prepare(
     `SELECT s.id, s.finalizada_em, s.total, s.desconto + s.desconto_gerente AS descontos,
-       (s.total - s.desconto - s.desconto_gerente) * (1 + s.taxa_servico_percentual / 100.0) AS liquido,
+       (s.total - s.desconto - s.desconto_gerente) AS liquido,
        (SELECT group_concat(metodo || ':' || printf('%.2f', valor), ' | ') FROM payments WHERE sale_id = s.id) AS formas,
        (SELECT n.numero FROM nfce_emitidas n WHERE n.sale_id = s.id ORDER BY n.criado_em DESC LIMIT 1) AS nfce_numero,
        (SELECT n.chave_acesso FROM nfce_emitidas n WHERE n.sale_id = s.id ORDER BY n.criado_em DESC LIMIT 1) AS nfce_chave,

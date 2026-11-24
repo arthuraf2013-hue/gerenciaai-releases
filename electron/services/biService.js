@@ -25,7 +25,7 @@ const variacao = (atual, anterior) => (anterior > 0 ? arred(((atual - anterior) 
 function metricas(db, locationId, de, ate) {
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(de, ate);
   const v = db.prepare(
-    `SELECT COUNT(*) AS vendas, COALESCE(SUM((total - desconto - desconto_gerente) * (1 + taxa_servico_percentual / 100.0)), 0) AS faturamento
+    `SELECT COUNT(*) AS vendas, COALESCE(SUM(total - desconto - desconto_gerente), 0) AS faturamento -- a taxa de serviço já está no total (valoresDaVenda.js)
      FROM sales WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?`
   ).get(locationId, inicioUtc, fimUtcExclusivo);
   const cmv = db.prepare(
@@ -141,7 +141,7 @@ function painel({ locationId, dataInicio, dataFim } = {}) {
   const { inicioUtc, fimUtcExclusivo } = timeService.localDateRangeToUtcBounds(de, ate);
   const porDia = new Map();
   for (const s of db.prepare(
-    `SELECT finalizada_em, (total - desconto - desconto_gerente) * (1 + taxa_servico_percentual / 100.0) AS v FROM sales
+    `SELECT finalizada_em, (total - desconto - desconto_gerente) AS v FROM sales
      WHERE location_id = ? AND status = 'finalizada' AND finalizada_em >= ? AND finalizada_em < ?`
   ).all(locationId, inicioUtc, fimUtcExclusivo)) {
     const d = dataLocal(s.finalizada_em);

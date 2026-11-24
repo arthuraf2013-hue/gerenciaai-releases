@@ -1157,6 +1157,25 @@ const MIGRACOES = [
       for (const t of ['almox_item_endereco', 'almox_enderecos', 'almox_setores']) db.exec(`DROP TABLE IF EXISTS ${t}`);
     },
   },
+  {
+    versao: 25,
+    nome: 'fiado recebido: forma de pagamento e caixa em que entrou',
+    up(db) {
+      // Receber fiado em dinheiro põe dinheiro na gaveta, mas o fechamento
+      // não sabia disso (o caixa "sobrava"). Agora o recebimento guarda a
+      // forma (dinheiro, pix, cartão...) e o caixa aberto em que entrou;
+      // o fechamento soma os de dinheiro e a conferência mostra os outros.
+      // NULL = abatimento sem dinheiro (devolução) ou recebimento antigo.
+      addColuna(db, 'customer_credit_movements', 'metodo', 'TEXT');
+      addColuna(db, 'customer_credit_movements', 'cash_session_id', 'TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_credit_cash_session ON customer_credit_movements(cash_session_id) WHERE cash_session_id IS NOT NULL');
+    },
+    down(db) {
+      db.exec('DROP INDEX IF EXISTS idx_credit_cash_session');
+      dropColuna(db, 'customer_credit_movements', 'cash_session_id');
+      dropColuna(db, 'customer_credit_movements', 'metodo');
+    },
+  },
 ];
 
 /** Recria impressao_estudio com outro CHECK de tipo, mantendo as linhas. */
